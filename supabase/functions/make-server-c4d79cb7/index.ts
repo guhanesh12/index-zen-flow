@@ -5057,7 +5057,12 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    let assignment = await IPPoolManager.getUserIPAssignment(user.id);
+
+    if (!assignment) {
+      await VPSProvisioning.reconcileUserProvisioningJob(user.id);
+      assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    }
     
     if (!assignment) {
       return c.json({
@@ -5082,6 +5087,51 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
     });
   } catch (error: any) {
     console.error('❌ Get user IP error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 🌐 Recover/link an already-created dedicated VPS to the current user
+app.post("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ code: error.code, message: error.message }, error.code);
+    }
+
+    let assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (assignment) {
+      return c.json({
+        success: true,
+        alreadyLinked: true,
+        ipAddress: assignment.ipAddress,
+        assignment,
+      });
+    }
+
+    const job = await VPSProvisioning.reconcileUserProvisioningJob(user.id);
+    assignment = await IPPoolManager.getUserIPAssignment(user.id);
+
+    if (assignment) {
+      return c.json({
+        success: true,
+        alreadyLinked: false,
+        ipAddress: assignment.ipAddress,
+        assignment,
+        provisioningStatus: job?.status,
+      });
+    }
+
+    return c.json({
+      success: false,
+      error: job?.ipAddress
+        ? 'A VPS exists but the order server is not reachable yet. Please wait a little longer and try again.'
+        : 'No existing VPS was found for your account yet.',
+      provisioningStatus: job?.status,
+      ipAddress: job?.ipAddress,
+    }, 404);
+  } catch (error: any) {
+    console.error('❌ Recover dedicated IP error:', error);
     return c.json({ error: error.message }, 500);
   }
 });
