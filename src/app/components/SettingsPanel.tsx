@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
-import { getVpsBackendUrl } from "@/utils-ext/config/apiConfig";
 
 interface SettingsPanelProps {
   serverUrl: string;
@@ -78,24 +77,42 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const res = await fetch(`${getVpsBackendUrl()}/vps/status`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'x-user-id': session.user.id,
-          'x-user-email': session.user.email || '',
-        },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.subscription) {
-        const sub = data.subscription;
-        setVpsSubInfo({ status: sub.status, daysUntilExpiry: sub.daysUntilExpiry, expiryDate: sub.expiryDate });
-        if (sub.status === 'expired') {
+      const [ipRes, provRes] = await Promise.all([
+        fetch(`${serverUrl}/ip-pool/my-ip`, {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }),
+        fetch(`${serverUrl}/ip-pool/provisioning-status`, {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }),
+      ]);
+
+      const ipData = ipRes.ok ? await ipRes.json() : null;
+      const provData = provRes.ok ? await provRes.json() : null;
+
+      if (ipData?.success && ipData.assignment?.expiresAt) {
+        const expiryDate = ipData.assignment.expiresAt;
+        const daysUntilExpiry = Math.max(
+          0,
+          Math.ceil((new Date(expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        );
+        const status = daysUntilExpiry <= 0 ? 'expired' : daysUntilExpiry <= 7 ? 'expiring' : 'active';
+
+        setVpsSubInfo({ status, daysUntilExpiry, expiryDate });
+        if (status === 'expired') {
           setShowVpsExpiredModal(true);
         }
+        return;
+      }
+
+      if (provData?.success && provData.provisioning) {
+        setVpsSubInfo({ status: 'active', daysUntilExpiry: 0 });
       }
     } catch (e) {
-      // VPS backend might not be reachable; fail silently
+      // Edge-function lookup failed; fail silently
     }
   };
 
