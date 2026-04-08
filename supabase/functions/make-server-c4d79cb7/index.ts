@@ -2157,7 +2157,7 @@ app.get("/make-server-c4d79cb7/check-vps-connectivity", async (c) => {
       testedAt: new Date().toISOString(),
       hint: reachable
         ? `✅ Your dedicated VPS at ${ipInfo.ipAddress} is UP. Orders will route through this IP when market opens.`
-        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: sudo systemctl restart orderserver`,
+        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: pm2 restart indexpilot-order-server`,
     });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
@@ -5057,7 +5057,12 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    let assignment = await IPPoolManager.getUserIPAssignment(user.id);
+
+    if (!assignment) {
+      await VPSProvisioning.reconcileUserProvisioningJob(user.id);
+      assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    }
     
     if (!assignment) {
       return c.json({
@@ -5082,6 +5087,51 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
     });
   } catch (error: any) {
     console.error('❌ Get user IP error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// 🌐 Recover/link an already-created dedicated VPS to the current user
+app.post("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ code: error.code, message: error.message }, error.code);
+    }
+
+    let assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (assignment) {
+      return c.json({
+        success: true,
+        alreadyLinked: true,
+        ipAddress: assignment.ipAddress,
+        assignment,
+      });
+    }
+
+    const job = await VPSProvisioning.reconcileUserProvisioningJob(user.id);
+    assignment = await IPPoolManager.getUserIPAssignment(user.id);
+
+    if (assignment) {
+      return c.json({
+        success: true,
+        alreadyLinked: false,
+        ipAddress: assignment.ipAddress,
+        assignment,
+        provisioningStatus: job?.status,
+      });
+    }
+
+    return c.json({
+      success: false,
+      error: job?.ipAddress
+        ? 'A VPS exists but the order server is not reachable yet. Please wait a little longer and try again.'
+        : 'No existing VPS was found for your account yet.',
+      provisioningStatus: job?.status,
+      ipAddress: job?.ipAddress,
+    }, 404);
+  } catch (error: any) {
+    console.error('❌ Recover dedicated IP error:', error);
     return c.json({ error: error.message }, 500);
   }
 });
@@ -5253,7 +5303,7 @@ app.get("/make-server-c4d79cb7/ip-pool/provisioning-status", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    const job = await VPSProvisioning.getUserProvisioningJob(user.id);
+    const job = await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     
     if (!job) {
       return c.json({
