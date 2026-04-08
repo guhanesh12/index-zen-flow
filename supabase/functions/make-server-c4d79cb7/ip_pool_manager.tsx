@@ -49,7 +49,56 @@ export interface UserIPAssignment {
 // KV Store Keys
 const IP_POOL_PREFIX = 'ip_pool:';
 const USER_IP_PREFIX = 'user_ip_assignment:';
+const LEGACY_USER_IP_PREFIX = 'ip_assignment:';
 const IP_STATS_KEY = 'ip_pool_stats';
+const DEFAULT_DEDICATED_IP_FEE = 599;
+
+function getUserAssignmentKey(userId: string): string {
+  return `${USER_IP_PREFIX}${userId}`;
+}
+
+function getLegacyUserAssignmentKey(userId: string): string {
+  return `${LEGACY_USER_IP_PREFIX}${userId}:dedicated`;
+}
+
+function normalizeAssignment(userId: string, raw: any): UserIPAssignment | null {
+  if (!raw?.ipAddress) {
+    return null;
+  }
+
+  const assignedAt = raw.assignedAt || raw.createdAt || new Date().toISOString();
+  const expiresAt = raw.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAtMs = new Date(expiresAt).getTime();
+  const subscriptionStatus =
+    raw.subscriptionStatus === 'cancelled'
+      ? 'cancelled'
+      : Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()
+        ? 'expired'
+        : 'active';
+
+  return {
+    userId,
+    ipAddress: raw.ipAddress,
+    vpsUrl: raw.vpsUrl || `http://${raw.ipAddress}:3000`,
+    provider: raw.provider || 'digitalocean',
+    assignedAt,
+    subscriptionStatus,
+    expiresAt,
+    monthlyFee: Number.isFinite(Number(raw.monthlyFee)) ? Number(raw.monthlyFee) : DEFAULT_DEDICATED_IP_FEE,
+    lastUsedAt: raw.lastUsedAt || assignedAt,
+  };
+}
+
+function getAssignmentRank(assignment: UserIPAssignment): number {
+  if (assignment.subscriptionStatus === 'active') return 2;
+  if (assignment.subscriptionStatus === 'expired') return 1;
+  return 0;
+}
+
+async function persistUserAssignment(assignment: UserIPAssignment): Promise<void> {
+  await kv.set(getUserAssignmentKey(assignment.userId), assignment);
+  await kv.set(getLegacyUserAssignmentKey(assignment.userId), assignment);
+}
 
 /**
  * Add a new IP to the pool
@@ -157,7 +206,7 @@ export async function assignIPToUser(
     };
 
     // Save assignment
-    await kv.set(`${USER_IP_PREFIX}${userId}`, assignment);
+    await persistUserAssignment(assignment);
 
     // Update IP pool entry
     availableIP.currentUsers += 1;
@@ -180,8 +229,32 @@ export async function assignIPToUser(
  */
 export async function getUserIPAssignment(userId: string): Promise<UserIPAssignment | null> {
   try {
-    const assignment = await kv.get(`${USER_IP_PREFIX}${userId}`);
-    return assignment as UserIPAssignment | null;
+    const [currentRaw, legacyRaw] = await Promise.all([
+      kv.get(getUserAssignmentKey(userId)),
+      kv.get(getLegacyUserAssignmentKey(userId)),
+    ]);
+
+    const candidates = [
+      normalizeAssignment(userId, currentRaw),
+      normalizeAssignment(userId, legacyRaw),
+    ].filter(Boolean) as UserIPAssignment[];
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const bestAssignment = [...candidates].sort((a, b) => {
+      const rankDiff = getAssignmentRank(b) - getAssignmentRank(a);
+      if (rankDiff !== 0) return rankDiff;
+      return new Date(b.assignedAt).getTime() - new Date(a.assignedAt).getTime();
+    })[0];
+
+    const currentNormalized = normalizeAssignment(userId, currentRaw);
+    if (!currentNormalized || JSON.stringify(currentNormalized) !== JSON.stringify(bestAssignment)) {
+      await persistUserAssignment(bestAssignment);
+    }
+
+    return bestAssignment;
   } catch (error) {
     console.error('❌ Failed to get user IP assignment:', error);
     return null;
@@ -207,7 +280,8 @@ export async function removeIPFromUser(userId: string): Promise<{ success: boole
     }
 
     // Remove assignment
-    await kv.del(`${USER_IP_PREFIX}${userId}`);
+    await kv.del(getUserAssignmentKey(userId));
+    await kv.del(getLegacyUserAssignmentKey(userId));
 
     // Update stats
     await updateIPPoolStats();
