@@ -3002,7 +3002,7 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
     
     console.log(`🔍 Result from dedicated VPS:`, JSON.stringify(result, null, 2));
 
-    if (result.success && result.orderId) {
+    if (result.orderId) {
       // ✅ Save order timestamp for spam prevention
       await kv.set(`last_order_time:${effectiveUserId}`, Date.now());
       
@@ -3025,9 +3025,9 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       return c.json({
         success: true,
         orderId: result.orderId,
-        status: result.orderStatus,
-        averagePrice: result.price || orderRequest.price,
-        message: 'Order executed successfully via your dedicated VPS',
+        status: result.orderStatus || result.status || 'PLACED',
+        averagePrice: result.averagePrice || result.price || orderRequest.price,
+        message: result.message || 'Order executed successfully via your dedicated VPS',
       });
     } else {
       console.error(`❌ ❌ ❌ ORDER FAILED!`);
@@ -3036,7 +3036,7 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       console.error(`  Message: ${result.message}`);
       
       // ⚡ Enhanced error message for exchange segment issues
-      let errorMessage = result.message || 'Order failed';
+      let errorMessage = result.message || result.error || 'Order failed';
       if (errorMessage.includes('INVALID EXCHANGE SEGMENT') || errorMessage.includes('NFO')) {
         errorMessage += `\n\n❌ INVALID EXCHANGE SEGMENT: ${orderRequest.exchangeSegment}\nValid segments: NSE_EQ, NSE_FNO, NSE_CURR, BSE_EQ, BSE_FNO, BSE_CURR, MCX_COMM\n\nCommon fix:\n• For NIFTY/BANKNIFTY options: Use NSE_FNO\n• For SENSEX options: Use BSE_FNO\n• For equity delivery: Use NSE_EQ or BSE_EQ`;
       }
