@@ -5303,6 +5303,22 @@ app.get("/make-server-c4d79cb7/ip-pool/provisioning-status", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
+    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (assignment?.ipAddress && assignment.subscriptionStatus === 'active') {
+      return c.json({
+        success: true,
+        provisioning: false,
+        message: 'Dedicated VPS is already active',
+        assignment: {
+          ipAddress: assignment.ipAddress,
+          provider: assignment.provider,
+          assignedAt: assignment.assignedAt,
+          expiresAt: assignment.expiresAt,
+          subscriptionStatus: assignment.subscriptionStatus,
+        }
+      });
+    }
+
     const job = await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     
     if (!job) {
@@ -5315,7 +5331,7 @@ app.get("/make-server-c4d79cb7/ip-pool/provisioning-status", async (c) => {
 
     return c.json({
       success: true,
-      provisioning: true,
+      provisioning: job.status !== 'ready' && job.status !== 'active',
       job: {
         status: job.status,
         ipAddress: job.ipAddress,
