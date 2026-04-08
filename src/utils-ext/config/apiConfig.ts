@@ -54,14 +54,8 @@ export const getApiBaseUrl = (): string => {
  * Get the complete server URL with function path
  */
 export const getServerUrl = (): string => {
-  // Use window.location.origin at runtime so the bundler cannot substitute
-  // CUSTOM_API_DOMAIN (api.indexpilotai.com) into this path.
-  // In production the Express backend at www.indexpilotai.com acts as a
-  // transparent reverse proxy for all /functions/v1/... requests to Supabase.
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/functions/v1/make-server-c4d79cb7`;
-  }
-  return '/functions/v1/make-server-c4d79cb7';
+  // Always use the custom API domain for Lovable deployment
+  return 'https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7';
 };
 
 /**
@@ -72,21 +66,7 @@ export const getServerUrl = (): string => {
  * In production it should be the deployed backend domain.
  */
 export const getVpsBackendUrl = (): string => {
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_VPS_BACKEND_URL) {
-    return ((import.meta as any).env.VITE_VPS_BACKEND_URL as string).replace(/\/$/, '');
-  }
-  // In development, use the Vite proxy path (/vps-api → localhost:3001/api)
-  // This avoids CORS/connectivity issues — browser cannot reach localhost:3001 directly in Replit
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
-    return '/vps-api';
-  }
-  // In production the Express backend is served from the same origin as the frontend.
-  // Use window.location.origin at runtime so the bundler cannot substitute any
-  // compile-time constant (e.g. CUSTOM_API_DOMAIN) for this path.
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}/api`;
-  }
-  return '/api';
+  return 'https://api.indexpilotai.com/api';
 };
 
 /**
