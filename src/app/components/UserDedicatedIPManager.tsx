@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { toast } from 'sonner';
-import { getVpsBackendUrl } from '@/utils-ext/config/apiConfig';
+import { getServerUrl } from '@/utils-ext/config/apiConfig';
 
 // ─── Types ──────────────────────────────────────────
 
@@ -162,42 +162,89 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const loadStatus = useCallback(async () => {
     setLoadError(null);
     try {
-      const url = `${getVpsBackendUrl()}/vps/status`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: 'no-store',
-      });
-      if (!res.ok) {
-        if (res.status === 401) setLoadError('Authentication error — please log out and back in.');
-        else setLoadError(`Server error (${res.status}). Please retry.`);
+      // Fetch IP assignment and provisioning status from edge function
+      const baseUrl = serverUrl;
+      const [ipRes, provRes] = await Promise.all([
+        fetch(`${baseUrl}/ip-pool/my-ip`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: 'no-store',
+        }),
+        fetch(`${baseUrl}/ip-pool/provisioning-status`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: 'no-store',
+        }),
+      ]);
+
+      if (!ipRes.ok && ipRes.status === 401) {
+        setLoadError('Authentication error — please log out and back in.');
         return;
       }
-      const data = await res.json();
-      if (data.success) {
-        const newVps = data.vps || null;
-        setVps(newVps);
-        if (data.subscription) setSubscription(data.subscription);
-        if (newVps) {
-          setProgress(getProgressFromStatus(newVps.status, newVps.startedAt, newVps.estimatedMinutes || 8));
-          const wasProvisioning = prevStatusRef.current !== null && !isVpsReady(prevStatusRef.current) && prevStatusRef.current !== 'failed';
-          const nowReady = isVpsReady(newVps.status);
-          if (wasProvisioning && nowReady) {
-            setJustCompleted(true);
-            toast.success('Your dedicated VPS is ready! Copy your IP and whitelist it in Dhan.');
-            stopPolling();
-          } else if (newVps.status === 'failed') {
-            toast.error(`VPS provisioning failed: ${newVps.error}`);
-            stopPolling();
-          }
-          prevStatusRef.current = newVps.status;
+
+      const ipData = await ipRes.json().catch(() => ({}));
+      const provData = await provRes.json().catch(() => ({}));
+
+      // Build VPS record from edge function responses
+      let newVps: VpsRecord | null = null;
+
+      if (provData.success && provData.provisioning && provData.job) {
+        // Active provisioning job
+        newVps = {
+          status: provData.job.status || 'creating',
+          ipAddress: provData.job.ipAddress,
+          startedAt: provData.job.startedAt || new Date().toISOString(),
+          completedAt: provData.job.completedAt,
+          estimatedMinutes: provData.job.estimatedMinutes || 8,
+          error: provData.job.error,
+        };
+      } else if (ipData.success && ipData.assignment) {
+        // Has assigned IP
+        newVps = {
+          status: 'active',
+          ipAddress: ipData.assignment.ipAddress,
+          startedAt: ipData.assignment.assignedAt || new Date().toISOString(),
+          completedAt: ipData.assignment.assignedAt,
+          estimatedMinutes: 0,
+          subscription: {
+            startDate: ipData.assignment.assignedAt || '',
+            expiryDate: ipData.assignment.expiresAt || '',
+            renewalCount: 0,
+          },
+        };
+        // Build subscription info
+        if (ipData.assignment.expiresAt) {
+          const daysLeft = Math.ceil((new Date(ipData.assignment.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          setSubscription({
+            status: daysLeft > 7 ? 'active' : daysLeft > 0 ? 'expiring' : 'expired',
+            daysUntilExpiry: Math.max(0, daysLeft),
+            canConnect: daysLeft > 0,
+            isRenewal: true,
+            expiryDate: ipData.assignment.expiresAt,
+            startDate: ipData.assignment.assignedAt,
+          });
         }
+      }
+
+      setVps(newVps);
+      if (newVps) {
+        setProgress(getProgressFromStatus(newVps.status, newVps.startedAt, newVps.estimatedMinutes || 8));
+        const wasProvisioning = prevStatusRef.current !== null && !isVpsReady(prevStatusRef.current) && prevStatusRef.current !== 'failed';
+        const nowReady = isVpsReady(newVps.status);
+        if (wasProvisioning && nowReady) {
+          setJustCompleted(true);
+          toast.success('Your dedicated VPS is ready! Copy your IP and whitelist it in Dhan.');
+          stopPolling();
+        } else if (newVps.status === 'failed') {
+          toast.error(`VPS provisioning failed: ${newVps.error}`);
+          stopPolling();
+        }
+        prevStatusRef.current = newVps.status;
       }
     } catch (err: any) {
       setLoadError('Could not reach server. Check your connection and retry.');
     } finally {
       setCheckingStatus(false);
     }
-  }, [accessToken]);
+  }, [accessToken, serverUrl]);
 
   function startPolling() {
     stopPolling();
@@ -232,7 +279,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   async function handleLinkExisting() {
     setLinkingExisting(true);
     try {
-      const res = await fetch(`${getVpsBackendUrl()}/vps/link-existing`, {
+      const res = await fetch(`${serverUrl}/ip-pool/my-ip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       });
@@ -259,18 +306,18 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       let body: any = {};
 
       if (method === 'razorpay' && paymentResponse) {
-        endpoint = '/vps/verify-payment';
+        endpoint = '/ip-pool/verify-payment-and-provision';
         body = {
-          razorpayOrderId: paymentResponse.razorpay_order_id,
-          razorpayPaymentId: paymentResponse.razorpay_payment_id,
-          razorpaySignature: paymentResponse.razorpay_signature,
+          razorpay_order_id: paymentResponse.razorpay_order_id,
+          razorpay_payment_id: paymentResponse.razorpay_payment_id,
+          razorpay_signature: paymentResponse.razorpay_signature,
         };
       } else {
-        endpoint = '/vps/pay-with-wallet';
-        body = { amount: VPS_COST };
+        endpoint = '/ip-pool/subscribe';
+        body = { amount: VPS_COST, autoProvision: true };
       }
 
-      const res = await fetch(`${getVpsBackendUrl()}${endpoint}`, {
+      const res = await fetch(`${serverUrl}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
@@ -302,7 +349,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       const loaded = await loadRazorpayScript();
       if (!loaded) throw new Error('Failed to load payment gateway');
 
-      const orderRes = await fetch(`${getVpsBackendUrl()}/vps/create-order`, {
+      const orderRes = await fetch(`${serverUrl}/ip-pool/create-payment-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       });
@@ -358,7 +405,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     if (!confirm('Cancel your VPS subscription? Your static IP will be released and broker access will stop.')) return;
     setLoading(true);
     try {
-      const res = await fetch(`${getVpsBackendUrl()}/vps/cancel`, {
+      const res = await fetch(`${serverUrl}/ip-pool/cancel`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}` },
       });
