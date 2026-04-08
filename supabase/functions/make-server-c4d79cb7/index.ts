@@ -9472,19 +9472,23 @@ app.post("/make-server-c4d79cb7/internal/sync-vps-ip", async (c) => {
       return c.json({ error: "Missing required fields: userId, ipAddress, expiresAt" }, 400);
     }
 
-    const kvKey = `ip_assignment:${userId}:dedicated`;
     const kvValue = {
+      userId,
       ipAddress,
+      vpsUrl: `http://${ipAddress}:3000`,
       subscriptionStatus: subscriptionStatus || "active",
       expiresAt,
       provider: "digitalocean",
       assignedAt: new Date().toISOString(),
+      monthlyFee: 599,
+      lastUsedAt: new Date().toISOString(),
     };
 
-    await kv.set(kvKey, kvValue);
+    await kv.set(`ip_assignment:${userId}:dedicated`, kvValue);
+    await kv.set(`user_ip_assignment:${userId}`, kvValue);
 
     console.log(`✅ [SYNC-VPS-IP] Synced ${userId.substring(0, 8)} → ${ipAddress} (${kvValue.subscriptionStatus}, expires ${expiresAt})`);
-    return c.json({ success: true, key: kvKey, ipAddress, expiresAt });
+    return c.json({ success: true, keys: [`ip_assignment:${userId}:dedicated`, `user_ip_assignment:${userId}`], ipAddress, expiresAt });
   } catch (err: any) {
     console.error("❌ [SYNC-VPS-IP] Error:", err.message);
     return c.json({ error: err.message }, 500);
