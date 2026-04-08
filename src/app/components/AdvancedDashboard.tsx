@@ -6,7 +6,7 @@ import { Progress } from "./ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { TrendingUp, TrendingDown, Activity, Zap, BarChart3, DollarSign, AlertCircle } from "lucide-react";
 import { getIndexConfig } from "./IndicesConfig";
-import { supabase } from "../../../utils/supabase/client";
+import { supabase } from "@/utils-ext/supabase/client";
 
 interface AdvancedDashboardProps {
   serverUrl: string;

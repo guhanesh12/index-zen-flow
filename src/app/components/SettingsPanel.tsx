@@ -6,14 +6,14 @@ import { Label } from "./ui/label";
 import { Button } from "./ui/button";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Key, CheckCircle2, XCircle, Info, AlertTriangle, Plus, MessageSquare, RefreshCw, Shield } from "lucide-react";
-import { supabase } from "../../../utils/supabase/client";
+import { supabase } from "@/utils-ext/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
 import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
-import { getVpsBackendUrl } from "../../../utils/config/apiConfig";
+import { getVpsBackendUrl } from "@/utils-ext/config/apiConfig";
 
 interface SettingsPanelProps {
   serverUrl: string;

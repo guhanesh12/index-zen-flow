@@ -6,7 +6,7 @@ import { Badge } from "./ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Label } from "./ui/label";
 import { Play, Pause, Zap, Clock, TrendingUp, AlertCircle, Target, Shield, Settings } from "lucide-react";
-import { supabase } from "../../../utils/supabase/client";
+import { supabase } from "@/utils-ext/supabase/client";
 
 interface TradingSymbol {
   id: string;
