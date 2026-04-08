@@ -74,15 +74,31 @@ function isVpsReady(status: string): boolean {
   return READY_STATUSES.includes(status as any);
 }
 
+function normalizeProgressValue(value: unknown): number {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, numericValue));
+}
+
 function getProgressFromStatus(status: string, startedAt: string, estimatedMinutes: number): number {
   if (isVpsReady(status)) return 100;
   if (status === 'failed') return 0;
-  const elapsed = Date.now() - new Date(startedAt).getTime();
-  const totalMs = estimatedMinutes * 60 * 1000;
-  const base = Math.min((elapsed / totalMs) * 90, 90);
-  if (status === 'creating') return Math.min(base, 45);
-  if (status === 'deploying') return Math.min(45 + base * 0.6, 92);
-  return Math.min(base, 10);
+
+  const startedAtMs = new Date(startedAt || Date.now()).getTime();
+  const safeStartedAtMs = Number.isFinite(startedAtMs) ? startedAtMs : Date.now();
+  const safeEstimatedMinutes = Math.max(1, Number(estimatedMinutes) || 0);
+  const elapsed = Math.max(0, Date.now() - safeStartedAtMs);
+  const totalMs = safeEstimatedMinutes * 60 * 1000;
+  const base = normalizeProgressValue(Math.min((elapsed / totalMs) * 90, 90));
+
+  if (status === 'creating') return normalizeProgressValue(Math.min(base, 45));
+  if (status === 'deploying') return normalizeProgressValue(Math.min(45 + base * 0.6, 92));
+
+  return normalizeProgressValue(Math.min(base, 10));
 }
 
 function getStatusMessage(status: string): string {
@@ -156,6 +172,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   })();
 
   const isProvisioning = vps !== null && !isVpsReady(vps.status) && vps.status !== 'failed';
+  const safeProgress = normalizeProgressValue(progress);
 
   // ── Polling ───────────────────────────────────────
 
@@ -529,9 +546,9 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-zinc-400">
                 <span>Progress</span>
-                <span>{Math.round(progress)}%</span>
+                <span>{Math.round(safeProgress)}%</span>
               </div>
-              <Progress value={progress} className="h-2 bg-zinc-800" />
+              <Progress value={safeProgress} className="h-2 bg-zinc-800" />
             </div>
 
             {/* Steps */}
