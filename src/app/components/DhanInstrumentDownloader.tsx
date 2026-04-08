@@ -35,18 +35,36 @@ export function DhanInstrumentDownloader({ onInstrumentsProcessed }: DhanInstrum
     setProgress('Downloading instrument file from Dhan API...');
     
     try {
-      // Step 1: Download CSV via backend proxy (avoids CORS from browser)
-      console.log('📥 Downloading Dhan master instruments via backend...');
-      const response = await fetch('/api/instruments/download-csv', {
-        cache: 'no-cache'
-      });
-      
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Failed to download: ${response.status} ${response.statusText}`);
+      // Step 1: Download CSV directly from Dhan CDN
+      console.log('📥 Downloading Dhan master instruments from CDN...');
+      const DHAN_CSV_URL = 'https://images.dhan.co/api-data/api-scrip-master-detailed.csv';
+
+      let csvText: string;
+      try {
+        const response = await fetch(DHAN_CSV_URL, { cache: 'no-cache' });
+        if (!response.ok) {
+          throw new Error(`CDN returned ${response.status}`);
+        }
+        csvText = await response.text();
+        // Verify we actually got CSV (first line must contain EXCH_ID or SECURITY_ID)
+        const firstLine = csvText.substring(0, 500);
+        if (!firstLine.includes('EXCH_ID') && !firstLine.includes('SECURITY_ID')) {
+          throw new Error('Response is not a valid Dhan CSV (missing expected headers)');
+        }
+      } catch (directErr: any) {
+        console.warn('⚠️ Direct CDN download failed, trying backend proxy...', directErr.message);
+        // Fallback: fetch via edge function proxy
+        const proxyUrl = `https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7/instruments/proxy-csv`;
+        const proxyRes = await fetch(proxyUrl, { cache: 'no-cache' });
+        if (!proxyRes.ok) {
+          throw new Error(`Both direct and proxy download failed. Direct: ${directErr.message}`);
+        }
+        csvText = await proxyRes.text();
+        const firstLine = csvText.substring(0, 500);
+        if (!firstLine.includes('EXCH_ID') && !firstLine.includes('SECURITY_ID')) {
+          throw new Error('Proxy response is not valid CSV');
+        }
       }
-      
-      const csvText = await response.text();
       console.log('✅ Downloaded CSV file, size:', csvText.length, 'bytes');
       
       // Step 2: Parse CSV

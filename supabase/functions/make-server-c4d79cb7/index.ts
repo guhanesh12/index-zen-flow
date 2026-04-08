@@ -7517,6 +7517,63 @@ app.get("/make-server-c4d79cb7/engine/logs", async (c) => {
 // NOTE: The /admin/instruments/upload route is defined later in this file (line ~4768)
 // with proper chunking support and auto-delete functionality.
 
+// 📥 Proxy Dhan CSV — pre-filters to F&O NIFTY/BANKNIFTY/SENSEX options only
+// Returns ~1-3 MB instead of the full 41 MB master file
+app.get("/make-server-c4d79cb7/instruments/proxy-csv", async (c) => {
+  try {
+    const DHAN_CSV_URL = 'https://images.dhan.co/api-data/api-scrip-master-detailed.csv';
+    const upstream = await fetch(DHAN_CSV_URL);
+    if (!upstream.ok) {
+      return c.json({ error: `Dhan CDN returned ${upstream.status}` }, 502);
+    }
+
+    const fullCsv = await upstream.text();
+    const lines = fullCsv.split('\n');
+    if (lines.length < 2) {
+      return c.json({ error: 'Empty CSV from Dhan' }, 502);
+    }
+
+    const headerLine = lines[0];
+    const headers = headerLine.split(',').map((h: string) => h.trim());
+    const exchIdx = headers.indexOf('EXCH_ID');
+    const optTypeIdx = headers.indexOf('OPTION_TYPE');
+    const underlyingIdx = headers.indexOf('UNDERLYING_SYMBOL');
+
+    if (exchIdx < 0 || optTypeIdx < 0 || underlyingIdx < 0) {
+      // Can't filter — return full CSV
+      return new Response(fullCsv, {
+        headers: { 'Content-Type': 'text/csv', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+
+    const TARGET_UNDERLYINGS = new Set(['NIFTY', 'NIFTY 50', 'NIFTY50', 'BANKNIFTY', 'NIFTY BANK', 'SENSEX', 'BSE SENSEX']);
+    const VALID_EXCHANGES = new Set(['NSE', 'BSE']);
+    const VALID_OPTIONS = new Set(['CE', 'PE']);
+
+    const filtered: string[] = [headerLine];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      const cols = line.split(',');
+      const exch = cols[exchIdx]?.trim();
+      const opt = cols[optTypeIdx]?.trim();
+      const underlying = cols[underlyingIdx]?.trim().toUpperCase();
+      if (VALID_EXCHANGES.has(exch) && VALID_OPTIONS.has(opt) && TARGET_UNDERLYINGS.has(underlying)) {
+        filtered.push(line);
+      }
+    }
+
+    console.log(`📥 [PROXY-CSV] Filtered ${filtered.length - 1} F&O instruments from ${lines.length - 1} total`);
+
+    return new Response(filtered.join('\n'), {
+      headers: { 'Content-Type': 'text/csv', 'Access-Control-Allow-Origin': '*' },
+    });
+  } catch (err: any) {
+    console.error('❌ [PROXY-CSV] Error:', err.message);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Get instruments (Paginated, with filters) - For Users and Mobile App
 app.post("/make-server-c4d79cb7/get-admin-instruments", async (c) => {
   try {
