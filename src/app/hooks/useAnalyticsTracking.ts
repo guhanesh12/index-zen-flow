@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { useEffect, useRef } from 'react';
-import { useLocation } from 'react-router';
+import { useLocation } from 'react-router-dom';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
 

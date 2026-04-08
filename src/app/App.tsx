@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { RouterProvider } from 'react-router';
+import { RouterProvider } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { router } from './routes';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';

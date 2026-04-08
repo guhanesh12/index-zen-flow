@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useNavigate, useParams, useLocation } from 'react-router';
+import { createBrowserRouter, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import ModernLandingPage from './components/ModernLandingPage';

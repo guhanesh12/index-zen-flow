@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { TrendingUp, ArrowLeft, FileText } from 'lucide-react';
 import { Button } from './ui/button';

@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
 import { Shield, Eye, Lock, Database, UserX, Share2, Globe, Mail, ArrowLeft, FileText, AlertTriangle } from 'lucide-react';
 import { SEO } from '../utils/seo';
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 const logoColor = "/logo-color.png";
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getBaseUrl } from '../utils/apiService';
 import { motion, useScroll, useTransform, useSpring } from 'motion/react';
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom';
 import { 
   TrendingUp, Zap, Shield, BarChart3, Smartphone, Monitor,
   ArrowRight, CheckCircle2, Star, Users, DollarSign, Activity,
