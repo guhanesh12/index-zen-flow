@@ -279,7 +279,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   async function handleLinkExisting() {
     setLinkingExisting(true);
     try {
-      const res = await fetch(`${getVpsBackendUrl()}/vps/link-existing`, {
+      const res = await fetch(`${serverUrl}/ip-pool/my-ip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       });
@@ -306,18 +306,18 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       let body: any = {};
 
       if (method === 'razorpay' && paymentResponse) {
-        endpoint = '/vps/verify-payment';
+        endpoint = '/ip-pool/verify-payment-and-provision';
         body = {
-          razorpayOrderId: paymentResponse.razorpay_order_id,
-          razorpayPaymentId: paymentResponse.razorpay_payment_id,
-          razorpaySignature: paymentResponse.razorpay_signature,
+          razorpay_order_id: paymentResponse.razorpay_order_id,
+          razorpay_payment_id: paymentResponse.razorpay_payment_id,
+          razorpay_signature: paymentResponse.razorpay_signature,
         };
       } else {
-        endpoint = '/vps/pay-with-wallet';
-        body = { amount: VPS_COST };
+        endpoint = '/ip-pool/subscribe';
+        body = { amount: VPS_COST, autoProvision: true };
       }
 
-      const res = await fetch(`${getVpsBackendUrl()}${endpoint}`, {
+      const res = await fetch(`${serverUrl}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
@@ -349,7 +349,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       const loaded = await loadRazorpayScript();
       if (!loaded) throw new Error('Failed to load payment gateway');
 
-      const orderRes = await fetch(`${getVpsBackendUrl()}/vps/create-order`, {
+      const orderRes = await fetch(`${serverUrl}/ip-pool/create-payment-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       });
@@ -405,7 +405,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     if (!confirm('Cancel your VPS subscription? Your static IP will be released and broker access will stop.')) return;
     setLoading(true);
     try {
-      const res = await fetch(`${getVpsBackendUrl()}/vps/cancel`, {
+      const res = await fetch(`${serverUrl}/ip-pool/cancel`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}` },
       });
