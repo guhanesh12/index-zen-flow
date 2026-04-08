@@ -127,8 +127,9 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
         ? existingAssignment.expiresAt
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    await kv.set(`user_ip_assignment:${job.userId}`, {
+    const updatedAssignment = {
       ...existingAssignment,
+      userId: job.userId,
       ipAddress,
       vpsUrl: `http://${ipAddress}:3000`,
       provider: 'digitalocean',
@@ -137,7 +138,10 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
       assignedAt: existingAssignment.assignedAt || new Date().toISOString(),
       expiresAt,
       lastUsedAt: existingAssignment.lastUsedAt || new Date().toISOString(),
-    });
+    };
+
+    await kv.set(`user_ip_assignment:${job.userId}`, updatedAssignment);
+    await kv.set(`ip_assignment:${job.userId}:dedicated`, updatedAssignment);
 
     const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
     if (ipEntry && !ipEntry.assignedUsers?.includes(job.userId)) {
