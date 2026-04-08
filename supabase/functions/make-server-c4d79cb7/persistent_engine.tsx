@@ -353,7 +353,7 @@ class PersistentTradingEngine {
               orderParams
             );
             
-            if (orderResult.success && orderResult.orderId) {
+            if (orderResult.orderId) {
               console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
               
               // Add to active positions
@@ -362,8 +362,8 @@ class PersistentTradingEngine {
                 symbolName: symbol.symbolName,
                 securityId: symbol.securityId,
                 optionType: symbol.optionType,
-                entryPrice: orderResult.averagePrice || 0,
-                currentPrice: orderResult.averagePrice || 0,
+                entryPrice: orderResult.averagePrice || orderResult.price || 0,
+                currentPrice: orderResult.averagePrice || orderResult.price || 0,
                 quantity: symbol.quantity || 15,
                 targetAmount: symbol.targetAmount || 500,
                 stopLossAmount: symbol.stopLossAmount || 300,
@@ -497,7 +497,7 @@ class PersistentTradingEngine {
             exitParams
           );
           
-          if (exitResult.success) {
+          if (exitResult.orderId || exitResult.success) {
             console.log(`✅ EXIT ORDER PLACED! ${exitReason}`);
             position.status = 'CLOSED';
             state.stats.totalPnL += pnl;
