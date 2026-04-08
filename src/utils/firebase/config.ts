@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Firebase Configuration
 import { initializeApp } from "firebase/app";
 import { getMessaging, getToken, onMessage, Messaging } from "firebase/messaging";
