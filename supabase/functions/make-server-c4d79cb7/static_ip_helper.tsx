@@ -11,6 +11,48 @@
 
 import * as kv from "./kv_store.tsx";
 
+function normalizeOrderPlacementResponse(result: any) {
+  const orderId =
+    result?.orderId ??
+    result?.data?.orderId ??
+    result?.result?.orderId ??
+    result?.order?.orderId ??
+    null;
+
+  const orderStatus =
+    result?.orderStatus ??
+    result?.status ??
+    result?.data?.orderStatus ??
+    result?.result?.orderStatus ??
+    result?.order?.orderStatus ??
+    null;
+
+  const averagePrice =
+    result?.averagePrice ??
+    result?.price ??
+    result?.averageTradedPrice ??
+    result?.data?.averagePrice ??
+    result?.data?.price ??
+    result?.result?.averagePrice ??
+    result?.result?.price ??
+    null;
+
+  const message =
+    result?.message ??
+    result?.remarks?.message ??
+    (typeof result?.error === "string" ? result.error : null) ??
+    (orderId ? "Order placed successfully via dedicated VPS" : "Order placement failed");
+
+  return {
+    ...result,
+    success: typeof result?.success === "boolean" ? result.success || Boolean(orderId) : Boolean(orderId),
+    orderId,
+    orderStatus,
+    averagePrice,
+    message,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────
 // PUBLIC: Place order via the user's dedicated static IP
 // ─────────────────────────────────────────────────────────────
@@ -158,7 +200,8 @@ export async function placeOrderViaStaticIP(
       throw new Error(msg);
     }
 
-    const result = await response.json();
+    const rawResult = await response.json();
+    const result = normalizeOrderPlacementResponse(rawResult);
     console.log(`✅ [IP ${userIP.ipAddress}] Order placed:`, result?.orderId || result);
     return result;
   } catch (err: any) {
