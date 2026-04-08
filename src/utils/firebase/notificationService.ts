@@ -2,8 +2,8 @@
 // Import Firebase messaging
 import { getToken, onMessage, Messaging } from "firebase/messaging";
 import { messaging } from "./config";
-import { supabase } from "/utils/supabase/client";
-import { getServerUrl } from "/utils/config/apiConfig";
+import { supabase } from "@/utils-ext/supabase/client";
+import { getServerUrl } from "@/utils-ext/config/apiConfig";
 
 export type NotificationType = 
   | 'SIGNAL_DETECTED'
