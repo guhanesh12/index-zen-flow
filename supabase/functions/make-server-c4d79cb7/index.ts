@@ -289,14 +289,15 @@ app.use(
   "/*",
   cors({
     origin: (origin) => {
-      if (!origin) return true; // Server-to-server or curl
+      if (!origin) return origin || "*"; // Server-to-server or curl
       for (const allowed of ALLOWED_CORS_ORIGINS) {
-        if (typeof allowed === "string" && allowed === origin) return true;
-        if (allowed instanceof RegExp && allowed.test(origin)) return true;
+        if (typeof allowed === "string" && allowed === origin) return origin;
+        if (allowed instanceof RegExp && allowed.test(origin)) return origin;
       }
-      return false;
+      console.warn(`⛔ CORS blocked origin: ${origin}`);
+      return "";
     },
-    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-client-info", "apikey"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
