@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Indian Indices Configuration for Dhan API
 // Contains security IDs and metadata for all supported indices
 

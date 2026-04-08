@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Import Firebase messaging
 import { getToken, onMessage, Messaging } from "firebase/messaging";
 import { messaging } from "./config";

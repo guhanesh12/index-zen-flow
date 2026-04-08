@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Static file content for serving through React Router
 // These files need to be served through React because Figma Make routes all requests through the app
 

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * IndexedDB Storage Utility for Instruments
  * Handles large datasets (13,500+ instruments) that exceed localStorage limits

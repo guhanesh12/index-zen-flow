@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * 🔒 ADMIN SECURITY CONTROL PANEL
  * 

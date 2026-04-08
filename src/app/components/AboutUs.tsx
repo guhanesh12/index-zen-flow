@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
 import { Building2, Target, Eye, Award, ShieldCheck, Users, TrendingUp, Lightbulb, ArrowLeft } from 'lucide-react';

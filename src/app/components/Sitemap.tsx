@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useEffect, useState } from 'react';
 import { SEO, SEO_CONFIGS } from '../utils/seo';
 

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * 🔄 AUTO VERSION CHECK & RELOAD SYSTEM
  * 

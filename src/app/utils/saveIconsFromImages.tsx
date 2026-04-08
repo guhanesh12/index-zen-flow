@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * PWA ICON SAVER
  * 

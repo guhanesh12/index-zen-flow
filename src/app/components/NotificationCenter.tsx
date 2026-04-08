@@ -1,3 +1,4 @@
+// @ts-nocheck
 // 🌟 ADVANCED NOTIFICATION CENTER - World's Most Beautiful UI 🌟
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';

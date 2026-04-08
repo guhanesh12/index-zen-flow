@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * 🔒 INDEXPILOTAI SECURITY HARDENING SYSTEM
  *

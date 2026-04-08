@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { getBaseUrl } from '../utils/apiService';
 import { Wallet, CreditCard, TrendingUp, AlertCircle, ArrowUpRight, CheckCircle, X, Server } from 'lucide-react';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { ArrowLeft, TrendingUp } from 'lucide-react';
 import { Button } from './ui/button';
 

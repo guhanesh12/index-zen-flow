@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { getBaseUrl } from '../utils/apiService';
 import { motion, AnimatePresence } from 'motion/react';

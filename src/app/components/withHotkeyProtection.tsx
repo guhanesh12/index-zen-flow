@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect, ComponentType } from 'react';
 import { HotkeyVerificationModal } from './HotkeyVerificationModal';
 

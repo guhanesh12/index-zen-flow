@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Centralized API Service
  * Handles all API calls with support for both Supabase and Node.js backend

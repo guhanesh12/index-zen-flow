@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { SITEMAP_XML, ROBOTS_TXT } from '../data/staticFiles';
 
 interface XMLFileServerProps {

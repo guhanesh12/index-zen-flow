@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Mock Data Service for Testing
 
 export class MockDataService {

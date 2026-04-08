@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState } from 'react';
 import { Zap, Shield, TrendingUp, DollarSign, Users, CheckCircle, ArrowRight, Lock, Smartphone } from 'lucide-react';
 

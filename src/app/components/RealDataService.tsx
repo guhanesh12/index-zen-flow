@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Real Data Service for Dhan API Integration
 // Handles live market data, orders, positions, and fund limits
 

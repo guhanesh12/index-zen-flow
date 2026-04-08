@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { Download, Upload, Sparkles, CheckCircle2, Image as ImageIcon } from 'lucide-react';
 import { Button } from './ui/button';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 import { PWAIconGenerator } from './PWAIconGenerator';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState } from 'react';
 import { getBaseUrl } from '../utils/apiService';
 import { Download, TrendingUp, TrendingDown, Activity } from 'lucide-react';

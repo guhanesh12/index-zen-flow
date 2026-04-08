@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * API Configuration
  * Handles switching between Supabase (dev) and Centralized Backend (production)

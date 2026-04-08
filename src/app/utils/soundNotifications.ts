@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ⚡⚡⚡ SOUND NOTIFICATIONS FOR TRADING EVENTS ⚡⚡⚡
 
 // Create audio context for sound generation

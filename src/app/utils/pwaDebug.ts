@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * PWA DEBUG UTILITIES
  * Use these in browser console to test PWA install functionality

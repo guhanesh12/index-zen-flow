@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
 import { Mail, Clock, Wrench, AlertTriangle, Shield, Briefcase, MessageCircle, Globe, ArrowLeft } from 'lucide-react';

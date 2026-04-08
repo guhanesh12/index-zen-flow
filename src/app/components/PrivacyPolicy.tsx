@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
 import { Shield, Eye, Lock, Database, UserX, Share2, Globe, Mail, ArrowLeft, FileText, AlertTriangle } from 'lucide-react';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { Download, X, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/button';

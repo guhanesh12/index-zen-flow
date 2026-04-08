@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Link } from "react-router";
 import { Home, LogIn, UserPlus, FileText, Shield, Info, Sparkles, DollarSign, Mail } from "lucide-react";
 

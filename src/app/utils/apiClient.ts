@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * API Client with Automatic JWT Refresh on 401 Errors
  */

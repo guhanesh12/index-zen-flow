@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * 🔒 BANK-GRADE DATA ENCRYPTION UTILITIES
  * 

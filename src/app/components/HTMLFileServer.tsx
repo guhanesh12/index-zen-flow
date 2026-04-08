@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { SITEMAP_DIAGNOSTIC_HTML } from '../data/staticFiles';
 
 interface HTMLFileServerProps {

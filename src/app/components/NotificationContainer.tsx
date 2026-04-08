@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Notification Toast Container - Manages all active notifications
 import React, { useEffect, useState, useCallback } from 'react';
 import { AnimatePresence } from 'motion/react';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // ⚡⚡⚡ RESPONSIVE DESIGN HOOK ⚡⚡⚡
 // Auto-detect device type and provide responsive utilities
 

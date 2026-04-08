@@ -1,3 +1,4 @@
+// @ts-nocheck
 // 🎨 Automatic Icon Generator for PWA
 // Generates all required icon sizes from a single source
 

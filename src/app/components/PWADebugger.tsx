@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 

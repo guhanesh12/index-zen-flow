@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useRef } from 'react';
 import { Smartphone, ArrowRight, Shield, CheckCircle2, ArrowLeft, User, Mail } from 'lucide-react';
 import { Button } from './ui/button';

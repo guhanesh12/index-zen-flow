@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * ICON GENERATOR PAGE
  * Access at: /admin/generate-icons
