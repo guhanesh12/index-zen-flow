@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { TrendingUp, TrendingDown, Minus, RefreshCw, Activity } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { supabase } from '../../../utils/supabase/client';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
 import { getBaseUrl } from '../utils/apiService';
 
 interface SignalMonitorProps {

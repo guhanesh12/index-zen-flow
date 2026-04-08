@@ -14,8 +14,8 @@ import { Checkbox } from './ui/checkbox';
 import { Alert, AlertDescription } from './ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { motion } from 'motion/react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { supabase } from '../../../utils/supabase/client';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
 import { SEO, SEO_CONFIGS } from '../utils/seo';
 import { trackSignup } from '../hooks/useAnalyticsTracking';
 

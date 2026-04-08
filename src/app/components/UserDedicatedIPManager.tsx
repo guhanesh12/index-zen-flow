@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { toast } from 'sonner';
-import { getVpsBackendUrl } from '../../../utils/config/apiConfig';
+import { getVpsBackendUrl } from '@/utils-ext/config/apiConfig';
 
 // ─── Types ──────────────────────────────────────────
 

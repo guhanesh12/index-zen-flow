@@ -2,12 +2,12 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router';
 import { HelmetProvider } from 'react-helmet-async';
 import { router } from './routes';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { InstallApp } from './components/InstallApp';
 import { PWADebugger } from './components/PWADebugger';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
-import { initializeSecurity } from '../../utils/security/SecurityHardening';
+import { initializeSecurity } from '@/utils-ext/security/SecurityHardening';
 
 // Extend Window interface for hotkey system
 declare global {

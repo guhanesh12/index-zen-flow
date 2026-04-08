@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { CheckCircle2, XCircle, Loader2, Globe, Server, Zap } from 'lucide-react';
-import { getServerUrl, getEndpointUrl, logApiConfig, API_MODE, CUSTOM_API_DOMAIN, SUPABASE_API_DOMAIN } from '../../../utils/config/apiConfig';
+import { getServerUrl, getEndpointUrl, logApiConfig, API_MODE, CUSTOM_API_DOMAIN, SUPABASE_API_DOMAIN } from '@/utils-ext/config/apiConfig';
 
 export function ApiConfigTest() {
   const [testing, setTesting] = useState(false);

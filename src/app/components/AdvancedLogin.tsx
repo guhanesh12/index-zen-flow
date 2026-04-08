@@ -15,8 +15,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from './ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { motion } from 'motion/react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { supabase } from '../../../utils/supabase/client';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
 import { getBaseUrl } from '../utils/apiService';
 
 interface AdvancedLoginProps {

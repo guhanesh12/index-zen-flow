@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
 import { Smartphone, ArrowRight, Shield, CheckCircle2, ArrowLeft, User, Mail } from 'lucide-react';
 import { Button } from './ui/button';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { supabase } from '../../../utils/supabase/client';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
 import { getBaseUrl } from '../utils/apiService';
 
 interface SignupWithOTPProps {

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { instrumentStorage } from '../utils/instrumentStorage';
-import { supabase } from '../../../utils/supabase/client';
+import { supabase } from '@/utils-ext/supabase/client';
 
 interface Instrument {
   id: string;

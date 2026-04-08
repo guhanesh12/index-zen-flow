@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { TrendingUp, ArrowLeft, FileText } from 'lucide-react';
 import { Button } from './ui/button';
-import { publicAnonKey } from '../../../utils/supabase/info';
+import { publicAnonKey } from '@/utils-ext/supabase/info';
 
 interface DynamicPageProps {
   slug: string;

@@ -10,8 +10,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Shield, Eye, EyeOff, Terminal, Clock, AlertTriangle, CheckCircle, XCircle, Lock, Unlock, RefreshCw } from 'lucide-react';
-import consoleManager from '../../utils/security/ConsoleManager';
-import { detectSecurityThreats, isSecureContext, clearAllSensitiveData } from '../../utils/security/DataEncryption';
+import consoleManager from '@/utils-ext/security/ConsoleManager';
+import { detectSecurityThreats, isSecureContext, clearAllSensitiveData } from '@/utils-ext/security/DataEncryption';
 
 export function AdminSecurityPanel() {
   const [consoleEnabled, setConsoleEnabled] = useState(true);

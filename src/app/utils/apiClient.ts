@@ -2,7 +2,7 @@
  * API Client with Automatic JWT Refresh on 401 Errors
  */
 
-import { supabase } from '../../../utils/supabase/client';
+import { supabase } from '@/utils-ext/supabase/client';
 
 interface FetchWithAuthOptions extends RequestInit {
   skipAuthRefresh?: boolean;

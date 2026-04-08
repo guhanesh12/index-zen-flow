@@ -5,7 +5,7 @@ import {
   Home, DollarSign, Users, Star, FileText, Shield, Settings
 } from 'lucide-react';
 import { Button } from './ui/button';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { getBaseUrl } from '../utils/apiService';
 
 interface LandingAdminProps {

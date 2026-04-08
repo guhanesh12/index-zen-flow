@@ -4,8 +4,8 @@
 
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router';
-import { publicAnonKey } from '../../../utils/supabase/info';
-import { getServerUrl } from '../../../utils/config/apiConfig';
+import { publicAnonKey } from '@/utils-ext/supabase/info';
+import { getServerUrl } from '@/utils-ext/config/apiConfig';
 
 // Track page view
 export function trackPageView(page: string) {

@@ -15,8 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
 import { motion } from 'motion/react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { supabase } from '../../../utils/supabase/client';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
 import { getBaseUrl } from '../utils/apiService';
 
 interface AdvancedRegistrationProps {

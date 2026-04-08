@@ -6,7 +6,7 @@ import {
   Send, Save, RefreshCw, Check, AlertCircle, ExternalLink
 } from 'lucide-react';
 import { Button } from './ui/button';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 
 interface SocialLinks {
   instagram: string;

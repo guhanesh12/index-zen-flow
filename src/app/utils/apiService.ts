@@ -3,8 +3,8 @@
  * Handles all API calls with support for both Supabase and Node.js backend
  */
 
-import { publicAnonKey } from '../../../utils/supabase/info';
-import { getServerUrl } from '../../../utils/config/apiConfig';
+import { publicAnonKey } from '@/utils-ext/supabase/info';
+import { getServerUrl } from '@/utils-ext/config/apiConfig';
 
 // Custom API URL (stored in localStorage, set via Admin Settings)
 const CUSTOM_API_URL_KEY = 'indexpilotai_custom_backend_url';

@@ -5,7 +5,7 @@ import {
   FileText, Check, AlertCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Button } from './ui/button';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { getBaseUrl } from '../utils/apiService';
 
 interface Page {

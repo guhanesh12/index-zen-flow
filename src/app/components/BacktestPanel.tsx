@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { getBaseUrl } from '../utils/apiService';
 import { Download, TrendingUp, TrendingDown, Activity } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 
 interface BacktestPanelProps {
   userId: string;

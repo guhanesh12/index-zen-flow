@@ -13,7 +13,7 @@ const logoWhite = "/logo-white.png";
 const logoColor = "/logo-color.png";
 import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { AnimatedIndexTitle } from './AnimatedIndexTitle';
 import { AnimatedIndexCard } from './AnimatedIndexCard';
 import { HowItWorksSection } from './HowItWorksSection';

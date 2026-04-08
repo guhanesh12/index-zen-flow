@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getBaseUrl } from '../utils/apiService';
 import { Wallet, CreditCard, TrendingUp, AlertCircle, ArrowUpRight, CheckCircle, X, Server } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { supabase } from '../../../utils/supabase/client';
-import { getVpsBackendUrl } from '../../../utils/config/apiConfig';
+import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
+import { getVpsBackendUrl } from '@/utils-ext/config/apiConfig';
 
 interface WalletManagementProps {
   onClose: () => void;

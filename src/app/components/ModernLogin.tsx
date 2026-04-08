@@ -13,7 +13,7 @@ import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Alert, AlertDescription } from './ui/alert';
 import { motion } from 'motion/react';
-import { supabase } from '../../../utils/supabase/client';
+import { supabase } from '@/utils-ext/supabase/client';
 import { SEO, SEO_CONFIGS } from '../utils/seo';
 import { trackLogin } from '../hooks/useAnalyticsTracking';
 const logoColor = "/logo-color.png";

@@ -4,8 +4,8 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { TrendingUp, Award, RefreshCw, Info } from 'lucide-react';
-import { projectId } from '../../../utils/supabase/info';
-import { supabase } from '../../../utils/supabase/client';
+import { projectId } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
 import { getBaseUrl } from '../utils/apiService';
 
 interface PricingTier {

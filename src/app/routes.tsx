@@ -21,8 +21,8 @@ import { RefundPolicy } from './components/RefundPolicy';
 import { Disclaimer } from './components/Disclaimer';
 import { AboutUs } from './components/AboutUs';
 import { ContactUs } from './components/ContactUs';
-import { publicAnonKey } from '../../utils/supabase/info';
-import { supabase } from '../../utils/supabase/client';
+import { publicAnonKey } from '@/utils-ext/supabase/info';
+import { supabase } from '@/utils-ext/supabase/client';
 import { trackPageView } from './hooks/useAnalyticsTracking';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 

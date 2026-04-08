@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { getVpsBackendUrl } from '../../../utils/config/apiConfig';
+import { getVpsBackendUrl } from '@/utils-ext/config/apiConfig';
 
 interface Transaction {
   id: string;
