@@ -277,6 +277,9 @@ const ALLOWED_CORS_ORIGINS = [
   "https://www.indexpilotai.com",
   "https://indexpilotai.com",
   "https://api.indexpilotai.com",
+  // Lovable preview domains
+  /\.lovable\.app$/,
+  /\.lovableproject\.com$/,
   // Replit preview domains (development/staging)
   /\.replit\.dev$/,
   /\.replit\.app$/,
