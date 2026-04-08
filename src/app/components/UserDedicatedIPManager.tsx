@@ -186,17 +186,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       // Build VPS record from edge function responses
       let newVps: VpsRecord | null = null;
 
-      if (provData.success && provData.provisioning && provData.job) {
-        // Active provisioning job
-        newVps = {
-          status: provData.job.status || 'creating',
-          ipAddress: provData.job.ipAddress,
-          startedAt: provData.job.startedAt || new Date().toISOString(),
-          completedAt: provData.job.completedAt,
-          estimatedMinutes: provData.job.estimatedMinutes || 8,
-          error: provData.job.error,
-        };
-      } else if (ipData.success && ipData.assignment) {
+      if (ipData.success && ipData.assignment) {
         // Has assigned IP
         newVps = {
           status: 'active',
@@ -222,6 +212,16 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
             startDate: ipData.assignment.assignedAt,
           });
         }
+      } else if (provData.success && provData.provisioning && provData.job) {
+        // Active or recoverable provisioning job
+        newVps = {
+          status: provData.job.status || 'creating',
+          ipAddress: provData.job.ipAddress,
+          startedAt: provData.job.startedAt || new Date().toISOString(),
+          completedAt: provData.job.completedAt,
+          estimatedMinutes: provData.job.estimatedMinutes || 8,
+          error: provData.job.error,
+        };
       }
 
       setVps(newVps);

@@ -197,10 +197,19 @@ export async function getUserOrderPlacementIP(
   userId: string
 ): Promise<{ ipAddress: string; type: "dedicated" }> {
   try {
-    const rows = await kv.getByPrefix(`ip_assignment:${userId}:`);
+    const assignments: any[] = [];
+    const currentAssignment = await kv.get(`user_ip_assignment:${userId}`);
+    if (currentAssignment) {
+      assignments.push({ value: currentAssignment });
+    }
 
-    if (rows && rows.length > 0) {
-      for (const row of rows) {
+    const legacyRows = await kv.getByPrefix(`ip_assignment:${userId}:`);
+    if (legacyRows?.length) {
+      assignments.push(...legacyRows);
+    }
+
+    if (assignments.length > 0) {
+      for (const row of assignments) {
         const data = row.value || row;
 
         const isActive =
@@ -245,7 +254,16 @@ export async function getUserOrderPlacementIP(
 
 export async function getUserDedicatedIPInfo(userId: string): Promise<any> {
   try {
-    const rows = await kv.getByPrefix(`ip_assignment:${userId}:`);
+    const rows: any[] = [];
+    const currentAssignment = await kv.get(`user_ip_assignment:${userId}`);
+    if (currentAssignment) {
+      rows.push({ value: currentAssignment });
+    }
+
+    const legacyRows = await kv.getByPrefix(`ip_assignment:${userId}:`);
+    if (legacyRows?.length) {
+      rows.push(...legacyRows);
+    }
 
     if (!rows || rows.length === 0) {
       return {

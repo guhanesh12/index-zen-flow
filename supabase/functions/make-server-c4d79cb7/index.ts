@@ -2157,7 +2157,7 @@ app.get("/make-server-c4d79cb7/check-vps-connectivity", async (c) => {
       testedAt: new Date().toISOString(),
       hint: reachable
         ? `✅ Your dedicated VPS at ${ipInfo.ipAddress} is UP. Orders will route through this IP when market opens.`
-        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: sudo systemctl restart orderserver`,
+        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: pm2 restart indexpilot-order-server`,
     });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
@@ -5253,7 +5253,7 @@ app.get("/make-server-c4d79cb7/ip-pool/provisioning-status", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    const job = await VPSProvisioning.getUserProvisioningJob(user.id);
+    const job = await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     
     if (!job) {
       return c.json({

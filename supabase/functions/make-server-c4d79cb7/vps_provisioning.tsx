@@ -49,6 +49,184 @@ interface ProvisioningJob {
 }
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
+const DEDICATED_IP_MONTHLY_FEE = 599;
+
+async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
+  try {
+    const healthResponse = await fetch(`http://${ipAddress}:3000/health`, {
+      signal: AbortSignal.timeout(5000),
+      headers: {
+        'User-Agent': 'IndexpilotAI-Provisioning-Reconcile/1.0',
+        'Cache-Control': 'no-cache'
+      }
+    });
+
+    return healthResponse.ok;
+  } catch (error: any) {
+    console.log(`⚠️ Health check failed for ${ipAddress}: ${error.message}`);
+    return false;
+  }
+}
+
+async function ensureIPPoolEntry(job: ProvisioningJob, ipAddress: string) {
+  const existingEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
+
+  if (existingEntry) {
+    existingEntry.vpsUrl = `http://${ipAddress}:3000`;
+    existingEntry.provider = existingEntry.provider || 'digitalocean';
+    existingEntry.status = 'active';
+    existingEntry.maxUsers = 1;
+    existingEntry.metadata = {
+      ...(existingEntry.metadata || {}),
+      dropletId: job.dropletId,
+      autoProvisioned: true,
+      provisioningJobId: job.id,
+      reconciledAt: new Date().toISOString(),
+    };
+    await kv.set(`ip_pool:${ipAddress}`, existingEntry);
+    return { success: true };
+  }
+
+  return await IPPoolManager.addIPToPool({
+    ipAddress,
+    vpsUrl: `http://${ipAddress}:3000`,
+    provider: 'digitalocean',
+    status: 'active',
+    maxUsers: 1,
+    metadata: {
+      dropletId: job.dropletId,
+      autoProvisioned: true,
+      provisioningJobId: job.id,
+    }
+  });
+}
+
+async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string): Promise<ProvisioningJob> {
+  const addResult = await ensureIPPoolEntry(job, ipAddress);
+
+  if (!addResult.success) {
+    job.status = 'failed';
+    job.error = `Failed to add IP to pool: ${addResult.error}`;
+    await kv.set(`${PROVISIONING_PREFIX}${job.id}`, job);
+    return job;
+  }
+
+  const existingAssignment = await IPPoolManager.getUserIPAssignment(job.userId);
+  if (!existingAssignment) {
+    const assignResult = await IPPoolManager.assignIPToUser(job.userId, DEDICATED_IP_MONTHLY_FEE);
+
+    if (!assignResult.success) {
+      job.status = 'failed';
+      job.error = `Failed to assign IP to user: ${assignResult.error}`;
+      await kv.set(`${PROVISIONING_PREFIX}${job.id}`, job);
+      return job;
+    }
+  } else if (existingAssignment.ipAddress !== ipAddress || existingAssignment.subscriptionStatus !== 'active') {
+    const expiresAt =
+      existingAssignment.expiresAt && new Date(existingAssignment.expiresAt) > new Date()
+        ? existingAssignment.expiresAt
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    await kv.set(`user_ip_assignment:${job.userId}`, {
+      ...existingAssignment,
+      ipAddress,
+      vpsUrl: `http://${ipAddress}:3000`,
+      provider: 'digitalocean',
+      subscriptionStatus: 'active',
+      monthlyFee: DEDICATED_IP_MONTHLY_FEE,
+      assignedAt: existingAssignment.assignedAt || new Date().toISOString(),
+      expiresAt,
+      lastUsedAt: existingAssignment.lastUsedAt || new Date().toISOString(),
+    });
+
+    const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
+    if (ipEntry && !ipEntry.assignedUsers?.includes(job.userId)) {
+      ipEntry.currentUsers = Math.max(1, Number(ipEntry.currentUsers || 0) + 1);
+      ipEntry.assignedUsers = [...(ipEntry.assignedUsers || []), job.userId];
+      await kv.set(`ip_pool:${ipAddress}`, ipEntry);
+    }
+  }
+
+  const completedAt = new Date().toISOString();
+  const totalTime = Math.max(1, Math.round((Date.now() - new Date(job.startedAt).getTime()) / 1000));
+
+  job.status = 'ready';
+  job.ipAddress = ipAddress;
+  job.completedAt = completedAt;
+  job.error = undefined;
+  job.estimatedMinutes = Math.max(1, Math.round(totalTime / 60));
+  job.timeline = {
+    ...(job.timeline || {}),
+    systemSetupComplete: completedAt,
+    serverDeployed: completedAt,
+    healthCheckPassed: completedAt,
+    ipAssigned: completedAt,
+    completed: completedAt,
+  };
+
+  await kv.set(`${PROVISIONING_PREFIX}${job.id}`, job);
+  await kv.del(`${PROVISIONING_PREFIX}pending:${ipAddress}`);
+
+  console.log(`🎉 Provisioning finalized for user ${job.userId}: ${ipAddress}`);
+  return job;
+}
+
+export async function reconcileUserProvisioningJob(userId: string): Promise<ProvisioningJob | null> {
+  const job = await getUserProvisioningJob(userId);
+  if (!job) return null;
+
+  if (job.status === 'ready' || job.status === 'active' || job.status === 'failed') {
+    return job;
+  }
+
+  try {
+    let ipAddress = job.ipAddress;
+
+    if ((!ipAddress || job.status === 'creating') && job.dropletId) {
+      const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
+      if (DO_API_TOKEN) {
+        const response = await fetch(`https://api.digitalocean.com/v2/droplets/${job.dropletId}`, {
+          headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const droplet = data.droplet;
+          const publicIP = droplet?.networks?.v4?.find((net: any) => net.type === 'public')?.ip_address;
+
+          if (publicIP) {
+            ipAddress = publicIP;
+            if (job.ipAddress !== publicIP || job.status !== 'deploying') {
+              job.ipAddress = publicIP;
+              job.status = 'deploying';
+              job.timeline = {
+                ...(job.timeline || {}),
+                vpsCreationStart: job.timeline?.vpsCreationStart || job.startedAt,
+                vpsActive: job.timeline?.vpsActive || new Date().toISOString(),
+                deploymentStart: job.timeline?.deploymentStart || new Date().toISOString(),
+              };
+              await kv.set(`${PROVISIONING_PREFIX}${job.id}`, job);
+            }
+          }
+        }
+      }
+    }
+
+    if (!ipAddress) {
+      return job;
+    }
+
+    const reachable = await checkOrderServerHealth(ipAddress);
+    if (!reachable) {
+      return job;
+    }
+
+    return await finalizeProvisioningJob(job, ipAddress);
+  } catch (error: any) {
+    console.error(`❌ Failed to reconcile provisioning job ${job.id}:`, error.message);
+    return job;
+  }
+}
 
 /**
  * Generate cloud-init script for automatic order server deployment
@@ -627,52 +805,7 @@ async function monitorProvisioningJob(
         }
 
         // Add to IP pool
-        const addResult = await IPPoolManager.addIPToPool({
-          ipAddress,
-          vpsUrl: `http://${ipAddress}:3000`,
-          provider: 'digitalocean',
-          status: 'active',
-          maxUsers: 1,
-          metadata: {
-            dropletId,
-            autoProvisioned: true,
-            provisioningJobId: jobId
-          }
-        });
-
-        if (!addResult.success) {
-          job.status = 'failed';
-          job.error = `Failed to add IP to pool: ${addResult.error}`;
-          await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
-          return;
-        }
-
-        // Assign to user
-        const assignResult = await IPPoolManager.assignIPToUser(job.userId, 199);
-
-        if (!assignResult.success) {
-          job.status = 'failed';
-          job.error = `Failed to assign IP to user: ${assignResult.error}`;
-          await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
-          return;
-        }
-
-        // Mark as ready
-        const totalTime = Math.round((Date.now() - new Date(job.startedAt).getTime()) / 1000);
-        job.status = 'ready';
-        job.completedAt = new Date().toISOString();
-        job.estimatedMinutes = Math.round(totalTime / 60);
-        job.timeline = {
-          ...job.timeline,
-          systemSetupComplete: new Date().toISOString(),
-          serverDeployed: new Date().toISOString(),
-          healthCheckPassed: new Date().toISOString(),
-          ipAssigned: new Date().toISOString(),
-          completed: new Date().toISOString()
-        };
-        await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
-
-        console.log(`🎉 Provisioning complete for user ${job.userId}! IP: ${ipAddress} (total: ${totalTime}s / ${Math.round(totalTime/60)} min)`);
+        await finalizeProvisioningJob(job, ipAddress);
         return;
       }
 
@@ -749,7 +882,7 @@ export async function provisionDedicatedIP(userId: string): Promise<{
     return {
       success: true,
       jobId: result.jobId,
-      estimatedMinutes: 4 // OPTIMIZED: Real timing is 3-4 minutes (was 15)
+      estimatedMinutes: 8
     };
 
   } catch (error: any) {
