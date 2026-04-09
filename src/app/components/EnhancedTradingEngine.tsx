@@ -833,7 +833,28 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   };
 
-  const loadSymbols = async () => {
+  // ⚡ SAVE SYMBOLS TO SERVER DATABASE (multi-device sync)
+  const saveSymbolsToDB = async (symbols: any[]) => {
+    try {
+      if (!symbols || symbols.length === 0) return;
+      const freshToken = await getFreshAccessToken();
+      const response = await fetch(`${serverUrl}/symbols/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${freshToken}`
+        },
+        body: JSON.stringify({ symbols })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`☁️ Saved ${data.saved || symbols.length} symbols to server database`);
+      }
+    } catch (err) {
+      console.log('Symbol DB save skipped:', err);
+    }
+  };
+
     try {
       console.log('🔄 Loading symbols from backend API...');
       
