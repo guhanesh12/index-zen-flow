@@ -83,23 +83,6 @@ export function InstallApp() {
 
     window.addEventListener('appinstalled', handleAppInstalled);
 
-    // 🆕 Register service worker IMMEDIATELY
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .then((registration) => {
-          console.log('✅ Service Worker registered:', registration.scope);
-          
-          // Force update check
-          registration.update().catch(() => {
-            console.log('ℹ️ Service Worker update check skipped');
-          });
-        })
-        .catch((error) => {
-          console.log('⚠️ Service Worker registration failed:', error.message);
-        });
-    }
-
     // Check PWA manifest
     fetch('/manifest.json')
       .then(res => {

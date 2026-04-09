@@ -6,6 +6,7 @@ import { router } from './routes';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { InstallApp } from './components/InstallApp';
 import { PWADebugger } from './components/PWADebugger';
+import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity } from '@/utils-ext/security/SecurityHardening';
@@ -24,6 +25,8 @@ const serverUrl = getBaseUrl();
 
 export default function App() {
   useEffect(() => {
+    startCacheRecovery().catch(() => undefined);
+
     // 🔄 START AUTO-VERSION CHECK (prevents cache issues!)
     startVersionCheck();
     
