@@ -3145,7 +3145,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
 
     // Now monitor each position for exit conditions
-    for (const position of trackedPositions) {
+    for (let posIdx = 0; posIdx < trackedPositions.length; posIdx++) {
+      // ⚡⚡⚡ CRITICAL: Always read LATEST position from ref (trailing may have updated it)
+      const position = activePositionsRef.current.find(p => p.orderId === trackedPositions[posIdx].orderId) || trackedPositions[posIdx];
       try {
         // ⚡⚡⚡ SKIP if position is already exiting (prevents duplicate orders!)
         if (exitingPositionsRef.current.has(position.orderId)) {
