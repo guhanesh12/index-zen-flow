@@ -1,3 +1,6 @@
+// @ts-ignore - EdgeRuntime is available in Supabase Edge Functions
+declare const EdgeRuntime: { waitUntil?: (promise: Promise<any>) => void } | undefined;
+
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
