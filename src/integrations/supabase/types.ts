@@ -59,6 +59,329 @@ export type Database = {
         }
         Relationships: []
       }
+      position_monitor_state: {
+        Row: {
+          created_at: string
+          current_price: number | null
+          entry_price: number | null
+          exchange_segment: string | null
+          exit_reason: string | null
+          exited_at: string | null
+          highest_pnl: number | null
+          id: string
+          index_name: string | null
+          is_active: boolean | null
+          order_id: string
+          pnl: number | null
+          quantity: number | null
+          raw_position: Json | null
+          stop_loss_amount: number | null
+          symbol: string
+          symbol_id: string | null
+          target_amount: number | null
+          trailing_enabled: boolean | null
+          trailing_step: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_price?: number | null
+          entry_price?: number | null
+          exchange_segment?: string | null
+          exit_reason?: string | null
+          exited_at?: string | null
+          highest_pnl?: number | null
+          id?: string
+          index_name?: string | null
+          is_active?: boolean | null
+          order_id: string
+          pnl?: number | null
+          quantity?: number | null
+          raw_position?: Json | null
+          stop_loss_amount?: number | null
+          symbol: string
+          symbol_id?: string | null
+          target_amount?: number | null
+          trailing_enabled?: boolean | null
+          trailing_step?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_price?: number | null
+          entry_price?: number | null
+          exchange_segment?: string | null
+          exit_reason?: string | null
+          exited_at?: string | null
+          highest_pnl?: number | null
+          id?: string
+          index_name?: string | null
+          is_active?: boolean | null
+          order_id?: string
+          pnl?: number | null
+          quantity?: number | null
+          raw_position?: Json | null
+          stop_loss_amount?: number | null
+          symbol?: string
+          symbol_id?: string | null
+          target_amount?: number | null
+          trailing_enabled?: boolean | null
+          trailing_step?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      signal_stats: {
+        Row: {
+          created_at: string
+          extra_data: Json | null
+          failed_orders: number | null
+          id: string
+          order_count: number | null
+          signal_count: number | null
+          speed_count: number | null
+          stat_date: string
+          successful_orders: number | null
+          total_pnl: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          extra_data?: Json | null
+          failed_orders?: number | null
+          id?: string
+          order_count?: number | null
+          signal_count?: number | null
+          speed_count?: number | null
+          stat_date?: string
+          successful_orders?: number | null
+          total_pnl?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          extra_data?: Json | null
+          failed_orders?: number | null
+          id?: string
+          order_count?: number | null
+          signal_count?: number | null
+          speed_count?: number | null
+          stat_date?: string
+          successful_orders?: number | null
+          total_pnl?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      trading_engine_state: {
+        Row: {
+          created_at: string
+          id: string
+          is_running: boolean
+          last_heartbeat: string | null
+          selected_symbols: Json | null
+          started_at: string | null
+          stopped_at: string | null
+          strategy_settings: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_running?: boolean
+          last_heartbeat?: string | null
+          selected_symbols?: Json | null
+          started_at?: string | null
+          stopped_at?: string | null
+          strategy_settings?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_running?: boolean
+          last_heartbeat?: string | null
+          selected_symbols?: Json | null
+          started_at?: string | null
+          stopped_at?: string | null
+          strategy_settings?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      trading_orders: {
+        Row: {
+          created_at: string
+          dhan_order_id: string | null
+          error_message: string | null
+          exchange_segment: string | null
+          id: string
+          index_name: string | null
+          order_type: string
+          price: number | null
+          quantity: number
+          raw_response: Json | null
+          signal_id: string | null
+          status: string
+          symbol: string
+          symbol_id: string | null
+          transaction_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dhan_order_id?: string | null
+          error_message?: string | null
+          exchange_segment?: string | null
+          id?: string
+          index_name?: string | null
+          order_type?: string
+          price?: number | null
+          quantity?: number
+          raw_response?: Json | null
+          signal_id?: string | null
+          status?: string
+          symbol: string
+          symbol_id?: string | null
+          transaction_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dhan_order_id?: string | null
+          error_message?: string | null
+          exchange_segment?: string | null
+          id?: string
+          index_name?: string | null
+          order_type?: string
+          price?: number | null
+          quantity?: number
+          raw_response?: Json | null
+          signal_id?: string | null
+          status?: string
+          symbol?: string
+          symbol_id?: string | null
+          transaction_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trading_orders_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "trading_signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trading_signals: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          expiry: string | null
+          id: string
+          index_name: string | null
+          option_type: string | null
+          price: number | null
+          raw_data: Json | null
+          signal_type: string
+          status: string
+          strike_price: number | null
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string
+          expiry?: string | null
+          id?: string
+          index_name?: string | null
+          option_type?: string | null
+          price?: number | null
+          raw_data?: Json | null
+          signal_type: string
+          status?: string
+          strike_price?: number | null
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          expiry?: string | null
+          id?: string
+          index_name?: string | null
+          option_type?: string | null
+          price?: number | null
+          raw_data?: Json | null
+          signal_type?: string
+          status?: string
+          strike_price?: number | null
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_symbols: {
+        Row: {
+          created_at: string
+          exchange_segment: string | null
+          expiry: string | null
+          id: string
+          index_name: string | null
+          instrument_type: string | null
+          lot_size: number | null
+          option_type: string | null
+          raw_data: Json | null
+          strike_price: number | null
+          symbol_id: string
+          symbol_name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          exchange_segment?: string | null
+          expiry?: string | null
+          id?: string
+          index_name?: string | null
+          instrument_type?: string | null
+          lot_size?: number | null
+          option_type?: string | null
+          raw_data?: Json | null
+          strike_price?: number | null
+          symbol_id: string
+          symbol_name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          exchange_segment?: string | null
+          expiry?: string | null
+          id?: string
+          index_name?: string | null
+          instrument_type?: string | null
+          lot_size?: number | null
+          option_type?: string | null
+          raw_data?: Json | null
+          strike_price?: number | null
+          symbol_id?: string
+          symbol_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

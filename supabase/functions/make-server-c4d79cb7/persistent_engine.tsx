@@ -10,12 +10,26 @@
  * - Page refreshes
  * 
  * It ONLY stops when explicitly commanded via API.
+ * 
+ * Data is persisted to Supabase tables:
+ * - trading_engine_state
+ * - trading_signals
+ * - trading_orders
+ * - position_monitor_state
+ * - signal_stats
  */
 
 import { DhanService } from './dhan_service.tsx';
 import { AdvancedAI } from './advanced_ai.tsx';
 import * as kv from './kv_store.tsx';
 import { placeOrderViaStaticIP } from './static_ip_helper.tsx';
+import { createClient } from "npm:@supabase/supabase-js";
+
+// Supabase client for DB operations
+const supabaseAdmin = createClient(
+  Deno.env.get('SUPABASE_URL') || '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
+);
 
 interface EngineState {
   isRunning: boolean;
@@ -93,8 +107,11 @@ class PersistentTradingEngine {
     
     this.engineStates.set(userId, engineState);
     
-    // Save state to database (persistent storage)
+    // Save state to KV store (legacy)
     await kv.set(`engine_state_${userId}`, engineState);
+    
+    // ⚡ Save to new Supabase table
+    await this.saveEngineStateToDB(userId, engineState);
     
     // Create DhanService instance
     const dhanService = new DhanService({
@@ -127,9 +144,11 @@ class PersistentTradingEngine {
     const timerId = this.instances.get(userId);
     
     if (!timerId) {
+      // Even if no in-memory timer, mark DB as stopped
+      await this.markEngineStoppedInDB(userId);
       return {
-        success: false,
-        message: '⚠️ No engine running for this user'
+        success: true,
+        message: '✅ Engine stopped (was running via cron)'
       };
     }
     
@@ -137,7 +156,7 @@ class PersistentTradingEngine {
     clearInterval(timerId);
     this.instances.delete(userId);
     
-    // Update state
+    // Update KV state
     const state = this.engineStates.get(userId);
     if (state) {
       state.isRunning = false;
@@ -146,6 +165,9 @@ class PersistentTradingEngine {
     }
     
     this.engineStates.delete(userId);
+    
+    // ⚡ Mark stopped in DB
+    await this.markEngineStoppedInDB(userId);
     
     console.log(`🛑 STOPPED PERSISTENT ENGINE for user ${userId}`);
     
@@ -157,47 +179,87 @@ class PersistentTradingEngine {
 
   /**
    * ⚡⚡⚡ CRON JOB TICK - PROCESSES ALL ACTIVE ENGINES ⚡⚡⚡
-   * This should be called every 1 minute by a cron scheduler
+   * This is called every 1 minute by pg_cron
    */
   static async runCronTick(): Promise<any> {
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
     
     try {
-      // Find all active engines in the KV store
-      const allEngines = await kv.getByPrefix('engine_state_');
+      // ⚡ Load active engines from Supabase DB table (more reliable than KV)
+      const { data: activeEngines, error: dbError } = await supabaseAdmin
+        .from('trading_engine_state')
+        .select('*')
+        .eq('is_running', true);
       
-      if (!allEngines || allEngines.length === 0) {
-        console.log(`⏱️ [CRON] No active engines found.`);
+      if (dbError) {
+        console.error(`❌ [CRON] DB error loading engines:`, dbError);
+        // Fallback to KV store
+        return await this.runCronTickFromKV();
+      }
+      
+      if (!activeEngines || activeEngines.length === 0) {
+        console.log(`⏱️ [CRON] No active engines found in DB.`);
         return { success: true, processed: 0, message: "No active engines" };
       }
       
       let processedCount = 0;
       
-      // Process each engine sequentially
-      for (const item of allEngines) {
-        const state = item.value as EngineState;
-        
-        // Ensure state exists and is marked as running
-        if (state && state.isRunning && state.userId && state.dhanClientId && state.dhanAccessToken) {
-          console.log(`⏱️ [CRON] Processing engine for user ${state.userId}`);
+      for (const engine of activeEngines) {
+        try {
+          const userId = engine.user_id;
+          const settings = engine.strategy_settings || {};
+          const symbols = engine.selected_symbols || [];
           
-          // Hydrate memory state if needed
-          if (!this.engineStates.has(state.userId)) {
-             this.engineStates.set(state.userId, state);
+          // Get Dhan credentials from KV
+          const credentials = await kv.get(`api_credentials:${userId}`);
+          if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) {
+            console.warn(`⚠️ [CRON] No Dhan credentials for user ${userId}, skipping`);
+            continue;
           }
           
-          // Re-instantiate service
+          // Hydrate memory state if needed
+          if (!this.engineStates.has(userId)) {
+            this.engineStates.set(userId, {
+              isRunning: true,
+              userId,
+              candleInterval: settings.candleInterval || '15',
+              symbols,
+              lastProcessedCandle: settings.lastProcessedCandle || '',
+              activePositions: [],
+              stats: {
+                totalSignals: settings.totalSignals || 0,
+                totalOrders: settings.totalOrders || 0,
+                totalPnL: settings.totalPnL || 0
+              },
+              startTime: new Date(engine.started_at || engine.created_at).getTime(),
+              lastHeartbeat: Date.now(),
+              dhanClientId: credentials.dhanClientId,
+              dhanAccessToken: credentials.dhanAccessToken
+            });
+          }
+          
           const dhanService = new DhanService({
-            clientId: state.dhanClientId,
-            accessToken: state.dhanAccessToken
+            clientId: credentials.dhanClientId,
+            accessToken: credentials.dhanAccessToken
           });
           
-          // Execute main logic loop for this user
-          await this.engineLoop(state.userId, dhanService, state.dhanClientId, state.dhanAccessToken);
+          // Execute engine loop
+          await this.engineLoop(userId, dhanService, credentials.dhanClientId, credentials.dhanAccessToken);
+          
+          // Update heartbeat in DB
+          await supabaseAdmin
+            .from('trading_engine_state')
+            .update({ last_heartbeat: new Date().toISOString() })
+            .eq('user_id', userId);
           
           processedCount++;
+        } catch (engineErr) {
+          console.error(`❌ [CRON] Error processing engine for user ${engine.user_id}:`, engineErr);
         }
       }
+      
+      // ⚡ Auto-cleanup: delete signals older than 24 hours
+      await this.cleanupOldSignals();
       
       console.log(`⏱️ [CRON] Tick complete. Processed ${processedCount} engines.`);
       return { success: true, processed: processedCount };
@@ -207,16 +269,87 @@ class PersistentTradingEngine {
       return { success: false, error: String(error) };
     }
   }
+
+  /**
+   * Fallback: run cron from KV store (legacy)
+   */
+  private static async runCronTickFromKV(): Promise<any> {
+    try {
+      const allEngines = await kv.getByPrefix('engine_state_');
+      if (!allEngines || allEngines.length === 0) {
+        return { success: true, processed: 0, message: "No active engines (KV fallback)" };
+      }
+      
+      let processedCount = 0;
+      for (const item of allEngines) {
+        const state = item.value as EngineState;
+        if (state && state.isRunning && state.userId && state.dhanClientId && state.dhanAccessToken) {
+          if (!this.engineStates.has(state.userId)) {
+            this.engineStates.set(state.userId, state);
+          }
+          const dhanService = new DhanService({
+            clientId: state.dhanClientId,
+            accessToken: state.dhanAccessToken
+          });
+          await this.engineLoop(state.userId, dhanService, state.dhanClientId, state.dhanAccessToken);
+          processedCount++;
+        }
+      }
+      return { success: true, processed: processedCount, source: 'kv_fallback' };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
   
   /**
    * GET ENGINE STATUS FOR USER
    */
-  static async getEngineStatus(userId: string): Promise<EngineState | null> {
+  static async getEngineStatus(userId: string): Promise<any> {
     // Try memory first
     let state = this.engineStates.get(userId);
     
-    // If not in memory, load from database
+    // If not in memory, load from DB
     if (!state) {
+      const { data } = await supabaseAdmin
+        .from('trading_engine_state')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      if (data) {
+        // Also load active positions from DB
+        const { data: positions } = await supabaseAdmin
+          .from('position_monitor_state')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('is_active', true);
+        
+        // Load today's stats
+        const today = new Date().toISOString().split('T')[0];
+        const { data: stats } = await supabaseAdmin
+          .from('signal_stats')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('stat_date', today)
+          .maybeSingle();
+        
+        return {
+          isRunning: data.is_running,
+          candleInterval: data.strategy_settings?.candleInterval || '15',
+          symbols: data.selected_symbols || [],
+          activePositions: positions || [],
+          stats: {
+            totalSignals: stats?.signal_count || 0,
+            totalOrders: stats?.order_count || 0,
+            totalPnL: stats?.total_pnl || 0
+          },
+          startTime: data.started_at ? new Date(data.started_at).getTime() : 0,
+          lastHeartbeat: data.last_heartbeat ? new Date(data.last_heartbeat).getTime() : 0,
+          source: 'database'
+        };
+      }
+      
+      // Fallback to KV
       const stored = await kv.get(`engine_state_${userId}`);
       if (stored) {
         state = stored as EngineState;
@@ -227,7 +360,7 @@ class PersistentTradingEngine {
   }
   
   /**
-   * ⚡⚡⚡ MAIN ENGINE LOOP - EXECUTES EVERY SECOND ⚡⚡⚡
+   * ⚡⚡⚡ MAIN ENGINE LOOP ⚡⚡⚡
    */
   private static async engineLoop(
     userId: string, 
@@ -256,7 +389,7 @@ class PersistentTradingEngine {
       const marketClose = 15 * 60 + 30; // 3:30 PM
       
       if (currentTimeMinutes < marketOpen || currentTimeMinutes > marketClose) {
-        console.log(`💤 Market closed - Engine idle`);
+        console.log(`💤 Market closed - Engine idle for user ${userId}`);
         return;
       }
       
@@ -268,8 +401,7 @@ class PersistentTradingEngine {
       const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
       
       if (currentCandleTimestamp === state.lastProcessedCandle) {
-        // Already processed this candle, no new AI signal needed yet
-        // Save state to database (in case positions updated)
+        // Already processed this candle
         await kv.set(`engine_state_${userId}`, state);
         return;
       }
@@ -286,7 +418,6 @@ class PersistentTradingEngine {
         try {
           console.log(`\n📊 Analyzing: ${symbol.name}`);
           
-          // Get AI signal (now passing dhanService as first parameter)
           const aiSignal = await AdvancedAI.analyzeMarket(
             dhanService,
             symbol.index || 'NIFTY',
@@ -295,6 +426,12 @@ class PersistentTradingEngine {
           );
           
           state.stats.totalSignals++;
+          
+          // ⚡ Save signal to database
+          await this.saveSignalToDB(userId, symbol, aiSignal);
+          
+          // ⚡ Update signal stats
+          await this.incrementSignalStats(userId, 'signal');
           
           if (!aiSignal || !aiSignal.signal) {
             console.log(`⚠️ No signal generated for ${symbol.name}`);
@@ -329,7 +466,7 @@ class PersistentTradingEngine {
             const orderParams = {
               securityId: symbol.securityId,
               transactionType: 'BUY',
-              exchangeSegment: 'NSE_FNO', // ⚡ FIXED: Changed from 'NFO' to 'NSE_FNO' for Dhan API
+              exchangeSegment: 'NSE_FNO',
               productType: 'INTRADAY',
               orderType: 'MARKET',
               validity: 'DAY',
@@ -343,7 +480,6 @@ class PersistentTradingEngine {
               boStopLossValue: 0
             };
             
-            // ✅ Use Static IP server for order placement (SEBI compliance)
             const orderResult = await placeOrderViaStaticIP(
               userId,
               {
@@ -356,8 +492,7 @@ class PersistentTradingEngine {
             if (orderResult.orderId) {
               console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
               
-              // Add to active positions
-              state.activePositions.push({
+              const positionData = {
                 orderId: orderResult.orderId,
                 symbolName: symbol.symbolName,
                 securityId: symbol.securityId,
@@ -370,11 +505,21 @@ class PersistentTradingEngine {
                 pnl: 0,
                 entryTime: Date.now(),
                 status: 'ACTIVE'
-              });
+              };
               
+              state.activePositions.push(positionData);
               state.stats.totalOrders++;
               
-              // Save log
+              // ⚡ Save order to database
+              await this.saveOrderToDB(userId, symbol, orderResult, action);
+              
+              // ⚡ Save position to database
+              await this.savePositionToDB(userId, positionData, symbol);
+              
+              // ⚡ Update order stats
+              await this.incrementSignalStats(userId, 'order');
+              
+              // Save log to KV (legacy)
               await kv.set(`engine_log_${userId}_${Date.now()}`, {
                 type: 'ORDER_PLACED',
                 timestamp: Date.now(),
@@ -385,6 +530,9 @@ class PersistentTradingEngine {
               });
             } else {
               console.log(`❌ ORDER FAILED: ${orderResult.error}`);
+              
+              // ⚡ Save failed order to database
+              await this.saveOrderToDB(userId, symbol, orderResult, action, 'failed');
             }
           }
           
@@ -393,15 +541,16 @@ class PersistentTradingEngine {
         }
       }
       
-      // Save state to database (Position monitoring already done above)
+      // Save state to KV (legacy)
       await kv.set(`engine_state_${userId}`, state);
+      
+      // ⚡ Update engine state in DB
+      await this.saveEngineStateToDB(userId, state);
       
       console.log(`✅ Engine loop complete | Signals: ${state.stats.totalSignals} | Orders: ${state.stats.totalOrders}`);
       
     } catch (error) {
       console.error(`❌ Engine loop error for ${userId}:`, error);
-      
-      // Save error log
       await kv.set(`engine_error_${userId}_${Date.now()}`, {
         timestamp: Date.now(),
         error: String(error)
@@ -417,11 +566,43 @@ class PersistentTradingEngine {
     dhanService: DhanService,
     state: EngineState
   ): Promise<void> {
+    // Also check DB for positions (in case frontend added them)
+    if (state.activePositions.length === 0) {
+      const { data: dbPositions } = await supabaseAdmin
+        .from('position_monitor_state')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_active', true);
+      
+      if (dbPositions && dbPositions.length > 0) {
+        // Hydrate state from DB
+        for (const dbPos of dbPositions) {
+          state.activePositions.push({
+            orderId: dbPos.order_id,
+            symbolName: dbPos.symbol,
+            securityId: dbPos.symbol_id,
+            entryPrice: dbPos.entry_price,
+            currentPrice: dbPos.current_price,
+            quantity: dbPos.quantity,
+            targetAmount: dbPos.target_amount,
+            stopLossAmount: dbPos.stop_loss_amount,
+            pnl: dbPos.pnl,
+            highestPnl: dbPos.highest_pnl,
+            trailingEnabled: dbPos.trailing_enabled,
+            trailingStep: dbPos.trailing_step,
+            entryTime: new Date(dbPos.created_at).getTime(),
+            status: 'ACTIVE'
+          });
+        }
+        console.log(`📊 Loaded ${dbPositions.length} positions from DB for user ${userId}`);
+      }
+    }
+    
     if (state.activePositions.length === 0) {
       return;
     }
     
-    console.log(`\n🔍 MONITORING ${state.activePositions.length} POSITIONS`);
+    console.log(`\n🔍 MONITORING ${state.activePositions.length} POSITIONS for user ${userId}`);
     
     try {
       // Fetch fresh positions from Dhan
@@ -433,13 +614,25 @@ class PersistentTradingEngine {
         // Find matching Dhan position
         const dhanPos = dhanPositions.find((dp: any) => 
           dp.tradingSymbol === position.symbolName || 
-          dp.securityId === position.securityId.toString()
+          dp.securityId === position.securityId?.toString()
         );
         
         // Check if position is closed
         if (!dhanPos || dhanPos.netQty === 0) {
           console.log(`🚪 Position CLOSED: ${position.symbolName}`);
           position.status = 'CLOSED';
+          
+          // ⚡ Update DB
+          await supabaseAdmin
+            .from('position_monitor_state')
+            .update({ 
+              is_active: false, 
+              exit_reason: 'Position closed externally',
+              exited_at: new Date().toISOString()
+            })
+            .eq('user_id', userId)
+            .eq('order_id', position.orderId);
+          
           continue;
         }
         
@@ -450,31 +643,56 @@ class PersistentTradingEngine {
         position.currentPrice = currentPrice;
         position.pnl = pnl;
         
-        console.log(`📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)}`);
+        // Track highest P&L for trailing
+        if (!position.highestPnl || pnl > position.highestPnl) {
+          position.highestPnl = pnl;
+        }
+        
+        console.log(`📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)}`);
+        
+        // ⚡ Update position in DB
+        await supabaseAdmin
+          .from('position_monitor_state')
+          .update({
+            current_price: currentPrice,
+            pnl: pnl,
+            highest_pnl: position.highestPnl || 0,
+            raw_position: dhanPos
+          })
+          .eq('user_id', userId)
+          .eq('order_id', position.orderId);
         
         // Check exit conditions
         let shouldExit = false;
         let exitReason = '';
         
         // Stop Loss
-        if (pnl <= -position.stopLossAmount) {
+        if (pnl <= -(position.stopLossAmount || 300)) {
           shouldExit = true;
           exitReason = `Stop Loss Hit (₹${pnl.toFixed(2)})`;
         }
         // Target
-        else if (pnl >= position.targetAmount) {
+        else if (pnl >= (position.targetAmount || 500)) {
           shouldExit = true;
           exitReason = `Target Achieved (₹${pnl.toFixed(2)})`;
+        }
+        // Trailing Stop Loss
+        else if (position.trailingEnabled && position.highestPnl > 0) {
+          const trailingStep = position.trailingStep || 50;
+          const trailTrigger = position.highestPnl - trailingStep;
+          if (pnl <= trailTrigger && pnl > 0) {
+            shouldExit = true;
+            exitReason = `Trailing SL Hit (Peak: ₹${position.highestPnl.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          }
         }
         
         if (shouldExit) {
           console.log(`\n🚪 EXIT TRIGGERED: ${exitReason}`);
           
-          // ✅ Use Static IP server for exit order (SEBI compliance)
           const exitParams = {
             securityId: position.securityId,
             transactionType: 'SELL',
-            exchangeSegment: 'NSE_FNO', // ⚡ FIXED: Changed from 'NFO' to 'NSE_FNO' for Dhan API
+            exchangeSegment: 'NSE_FNO',
             productType: 'INTRADAY',
             orderType: 'MARKET',
             validity: 'DAY',
@@ -489,10 +707,10 @@ class PersistentTradingEngine {
           };
           
           const exitResult = await placeOrderViaStaticIP(
-            state.userId,
+            userId,
             {
-              dhanClientId: state.userId, // Using userId as clientId (should be actual clientId)
-              dhanAccessToken: state.dhanAccessToken || ''
+              dhanClientId: state.dhanClientId || dhanClientId,
+              dhanAccessToken: state.dhanAccessToken || dhanAccessToken
             },
             exitParams
           );
@@ -501,6 +719,21 @@ class PersistentTradingEngine {
             console.log(`✅ EXIT ORDER PLACED! ${exitReason}`);
             position.status = 'CLOSED';
             state.stats.totalPnL += pnl;
+            
+            // ⚡ Update position in DB
+            await supabaseAdmin
+              .from('position_monitor_state')
+              .update({
+                is_active: false,
+                exit_reason: exitReason,
+                exited_at: new Date().toISOString(),
+                pnl: pnl
+              })
+              .eq('user_id', userId)
+              .eq('order_id', position.orderId);
+            
+            // ⚡ Update P&L in stats
+            await this.updatePnLStats(userId, pnl);
             
             // Save log
             await kv.set(`engine_log_${userId}_${Date.now()}`, {
@@ -516,11 +749,227 @@ class PersistentTradingEngine {
         }
       }
       
-      // Remove closed positions
+      // Remove closed positions from memory
       state.activePositions = state.activePositions.filter(p => p.status === 'ACTIVE');
       
     } catch (error) {
       console.error('❌ Position monitoring error:', error);
+    }
+  }
+
+  // ==================== DATABASE HELPERS ====================
+
+  /**
+   * Save engine state to trading_engine_state table
+   */
+  private static async saveEngineStateToDB(userId: string, state: EngineState): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('trading_engine_state')
+        .upsert({
+          user_id: userId,
+          is_running: state.isRunning,
+          selected_symbols: state.symbols,
+          strategy_settings: {
+            candleInterval: state.candleInterval,
+            lastProcessedCandle: state.lastProcessedCandle,
+            totalSignals: state.stats.totalSignals,
+            totalOrders: state.stats.totalOrders,
+            totalPnL: state.stats.totalPnL
+          },
+          started_at: state.isRunning ? new Date(state.startTime).toISOString() : null,
+          last_heartbeat: new Date().toISOString()
+        }, { onConflict: 'user_id' });
+    } catch (err) {
+      console.error('❌ Failed to save engine state to DB:', err);
+    }
+  }
+
+  /**
+   * Mark engine as stopped in DB
+   */
+  private static async markEngineStoppedInDB(userId: string): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('trading_engine_state')
+        .update({
+          is_running: false,
+          stopped_at: new Date().toISOString(),
+          last_heartbeat: new Date().toISOString()
+        })
+        .eq('user_id', userId);
+    } catch (err) {
+      console.error('❌ Failed to mark engine stopped in DB:', err);
+    }
+  }
+
+  /**
+   * Save signal to trading_signals table
+   */
+  private static async saveSignalToDB(userId: string, symbol: any, aiSignal: any): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('trading_signals')
+        .insert({
+          user_id: userId,
+          symbol: symbol.symbolName || symbol.name || 'UNKNOWN',
+          signal_type: aiSignal?.signal?.action || 'NONE',
+          index_name: symbol.index || 'NIFTY',
+          price: aiSignal?.signal?.price || null,
+          strike_price: symbol.strikePrice || null,
+          option_type: symbol.optionType || null,
+          expiry: symbol.expiry || null,
+          confidence: aiSignal?.signal?.confidence || 0,
+          raw_data: aiSignal || {},
+          status: 'detected'
+        });
+    } catch (err) {
+      console.error('❌ Failed to save signal to DB:', err);
+    }
+  }
+
+  /**
+   * Save order to trading_orders table
+   */
+  private static async saveOrderToDB(userId: string, symbol: any, orderResult: any, action: string, status: string = 'completed'): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('trading_orders')
+        .insert({
+          user_id: userId,
+          symbol: symbol.symbolName || symbol.name || 'UNKNOWN',
+          index_name: symbol.index || 'NIFTY',
+          order_type: 'MARKET',
+          transaction_type: 'BUY',
+          quantity: symbol.quantity || 15,
+          price: orderResult.averagePrice || orderResult.price || 0,
+          dhan_order_id: orderResult.orderId || null,
+          exchange_segment: 'NSE_FNO',
+          symbol_id: symbol.securityId?.toString() || null,
+          status: status,
+          error_message: orderResult.error || null,
+          raw_response: orderResult || {}
+        });
+    } catch (err) {
+      console.error('❌ Failed to save order to DB:', err);
+    }
+  }
+
+  /**
+   * Save position to position_monitor_state table
+   */
+  private static async savePositionToDB(userId: string, position: any, symbol: any): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('position_monitor_state')
+        .upsert({
+          user_id: userId,
+          order_id: position.orderId,
+          symbol: position.symbolName || symbol.symbolName || 'UNKNOWN',
+          index_name: symbol.index || 'NIFTY',
+          symbol_id: position.securityId?.toString() || symbol.securityId?.toString() || null,
+          exchange_segment: 'NSE_FNO',
+          entry_price: position.entryPrice || 0,
+          current_price: position.currentPrice || 0,
+          quantity: position.quantity || 15,
+          pnl: 0,
+          target_amount: position.targetAmount || 500,
+          stop_loss_amount: position.stopLossAmount || 300,
+          trailing_enabled: position.trailingEnabled || false,
+          trailing_step: position.trailingStep || 50,
+          highest_pnl: 0,
+          is_active: true
+        }, { onConflict: 'user_id,order_id' });
+    } catch (err) {
+      console.error('❌ Failed to save position to DB:', err);
+    }
+  }
+
+  /**
+   * Increment signal stats for today
+   */
+  private static async incrementSignalStats(userId: string, type: 'signal' | 'order' | 'speed'): Promise<void> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Try to get existing row
+      const { data: existing } = await supabaseAdmin
+        .from('signal_stats')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('stat_date', today)
+        .maybeSingle();
+      
+      if (existing) {
+        const updates: any = {};
+        if (type === 'signal') updates.signal_count = (existing.signal_count || 0) + 1;
+        if (type === 'order') updates.order_count = (existing.order_count || 0) + 1;
+        if (type === 'speed') updates.speed_count = (existing.speed_count || 0) + 1;
+        
+        await supabaseAdmin
+          .from('signal_stats')
+          .update(updates)
+          .eq('id', existing.id);
+      } else {
+        await supabaseAdmin
+          .from('signal_stats')
+          .insert({
+            user_id: userId,
+            stat_date: today,
+            signal_count: type === 'signal' ? 1 : 0,
+            order_count: type === 'order' ? 1 : 0,
+            speed_count: type === 'speed' ? 1 : 0
+          });
+      }
+    } catch (err) {
+      console.error('❌ Failed to update signal stats:', err);
+    }
+  }
+
+  /**
+   * Update P&L in signal stats
+   */
+  private static async updatePnLStats(userId: string, pnl: number): Promise<void> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const { data: existing } = await supabaseAdmin
+        .from('signal_stats')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('stat_date', today)
+        .maybeSingle();
+      
+      if (existing) {
+        await supabaseAdmin
+          .from('signal_stats')
+          .update({
+            total_pnl: (existing.total_pnl || 0) + pnl,
+            successful_orders: pnl > 0 ? (existing.successful_orders || 0) + 1 : existing.successful_orders,
+            failed_orders: pnl <= 0 ? (existing.failed_orders || 0) + 1 : existing.failed_orders
+          })
+          .eq('id', existing.id);
+      }
+    } catch (err) {
+      console.error('❌ Failed to update P&L stats:', err);
+    }
+  }
+
+  /**
+   * Cleanup signals older than 24 hours
+   */
+  private static async cleanupOldSignals(): Promise<void> {
+    try {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { error } = await supabaseAdmin
+        .from('trading_signals')
+        .delete()
+        .lt('created_at', cutoff);
+      
+      if (!error) {
+        console.log(`🧹 Cleaned up signals older than 24 hours`);
+      }
+    } catch (err) {
+      console.error('❌ Failed to cleanup old signals:', err);
     }
   }
   
@@ -528,20 +977,16 @@ class PersistentTradingEngine {
    * Get interval in milliseconds
    */
   private static getIntervalMilliseconds(interval: '5' | '15'): number {
-    // Run every 1 second to check for new candles
-    return 1000;
+    return 1000; // Run every 1 second
   }
   
   /**
-   * Get current candle timestamp (e.g., "09:15", "09:20")
+   * Get current candle timestamp
    */
   private static getCurrentCandleTimestamp(date: Date, interval: number): string {
     const hours = date.getHours();
     const minutes = date.getMinutes();
-    
-    // Round down to nearest interval
     const candleMinute = Math.floor(minutes / interval) * interval;
-    
     return `${hours.toString().padStart(2, '0')}:${candleMinute.toString().padStart(2, '0')}`;
   }
 }

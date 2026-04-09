@@ -1,3 +1,6 @@
+// @ts-ignore - EdgeRuntime is available in Supabase Edge Functions
+declare const EdgeRuntime: { waitUntil?: (promise: Promise<any>) => void } | undefined;
+
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -7446,7 +7449,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`   Interval: ${candleInterval}M`);
     console.log(`   Symbols: ${symbols.length}`);
 
-    // Start engine
+    // Start engine (saves to both KV and DB)
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
       candleInterval: candleInterval || '15',
@@ -7457,6 +7460,17 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
 
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
+
+    // ⚡ Use EdgeRuntime.waitUntil to keep engine running in background
+    // This extends the function execution beyond the response
+    if (result.success && typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+      EdgeRuntime.waitUntil(
+        (async () => {
+          // Run one immediate engine tick in background
+          await PersistentTradingEngine.runCronTick();
+        })()
+      );
+    }
 
     return c.json(result);
   } catch (error: any) {
@@ -9788,6 +9802,226 @@ app.post("/make-server-c4d79cb7/auth/admin-2fa-secret", async (c) => {
     return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
+  }
+});
+
+// ==================== BACKEND ENGINE CRON ROUTES ====================
+
+/**
+ * ⚡ CRON EXECUTE - Called by pg_cron every 1 minute
+ * Processes all active engines (signal detection, order placement, position monitoring)
+ */
+app.post("/make-server-c4d79cb7/backend-engine/execute", async (c) => {
+  try {
+    console.log(`\n⏱️ ========== CRON ENGINE TICK ==========`);
+    const result = await PersistentTradingEngine.runCronTick();
+    console.log(`⏱️ ========== CRON TICK COMPLETE ==========\n`);
+    return c.json(result);
+  } catch (error: any) {
+    console.error('❌ Cron engine execute error:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/**
+ * ⚡ GET ENGINE STATUS (from DB - works on any device)
+ */
+app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || 'Unauthorized' }, 401);
+    }
+
+    // Get engine state from DB
+    const { data: engineState } = await supabase
+      .from('trading_engine_state')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    // Get active positions from DB
+    const { data: positions } = await supabase
+      .from('position_monitor_state')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_active', true);
+
+    // Get today's stats
+    const today = new Date().toISOString().split('T')[0];
+    const { data: stats } = await supabase
+      .from('signal_stats')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('stat_date', today)
+      .maybeSingle();
+
+    // Get recent signals (last 50)
+    const { data: signals } = await supabase
+      .from('trading_signals')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    // Get recent orders (last 50)
+    const { data: orders } = await supabase
+      .from('trading_orders')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    return c.json({
+      success: true,
+      engine: engineState ? {
+        isRunning: engineState.is_running,
+        selectedSymbols: engineState.selected_symbols || [],
+        strategySettings: engineState.strategy_settings || {},
+        startedAt: engineState.started_at,
+        lastHeartbeat: engineState.last_heartbeat,
+        uptime: engineState.started_at ? Date.now() - new Date(engineState.started_at).getTime() : 0
+      } : { isRunning: false },
+      positions: positions || [],
+      stats: stats || { signal_count: 0, order_count: 0, speed_count: 0, total_pnl: 0 },
+      signals: signals || [],
+      orders: orders || []
+    });
+  } catch (error: any) {
+    console.error('❌ Error getting DB engine status:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ==================== SYMBOL MANAGEMENT (SERVER-SIDE) ====================
+
+/**
+ * ⚡ SAVE SYMBOLS TO DATABASE
+ */
+app.post("/make-server-c4d79cb7/symbols/save", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || 'Unauthorized' }, 401);
+    }
+
+    const body = await c.req.json();
+    const { symbols } = body;
+
+    if (!symbols || !Array.isArray(symbols)) {
+      return c.json({ error: 'symbols array required' }, 400);
+    }
+
+    // Prepare rows for upsert
+    const rows = symbols.map((s: any) => ({
+      user_id: user.id,
+      symbol_name: s.symbolName || s.name || 'UNKNOWN',
+      symbol_id: s.securityId?.toString() || s.symbolId?.toString() || '',
+      exchange_segment: s.exchangeSegment || 'NSE_FNO',
+      instrument_type: s.instrumentType || 'OPTIDX',
+      lot_size: s.lotSize || s.quantity || 1,
+      expiry: s.expiry || null,
+      strike_price: s.strikePrice || null,
+      option_type: s.optionType || null,
+      index_name: s.index || s.indexName || 'NIFTY',
+      raw_data: s
+    }));
+
+    const { error: upsertError } = await supabase
+      .from('user_symbols')
+      .upsert(rows, { onConflict: 'user_id,symbol_id' });
+
+    if (upsertError) {
+      return c.json({ error: upsertError.message }, 500);
+    }
+
+    console.log(`✅ Saved ${rows.length} symbols for user ${user.id}`);
+    return c.json({ success: true, saved: rows.length });
+  } catch (error: any) {
+    console.error('❌ Error saving symbols:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+/**
+ * ⚡ GET SYMBOLS FROM DATABASE
+ */
+app.get("/make-server-c4d79cb7/symbols/get", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || 'Unauthorized' }, 401);
+    }
+
+    const { data: symbols, error: fetchError } = await supabase
+      .from('user_symbols')
+      .select('*')
+      .eq('user_id', user.id);
+
+    if (fetchError) {
+      return c.json({ error: fetchError.message }, 500);
+    }
+
+    return c.json({ success: true, symbols: symbols || [] });
+  } catch (error: any) {
+    console.error('❌ Error getting symbols:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+/**
+ * ⚡ DELETE USER SYMBOL
+ */
+app.delete("/make-server-c4d79cb7/symbols/delete", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || 'Unauthorized' }, 401);
+    }
+
+    const { symbolId } = await c.req.json();
+    if (!symbolId) return c.json({ error: 'symbolId required' }, 400);
+
+    await supabase
+      .from('user_symbols')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('symbol_id', symbolId);
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+/**
+ * ⚡ GET SIGNAL STATS (Performance Section)
+ */
+app.get("/make-server-c4d79cb7/signal-stats", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || 'Unauthorized' }, 401);
+    }
+
+    const days = parseInt(c.req.query('days') || '7');
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - days);
+
+    const { data: stats, error: fetchError } = await supabase
+      .from('signal_stats')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('stat_date', fromDate.toISOString().split('T')[0])
+      .order('stat_date', { ascending: false });
+
+    if (fetchError) {
+      return c.json({ error: fetchError.message }, 500);
+    }
+
+    return c.json({ success: true, stats: stats || [] });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
   }
 });
 
