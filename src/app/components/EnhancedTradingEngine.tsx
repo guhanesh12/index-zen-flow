@@ -1437,6 +1437,120 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     });
   };
 
+  // ============ FORCE CHECK & AUTO-DETECT POSITIONS ============
+  const forceCheckPositions = async () => {
+    console.log('🔥 FORCE POSITION CHECK - Fetching positions from Dhan...');
+    try {
+      const freshToken = await getFreshAccessToken();
+      const positionsUrl = userIdRef.current
+        ? `${serverUrl}/positions?userId=${encodeURIComponent(userIdRef.current)}`
+        : `${serverUrl}/positions`;
+      const positionsResponse = await fetch(positionsUrl, {
+        headers: { Authorization: `Bearer ${freshToken}` }
+      });
+      const positionsData = await positionsResponse.json();
+
+      if (!positionsData.success || !positionsData.positions) {
+        console.log('⚠️ Could not fetch positions from Dhan');
+        return { found: false, count: 0 };
+      }
+
+      const dhanPositions = positionsData.positions;
+      // Filter for open positions (netQty != 0)
+      const openPositions = dhanPositions.filter((p: any) => {
+        const netQty = p.netQty ?? p.buyQty - p.sellQty;
+        return Math.abs(netQty) > 0;
+      });
+
+      console.log(`📊 Dhan API: ${dhanPositions.length} total, ${openPositions.length} open positions`);
+
+      if (openPositions.length > 0 && activePositions.length === 0) {
+        // Convert Dhan positions to active positions format
+        const convertedPositions = openPositions.map((p: any) => {
+          const netQty = p.netQty ?? p.buyQty - p.sellQty;
+          const entryPrice = p.buyAvg || p.costPrice || 0;
+          const currentPrice = p.lastTradedPrice || p.dayBuyValue / (p.buyQty || 1) || 0;
+          const pnl = p.realizedProfit || p.pnl || ((currentPrice - entryPrice) * Math.abs(netQty));
+          const orderId = p.exchangeOrderNo || p.orderId || `dhan_${p.securityId}_${Date.now()}`;
+          const optionType = (p.tradingSymbol || '').includes('CE') ? 'CE' : 'PE';
+
+          // Try to load metadata from localStorage
+          let targetAmount = 3000, stopLossAmount = 2000;
+          let trailingEnabled = false, trailingActivationAmount = 0;
+          let targetJumpAmount = 0, stopLossJumpAmount = 0;
+          try {
+            const meta = localStorage.getItem(`position_meta_${orderId}`);
+            if (meta) {
+              const parsed = JSON.parse(meta);
+              targetAmount = parsed.targetAmount || targetAmount;
+              stopLossAmount = parsed.stopLossAmount || stopLossAmount;
+              trailingEnabled = parsed.trailingEnabled || false;
+              trailingActivationAmount = parsed.trailingActivationAmount || 0;
+              targetJumpAmount = parsed.targetJumpAmount || 0;
+              stopLossJumpAmount = parsed.stopLossJumpAmount || 0;
+            }
+          } catch {}
+
+          return {
+            orderId, symbolName: p.tradingSymbol || 'Unknown', securityId: p.securityId || '',
+            optionType: optionType as 'CE' | 'PE', entryPrice, currentPrice,
+            quantity: Math.abs(netQty), targetAmount, stopLossAmount,
+            currentTarget: targetAmount, currentStopLoss: stopLossAmount,
+            trailingEnabled, trailingActivationAmount, targetJumpAmount, stopLossJumpAmount,
+            trailingActivated: false, highestPnL: pnl > 0 ? pnl : 0, pnl,
+            entryTime: Date.now(), status: 'ACTIVE' as const,
+            productType: 'INTRADAY', exchangeSegment: 'NSE_FNO'
+          };
+        });
+
+        setActivePositions(convertedPositions);
+        console.log(`✅ Auto-loaded ${convertedPositions.length} positions into monitoring`);
+
+        // Enable position monitor and start monitoring
+        setIsPositionMonitorActive(true);
+        isPositionMonitorActiveRef.current = true;
+
+        setTimeout(() => {
+          monitorPositions().catch(err => console.error('Auto-monitor error:', err));
+        }, 1000);
+
+        return { found: true, count: convertedPositions.length };
+      } else if (openPositions.length > 0 && activePositions.length > 0) {
+        // Positions already tracked, just ensure monitor is active
+        if (!isPositionMonitorActiveRef.current) {
+          setIsPositionMonitorActive(true);
+          isPositionMonitorActiveRef.current = true;
+          monitorPositions().catch(() => {});
+        }
+        return { found: true, count: activePositions.length };
+      }
+
+      return { found: false, count: 0 };
+    } catch (error) {
+      console.error('❌ Force check positions error:', error);
+      return { found: false, count: 0 };
+    }
+  };
+
+  // ⚡ AUTO-CHECK: Every 60 seconds, check for new positions and auto-start monitoring
+  useEffect(() => {
+    autoPositionCheckRef.current = setInterval(async () => {
+      if (!isRunningRef.current) return; // Only check when engine is running
+      
+      console.log('🔄 [Auto-Check] Checking for active positions...');
+      const result = await forceCheckPositions();
+      if (result.found) {
+        console.log(`✅ [Auto-Check] Found ${result.count} position(s) - monitoring active`);
+      }
+    }, 60000); // Every 60 seconds
+
+    return () => {
+      if (autoPositionCheckRef.current) {
+        clearInterval(autoPositionCheckRef.current);
+      }
+    };
+  }, []);
+
   // ============ EDIT POSITION TARGET/STOPLOSS ============
   const startEditPosition = (orderId: string, currentTarget: number, currentStopLoss: number) => {
     setEditingPosition(orderId);
