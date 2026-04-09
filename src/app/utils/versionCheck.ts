@@ -14,8 +14,10 @@
 
 const VERSION_CHECK_INTERVAL = 60000; // Check every 60 seconds
 const VERSION_FILE = '/version.json';
+const INITIAL_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : null;
+const INITIAL_BUILD_TIME = typeof __APP_BUILD_TIME__ === 'string' ? __APP_BUILD_TIME__ : 'unknown';
 
-let currentVersion: string | null = null;
+let currentVersion: string | null = INITIAL_VERSION;
 let checkInterval: number | null = null;
 
 interface VersionInfo {
@@ -41,6 +43,12 @@ async function fetchVersion(): Promise<VersionInfo | null> {
     
     if (!response.ok) {
       // Silent - version.json doesn't exist yet (normal before first build)
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+
+    if (!contentType.includes('application/json')) {
       return null;
     }
     
@@ -107,7 +115,7 @@ export function startVersionCheck() {
     return;
   }
   
-  console.log('🔍 Version check service started (checking every 60s)');
+  console.log(`🔍 Version check service started (running ${currentVersion ?? 'unknown'} built ${INITIAL_BUILD_TIME})`);
   
   // Check immediately
   checkForNewVersion();
