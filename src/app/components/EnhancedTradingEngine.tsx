@@ -3313,22 +3313,24 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           } : p)
         );
         
-        // ⚡⚡⚡ TRAILING STOP LOSS LOGIC ⚡⚡⚡
+        // ⚡⚡⚡ TRAILING STOP LOSS LOGIC (REF-SAFE) ⚡⚡⚡
         if (position.trailingEnabled && pnl > 0) {
           // Initialize current values if not set
-          if (!position.currentTarget) {
-            position.currentTarget = position.targetAmount;
-          }
-          if (!position.currentStopLoss) {
-            position.currentStopLoss = position.stopLossAmount;
-          }
-          if (position.highestPnL === undefined || position.highestPnL === null) {
-            position.highestPnL = 0;
-          }
+          const currentTarget = position.currentTarget || position.targetAmount;
+          const currentStopLossVal = position.currentStopLoss || position.stopLossAmount;
+          const currentHighestPnL = position.highestPnL || 0;
+          
+          // Track if anything changed for ref update
+          let trailingChanged = false;
+          let newTrailingActivated = position.trailingActivated || false;
+          let newCurrentTarget = currentTarget;
+          let newCurrentStopLoss = currentStopLossVal;
+          let newHighestPnL = currentHighestPnL;
           
           // Update highest PnL
-          if (pnl > position.highestPnL) {
-            position.highestPnL = pnl;
+          if (pnl > currentHighestPnL) {
+            newHighestPnL = pnl;
+            trailingChanged = true;
             
             // Check if trailing should activate or continue
             const activationAmount = position.trailingActivationAmount || 0;
@@ -3336,83 +3338,76 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             const stopLossJump = position.stopLossJumpAmount || 0;
             
             // Activate trailing when profit reaches activation amount
-            if (!position.trailingActivated && pnl >= activationAmount) {
-              position.trailingActivated = true;
+            if (!newTrailingActivated && pnl >= activationAmount) {
+              newTrailingActivated = true;
               console.log(`🔥 TRAILING ACTIVATED for ${position.symbolName} at profit ₹${pnl.toFixed(2)}`);
             }
             
             // If trailing is activated, update target and stop loss
-            if (position.trailingActivated && targetJump > 0 && stopLossJump > 0) {
-              // Calculate how many jumps have occurred since activation
+            if (newTrailingActivated && targetJump > 0 && stopLossJump > 0) {
               const profitAboveActivation = pnl - activationAmount;
               const numberOfJumps = Math.floor(profitAboveActivation / targetJump);
               
               if (numberOfJumps > 0) {
-                // Update dynamic target and stop loss
-                const newTarget = position.targetAmount + (numberOfJumps * targetJump);
-                const newStopLoss = position.stopLossAmount - (numberOfJumps * stopLossJump);
+                const calcTarget = position.targetAmount + (numberOfJumps * targetJump);
+                const calcStopLoss = position.stopLossAmount - (numberOfJumps * stopLossJump);
                 
-                // Only update if changed (avoid spam logs)
-                if (newTarget !== position.currentTarget || newStopLoss !== position.currentStopLoss) {
-                  const oldTarget = position.currentTarget;
-                  const oldStopLoss = position.currentStopLoss;
+                if (calcTarget !== newCurrentTarget || calcStopLoss !== newCurrentStopLoss) {
+                  const oldTarget = newCurrentTarget;
+                  const oldStopLoss = newCurrentStopLoss;
                   
-                  position.currentTarget = newTarget;
-                  position.currentStopLoss = newStopLoss;
+                  newCurrentTarget = calcTarget;
+                  newCurrentStopLoss = calcStopLoss;
                   
                   console.log(`📊 TRAILING UPDATE for ${position.symbolName}:`);
-                  console.log(`   Profit: ₹${pnl.toFixed(2)} (Highest: ₹${position.highestPnL.toFixed(2)})`);
-                  console.log(`   Target: ₹${oldTarget} → ₹${newTarget} (+₹${targetJump})`);
-                  console.log(`   Stop Loss: ₹${oldStopLoss} → ₹${newStopLoss} (-₹${stopLossJump})`);
+                  console.log(`   Profit: ₹${pnl.toFixed(2)} (Highest: ₹${newHighestPnL.toFixed(2)})`);
+                  console.log(`   Target: ₹${oldTarget} → ₹${newCurrentTarget} (+₹${targetJump})`);
+                  console.log(`   Stop Loss: ₹${oldStopLoss} → ₹${newCurrentStopLoss} (-₹${stopLossJump})`);
                   
-                  if (newStopLoss <= 0) {
-                    console.log(`   🟢 PROFIT LOCKED! Stop Loss is now at ₹${newStopLoss} (${newStopLoss < 0 ? '+' : ''}${Math.abs(newStopLoss)} profit guaranteed)`);
+                  if (newCurrentStopLoss <= 0) {
+                    console.log(`   🟢 PROFIT LOCKED! Stop Loss is now at ₹${newCurrentStopLoss}`);
                   }
                   
-                  // Update the position in activePositions array
-                  setActivePositions(prev => 
-                    prev.map(p => p.orderId === position.orderId ? {
-                      ...p,
-                      currentTarget: newTarget,
-                      currentStopLoss: newStopLoss,
-                      trailingActivated: true,
-                      highestPnL: position.highestPnL
-                    } : p)
-                  );
-                  
-                  // ⚡ UPDATE POSITION METADATA IN LOCALSTORAGE (trailing update)
-                  try {
-                    const metadata = JSON.parse(localStorage.getItem('position_metadata') || '{}');
-                    if (metadata[position.orderId]) {
-                      metadata[position.orderId].currentTarget = newTarget;
-                      metadata[position.orderId].currentStopLoss = newStopLoss;
-                      metadata[position.orderId].trailingActivated = true;
-                      metadata[position.orderId].highestPnL = position.highestPnL;
-                      localStorage.setItem('position_metadata', JSON.stringify(metadata));
-                      console.log(`💾 UPDATED Position Metadata for ${position.orderId} (trailing)`);
-                    }
-                  } catch (err) {
-                    console.error('Failed to update position metadata:', err);
-                  }
-                  
-                  // Log trailing update
                   onLog({
                     timestamp: Date.now(),
                     type: 'TRAILING_UPDATE',
-                    message: `⚡ Trailing updated for ${position.symbolName}: Target ₹${newTarget}, SL ₹${newStopLoss}${newStopLoss <= 0 ? ' 🟢 PROFIT LOCKED!' : ''}`,
-                    data: {
-                      symbol: position.symbolName,
-                      pnl,
-                      highestPnL: position.highestPnL,
-                      oldTarget,
-                      newTarget,
-                      oldStopLoss,
-                      newStopLoss,
-                      profitLocked: newStopLoss <= 0
-                    }
+                    message: `⚡ Trailing updated for ${position.symbolName}: Target ₹${newCurrentTarget}, SL ₹${newCurrentStopLoss}${newCurrentStopLoss <= 0 ? ' 🟢 PROFIT LOCKED!' : ''}`,
+                    data: { symbol: position.symbolName, pnl, highestPnL: newHighestPnL, oldTarget, newTarget: newCurrentTarget, oldStopLoss, newStopLoss: newCurrentStopLoss, profitLocked: newCurrentStopLoss <= 0 }
                   });
                 }
               }
+            }
+          }
+          
+          // ⚡⚡⚡ CRITICAL: Update BOTH state AND ref so trailing persists across iterations
+          if (trailingChanged) {
+            const updatedFields = {
+              currentTarget: newCurrentTarget,
+              currentStopLoss: newCurrentStopLoss,
+              trailingActivated: newTrailingActivated,
+              highestPnL: newHighestPnL
+            };
+            
+            // Update state (triggers UI re-render)
+            setActivePositions(prev => 
+              prev.map(p => p.orderId === position.orderId ? { ...p, ...updatedFields } : p)
+            );
+            
+            // ⚡⚡⚡ CRITICAL: Update ref IMMEDIATELY so next loop iteration uses fresh values
+            activePositionsRef.current = activePositionsRef.current.map(p => 
+              p.orderId === position.orderId ? { ...p, ...updatedFields } : p
+            );
+            
+            // Update localStorage metadata
+            try {
+              const metadata = JSON.parse(localStorage.getItem('position_metadata') || '{}');
+              if (metadata[position.orderId]) {
+                Object.assign(metadata[position.orderId], updatedFields);
+                localStorage.setItem('position_metadata', JSON.stringify(metadata));
+                console.log(`💾 UPDATED Position Metadata for ${position.orderId} (trailing)`);
+              }
+            } catch (err) {
+              console.error('Failed to update position metadata:', err);
             }
           }
         }
