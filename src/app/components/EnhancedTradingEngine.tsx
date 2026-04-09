@@ -1549,8 +1549,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
       console.log(`📊 Dhan API: ${dhanPositions.length} total, ${openPositions.length} open positions`);
 
-      if (openPositions.length > 0 && trackedPositions.length === 0) {
-        // Convert Dhan positions to active positions format
+      if (openPositions.length > 0) {
+        // Convert ALL Dhan positions to active positions format
         const convertedPositions = openPositions.map((p: any) => {
           const netQty = p.netQty ?? p.buyQty - p.sellQty;
           const entryPrice = parseFloat(p.buyAvg || p.costPrice || p.averagePrice || 0);
@@ -1596,29 +1596,36 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           };
         });
 
-        setActivePositions(convertedPositions);
-        activePositionsRef.current = convertedPositions;
-        ensureMonitoringStatusInitialized(convertedPositions);
-        console.log(`✅ Auto-loaded ${convertedPositions.length} positions into monitoring`);
+        // ⚡ MERGE: Find new positions not already tracked (by orderId)
+        const trackedOrderIds = new Set(trackedPositions.map(t => t.orderId));
+        const newPositions = convertedPositions.filter(p => !trackedOrderIds.has(p.orderId));
 
-        // Enable position monitor and start monitoring
+        if (newPositions.length > 0) {
+          console.log(`🆕 Found ${newPositions.length} NEW position(s) not yet tracked:`);
+          newPositions.forEach(p => console.log(`   → ${p.symbolName} (${p.orderId})`));
+
+          const merged = [...trackedPositions, ...newPositions];
+          setActivePositions(merged);
+          activePositionsRef.current = merged;
+          ensureMonitoringStatusInitialized(merged);
+        } else {
+          console.log(`✅ All ${convertedPositions.length} Dhan positions already tracked`);
+          ensureMonitoringStatusInitialized(trackedPositions);
+        }
+
+        // Ensure monitor is active for all positions
         setIsPositionMonitorActive(true);
         isPositionMonitorActiveRef.current = true;
         ensurePositionMonitorLoop();
 
-        setTimeout(() => {
-          monitorPositions().catch(err => console.error('Auto-monitor error:', err));
-        }, 1000);
+        if (newPositions.length > 0 || trackedPositions.length === 0) {
+          setTimeout(() => {
+            monitorPositions().catch(err => console.error('Auto-monitor error:', err));
+          }, 1000);
+        }
 
-        return { found: true, count: convertedPositions.length };
-      } else if (openPositions.length > 0 && trackedPositions.length > 0) {
-        // Positions already tracked, just ensure monitor is active
-        ensureMonitoringStatusInitialized(trackedPositions);
-        setIsPositionMonitorActive(true);
-        isPositionMonitorActiveRef.current = true;
-        ensurePositionMonitorLoop();
-        monitorPositions().catch(() => {});
-        return { found: true, count: trackedPositions.length };
+        const totalCount = trackedPositions.length + newPositions.length;
+        return { found: true, count: totalCount };
       }
 
       return { found: false, count: 0 };
