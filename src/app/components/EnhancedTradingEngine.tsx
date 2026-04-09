@@ -336,6 +336,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const lastProcessedCandleRef = useRef<string>(''); // ⚡⚡⚡ CRITICAL: Use REF not state - immediate sync update to prevent duplicates!
   const exitFailureCountRef = useRef<Map<string, { count: number; lastAttempt: number }>>(new Map()); // ⚡⚡⚡ NEW: Track exit failures per position (PREVENT INFINITE RETRY LOOP)
   const autoPositionCheckRef = useRef<NodeJS.Timeout | null>(null); // ⚡ AUTO-CHECK positions every 60s
+  const activePositionsRef = useRef<ActivePosition[]>([]); // ⚡ REF to avoid stale closures in intervals
 
   // ⚡⚡⚡ CRITICAL FIX: Engine Heartbeat Monitor ⚡⚡⚡
   // Detects if engine stops working even though it says it's "running"
