@@ -4202,22 +4202,28 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
               🐛 Debug
             </Button>
             
-            {/* ⚡ FORCE POSITION MONITOR BUTTON */}
+            {/* ⚡ FORCE POSITION MONITOR BUTTON - ALWAYS ENABLED */}
             <Button 
               onClick={async () => {
                 console.log('🔥 FORCE POSITION MONITOR TRIGGERED!');
-                console.log(`📊 Active Positions: ${activePositions.length}`);
-                
-                if (activePositions.length === 0) {
-                  alert('⚠️ No active positions to monitor. Place an order first!');
-                  return;
-                }
                 
                 try {
-                  console.log('🚀 Starting forced position monitoring...');
-                  await monitorPositions();
-                  console.log('✅ Forced monitoring complete!');
-                  alert(`✅ Position monitoring completed!\n\n📊 Monitored ${activePositions.length} position${activePositions.length > 1 ? 's' : ''}.\n\nCheck console for detailed logs.`);
+                  // Step 1: Check Dhan for positions (even if activePositions is empty)
+                  const result = await forceCheckPositions();
+                  
+                  if (result.found && result.count > 0) {
+                    // Positions found - monitor them
+                    console.log(`🚀 Found ${result.count} position(s) - starting monitoring...`);
+                    await monitorPositions();
+                    console.log('✅ Forced monitoring complete!');
+                    alert(`✅ Position monitoring started!\n\n📊 Monitoring ${result.count} active position${result.count > 1 ? 's' : ''}.\n\nP&L tracking and auto-exit enabled.`);
+                  } else if (activePositions.length > 0) {
+                    // Already have positions in state
+                    await monitorPositions();
+                    alert(`✅ Position monitoring completed!\n\n📊 Monitored ${activePositions.length} position${activePositions.length > 1 ? 's' : ''}.`);
+                  } else {
+                    alert('⚠️ No active positions found.\n\nThe system will auto-detect positions every 60 seconds.');
+                  }
                 } catch (error) {
                   console.error('❌ Forced monitoring error:', error);
                   alert(`❌ Monitoring failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -4226,7 +4232,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
               variant="outline" 
               size="sm"
               className="bg-purple-950/30 border-purple-500/50 text-purple-300 hover:bg-purple-900/50"
-              disabled={activePositions.length === 0}
             >
               <Activity className="size-4 mr-1.5" />
               Force Monitor
