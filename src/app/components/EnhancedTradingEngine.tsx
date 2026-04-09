@@ -356,6 +356,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     );
   };
 
+  const detectPositionIndex = (position: any): 'NIFTY' | 'BANKNIFTY' | 'SENSEX' => {
+    const rawSymbol = String(
+      position.underlyingSymbol ||
+      position.underlying ||
+      position.index ||
+      position.tradingSymbol ||
+      position.symbol ||
+      ''
+    ).toUpperCase();
+
+    if (rawSymbol.includes('BANKNIFTY')) return 'BANKNIFTY';
+    if (rawSymbol.includes('SENSEX')) return 'SENSEX';
+    return 'NIFTY';
+  };
+
   const createInitialMonitoringStatus = (pos: ActivePosition) => {
     const positionDirection = pos.optionType === 'CE' ? 'BULLISH' : 'BEARISH';
 
@@ -401,6 +416,33 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       return changed ? next : prev;
     });
   };
+
+  const ensurePositionMonitorLoop = () => {
+    if (positionMonitorRef.current) return;
+
+    console.log('🔁 Starting independent position monitor loop...');
+    positionMonitorRef.current = setInterval(() => {
+      if (isPositionMonitorActiveRef.current && activePositionsRef.current.length > 0) {
+        monitorPositions().catch(err => console.error('Position monitor loop error:', err));
+      }
+    }, 1000);
+  };
+
+  const clearPositionMonitorLoop = () => {
+    if (positionMonitorRef.current) {
+      clearInterval(positionMonitorRef.current);
+      positionMonitorRef.current = null;
+      console.log('🧹 Position monitor loop cleared');
+    }
+  };
+
+  useEffect(() => {
+    ensurePositionMonitorLoop();
+
+    return () => {
+      clearPositionMonitorLoop();
+    };
+  }, []);
 
   // ⚡⚡⚡ CRITICAL FIX: Engine Heartbeat Monitor ⚡⚡⚡
   // Detects if engine stops working even though it says it's "running"
@@ -923,8 +965,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         // Closed positions have netQty = 0 but may have buyQty/sellQty > 0 (historical data)
         // We MUST only check netQty to avoid showing closed positions!
         const openPositions = data.positions.filter((p: any) => {
-          const netQty = p.netQty || 0;
-          const isOpen = netQty > 0;
+          const netQty = typeof p.netQty === 'string' ? parseInt(p.netQty, 10) : (p.netQty || 0);
+          const isOpen = Math.abs(netQty) > 0;
           
           if (!isOpen && netQty === 0) {
             console.log(`⏭️ Skipping CLOSED position: ${p.tradingSymbol} (netQty=0)`);
@@ -962,7 +1004,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             const pnl = (currentPrice - entryPrice) * Math.abs(netQty);
             
             // ⚡ RETRIEVE SAVED METADATA OR USE DYNAMIC CALCULATION
-            const orderId = p.dhanClientId || `dhan-${p.tradingSymbol}-${Date.now()}`;
+            const orderId = getDetectedPositionOrderId(p);
+            const positionIndex = detectPositionIndex(p);
             const savedMeta = positionMetadata[orderId];
             
             // 🔥 FIX: Use saved metadata if available, otherwise calculate from Symbol config or use DYNAMIC values
@@ -1013,6 +1056,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             }
             
             return {
+              symbolId: p.securityId || orderId,
               orderId: orderId,
               symbolName: p.tradingSymbol || 'Unknown',
               securityId: p.securityId || '',
@@ -1032,6 +1076,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
               highestPnL: highestPnL,
               pnl: pnl,
               entryTime: Date.now(), // We don't have actual entry time from Dhan
+              index: positionIndex,
               status: 'ACTIVE',
               productType: 'INTRADAY', // ⚡ Default for F&O positions
               exchangeSegment: 'NSE_FNO' // ⚡ Default for F&O
@@ -1039,39 +1084,11 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           });
           
           setActivePositions(convertedPositions);
-          
-          // Initialize monitoring status for each position
-          convertedPositions.forEach(pos => {
-            const positionDirection = pos.optionType === 'CE' ? 'BULLISH' : 'BEARISH';
-            const initialStatus = {
-              decision: 'HOLD' as const,
-              reasoning: `Existing ${positionDirection} position loaded from Dhan. Starting real-time monitoring...`,
-              marketAnalysis: {
-                trend: 'Loading...',
-                momentum: 'Loading...',
-                strength: 'Loading...',
-                nextMoment: 'Fetching market data...'
-              },
-              aiSignal: pos.optionType === 'CE' ? 'BUY_CALL' : 'BUY_PUT',
-              confidence: 0,
-              currentPnL: pos.pnl,
-              pnlPercentage: ((pos.pnl / (pos.entryPrice * pos.quantity)) * 100),
-              indicators: {
-                ema9: 0,
-                ema21: 0,
-                rsi: 50,
-                macd: 0,
-                adx: 0,
-                vwap: 0
-              },
-              timestamp: Date.now()
-            };
-            
-            setPositionMonitoringStatus(prev => ({
-              ...prev,
-              [pos.orderId]: initialStatus
-            }));
-          });
+          activePositionsRef.current = convertedPositions;
+          ensureMonitoringStatusInitialized(convertedPositions);
+          setIsPositionMonitorActive(true);
+          isPositionMonitorActiveRef.current = true;
+          ensurePositionMonitorLoop();
           
           console.log(`✅ Loaded and initialized monitoring for ${convertedPositions.length} existing positions`);
           
@@ -1374,9 +1391,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     if (engineTimerRef.current) {
       clearInterval(engineTimerRef.current);
     }
-    if (positionMonitorRef.current) {
-      clearInterval(positionMonitorRef.current);
-    }
+    clearPositionMonitorLoop();
 
     // ⚡ CHECK EVERY 1 SECOND for candle close (SILENT CHECKS)
     engineTimerRef.current = setInterval(() => {
@@ -1385,13 +1400,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
     console.log(`✅ Engine timer started!`);
 
-    // ⚡⚡⚡ MONITOR POSITIONS EVERY 1 SECOND (CRITICAL FOR FAST EXIT!) ⚡⚡⚡
-    positionMonitorRef.current = setInterval(() => {
-      // ⚡ CRITICAL: Use REF to avoid stale closure - activePositions state is captured at engine start
-      if (isPositionMonitorActiveRef.current && activePositionsRef.current.length > 0) {
-        monitorPositions();
-      }
-    }, 1000); // ⚡ CHANGED FROM 60000ms TO 1000ms!
+    ensurePositionMonitorLoop();
+    console.log(`✅ Position monitor loop ready!`);
 
     // Initial check immediately
     console.log(`🚀 Running FIRST check immediately...`);
@@ -1444,11 +1454,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.log('✅ Signal detection interval CLEARED');
     }
     
-    if (positionMonitorRef.current) {
-      clearInterval(positionMonitorRef.current);
-      positionMonitorRef.current = null;
-      console.log('✅ Position monitor interval CLEARED');
-    }
+    console.log('📡 Position monitor loop kept alive for independent position management');
     
     console.log('🛑 ENGINE FULLY STOPPED - No background signal detection');
     console.log('========================================\n');
@@ -1490,6 +1496,11 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const startPositionMonitor = () => {
     setIsPositionMonitorActive(true);
     isPositionMonitorActiveRef.current = true; // ⚡ UPDATE REF IMMEDIATELY
+    ensurePositionMonitorLoop();
+    
+    if (activePositionsRef.current.length > 0) {
+      monitorPositions().catch(err => console.error('Manual monitor start error:', err));
+    }
     
     // ⚡ The interval is still running - it will now start monitoring again
     
@@ -1522,6 +1533,14 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       }
 
       const dhanPositions = positionsData.positions;
+      let positionMetadata: any = {};
+
+      try {
+        positionMetadata = JSON.parse(localStorage.getItem('position_metadata') || '{}');
+      } catch (metadataError) {
+        console.error('❌ Failed to parse position metadata:', metadataError);
+      }
+
       // Filter for open positions (netQty != 0)
       const openPositions = dhanPositions.filter((p: any) => {
         const netQty = p.netQty ?? p.buyQty - p.sellQty;
@@ -1534,38 +1553,46 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         // Convert Dhan positions to active positions format
         const convertedPositions = openPositions.map((p: any) => {
           const netQty = p.netQty ?? p.buyQty - p.sellQty;
-          const entryPrice = p.buyAvg || p.costPrice || 0;
-          const currentPrice = p.lastTradedPrice || p.dayBuyValue / (p.buyQty || 1) || 0;
-          const pnl = p.realizedProfit || p.pnl || ((currentPrice - entryPrice) * Math.abs(netQty));
+          const entryPrice = parseFloat(p.buyAvg || p.costPrice || p.averagePrice || 0);
+          const currentPrice = parseFloat(p.lastPrice || p.ltp || p.lastTradedPrice || p.dayBuyValue / (p.buyQty || 1) || 0);
+          const pnl = parseFloat(p.unrealizedProfit || p.unrealizedPnl || p.pnl || p.realizedProfit || ((currentPrice - entryPrice) * Math.abs(netQty)));
           const orderId = getDetectedPositionOrderId(p);
-          const optionType = (p.tradingSymbol || '').includes('CE') ? 'CE' : 'PE';
+          const optionType = (p.tradingSymbol || '').includes('PE') ? 'PE' : 'CE';
+          const positionIndex = detectPositionIndex(p);
+          const savedMeta = positionMetadata[orderId];
 
           // Try to load metadata from localStorage
           let targetAmount = 3000, stopLossAmount = 2000;
           let trailingEnabled = false, trailingActivationAmount = 0;
           let targetJumpAmount = 0, stopLossJumpAmount = 0;
-          try {
-            const meta = localStorage.getItem(`position_meta_${orderId}`);
-            if (meta) {
-              const parsed = JSON.parse(meta);
-              targetAmount = parsed.targetAmount || targetAmount;
-              stopLossAmount = parsed.stopLossAmount || stopLossAmount;
-              trailingEnabled = parsed.trailingEnabled || false;
-              trailingActivationAmount = parsed.trailingActivationAmount || 0;
-              targetJumpAmount = parsed.targetJumpAmount || 0;
-              stopLossJumpAmount = parsed.stopLossJumpAmount || 0;
-            }
-          } catch {}
+          let currentTarget = targetAmount, currentStopLoss = stopLossAmount;
+          let trailingActivated = false;
+          let highestPnL = pnl > 0 ? pnl : 0;
+
+          if (savedMeta) {
+            targetAmount = savedMeta.targetAmount || targetAmount;
+            stopLossAmount = savedMeta.stopLossAmount || stopLossAmount;
+            trailingEnabled = savedMeta.trailingEnabled || false;
+            trailingActivationAmount = savedMeta.trailingActivationAmount || 0;
+            targetJumpAmount = savedMeta.targetJumpAmount || 0;
+            stopLossJumpAmount = savedMeta.stopLossJumpAmount || 0;
+            currentTarget = savedMeta.currentTarget || targetAmount;
+            currentStopLoss = savedMeta.currentStopLoss || stopLossAmount;
+            trailingActivated = savedMeta.trailingActivated || false;
+            highestPnL = savedMeta.highestPnL ?? highestPnL;
+          }
 
           return {
+            symbolId: p.securityId || orderId,
             orderId, symbolName: p.tradingSymbol || 'Unknown', securityId: p.securityId || '',
             optionType: optionType as 'CE' | 'PE', entryPrice, currentPrice,
             quantity: Math.abs(netQty), targetAmount, stopLossAmount,
-            currentTarget: targetAmount, currentStopLoss: stopLossAmount,
+            currentTarget, currentStopLoss,
             trailingEnabled, trailingActivationAmount, targetJumpAmount, stopLossJumpAmount,
-            trailingActivated: false, highestPnL: pnl > 0 ? pnl : 0, pnl,
-            entryTime: Date.now(), status: 'ACTIVE' as const,
-            productType: 'INTRADAY', exchangeSegment: 'NSE_FNO'
+            trailingActivated, highestPnL, pnl,
+            entryTime: Date.now(), index: positionIndex, status: 'ACTIVE' as const,
+            productType: p.productType || p.product || 'INTRADAY',
+            exchangeSegment: p.exchangeSegment || (positionIndex === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO')
           };
         });
 
@@ -1577,6 +1604,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         // Enable position monitor and start monitoring
         setIsPositionMonitorActive(true);
         isPositionMonitorActiveRef.current = true;
+        ensurePositionMonitorLoop();
 
         setTimeout(() => {
           monitorPositions().catch(err => console.error('Auto-monitor error:', err));
@@ -1586,11 +1614,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       } else if (openPositions.length > 0 && trackedPositions.length > 0) {
         // Positions already tracked, just ensure monitor is active
         ensureMonitoringStatusInitialized(trackedPositions);
-        if (!isPositionMonitorActiveRef.current) {
-          setIsPositionMonitorActive(true);
-          isPositionMonitorActiveRef.current = true;
-          monitorPositions().catch(() => {});
-        }
+        setIsPositionMonitorActive(true);
+        isPositionMonitorActiveRef.current = true;
+        ensurePositionMonitorLoop();
+        monitorPositions().catch(() => {});
         return { found: true, count: trackedPositions.length };
       }
 
