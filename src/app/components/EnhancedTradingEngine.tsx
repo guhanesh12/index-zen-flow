@@ -425,7 +425,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       if (isPositionMonitorActiveRef.current && activePositionsRef.current.length > 0) {
         monitorPositions().catch(err => console.error('Position monitor loop error:', err));
       }
-    }, 1000);
+    }, 5000); // ⚡ Check every 5 seconds (not 1s - avoids API rate limits)
   };
 
   const clearPositionMonitorLoop = () => {
