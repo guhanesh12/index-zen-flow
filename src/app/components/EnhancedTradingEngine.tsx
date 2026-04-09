@@ -342,6 +342,66 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const autoPositionCheckRef = useRef<NodeJS.Timeout | null>(null); // ⚡ AUTO-CHECK positions every 60s
   const activePositionsRef = useRef<ActivePosition[]>([]); // ⚡ REF to avoid stale closures in intervals
 
+  const getDetectedPositionOrderId = (position: any) => {
+    return String(
+      position.exchangeOrderNo ||
+      position.exchangeOrderId ||
+      position.orderId ||
+      position.orderNo ||
+      position.omsOrderId ||
+      position.dhanOrderId ||
+      position.clientOrderId ||
+      position.correlationId ||
+      `dhan_${position.securityId || 'unknown'}_${position.tradingSymbol || 'unknown'}`
+    );
+  };
+
+  const createInitialMonitoringStatus = (pos: ActivePosition) => {
+    const positionDirection = pos.optionType === 'CE' ? 'BULLISH' : 'BEARISH';
+
+    return {
+      decision: 'HOLD' as const,
+      reasoning: `Existing ${positionDirection} position loaded from Dhan. Starting real-time monitoring...`,
+      marketAnalysis: {
+        trend: 'Loading...',
+        momentum: 'Loading...',
+        strength: 'Loading...',
+        nextMoment: 'Fetching market data...'
+      },
+      aiSignal: pos.optionType === 'CE' ? 'BUY_CALL' : 'BUY_PUT',
+      confidence: 0,
+      currentPnL: pos.pnl || 0,
+      pnlPercentage: pos.entryPrice > 0 ? ((pos.pnl || 0) / (pos.entryPrice * pos.quantity)) * 100 : 0,
+      indicators: {
+        ema9: 0,
+        ema21: 0,
+        rsi: 50,
+        macd: 0,
+        adx: 0,
+        vwap: 0
+      },
+      timestamp: Date.now()
+    };
+  };
+
+  const ensureMonitoringStatusInitialized = (positions: ActivePosition[]) => {
+    if (!positions.length) return;
+
+    setPositionMonitoringStatus(prev => {
+      let changed = false;
+      const next = { ...prev };
+
+      positions.forEach(pos => {
+        if (!next[pos.orderId]) {
+          next[pos.orderId] = createInitialMonitoringStatus(pos);
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  };
+
   // ⚡⚡⚡ CRITICAL FIX: Engine Heartbeat Monitor ⚡⚡⚡
   // Detects if engine stops working even though it says it's "running"
   useEffect(() => {
@@ -1446,6 +1506,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const forceCheckPositions = async () => {
     console.log('🔥 FORCE POSITION CHECK - Fetching positions from Dhan...');
     try {
+      const trackedPositions = activePositionsRef.current;
       const freshToken = await getFreshAccessToken();
       const positionsUrl = userIdRef.current
         ? `${serverUrl}/positions?userId=${encodeURIComponent(userIdRef.current)}`
@@ -1469,14 +1530,14 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
       console.log(`📊 Dhan API: ${dhanPositions.length} total, ${openPositions.length} open positions`);
 
-      if (openPositions.length > 0 && activePositions.length === 0) {
+      if (openPositions.length > 0 && trackedPositions.length === 0) {
         // Convert Dhan positions to active positions format
         const convertedPositions = openPositions.map((p: any) => {
           const netQty = p.netQty ?? p.buyQty - p.sellQty;
           const entryPrice = p.buyAvg || p.costPrice || 0;
           const currentPrice = p.lastTradedPrice || p.dayBuyValue / (p.buyQty || 1) || 0;
           const pnl = p.realizedProfit || p.pnl || ((currentPrice - entryPrice) * Math.abs(netQty));
-          const orderId = p.exchangeOrderNo || p.orderId || `dhan_${p.securityId}_${Date.now()}`;
+          const orderId = getDetectedPositionOrderId(p);
           const optionType = (p.tradingSymbol || '').includes('CE') ? 'CE' : 'PE';
 
           // Try to load metadata from localStorage
@@ -1509,6 +1570,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         });
 
         setActivePositions(convertedPositions);
+        activePositionsRef.current = convertedPositions;
+        ensureMonitoringStatusInitialized(convertedPositions);
         console.log(`✅ Auto-loaded ${convertedPositions.length} positions into monitoring`);
 
         // Enable position monitor and start monitoring
@@ -1520,14 +1583,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         }, 1000);
 
         return { found: true, count: convertedPositions.length };
-      } else if (openPositions.length > 0 && activePositions.length > 0) {
+      } else if (openPositions.length > 0 && trackedPositions.length > 0) {
         // Positions already tracked, just ensure monitor is active
+        ensureMonitoringStatusInitialized(trackedPositions);
         if (!isPositionMonitorActiveRef.current) {
           setIsPositionMonitorActive(true);
           isPositionMonitorActiveRef.current = true;
           monitorPositions().catch(() => {});
         }
-        return { found: true, count: activePositions.length };
+        return { found: true, count: trackedPositions.length };
       }
 
       return { found: false, count: 0 };
@@ -3013,12 +3077,16 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
 
     // If no active positions, stop here (P&L and wallet check already done)
-    if (activePositions.length === 0) {
+    const trackedPositions = activePositionsRef.current;
+
+    if (trackedPositions.length === 0) {
       console.log('✅ No active positions - P&L and wallet check completed');
       return;
     }
 
-    console.log(`\n🔍 MONITORING ${activePositions.length} POSITIONS | ${candleInterval}M Timeframe`);
+    ensureMonitoringStatusInitialized(trackedPositions);
+
+    console.log(`\n🔍 MONITORING ${trackedPositions.length} POSITIONS | ${candleInterval}M Timeframe`);
 
     // ⚡⚡⚡ CRITICAL FIX: Fetch fresh Dhan positions for P&L update
     let dhanPositions: any[] = [];
@@ -3043,7 +3111,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
 
     // Now monitor each position for exit conditions
-    for (const position of activePositions) {
+    for (const position of trackedPositions) {
       try {
         // ⚡⚡⚡ SKIP if position is already exiting (prevents duplicate orders!)
         if (exitingPositionsRef.current.has(position.orderId)) {
