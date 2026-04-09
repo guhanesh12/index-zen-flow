@@ -165,11 +165,65 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
 function extractUserIdFromJwt(token: string): string | null {
   try {
     if (!token || token.length < 20) return null;
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    const payloadPart = token.split('.')[1];
+    if (!payloadPart) return null;
+    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(padded));
     return payload.sub || null;
   } catch {
     return null;
   }
+}
+
+function parseJwtPayload(token: string): any | null {
+  try {
+    if (!token || token.length < 20) return null;
+    const payloadPart = token.split('.')[1];
+    if (!payloadPart) return null;
+    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: any; error: any }> {
+  const payload = parseJwtPayload(accessToken);
+
+  if (payload?.role === 'anon' || payload?.role === 'service_role') {
+    return { user: null, error: { message: 'User session required', code: 401 } };
+  }
+
+  if (typeof payload?.exp === 'number' && payload.exp * 1000 <= Date.now()) {
+    return { user: null, error: { message: 'Session expired - please refresh your session', code: 401 } };
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+  if (user && !error) {
+    return { user, error: null };
+  }
+
+  const fallbackUserId = typeof payload?.sub === 'string' ? payload.sub : null;
+  const shouldFallback =
+    !!fallbackUserId &&
+    payload?.role === 'authenticated' &&
+    (!error ||
+      error?.message?.includes('Auth session missing') ||
+      error?.message?.includes('Invalid JWT') ||
+      error?.message?.includes('invalid') ||
+      error?.message?.includes('JWT'));
+
+  if (shouldFallback) {
+    const { data, error: adminError } = await supabase.auth.admin.getUserById(fallbackUserId);
+    if (!adminError && data?.user) {
+      console.log(`✅ Auth fallback succeeded for user ${fallbackUserId}`);
+      return { user: data.user, error: null };
+    }
+  }
+
+  return { user: null, error: error || { message: 'Invalid or expired JWT token', code: 401 } };
 }
 
 // ⚡ AUTH HELPER: Validate access token and return user (WITH RETRY LOGIC)
@@ -196,7 +250,7 @@ async function validateAuth(c: any, maxRetries = 3): Promise<{ user: any; error:
     try {
       if (attempt > 1) console.log(`🔐 Auth retry attempt ${attempt}/${maxRetries}...`);
       
-      const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+      const { user, error } = await resolveAuthenticatedUser(accessToken);
       
       if (error || !user) {
         // ⚡ Only log detailed errors for unexpected cases (not invalid tokens)
@@ -1577,11 +1631,9 @@ app.post("/make-server-c4d79cb7/test-security-ids", async (c) => {
 // Get fund limits
 app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
+    const { user, error } = await validateAuth(c);
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const credentials = await kv.get(`api_credentials:${user.id}`);
@@ -2623,11 +2675,9 @@ app.post("/make-server-c4d79cb7/ai-analysis", async (c) => {
 // Get logs
 app.get("/make-server-c4d79cb7/logs", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
+    const { user, error } = await validateAuth(c);
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const logs = await kv.get(`logs:${user.id}`);
@@ -2641,11 +2691,9 @@ app.get("/make-server-c4d79cb7/logs", async (c) => {
 // Add log
 app.post("/make-server-c4d79cb7/logs", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
+    const { user, error } = await validateAuth(c);
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const log = await c.req.json();
@@ -3002,14 +3050,20 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
     
     console.log(`🔍 Result from dedicated VPS:`, JSON.stringify(result, null, 2));
 
-    if (result.orderId) {
+    const resolvedOrderId = result.orderId || result.correlationId || cleanedOrderRequest.correlationId;
+    const normalizedStatus = String(result.orderStatus || result.status || '').toUpperCase();
+    const looksSuccessful =
+      ["SUCCESS", "PLACED", "ACCEPTED", "TRANSIT", "PENDING", "TRADED", "EXECUTED"].includes(normalizedStatus) ||
+      /success|placed|accepted|transit|pending|executed/i.test(result.message || '');
+
+    if (resolvedOrderId && (result.success !== false || looksSuccessful)) {
       // ✅ Save order timestamp for spam prevention
       await kv.set(`last_order_time:${effectiveUserId}`, Date.now());
       
       // Log order
-      await kv.set(`order:${effectiveUserId}:${result.orderId}`, {
+      await kv.set(`order:${effectiveUserId}:${resolvedOrderId}`, {
         ...orderRequest,
-        orderId: result.orderId,
+        orderId: resolvedOrderId,
         status: 'EXECUTED',
         timestamp: Date.now(),
         userId: effectiveUserId,
@@ -3017,14 +3071,14 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       });
       
       console.log(`✅ ✅ ✅ ORDER PLACED SUCCESSFULLY VIA DEDICATED IP!`);
-      console.log(`  Order ID: ${result.orderId}`);
+      console.log(`  Order ID: ${resolvedOrderId}`);
       console.log(`  Status: ${result.orderStatus}`);
       console.log(`  Price: ${result.price || orderRequest.price}`);
       console.log(`  Timestamp saved for spam prevention`);
 
       return c.json({
         success: true,
-        orderId: result.orderId,
+        orderId: resolvedOrderId,
         status: result.orderStatus || result.status || 'PLACED',
         averagePrice: result.averagePrice || result.price || orderRequest.price,
         message: result.message || 'Order executed successfully via your dedicated VPS',
@@ -7125,26 +7179,19 @@ app.post("/make-server-c4d79cb7/push/upload-image", async (c) => {
 app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
   try {
     const authHeader = c.req.header('Authorization');
-    const token = authHeader?.split(' ')[1];
     
     console.log('📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📬 USER NOTIFICATION FETCH REQUEST');
     console.log('📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📬 Auth Header:', authHeader ? 'Present' : 'Missing');
-    console.log('📬 Token:', token ? `${token.substring(0, 20)}...` : 'Missing');
+    console.log('📬 Token:', authHeader?.split(' ')[1] ? `${authHeader.split(' ')[1].substring(0, 20)}...` : 'Missing');
     
-    if (!token) {
-      console.error('❌ No authorization token provided');
-      return c.json({ success: false, message: 'Unauthorized' }, 401);
-    }
-    
-    // Get user from token
     console.log('🔍 Validating token with Supabase...');
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { user, error } = await validateAuth(c);
     
     if (error || !user) {
       console.error('❌ Token validation failed:', error?.message || 'No user found');
-      return c.json({ success: false, message: 'Invalid token' }, 401);
+      return c.json({ success: false, message: error?.message || 'Invalid token' }, error?.code || 401);
     }
     
     console.log('✅ User authenticated successfully');
@@ -7189,18 +7236,10 @@ app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
 // Mark user notification as read
 app.post("/make-server-c4d79cb7/user/notifications/:id/read", async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.split(' ')[1];
-    
-    if (!token) {
-      return c.json({ success: false, message: 'Unauthorized' }, 401);
-    }
-    
-    // Get user from token
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { user, error } = await validateAuth(c);
     
     if (error || !user) {
-      return c.json({ success: false, message: 'Invalid token' }, 401);
+      return c.json({ success: false, message: error?.message || 'Invalid token' }, error?.code || 401);
     }
     
     const notificationId = c.req.param('id');

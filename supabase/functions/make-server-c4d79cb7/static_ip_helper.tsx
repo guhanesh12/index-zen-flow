@@ -12,11 +12,31 @@
 import * as kv from "./kv_store.tsx";
 
 function normalizeOrderPlacementResponse(result: any) {
+  const correlationId =
+    result?.correlationId ??
+    result?.data?.correlationId ??
+    result?.result?.correlationId ??
+    result?.order?.correlationId ??
+    result?.orderNo ??
+    result?.data?.orderNo ??
+    null;
+
   const orderId =
     result?.orderId ??
+    result?.orderNo ??
+    result?.order_id ??
+    result?.exchangeOrderId ??
+    result?.omsOrderId ??
+    result?.clientOrderId ??
     result?.data?.orderId ??
+    result?.data?.orderNo ??
+    result?.data?.order_id ??
+    result?.data?.exchangeOrderId ??
+    result?.data?.omsOrderId ??
     result?.result?.orderId ??
+    result?.result?.orderNo ??
     result?.order?.orderId ??
+    result?.order?.orderNo ??
     null;
 
   const orderStatus =
@@ -40,13 +60,23 @@ function normalizeOrderPlacementResponse(result: any) {
   const message =
     result?.message ??
     result?.remarks?.message ??
+    (typeof result?.remarks === "string" ? result.remarks : null) ??
     (typeof result?.error === "string" ? result.error : null) ??
     (orderId ? "Order placed successfully via dedicated VPS" : "Order placement failed");
 
+  const normalizedStatus = String(orderStatus ?? "").toUpperCase();
+  const looksSuccessful =
+    ["SUCCESS", "PLACED", "ACCEPTED", "TRANSIT", "PENDING", "TRADED", "EXECUTED"].includes(normalizedStatus) ||
+    /success|placed|accepted|transit|pending|executed/i.test(message ?? "");
+
   return {
     ...result,
-    success: typeof result?.success === "boolean" ? result.success || Boolean(orderId) : Boolean(orderId),
+    success:
+      typeof result?.success === "boolean"
+        ? result.success || Boolean(orderId) || looksSuccessful
+        : Boolean(orderId) || looksSuccessful,
     orderId,
+    correlationId,
     orderStatus,
     averagePrice,
     message,
