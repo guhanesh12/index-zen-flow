@@ -335,6 +335,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const lastAIRequestTimeRef = useRef<number>(0); // ⚡⚡⚡ CRITICAL: Prevent rate limit - track last AI request time
   const lastProcessedCandleRef = useRef<string>(''); // ⚡⚡⚡ CRITICAL: Use REF not state - immediate sync update to prevent duplicates!
   const exitFailureCountRef = useRef<Map<string, { count: number; lastAttempt: number }>>(new Map()); // ⚡⚡⚡ NEW: Track exit failures per position (PREVENT INFINITE RETRY LOOP)
+  const autoPositionCheckRef = useRef<NodeJS.Timeout | null>(null); // ⚡ AUTO-CHECK positions every 60s
 
   // ⚡⚡⚡ CRITICAL FIX: Engine Heartbeat Monitor ⚡⚡⚡
   // Detects if engine stops working even though it says it's "running"
@@ -1435,6 +1436,120 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       message: '✅ Position Monitor STARTED - Auto-exit enabled'
     });
   };
+
+  // ============ FORCE CHECK & AUTO-DETECT POSITIONS ============
+  const forceCheckPositions = async () => {
+    console.log('🔥 FORCE POSITION CHECK - Fetching positions from Dhan...');
+    try {
+      const freshToken = await getFreshAccessToken();
+      const positionsUrl = userIdRef.current
+        ? `${serverUrl}/positions?userId=${encodeURIComponent(userIdRef.current)}`
+        : `${serverUrl}/positions`;
+      const positionsResponse = await fetch(positionsUrl, {
+        headers: { Authorization: `Bearer ${freshToken}` }
+      });
+      const positionsData = await positionsResponse.json();
+
+      if (!positionsData.success || !positionsData.positions) {
+        console.log('⚠️ Could not fetch positions from Dhan');
+        return { found: false, count: 0 };
+      }
+
+      const dhanPositions = positionsData.positions;
+      // Filter for open positions (netQty != 0)
+      const openPositions = dhanPositions.filter((p: any) => {
+        const netQty = p.netQty ?? p.buyQty - p.sellQty;
+        return Math.abs(netQty) > 0;
+      });
+
+      console.log(`📊 Dhan API: ${dhanPositions.length} total, ${openPositions.length} open positions`);
+
+      if (openPositions.length > 0 && activePositions.length === 0) {
+        // Convert Dhan positions to active positions format
+        const convertedPositions = openPositions.map((p: any) => {
+          const netQty = p.netQty ?? p.buyQty - p.sellQty;
+          const entryPrice = p.buyAvg || p.costPrice || 0;
+          const currentPrice = p.lastTradedPrice || p.dayBuyValue / (p.buyQty || 1) || 0;
+          const pnl = p.realizedProfit || p.pnl || ((currentPrice - entryPrice) * Math.abs(netQty));
+          const orderId = p.exchangeOrderNo || p.orderId || `dhan_${p.securityId}_${Date.now()}`;
+          const optionType = (p.tradingSymbol || '').includes('CE') ? 'CE' : 'PE';
+
+          // Try to load metadata from localStorage
+          let targetAmount = 3000, stopLossAmount = 2000;
+          let trailingEnabled = false, trailingActivationAmount = 0;
+          let targetJumpAmount = 0, stopLossJumpAmount = 0;
+          try {
+            const meta = localStorage.getItem(`position_meta_${orderId}`);
+            if (meta) {
+              const parsed = JSON.parse(meta);
+              targetAmount = parsed.targetAmount || targetAmount;
+              stopLossAmount = parsed.stopLossAmount || stopLossAmount;
+              trailingEnabled = parsed.trailingEnabled || false;
+              trailingActivationAmount = parsed.trailingActivationAmount || 0;
+              targetJumpAmount = parsed.targetJumpAmount || 0;
+              stopLossJumpAmount = parsed.stopLossJumpAmount || 0;
+            }
+          } catch {}
+
+          return {
+            orderId, symbolName: p.tradingSymbol || 'Unknown', securityId: p.securityId || '',
+            optionType: optionType as 'CE' | 'PE', entryPrice, currentPrice,
+            quantity: Math.abs(netQty), targetAmount, stopLossAmount,
+            currentTarget: targetAmount, currentStopLoss: stopLossAmount,
+            trailingEnabled, trailingActivationAmount, targetJumpAmount, stopLossJumpAmount,
+            trailingActivated: false, highestPnL: pnl > 0 ? pnl : 0, pnl,
+            entryTime: Date.now(), status: 'ACTIVE' as const,
+            productType: 'INTRADAY', exchangeSegment: 'NSE_FNO'
+          };
+        });
+
+        setActivePositions(convertedPositions);
+        console.log(`✅ Auto-loaded ${convertedPositions.length} positions into monitoring`);
+
+        // Enable position monitor and start monitoring
+        setIsPositionMonitorActive(true);
+        isPositionMonitorActiveRef.current = true;
+
+        setTimeout(() => {
+          monitorPositions().catch(err => console.error('Auto-monitor error:', err));
+        }, 1000);
+
+        return { found: true, count: convertedPositions.length };
+      } else if (openPositions.length > 0 && activePositions.length > 0) {
+        // Positions already tracked, just ensure monitor is active
+        if (!isPositionMonitorActiveRef.current) {
+          setIsPositionMonitorActive(true);
+          isPositionMonitorActiveRef.current = true;
+          monitorPositions().catch(() => {});
+        }
+        return { found: true, count: activePositions.length };
+      }
+
+      return { found: false, count: 0 };
+    } catch (error) {
+      console.error('❌ Force check positions error:', error);
+      return { found: false, count: 0 };
+    }
+  };
+
+  // ⚡ AUTO-CHECK: Every 60 seconds, check for new positions and auto-start monitoring
+  useEffect(() => {
+    autoPositionCheckRef.current = setInterval(async () => {
+      if (!isRunningRef.current) return; // Only check when engine is running
+      
+      console.log('🔄 [Auto-Check] Checking for active positions...');
+      const result = await forceCheckPositions();
+      if (result.found) {
+        console.log(`✅ [Auto-Check] Found ${result.count} position(s) - monitoring active`);
+      }
+    }, 60000); // Every 60 seconds
+
+    return () => {
+      if (autoPositionCheckRef.current) {
+        clearInterval(autoPositionCheckRef.current);
+      }
+    };
+  }, []);
 
   // ============ EDIT POSITION TARGET/STOPLOSS ============
   const startEditPosition = (orderId: string, currentTarget: number, currentStopLoss: number) => {
@@ -4087,22 +4202,28 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
               🐛 Debug
             </Button>
             
-            {/* ⚡ FORCE POSITION MONITOR BUTTON */}
+            {/* ⚡ FORCE POSITION MONITOR BUTTON - ALWAYS ENABLED */}
             <Button 
               onClick={async () => {
                 console.log('🔥 FORCE POSITION MONITOR TRIGGERED!');
-                console.log(`📊 Active Positions: ${activePositions.length}`);
-                
-                if (activePositions.length === 0) {
-                  alert('⚠️ No active positions to monitor. Place an order first!');
-                  return;
-                }
                 
                 try {
-                  console.log('🚀 Starting forced position monitoring...');
-                  await monitorPositions();
-                  console.log('✅ Forced monitoring complete!');
-                  alert(`✅ Position monitoring completed!\n\n📊 Monitored ${activePositions.length} position${activePositions.length > 1 ? 's' : ''}.\n\nCheck console for detailed logs.`);
+                  // Step 1: Check Dhan for positions (even if activePositions is empty)
+                  const result = await forceCheckPositions();
+                  
+                  if (result.found && result.count > 0) {
+                    // Positions found - monitor them
+                    console.log(`🚀 Found ${result.count} position(s) - starting monitoring...`);
+                    await monitorPositions();
+                    console.log('✅ Forced monitoring complete!');
+                    alert(`✅ Position monitoring started!\n\n📊 Monitoring ${result.count} active position${result.count > 1 ? 's' : ''}.\n\nP&L tracking and auto-exit enabled.`);
+                  } else if (activePositions.length > 0) {
+                    // Already have positions in state
+                    await monitorPositions();
+                    alert(`✅ Position monitoring completed!\n\n📊 Monitored ${activePositions.length} position${activePositions.length > 1 ? 's' : ''}.`);
+                  } else {
+                    alert('⚠️ No active positions found.\n\nThe system will auto-detect positions every 60 seconds.');
+                  }
                 } catch (error) {
                   console.error('❌ Forced monitoring error:', error);
                   alert(`❌ Monitoring failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -4111,7 +4232,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
               variant="outline" 
               size="sm"
               className="bg-purple-950/30 border-purple-500/50 text-purple-300 hover:bg-purple-900/50"
-              disabled={activePositions.length === 0}
             >
               <Activity className="size-4 mr-1.5" />
               Force Monitor
