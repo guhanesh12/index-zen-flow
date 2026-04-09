@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
@@ -36,8 +36,8 @@ export default defineConfig(({ mode }) => {
       mode === "development" && componentTagger(),
       {
         name: "indexpilot-version-json",
-        configureServer(server) {
-          server.middlewares.use((req, res, next) => {
+        configureServer(server: any) {
+          server.middlewares.use((req: any, res: any, next: any) => {
             if (req.url?.split("?")[0] !== "/version.json") {
               next();
               return;
@@ -51,7 +51,7 @@ export default defineConfig(({ mode }) => {
           });
         },
         generateBundle() {
-          this.emitFile({
+          (this as any).emitFile({
             type: "asset",
             fileName: "version.json",
             source: versionPayload,
