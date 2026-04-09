@@ -855,6 +855,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   };
 
+  const loadSymbols = async () => {
     try {
       console.log('🔄 Loading symbols from backend API...');
       
