@@ -852,6 +852,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           // Save to localStorage for offline access
           saveTradingSymbolsToLocalStorage(symbols);
           
+          // ⚡ Also save active symbols to server database (multi-device sync)
+          saveSymbolsToDB(symbols.filter((s: any) => s.active));
+          
           // Update state
           setTradingSymbols(symbols);
           
