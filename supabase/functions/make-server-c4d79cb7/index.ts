@@ -7446,7 +7446,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`   Interval: ${candleInterval}M`);
     console.log(`   Symbols: ${symbols.length}`);
 
-    // Start engine
+    // Start engine (saves to both KV and DB)
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
       candleInterval: candleInterval || '15',
@@ -7457,6 +7457,17 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
 
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
+
+    // ⚡ Use EdgeRuntime.waitUntil to keep engine running in background
+    // This extends the function execution beyond the response
+    if (result.success && typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+      EdgeRuntime.waitUntil(
+        (async () => {
+          // Run one immediate engine tick in background
+          await PersistentTradingEngine.runCronTick();
+        })()
+      );
+    }
 
     return c.json(result);
   } catch (error: any) {
