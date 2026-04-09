@@ -182,6 +182,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   // ============ TRADING STATE ============
   const [tradingSymbols, setTradingSymbols] = useState<TradingSymbol[]>([]);
   const [activePositions, setActivePositions] = useState<ActivePosition[]>([]);
+  // ⚡ Keep activePositionsRef in sync with state
+  useEffect(() => {
+    activePositionsRef.current = activePositions;
+  }, [activePositions]);
   const [lastSignal, setLastSignal] = useState<any>(null);
   const [previousSignal, setPreviousSignal] = useState<any>(null); // ⚡ FOR ALERT SYSTEM
   
@@ -336,6 +340,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const lastProcessedCandleRef = useRef<string>(''); // ⚡⚡⚡ CRITICAL: Use REF not state - immediate sync update to prevent duplicates!
   const exitFailureCountRef = useRef<Map<string, { count: number; lastAttempt: number }>>(new Map()); // ⚡⚡⚡ NEW: Track exit failures per position (PREVENT INFINITE RETRY LOOP)
   const autoPositionCheckRef = useRef<NodeJS.Timeout | null>(null); // ⚡ AUTO-CHECK positions every 60s
+  const activePositionsRef = useRef<ActivePosition[]>([]); // ⚡ REF to avoid stale closures in intervals
 
   // ⚡⚡⚡ CRITICAL FIX: Engine Heartbeat Monitor ⚡⚡⚡
   // Detects if engine stops working even though it says it's "running"
@@ -1322,8 +1327,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
     // ⚡⚡⚡ MONITOR POSITIONS EVERY 1 SECOND (CRITICAL FOR FAST EXIT!) ⚡⚡⚡
     positionMonitorRef.current = setInterval(() => {
-      // ⚡ CRITICAL: Only monitor if enabled by user
-      if (isPositionMonitorActiveRef.current && activePositions.length > 0) {
+      // ⚡ CRITICAL: Use REF to avoid stale closure - activePositions state is captured at engine start
+      if (isPositionMonitorActiveRef.current && activePositionsRef.current.length > 0) {
         monitorPositions();
       }
     }, 1000); // ⚡ CHANGED FROM 60000ms TO 1000ms!
@@ -1533,16 +1538,27 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
 
   // ⚡ AUTO-CHECK: Every 60 seconds, check for new positions and auto-start monitoring
+  // Works regardless of engine running state - ensures positions are always detected
   useEffect(() => {
-    autoPositionCheckRef.current = setInterval(async () => {
-      if (!isRunningRef.current) return; // Only check when engine is running
-      
-      console.log('🔄 [Auto-Check] Checking for active positions...');
-      const result = await forceCheckPositions();
-      if (result.found) {
-        console.log(`✅ [Auto-Check] Found ${result.count} position(s) - monitoring active`);
+    const runAutoCheck = async () => {
+      console.log('🔄 [Auto-Check 60s] Checking for active positions...');
+      try {
+        const result = await forceCheckPositions();
+        if (result.found) {
+          console.log(`✅ [Auto-Check] Found ${result.count} position(s) - monitoring active`);
+        } else {
+          console.log('📭 [Auto-Check] No active positions found');
+        }
+      } catch (err) {
+        console.error('❌ [Auto-Check] Error:', err);
       }
-    }, 60000); // Every 60 seconds
+    };
+
+    // Run immediately on mount
+    runAutoCheck();
+
+    // Then every 60 seconds
+    autoPositionCheckRef.current = setInterval(runAutoCheck, 60000);
 
     return () => {
       if (autoPositionCheckRef.current) {
