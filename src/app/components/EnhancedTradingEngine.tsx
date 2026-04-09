@@ -639,37 +639,132 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   }, [tradingSymbols]); // Runs when symbols are loaded
 
-  // ⚡⚡⚡ ENABLED: BACKEND SYNC AUTO-START (MULTI-DEVICE SUPPORT) ⚡⚡⚡
+  // ⚡⚡⚡ BACKEND SYNC (MULTI-DEVICE SUPPORT) ⚡⚡⚡
+  // Polls /engine/db-status every 5 seconds — same user on ANY device sees same data
   const syncEngineState = async () => {
     try {
       const freshToken = await getFreshAccessToken();
-      const response = await fetch(`${serverUrl}/engine/state`, {
+      const response = await fetch(`${serverUrl}/engine/db-status`, {
         headers: { Authorization: `Bearer ${freshToken}` }
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        const state = data.state || data; // Handle both { state: {...} } and direct response
+      if (!response.ok) return;
+      
+      const data = await response.json();
+      if (!data.success) return;
+      
+      // ⚡ SYNC ENGINE RUNNING STATE FROM BACKEND
+      const backendRunning = data.engine?.isRunning || false;
+      
+      // If backend says engine is running on another device, show it running here too
+      if (backendRunning && !isRunning && !isRunningRef.current) {
+        console.log('☁️ Backend engine is RUNNING (started from another device)');
+        setIsRunning(true);
+        isRunningRef.current = true;
+        localStorage.setItem('engine_running', 'true');
+        localStorage.removeItem('engine_manual_stop');
+      }
+      
+      // If backend says engine stopped but frontend shows running, auto-stop
+      if (!backendRunning && isRunning && isRunningRef.current) {
+        console.log('🛑 Backend engine STOPPED (from another device)');
+        handleStopEngine();
+      }
+      
+      // ⚡ SYNC POSITIONS FROM BACKEND (merge with local)
+      if (data.positions && data.positions.length > 0) {
+        const backendPositions: ActivePosition[] = data.positions.map((p: any) => ({
+          symbolId: p.symbol_id || p.order_id,
+          orderId: p.order_id,
+          symbolName: p.symbol,
+          securityId: p.symbol_id || '',
+          optionType: (p.symbol?.includes('CE') ? 'CE' : 'PE') as 'CE' | 'PE',
+          entryPrice: p.entry_price || 0,
+          currentPrice: p.current_price || 0,
+          quantity: p.quantity || 1,
+          targetAmount: p.target_amount || 3000,
+          stopLossAmount: p.stop_loss_amount || 2000,
+          currentTarget: p.target_amount,
+          currentStopLoss: p.stop_loss_amount,
+          trailingEnabled: p.trailing_enabled || false,
+          trailingActivationAmount: 0,
+          targetJumpAmount: 0,
+          stopLossJumpAmount: 0,
+          trailingActivated: false,
+          highestPnL: p.highest_pnl || 0,
+          pnl: p.pnl || 0,
+          entryTime: new Date(p.created_at).getTime(),
+          index: (p.index_name || 'NIFTY') as 'NIFTY' | 'BANKNIFTY' | 'SENSEX',
+          productType: 'INTRADAY',
+          exchangeSegment: p.exchange_segment || 'NSE_FNO'
+        }));
         
-        // ❌ DISABLED: Auto-start from backend (prevents unwanted background signal detection)
-        // Engine should ONLY start when user manually clicks "Start Engine" button
-        // This prevents the engine from running in the background when stopped
+        // Merge: add backend positions not already tracked locally
+        const currentOrderIds = new Set(activePositionsRef.current.map(p => p.orderId));
+        const newPositions = backendPositions.filter(p => !currentOrderIds.has(p.orderId));
         
-        // Just log backend state for debugging - DO NOT AUTO-START
-        if (state.isRunning && !isRunning && !isRunningRef.current) {
-          console.log('ℹ️ Backend says engine is RUNNING on another device (but NOT auto-starting here)');
-          console.log(`   To start: Click "Start Engine" button manually`);
+        if (newPositions.length > 0) {
+          console.log(`☁️ Syncing ${newPositions.length} new positions from backend`);
+          const merged = [...activePositionsRef.current, ...newPositions];
+          setActivePositions(merged);
+          activePositionsRef.current = merged;
+          ensureMonitoringStatusInitialized(newPositions);
+          ensurePositionMonitorLoop();
         }
         
-        // If backend says engine is stopped but frontend shows running, AUTO-STOP (keep this for safety)
-        if (!state.isRunning && isRunning && isRunningRef.current) {
-          console.log('🛑 Backend says engine was STOPPED on another device! Auto-stopping here...');
-          handleStopEngine();
+        // Update P&L from backend for existing positions
+        backendPositions.forEach(bp => {
+          const localPos = activePositionsRef.current.find(p => p.orderId === bp.orderId);
+          if (localPos && bp.pnl !== localPos.pnl) {
+            localPos.pnl = bp.pnl;
+            localPos.currentPrice = bp.currentPrice;
+          }
+        });
+      }
+      
+      // ⚡ SYNC STATS FROM BACKEND (for performance section)
+      if (data.stats) {
+        setStats(prev => ({
+          ...prev,
+          totalSignals: data.stats.signal_count || prev.totalSignals,
+          totalOrders: data.stats.order_count || prev.totalOrders,
+          totalPnL: data.stats.total_pnl || prev.totalPnL
+        }));
+      }
+      
+      // ⚡ SYNC SIGNALS FROM BACKEND
+      if (data.signals && data.signals.length > 0) {
+        const latestSignals: any = { NIFTY: null, BANKNIFTY: null, SENSEX: null };
+        for (const sig of data.signals) {
+          const idx = sig.index_name as 'NIFTY' | 'BANKNIFTY' | 'SENSEX';
+          if (idx && !latestSignals[idx]) {
+            latestSignals[idx] = {
+              action: sig.signal_type,
+              confidence: sig.confidence || 0,
+              price: sig.price,
+              timestamp: new Date(sig.created_at).getTime(),
+              source: 'backend'
+            };
+          }
+        }
+        
+        // Only update if we have backend signals and no fresher local ones
+        const hasBackendSignals = latestSignals.NIFTY || latestSignals.BANKNIFTY || latestSignals.SENSEX;
+        if (hasBackendSignals) {
+          setMultiSymbolSignals(prev => {
+            const updated = { ...prev };
+            for (const idx of ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const) {
+              if (latestSignals[idx] && (!prev[idx] || latestSignals[idx].timestamp > (prev[idx]?.timestamp || 0))) {
+                updated[idx] = latestSignals[idx];
+              }
+            }
+            return updated;
+          });
         }
       }
+      
     } catch (error) {
-      console.log('Engine state sync error:', error);
-      // Don't show error to user - just skip sync
+      // Silent - sync is best-effort
     }
   };
 
@@ -738,6 +833,28 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   };
 
+  // ⚡ SAVE SYMBOLS TO SERVER DATABASE (multi-device sync)
+  const saveSymbolsToDB = async (symbols: any[]) => {
+    try {
+      if (!symbols || symbols.length === 0) return;
+      const freshToken = await getFreshAccessToken();
+      const response = await fetch(`${serverUrl}/symbols/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${freshToken}`
+        },
+        body: JSON.stringify({ symbols })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`☁️ Saved ${data.saved || symbols.length} symbols to server database`);
+      }
+    } catch (err) {
+      console.log('Symbol DB save skipped:', err);
+    }
+  };
+
   const loadSymbols = async () => {
     try {
       console.log('🔄 Loading symbols from backend API...');
@@ -756,6 +873,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           
           // Save to localStorage for offline access
           saveTradingSymbolsToLocalStorage(symbols);
+          
+          // ⚡ Also save active symbols to server database (multi-device sync)
+          saveSymbolsToDB(symbols.filter((s: any) => s.active));
           
           // Update state
           setTradingSymbols(symbols);
