@@ -989,9 +989,9 @@ class PersistentTradingEngine {
   /**
    * Get current candle timestamp
    */
-  private static getCurrentCandleTimestamp(date: Date, interval: number): string {
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
+  private static getCurrentCandleTimestamp(istDate: Date, interval: number): string {
+    const hours = istDate.getUTCHours();
+    const minutes = istDate.getUTCMinutes();
     const candleMinute = Math.floor(minutes / interval) * interval;
     return `${hours.toString().padStart(2, '0')}:${candleMinute.toString().padStart(2, '0')}`;
   }
