@@ -2311,14 +2311,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             return;
           }
         } else if (response.status === 401 && isRetry) {
-          // Second 401 even after refresh — server cannot validate, stop gracefully
-          console.error(`❌ Still getting 401 after session refresh. Credentials lookup failed.`);
+          // Second 401 even after refresh — stop LOCAL polling only, backend engine continues via cron
+          console.error(`❌ Still getting 401 after session refresh. Local polling stopped, backend engine continues.`);
           onLog({
             timestamp: Date.now(),
-            type: 'ERROR',
-            message: `🚨 Authentication failed — Dhan credentials not found. Please check Settings.`
+            type: 'WARN',
+            message: `⚠️ Session expired — local polling paused. Backend engine continues running via cron. Re-login to resume UI updates.`
           });
-          stopEngine();
+          // ⚡ Only stop local state, do NOT call backend stop
+          setIsRunning(false);
         } else if (response.status === 400 && errorText.includes('credentials not configured')) {
           // ⚡ HANDLE 400 - CREDENTIALS NOT CONFIGURED
           console.error(`🚨 API CREDENTIALS NOT CONFIGURED!`);
