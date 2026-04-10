@@ -378,18 +378,22 @@ class PersistentTradingEngine {
       // Update heartbeat
       state.lastHeartbeat = Date.now();
       
+      // ⚡ IST = UTC + 5:30 (use offset directly, toLocaleString unreliable in Deno)
       const now = new Date();
-      const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const istOffsetMs = 5.5 * 60 * 60 * 1000;
+      const istTime = new Date(now.getTime() + istOffsetMs);
       
       // Check market hours (9:15 AM - 3:30 PM IST)
-      const hours = istTime.getHours();
-      const minutes = istTime.getMinutes();
+      const hours = istTime.getUTCHours();
+      const minutes = istTime.getUTCMinutes();
       const currentTimeMinutes = hours * 60 + minutes;
       const marketOpen = 9 * 60 + 15;  // 9:15 AM
       const marketClose = 15 * 60 + 30; // 3:30 PM
       
+      console.log(`⏰ IST Time: ${hours}:${minutes.toString().padStart(2,'0')} (${currentTimeMinutes}min) | Market: ${marketOpen}-${marketClose}`);
+      
       if (currentTimeMinutes < marketOpen || currentTimeMinutes > marketClose) {
-        console.log(`💤 Market closed - Engine idle for user ${userId}`);
+        console.log(`💤 Market closed (IST ${hours}:${minutes.toString().padStart(2,'0')}) - Engine idle for user ${userId}`);
         return;
       }
       
@@ -400,8 +404,10 @@ class PersistentTradingEngine {
       const candleMinutes = parseInt(state.candleInterval);
       const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
       
+      console.log(`📊 Candle check: current=${currentCandleTimestamp} last=${state.lastProcessedCandle} interval=${candleMinutes}M symbols=${state.symbols.length}`);
+      
       if (currentCandleTimestamp === state.lastProcessedCandle) {
-        // Already processed this candle
+        console.log(`⏸️ Same candle ${currentCandleTimestamp} - monitoring positions only`);
         await kv.set(`engine_state_${userId}`, state);
         return;
       }
