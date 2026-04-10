@@ -9834,7 +9834,14 @@ app.post("/make-server-c4d79cb7/symbols/save", async (c) => {
       return c.json({ error: upsertError.message }, 500);
     }
 
-    console.log(`✅ Saved ${rows.length} symbols for user ${user.id}`);
+    // ⚡ Also save to KV for backward compatibility with engine loop
+    await kv.set(`trading_symbols:${user.id}`, {
+      symbols: symbols,
+      lastUpdated: Date.now(),
+      userId: user.id
+    });
+
+    console.log(`✅ Saved ${rows.length} symbols to DB + KV for user ${user.id}`);
     return c.json({ success: true, saved: rows.length });
   } catch (error: any) {
     console.error('❌ Error saving symbols:', error);
