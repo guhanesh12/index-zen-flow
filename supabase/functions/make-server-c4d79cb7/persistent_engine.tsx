@@ -420,6 +420,7 @@ class PersistentTradingEngine {
       // ⚡⚡⚡ ANALYZE ALL 3 INDICES INDEPENDENTLY (like frontend does) ⚡⚡⚡
       const allIndices = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
       const analyzedIndices = new Set<string>();
+      const latestSignalsSnapshot: Record<string, any> = {};
       
       for (const indexName of allIndices) {
         try {
@@ -448,6 +449,15 @@ class PersistentTradingEngine {
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
           const reason = aiSignal.signal.reason || '';
+          const signalTimestamp = Date.now();
+
+          latestSignalsSnapshot[indexName] = {
+            ...aiSignal.signal,
+            index: indexName,
+            timeframe: aiSignal.signal.timeframe || `${state.candleInterval}M`,
+            timestamp: signalTimestamp,
+          };
+
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
 
           await this.saveUserNotification(userId, {
@@ -472,10 +482,9 @@ class PersistentTradingEngine {
           });
 
           // ⚡ Save signal log to user's persistent logs
-          const userLogs = await kv.get(`logs:${userId}`) || [];
-          userLogs.unshift({
+          await this.appendSharedLog(userId, {
             type: action === 'WAIT' ? 'WAIT' : action.includes('BUY') ? 'AI_SIGNAL' : 'INFO',
-            timestamp: Date.now(),
+            timestamp: signalTimestamp,
             message: `🎯 ${indexName}: ${action} (${confidence}%) - ${reason || 'AI analysis complete'} | TF: ${state.candleInterval}M`,
             data: {
               index: indexName,
@@ -492,8 +501,6 @@ class PersistentTradingEngine {
               indicators: aiSignal.signal.indicators || {},
             }
           });
-          if (userLogs.length > 500) userLogs.length = 500;
-          await kv.set(`logs:${userId}`, userLogs);
 
           // Check if we should trade (only for symbols that match this index)
           if (action === 'WAIT' || confidence < 85) {
@@ -575,14 +582,20 @@ class PersistentTradingEngine {
                 await this.incrementSignalStats(userId, 'order');
                 
                 // Save log to user's logs
-                const userLogs = await kv.get(`logs:${userId}`) || [];
-                userLogs.unshift({
+                await this.appendSharedLog(userId, {
                   type: 'ORDER_PLACED',
                   timestamp: Date.now(),
-                  message: `💰 ORDER PLACED: ${symbol.name} | ${action} | Confidence: ${confidence}% | OrderID: ${orderResult.orderId}`
+                  message: `💰 ORDER PLACED: ${symbol.name} | ${action} | Confidence: ${confidence}% | OrderID: ${orderResult.orderId}`,
+                  data: {
+                    index: indexName,
+                    symbol: symbol.name,
+                    action,
+                    confidence,
+                    orderId: orderResult.orderId,
+                    quantity: symbol.quantity || 15,
+                    price: orderResult.averagePrice || orderResult.price || 0,
+                  }
                 });
-                if (userLogs.length > 500) userLogs.length = 500;
-                await kv.set(`logs:${userId}`, userLogs);
 
                 await this.saveUserNotification(userId, {
                   id: `order_${orderResult.orderId}`,
@@ -610,6 +623,10 @@ class PersistentTradingEngine {
         } catch (error) {
           console.error(`❌ Error analyzing ${indexName}:`, error);
         }
+      }
+
+      if (Object.keys(latestSignalsSnapshot).length > 0) {
+        await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
       }
       
       // Save state to KV (legacy)
@@ -815,6 +832,21 @@ class PersistentTradingEngine {
               pnl: pnl
             });
 
+            await this.appendSharedLog(userId, {
+              type: 'POSITION_CLOSED',
+              timestamp: Date.now(),
+              message: `🚪 POSITION CLOSED: ${position.symbolName} | ${exitReason} | P&L: ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}`,
+              symbol: position.symbolName,
+              pnl,
+              reason: exitReason,
+              data: {
+                symbol: position.symbolName,
+                pnl,
+                exitReason,
+                orderId: position.orderId,
+              }
+            });
+
             await this.saveUserNotification(userId, {
               id: `exit_${position.orderId}_${Date.now()}`,
               type: 'POSITION_CLOSED',
@@ -911,6 +943,32 @@ class PersistentTradingEngine {
       await kv.set(`user_notifications:${userId}`, existingNotifications);
     } catch (err) {
       console.error('❌ Failed to save user notification:', err);
+    }
+  }
+
+  private static async appendSharedLog(userId: string, logEntry: any): Promise<void> {
+    try {
+      const existingLogs = await kv.get(`logs:${userId}`) || [];
+      existingLogs.unshift(logEntry);
+      if (existingLogs.length > 500) {
+        existingLogs.length = 500;
+      }
+      await kv.set(`logs:${userId}`, existingLogs);
+    } catch (err) {
+      console.error('❌ Failed to append shared log:', err);
+    }
+  }
+
+  private static async saveLatestSignalsSnapshot(userId: string, latestSignals: Record<string, any>): Promise<void> {
+    try {
+      const existingSnapshot = await kv.get(`latest_signals:${userId}`) || {};
+      await kv.set(`latest_signals:${userId}`, {
+        ...existingSnapshot,
+        ...latestSignals,
+        __timestamp: Date.now(),
+      });
+    } catch (err) {
+      console.error('❌ Failed to save latest signals snapshot:', err);
     }
   }
 
