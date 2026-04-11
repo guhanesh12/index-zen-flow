@@ -417,21 +417,47 @@ class PersistentTradingEngine {
       // Mark as processed
       state.lastProcessedCandle = currentCandleTimestamp;
       
-      // ⚡⚡⚡ ANALYZE ALL SYMBOLS ⚡⚡⚡
-      for (const symbol of state.symbols) {
-        if (!symbol.active) continue;
-        
+      // ⚡⚡⚡ ANALYZE ALL 3 INDICES INDEPENDENTLY (like frontend does) ⚡⚡⚡
+      const allIndices = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
+      const analyzedIndices = new Set<string>();
+      
+      for (const indexName of allIndices) {
         try {
-          console.log(`\n📊 Analyzing: ${symbol.name}`);
+          console.log(`\n📊 Analyzing index: ${indexName}`);
           
           const aiSignal = await AdvancedAI.analyzeMarket(
             dhanService,
-            symbol.index || 'NIFTY',
+            indexName,
             state.candleInterval,
             100000
           );
           
+          analyzedIndices.add(indexName);
           state.stats.totalSignals++;
+          
+          // ⚡ Save signal to database with index_name
+          const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
+          await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
+          await this.incrementSignalStats(userId, 'signal');
+
+          if (!aiSignal || !aiSignal.signal) {
+            console.log(`⚠️ No signal generated for ${indexName}`);
+            continue;
+          }
+
+          const action = aiSignal.signal.action;
+          const confidence = aiSignal.signal.confidence;
+          console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
+
+          // Check if we should trade (only for symbols that match this index)
+          if (action === 'WAIT' || confidence < 85) {
+            console.log(`⏸️ ${indexName} SKIPPING - Low confidence or WAIT signal`);
+            continue;
+          }
+          
+          // Find matching symbols for this index to place orders
+          const matchingSymbols = state.symbols.filter(s => (s.index || 'NIFTY') === indexName && s.active !== false);
+          for (const symbol of matchingSymbols) {
           
           // ⚡ Save signal to database
           await this.saveSignalToDB(userId, symbol, aiSignal);
