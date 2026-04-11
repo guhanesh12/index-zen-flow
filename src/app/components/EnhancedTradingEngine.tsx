@@ -474,7 +474,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         });
         
         // ❌ DISABLED: No auto-restart - just stop the engine
-        handleStopEngine();
+        stopEngine(false);
       }
     }, 30000); // Check every 30 seconds
     
@@ -513,7 +513,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             console.log('⚠️ Engine will be stopped. Please manually restart after market opens.');
             
             // ❌ DISABLED: No auto-restart - just stop
-            handleStopEngine();
+            stopEngine(false);
           }
         }
       }
@@ -668,7 +668,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       // If backend says engine stopped but frontend shows running, auto-stop
       if (!backendRunning && isRunning && isRunningRef.current) {
         console.log('🛑 Backend engine STOPPED (from another device)');
-        handleStopEngine();
+        stopEngine(false);
       }
       
       // ⚡ SYNC POSITIONS FROM BACKEND (merge with local)
@@ -855,158 +855,122 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   };
 
+  const normalizeTradingSymbol = (symbol: any): TradingSymbol => {
+    const raw = symbol?.raw_data || symbol;
+    const index = raw.index || raw.indexName || raw.index_name || 'NIFTY';
+    const afterMarketOrder = !!raw.afterMarketOrder;
+
+    return {
+      ...raw,
+      id: raw.id || `SYM_${raw.symbol_id || raw.securityId || raw.symbolId || Date.now()}`,
+      name: raw.name || raw.symbol_name || raw.symbolName || 'UNKNOWN',
+      index,
+      optionType: raw.optionType || raw.option_type || 'CE',
+      transactionType: raw.transactionType || raw.transaction_type || 'BUY',
+      exchangeSegment: raw.exchangeSegment || raw.exchange_segment || (index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
+      productType: raw.productType || raw.product_type || 'INTRADAY',
+      orderType: raw.orderType || raw.order_type || 'MARKET',
+      validity: raw.validity || 'DAY',
+      securityId: String(raw.securityId || raw.symbol_id || raw.symbolId || ''),
+      quantity: raw.quantity || raw.lotSize || raw.lot_size || 1,
+      disclosedQuantity: raw.disclosedQuantity ?? 0,
+      price: raw.price ?? 0,
+      triggerPrice: raw.triggerPrice ?? 0,
+      afterMarketOrder,
+      amoTime: afterMarketOrder ? (raw.amoTime || 'OPEN') : undefined,
+      boProfitValue: raw.boProfitValue ?? 0,
+      boStopLossValue: raw.boStopLossValue ?? 0,
+      targetAmount: raw.targetAmount ?? 3000,
+      stopLossAmount: raw.stopLossAmount ?? 2000,
+      trailingEnabled: raw.trailingEnabled ?? false,
+      trailingActivationAmount: raw.trailingActivationAmount ?? 0,
+      targetJumpAmount: raw.targetJumpAmount ?? 0,
+      stopLossJumpAmount: raw.stopLossJumpAmount ?? 0,
+      currentTarget: raw.currentTarget ?? raw.targetAmount ?? 3000,
+      currentStopLoss: raw.currentStopLoss ?? raw.stopLossAmount ?? 2000,
+      trailingActivated: raw.trailingActivated ?? false,
+      active: raw.active ?? true
+    } as TradingSymbol;
+  };
+
+  const applyTradingSymbols = (symbolsInput: TradingSymbol[]) => {
+    let corrected = false;
+    const symbols = symbolsInput.map((symbol: TradingSymbol) => {
+      const fixed = { ...symbol };
+      if (symbol.exchangeSegment === 'NSE') {
+        fixed.exchangeSegment = symbol.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO';
+        corrected = true;
+      } else if (symbol.exchangeSegment === 'BSE') {
+        fixed.exchangeSegment = 'BSE_FNO';
+        corrected = true;
+      } else if (!symbol.exchangeSegment || symbol.exchangeSegment.trim() === '') {
+        fixed.exchangeSegment = symbol.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO';
+        corrected = true;
+      }
+      if ((fixed.exchangeSegment === 'NSE_FNO' || fixed.exchangeSegment === 'BSE_FNO') && (symbol.productType === 'CNC' || symbol.productType === 'MTF')) {
+        fixed.productType = 'INTRADAY';
+        corrected = true;
+      }
+      return fixed;
+    });
+
+    localStorage.setItem('trading_symbols', JSON.stringify(symbols));
+    const activeSymbols = symbols.filter((s: TradingSymbol) => s.active).map((s: TradingSymbol) => ({
+      ...s,
+      orderType: s.orderType || 'MARKET',
+      productType: s.productType || 'INTRADAY',
+      validity: s.validity || 'DAY',
+      price: s.price || 0,
+      triggerPrice: s.triggerPrice || 0,
+      disclosedQuantity: s.disclosedQuantity || 0,
+      afterMarketOrder: s.afterMarketOrder || false,
+      amoTime: (s.afterMarketOrder && s.amoTime) ? s.amoTime : undefined
+    }));
+
+    if (corrected) {
+      console.log(`💾 Auto-saving ${symbols.length} corrected symbols to localStorage...`);
+    }
+
+    setTradingSymbols(activeSymbols);
+    symbolsLoadedRef.current = true;
+  };
+
   const loadSymbols = async () => {
     try {
       console.log('🔄 Loading symbols from backend API...');
-      
-      // ✅ NEW: Fetch from backend API (centralized instruments uploaded by admin)
-      const freshToken = await getFreshAccessToken(); // ⚡ GET FRESH TOKEN
+      const freshToken = await getFreshAccessToken();
+
+      const userSymbolsResponse = await fetchWithAuth(`${serverUrl}/symbols/get`, {
+        headers: { Authorization: `Bearer ${freshToken}` }
+      });
+
+      if (userSymbolsResponse.ok) {
+        const userSymbolsData = await userSymbolsResponse.json();
+        const dbSymbols = (userSymbolsData.symbols || []).map((entry: any) => normalizeTradingSymbol(entry));
+        if (dbSymbols.length > 0) {
+          console.log(`✅ Loaded ${dbSymbols.length} user symbols from database`);
+          applyTradingSymbols(dbSymbols);
+          return;
+        }
+      }
+
       const instrumentService = createInstrumentService(serverUrl, freshToken);
-      
       try {
-        // Fetch all instruments from backend
         const allInstruments = await instrumentService.fetchAllInstruments();
-        
         if (allInstruments.length > 0) {
-          // Convert to trading symbols format
           const symbols = instrumentService.convertToTradingSymbols(allInstruments);
-          
-          // Save to localStorage for offline access
           saveTradingSymbolsToLocalStorage(symbols);
-          
-          // ⚡ Also save active symbols to server database (multi-device sync)
-          saveSymbolsToDB(symbols.filter((s: any) => s.active));
-          
-          // Update state
-          setTradingSymbols(symbols);
-          
+          applyTradingSymbols(symbols);
           console.log(`✅ Loaded ${symbols.length} symbols from backend API`);
           return;
         }
       } catch (apiError) {
         console.warn('⚠️ Backend API unavailable, falling back to localStorage');
       }
-      
-      // ✅ FALLBACK: Load from localStorage if API fails
+
       const stored = localStorage.getItem('trading_symbols');
       if (stored) {
-        let symbols = JSON.parse(stored);
-        
-        // ⚡⚡⚡ AUTO-CORRECTION: Fix invalid exchange segments and product types
-        let corrected = false;
-        symbols = symbols.map((symbol: TradingSymbol) => {
-          const fixed = { ...symbol };
-          
-          // Fix 1: Invalid exchange segments with SMART DETECTION based on index
-          if (symbol.exchangeSegment === 'NSE') {
-            // ✅ SENSEX uses BSE_FNO, others use NSE_FNO
-            fixed.exchangeSegment = symbol.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO';
-            console.log(`🔧 AUTO-FIX: NSE → ${fixed.exchangeSegment} for ${symbol.name} (Index: ${symbol.index})`);
-            corrected = true;
-          } else if (symbol.exchangeSegment === 'BSE') {
-            fixed.exchangeSegment = 'BSE_FNO';
-            console.log(`🔧 AUTO-FIX: BSE → BSE_FNO for ${symbol.name}`);
-            corrected = true;
-          } else if (!symbol.exchangeSegment || symbol.exchangeSegment.trim() === '') {
-            // ✅ Smart default: SENSEX uses BSE_FNO, others use NSE_FNO
-            fixed.exchangeSegment = symbol.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO';
-            console.log(`🔧 AUTO-FIX: Added exchange ${fixed.exchangeSegment} for ${symbol.name}`);
-            corrected = true;
-          }
-          
-          // Fix 2: Wrong product type for F&O
-          if ((fixed.exchangeSegment === 'NSE_FNO' || fixed.exchangeSegment === 'BSE_FNO') && 
-              (symbol.productType === 'CNC' || symbol.productType === 'MTF')) {
-            fixed.productType = 'INTRADAY';
-            console.log(`🔧 AUTO-FIX: Product type ${symbol.productType} → INTRADAY for ${symbol.name}`);
-            corrected = true;
-          }
-          
-          return fixed;
-        });
-        
-        // ✅ If any corrections made, save back to localStorage
-        if (corrected) {
-          console.log(`💾 Auto-saving ${symbols.length} corrected symbols to localStorage...`);
-          localStorage.setItem('trading_symbols', JSON.stringify(symbols));
-          console.log(`✅ Corrected symbols saved automatically!`);
-        }
-        
-        // ❌ REMOVED AUTO-FIX: DO NOT auto-activate old symbols!
-        // This was causing trades to execute with yesterday's symbols (e.g., NIFTY30DEC2025 26100)
-        // User MUST manually activate symbols they want to trade TODAY
-        
-        // ⚡ SAFETY CHECK: Warn about potentially expired symbols
-        const today = new Date();
-        const currentMonth = today.toLocaleDateString('en-IN', { month: 'short' }).toUpperCase();
-        const currentYear = today.getFullYear();
-        
-        symbols.forEach((s: TradingSymbol) => {
-          if (s.active) {
-            // Extract expiry from symbol name (e.g., NIFTY30DEC2025 or BANKNIFTY01JAN2025)
-            const expiryMatch = s.name.match(/(\d{2})([A-Z]{3})(\d{4})/);
-            if (expiryMatch) {
-              const [_, day, month, year] = expiryMatch;
-              const expiryYear = parseInt(year);
-              
-              // Warn if symbol has old year or month
-              if (expiryYear < currentYear) {
-                console.warn(`⚠️ EXPIRED SYMBOL: ${s.name} (Year: ${expiryYear}, Current: ${currentYear})`);
-                console.warn(`   → Go to Symbols tab and deactivate this symbol!`);
-              }
-            }
-          }
-        });
-        
-        // ✅ VALIDATE AND SET DEFAULTS for all active symbols
-        const activeSymbols = symbols
-          .filter((s: TradingSymbol) => s.active)
-          .map((s: TradingSymbol) => {
-            const hasDefaults = !s.orderType || !s.productType || !s.validity;
-            if (hasDefaults) {
-              console.log(`🔧 Applying defaults to ${s.name}: orderType=${s.orderType || 'MARKET'}, productType=${s.productType || 'INTRADAY'}, validity=${s.validity || 'DAY'}`);
-            }
-            return {
-              ...s,
-              // ✅ Ensure all required fields have valid values
-              orderType: s.orderType || 'MARKET',
-              productType: s.productType || 'INTRADAY',
-              validity: s.validity || 'DAY',
-              price: s.price || 0,
-              triggerPrice: s.triggerPrice || 0,
-              disclosedQuantity: s.disclosedQuantity || 0,
-              afterMarketOrder: s.afterMarketOrder || false,
-              // ✅ Only keep amoTime if afterMarketOrder is true
-              amoTime: (s.afterMarketOrder && s.amoTime) ? s.amoTime : undefined
-            };
-          });
-        
-        setTradingSymbols(activeSymbols);
-        
-        console.log(`✅ Loaded ${activeSymbols.length} active trading symbols (with validated defaults)`);
-        console.log(`📊 Total symbols in storage: ${symbols.length}`);
-        console.log(`🔍 Active symbols: ${activeSymbols.length}`);
-        
-        // Show breakdown by type
-        if (activeSymbols.length > 0) {
-          const ceCount = activeSymbols.filter((s: TradingSymbol) => s.optionType === 'CE').length;
-          const peCount = activeSymbols.filter((s: TradingSymbol) => s.optionType === 'PE').length;
-          const buyCount = activeSymbols.filter((s: TradingSymbol) => s.transactionType === 'BUY').length;
-          const sellCount = activeSymbols.filter((s: TradingSymbol) => s.transactionType === 'SELL').length;
-          
-          console.log(`  CE (Call): ${ceCount} symbols`);
-          console.log(`  PE (Put): ${peCount} symbols`);
-          console.log(`  BUY: ${buyCount} symbols`);
-          console.log(`  SELL: ${sellCount} symbols`);
-        }
-        
-        symbolsLoadedRef.current = true; // Mark symbols as loaded
-        
-        // Alert if no active symbols
-        if (activeSymbols.length === 0 && symbols.length > 0) {
-          console.warn(`⚠️ WARNING: ${symbols.length} symbols exist but NONE are marked as ACTIVE!`);
-          console.warn(`⚠️ Please go to Symbols tab and toggle the Active switch for symbols you want to trade.`);
-        }
+        applyTradingSymbols(JSON.parse(stored).map((entry: any) => normalizeTradingSymbol(entry)));
       } else {
         console.log(`📭 No symbols found in localStorage`);
       }
@@ -1532,7 +1496,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
 
   const handleStopEngine = () => {
-    stopEngine();
+    stopEngine(true);
     hasAutoRestartedRef.current = false; // ⚡ RESET auto-restart flag so it can restart again
     
     // ⚡ Reset log flag to show "stopped" message once
@@ -1541,9 +1505,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     // ⚡⚡⚡ CRITICAL: Mark as MANUAL STOP (prevents auto-restart on page refresh) ⚡⚡⚡
     localStorage.setItem('engine_manual_stop', 'true');
     console.log('🛑 Engine stopped MANUALLY by user - auto-restart DISABLED until next manual start');
-    
-    // ⚡⚡⚡ NEW: SAVE TO BACKEND FOR MULTI-DEVICE SYNC ⚡⚡⚡
-    saveEngineState(false, candleInterval);
     
     // 🔊 PLAY ENGINE STOP SOUND
     notifyEngineStop();
@@ -1555,7 +1516,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     });
   };
 
-  const stopEngine = async () => {
+  const stopEngine = async (syncBackend = true) => {
     console.log('\n🛑🛑🛑 ========== ENGINE STOPPING ========== 🛑🛑🛑');
     
     setIsRunning(false);
@@ -1565,8 +1526,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     console.log('✅ Engine state set to: STOPPED');
     console.log('✅ isRunningRef.current =', isRunningRef.current);
     
-    // ⚡⚡⚡ SAVE TO BACKEND FOR MULTI-DEVICE SYNC ⚡⚡⚡
-    await saveEngineState(false, candleInterval);
+    if (syncBackend) {
+      await saveEngineState(false, candleInterval);
+    }
     
     if (engineTimerRef.current) {
       clearInterval(engineTimerRef.current);
@@ -2319,12 +2281,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             message: `⚠️ Session expired — local polling paused. Backend engine continues running via cron. Re-login to resume UI updates.`
           });
           // ⚡ Only stop local state, do NOT call backend stop
-          setIsRunning(false);
+          await stopEngine(false);
         } else if (response.status === 400 && errorText.includes('credentials not configured')) {
           // ⚡ HANDLE 400 - CREDENTIALS NOT CONFIGURED
           console.error(`🚨 API CREDENTIALS NOT CONFIGURED!`);
           alert('⚠️ API credentials not configured!\n\nPlease go to Settings tab and configure your Dhan API credentials (Client ID and Access Token).');
-          stopEngine();
+          await stopEngine(false);
           onLog({
             timestamp: Date.now(),
             type: 'ERROR',

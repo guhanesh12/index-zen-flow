@@ -380,11 +380,10 @@ app.get("/make-server-c4d79cb7/health", (c) => {
  */
 app.post("/make-server-c4d79cb7/test-static-ip-integration", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const credentials = await kv.get(`api_credentials:${user.id}`);
@@ -466,11 +465,10 @@ app.post("/make-server-c4d79cb7/test-static-ip-integration", async (c) => {
  */
 app.post("/make-server-c4d79cb7/test-order-simulation", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const orderRequest = await c.req.json();
@@ -869,7 +867,10 @@ app.get("/make-server-c4d79cb7/api-credentials", async (c) => {
       
       return c.json({ 
         credentials: maskedCredentials, 
-        status,
+        status: {
+          ...status,
+          dhan: status.dhanConfigured && status.accessTokenConfigured
+        },
         isConfigured: status.dhanConfigured && status.accessTokenConfigured
       });
     }
@@ -1055,11 +1056,10 @@ app.post("/make-server-c4d79cb7/test-api-connection", async (c) => {
 // Debug endpoint to check stored credentials (masked)
 app.get("/make-server-c4d79cb7/debug-credentials", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const credentials = await kv.get(`api_credentials:${user.id}`);
@@ -1091,11 +1091,10 @@ app.get("/make-server-c4d79cb7/debug-credentials", async (c) => {
 // Get engine state
 app.get("/make-server-c4d79cb7/engine-state", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const state = await kv.get(`engine_state:${user.id}`);
@@ -1118,11 +1117,10 @@ app.get("/make-server-c4d79cb7/engine-state", async (c) => {
 // Update engine state
 app.post("/make-server-c4d79cb7/engine-state", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { isRunning, interval } = await c.req.json();
@@ -1150,11 +1148,10 @@ app.post("/make-server-c4d79cb7/engine-state", async (c) => {
 // Get symbols
 app.get("/make-server-c4d79cb7/symbols", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     // ✅ FIXED: Get centralized symbols (not user-specific)
@@ -1171,11 +1168,10 @@ app.get("/make-server-c4d79cb7/symbols", async (c) => {
 // Add symbol
 app.post("/make-server-c4d79cb7/symbols", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const newSymbol = await c.req.json();
@@ -1198,11 +1194,10 @@ app.post("/make-server-c4d79cb7/symbols", async (c) => {
 // Update symbol
 app.put("/make-server-c4d79cb7/symbols/:id", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const id = c.req.param('id');
@@ -1228,11 +1223,10 @@ app.put("/make-server-c4d79cb7/symbols/:id", async (c) => {
 // Delete symbol
 app.delete("/make-server-c4d79cb7/symbols/:id", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const id = c.req.param('id');
@@ -1284,6 +1278,39 @@ app.post("/make-server-c4d79cb7/sync-user-symbol", async (c) => {
       lastUpdated: Date.now(),
       userId: user.id
     });
+
+    const dbRow = {
+      user_id: user.id,
+      symbol_name: newSymbol.symbolName || newSymbol.name || newSymbol.displayName || 'UNKNOWN',
+      symbol_id: String(newSymbol.securityId || newSymbol.symbolId || newSymbol.id || ''),
+      exchange_segment: newSymbol.exchangeSegment || 'NSE_FNO',
+      instrument_type: newSymbol.instrumentType || 'OPTIDX',
+      lot_size: newSymbol.lotSize || newSymbol.quantity || 1,
+      expiry: newSymbol.expiry || null,
+      strike_price: newSymbol.strikePrice || null,
+      option_type: newSymbol.optionType || null,
+      index_name: newSymbol.index || newSymbol.indexName || 'NIFTY',
+      raw_data: newSymbol
+    };
+
+    const { error: deleteError } = await supabase
+      .from('user_symbols')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('symbol_id', dbRow.symbol_id);
+
+    if (deleteError) {
+      return c.json({ error: deleteError.message }, 500);
+    }
+
+    const { error: insertError } = await supabase
+      .from('user_symbols')
+      .insert([dbRow]);
+
+    if (insertError) {
+      return c.json({ error: insertError.message }, 500);
+    }
+
     console.log(`📊 Total symbols for user: ${userSymbols.length}`);
 
     return c.json({ success: true, symbolCount: userSymbols.length });
@@ -1385,11 +1412,10 @@ app.get("/make-server-c4d79cb7/test-connection", async (c) => {
 // Get market quote (real-time price)
 app.post("/make-server-c4d79cb7/market-quote", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { securityId, exchangeSegment } = await c.req.json();
@@ -1426,11 +1452,10 @@ app.post("/make-server-c4d79cb7/market-quote", async (c) => {
 // Get OHLC candle data
 app.post("/make-server-c4d79cb7/ohlc-data", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { symbol, interval, count } = await c.req.json();
@@ -1468,11 +1493,10 @@ app.post("/make-server-c4d79cb7/ohlc-data", async (c) => {
 // Get intraday OHLC data with minute intervals (1, 5, 15, 25, 60 min)
 app.post("/make-server-c4d79cb7/intraday-ohlc", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { 
@@ -1534,11 +1558,10 @@ app.post("/make-server-c4d79cb7/intraday-ohlc", async (c) => {
 // ⚡ TEST ENDPOINT: Try different security IDs for BANKNIFTY and SENSEX
 app.post("/make-server-c4d79cb7/test-security-ids", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const credentials = await kv.get(`api_credentials:${user.id}`);
@@ -1685,11 +1708,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
 // ✅ FIX: Save P&L to backend for admin panel display
 app.post("/make-server-c4d79cb7/pnl/save", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { totalPnL, unrealizedPnL, realizedPnL, timestamp } = await c.req.json();
@@ -1860,11 +1882,10 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
 // Test ChatGPT API
 app.post("/make-server-c4d79cb7/test-chatgpt", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { testMode } = await c.req.json();
@@ -1910,11 +1931,10 @@ app.post("/make-server-c4d79cb7/test-chatgpt", async (c) => {
 // Test Dhan API
 app.post("/make-server-c4d79cb7/test-dhan", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     // Get credentials
@@ -2057,11 +2077,10 @@ app.post("/make-server-c4d79cb7/search-dhan-instruments", async (c) => {
 // Get AI analysis for symbol
 app.post("/make-server-c4d79cb7/analyze-symbol", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { symbolId, index, daysToExpiry, testMode } = await c.req.json();
@@ -2382,11 +2401,10 @@ app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
 // Place bracket order with target and stop loss
 app.post("/make-server-c4d79cb7/place-bracket-order", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const {
@@ -2454,11 +2472,10 @@ app.post("/make-server-c4d79cb7/place-bracket-order", async (c) => {
 // Place cover order with stop loss
 app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const {
@@ -2555,11 +2572,10 @@ app.get("/make-server-c4d79cb7/live-positions", async (c) => {
 // Get risk settings
 app.get("/make-server-c4d79cb7/risk-settings", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const settings = await kv.get(`risk_settings:${user.id}`);
@@ -2573,11 +2589,10 @@ app.get("/make-server-c4d79cb7/risk-settings", async (c) => {
 // Save risk settings
 app.post("/make-server-c4d79cb7/risk-settings", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const settings = await c.req.json();
@@ -2595,11 +2610,10 @@ app.post("/make-server-c4d79cb7/risk-settings", async (c) => {
 // Get current position
 app.get("/make-server-c4d79cb7/position", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const position = await kv.get(`position:${user.id}`);
@@ -2613,11 +2627,10 @@ app.get("/make-server-c4d79cb7/position", async (c) => {
 // Save/update position
 app.post("/make-server-c4d79cb7/position", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const position = await c.req.json();
@@ -2635,11 +2648,10 @@ app.post("/make-server-c4d79cb7/position", async (c) => {
 // Get AI analysis
 app.get("/make-server-c4d79cb7/ai-analysis", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const analysis = await kv.get(`ai_analysis:${user.id}`);
@@ -2653,11 +2665,10 @@ app.get("/make-server-c4d79cb7/ai-analysis", async (c) => {
 // Save AI analysis
 app.post("/make-server-c4d79cb7/ai-analysis", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const analysis = await c.req.json();
@@ -2699,9 +2710,9 @@ app.post("/make-server-c4d79cb7/logs", async (c) => {
     const log = await c.req.json();
     const logs = await kv.get(`logs:${user.id}`) || [];
     
-    // Keep only last 1000 logs
+    // Keep only last 500 logs
     logs.unshift(log);
-    if (logs.length > 1000) {
+    if (logs.length > 500) {
       logs.pop();
     }
     
@@ -2719,11 +2730,10 @@ app.post("/make-server-c4d79cb7/logs", async (c) => {
 // Search for NIFTY option by strike and expiry
 app.post("/make-server-c4d79cb7/search-option", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { index, strike, expiry, optionType } = await c.req.json();
@@ -2786,11 +2796,10 @@ app.post("/make-server-c4d79cb7/search-option", async (c) => {
 // Get AI signal for high-speed trading
 app.post("/make-server-c4d79cb7/get-ai-signal", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { symbolId, index } = await c.req.json();
@@ -2915,11 +2924,10 @@ Respond ONLY with valid JSON, no explanations.`;
 // Place order (high-speed execution) - NOW USES STATIC IP SERVER
 app.post("/make-server-c4d79cb7/place-order", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const orderRequest = await c.req.json();
@@ -3225,11 +3233,10 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
   const totalStartTime = performance.now(); // ⚡ MILLISECOND TRACKING
   
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    const { user, error } = await validateAuth(c);
 
     if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { index, candles, interval, checkExistingPosition } = await c.req.json();
@@ -9804,7 +9811,7 @@ app.post("/make-server-c4d79cb7/symbols/save", async (c) => {
       return c.json({ error: 'symbols array required' }, 400);
     }
 
-    // Prepare rows for upsert
+    // Prepare rows for full replacement save
     const rows = symbols.map((s: any) => ({
       user_id: user.id,
       symbol_name: s.symbolName || s.name || 'UNKNOWN',
@@ -9819,15 +9826,27 @@ app.post("/make-server-c4d79cb7/symbols/save", async (c) => {
       raw_data: s
     }));
 
-    const { error: upsertError } = await supabase
+    const { error: deleteError } = await supabase
       .from('user_symbols')
-      .upsert(rows, { onConflict: 'user_id,symbol_id' });
+      .delete()
+      .eq('user_id', user.id);
 
-    if (upsertError) {
-      return c.json({ error: upsertError.message }, 500);
+    if (deleteError) {
+      return c.json({ error: deleteError.message }, 500);
+    }
+
+    if (rows.length > 0) {
+      const { error: insertError } = await supabase
+        .from('user_symbols')
+        .insert(rows);
+
+      if (insertError) {
+        return c.json({ error: insertError.message }, 500);
+      }
     }
 
     // ⚡ Also save to KV for backward compatibility with engine loop
+    await kv.set(`symbols:${user.id}`, symbols);
     await kv.set(`trading_symbols:${user.id}`, {
       symbols: symbols,
       lastUpdated: Date.now(),
