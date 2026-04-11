@@ -201,6 +201,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     BANKNIFTY: null,
     SENSEX: null
   });
+  const [selectedAnalysisIndex, setSelectedAnalysisIndex] = useState<'NIFTY' | 'BANKNIFTY' | 'SENSEX'>('NIFTY');
   
   // ⚡ Force render counter to ensure UI updates
   const [renderKey, setRenderKey] = useState(0);
@@ -443,6 +444,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       .map((index) => signalsMap?.[index])
       .filter(Boolean)
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0] || null;
+  };
+
+  const analysisSignals = {
+    NIFTY: multiSymbolSignals.NIFTY || ((lastSignal?.index === 'NIFTY' || !lastSignal?.index) ? lastSignal : null),
+    BANKNIFTY: multiSymbolSignals.BANKNIFTY || (lastSignal?.index === 'BANKNIFTY' ? lastSignal : null),
+    SENSEX: multiSymbolSignals.SENSEX || (lastSignal?.index === 'SENSEX' ? lastSignal : null),
+  };
+
+  const selectedAnalysisSignal = analysisSignals[selectedAnalysisIndex];
+  const hasAnyAnalysisSignal = Boolean(analysisSignals.NIFTY || analysisSignals.BANKNIFTY || analysisSignals.SENSEX);
+
+  const formatSignalLevel = (value: any) => {
+    const numericValue = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numericValue) ? numericValue.toFixed(2) : '--';
   };
 
   const ensurePositionMonitorLoop = () => {
@@ -4521,117 +4536,136 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       </Card>
 
       {/* S/R LEVELS & SIGNAL */}
-      {lastSignal && (
+      {hasAnyAnalysisSignal && (
         <Card className="bg-zinc-900 border-zinc-800">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="size-5 text-blue-500" />
-              Market Analysis
-            </CardTitle>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="size-5 text-blue-500" />
+                Market Analysis
+              </CardTitle>
+              <Select value={selectedAnalysisIndex} onValueChange={(value: 'NIFTY' | 'BANKNIFTY' | 'SENSEX') => setSelectedAnalysisIndex(value)}>
+                <SelectTrigger className="w-full md:w-[180px] bg-zinc-900 border-zinc-700 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-700">
+                  <SelectItem value="NIFTY" className="text-zinc-200">NIFTY</SelectItem>
+                  <SelectItem value="BANKNIFTY" className="text-zinc-200">BANKNIFTY</SelectItem>
+                  <SelectItem value="SENSEX" className="text-zinc-200">SENSEX</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Last Signal */}
-            <div className="grid grid-cols-4 gap-4">
-              <div>
-                <Label className="text-zinc-400">Action</Label>
-                <div className="font-semibold text-amber-500 mt-1">{lastSignal.action}</div>
-              </div>
-              <div>
-                <Label className="text-zinc-400">Confidence</Label>
-                <div className="font-semibold mt-1">{lastSignal.confidence}%</div>
-              </div>
-              <div>
-                <Label className="text-zinc-400">Bias</Label>
-                <Badge variant={lastSignal.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-1">
-                  {lastSignal.bias}
-                </Badge>
-              </div>
-              <div>
-                <Label className="text-zinc-400">Institutional</Label>
-                <div className="text-sm mt-1 text-blue-400">{lastSignal.institutional_bias}</div>
-              </div>
-            </div>
+            {selectedAnalysisSignal ? (
+              <>
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-xs text-zinc-400">
+                  <span>Showing latest <span className="font-semibold text-zinc-100">{selectedAnalysisIndex}</span> analysis</span>
+                  <span>{selectedAnalysisSignal.timeframe || '--'} • {new Date(selectedAnalysisSignal.timestamp || Date.now()).toLocaleTimeString()}</span>
+                </div>
 
-            {/* S/R Levels */}
-            {lastSignal.resistance_levels && lastSignal.support_levels && (
-              <div className="grid grid-cols-2 gap-4">
-                {/* Resistance */}
-                <div className="p-3 bg-red-950/10 border border-red-900/20 rounded">
-                  <div className="text-sm font-semibold text-red-500 mb-2 flex items-center gap-2">
-                    <Target className="size-4" />
-                    Resistance Levels
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <div>
+                    <Label className="text-zinc-400">Action</Label>
+                    <div className="font-semibold text-amber-500 mt-1">{selectedAnalysisSignal.action}</div>
                   </div>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">R1:</span>
-                      <span className="text-red-400 font-mono">{lastSignal.resistance_levels.r1.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">R2:</span>
-                      <span className="text-red-400 font-mono">{lastSignal.resistance_levels.r2.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">R3:</span>
-                      <span className="text-red-400 font-mono">{lastSignal.resistance_levels.r3.toFixed(2)}</span>
-                    </div>
+                  <div>
+                    <Label className="text-zinc-400">Confidence</Label>
+                    <div className="font-semibold mt-1">{selectedAnalysisSignal.confidence}%</div>
+                  </div>
+                  <div>
+                    <Label className="text-zinc-400">Bias</Label>
+                    <Badge variant={selectedAnalysisSignal.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-1">
+                      {selectedAnalysisSignal.bias}
+                    </Badge>
+                  </div>
+                  <div>
+                    <Label className="text-zinc-400">Institutional</Label>
+                    <div className="text-sm mt-1 text-blue-400">{selectedAnalysisSignal.institutional_bias}</div>
                   </div>
                 </div>
 
-                {/* Support */}
-                <div className="p-3 bg-green-950/10 border border-green-900/20 rounded">
-                  <div className="text-sm font-semibold text-green-500 mb-2 flex items-center gap-2">
-                    <Shield className="size-4" />
-                    Support Levels
-                  </div>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">S1:</span>
-                      <span className="text-green-400 font-mono">{lastSignal.support_levels.s1.toFixed(2)}</span>
+                {selectedAnalysisSignal.resistance_levels && selectedAnalysisSignal.support_levels && (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="p-3 bg-red-950/10 border border-red-900/20 rounded">
+                      <div className="text-sm font-semibold text-red-500 mb-2 flex items-center gap-2">
+                        <Target className="size-4" />
+                        Resistance Levels
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">R1:</span>
+                          <span className="text-red-400 font-mono">{formatSignalLevel(selectedAnalysisSignal.resistance_levels.r1)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">R2:</span>
+                          <span className="text-red-400 font-mono">{formatSignalLevel(selectedAnalysisSignal.resistance_levels.r2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">R3:</span>
+                          <span className="text-red-400 font-mono">{formatSignalLevel(selectedAnalysisSignal.resistance_levels.r3)}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">S2:</span>
-                      <span className="text-green-400 font-mono">{lastSignal.support_levels.s2.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">S3:</span>
-                      <span className="text-green-400 font-mono">{lastSignal.support_levels.s3.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* Volume Analysis */}
-            {lastSignal.volume_analysis && (
-              <div className="p-3 bg-zinc-800 rounded text-sm">
-                <div className="flex items-center gap-4">
-                  <div>
-                    <span className="text-zinc-400">Volume:</span>
-                    <span className={`ml-2 font-semibold ${
-                      lastSignal.volume_analysis.is_spike ? 'text-amber-500' : 
-                      lastSignal.volume_analysis.is_high ? 'text-yellow-500' : 'text-zinc-400'
-                    }`}>
-                      {lastSignal.volume_analysis.ratio?.toFixed(2) || 'N/A'}x
-                    </span>
+                    <div className="p-3 bg-green-950/10 border border-green-900/20 rounded">
+                      <div className="text-sm font-semibold text-green-500 mb-2 flex items-center gap-2">
+                        <Shield className="size-4" />
+                        Support Levels
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">S1:</span>
+                          <span className="text-green-400 font-mono">{formatSignalLevel(selectedAnalysisSignal.support_levels.s1)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">S2:</span>
+                          <span className="text-green-400 font-mono">{formatSignalLevel(selectedAnalysisSignal.support_levels.s2)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">S3:</span>
+                          <span className="text-green-400 font-mono">{formatSignalLevel(selectedAnalysisSignal.support_levels.s3)}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-zinc-400">Smart Money:</span>
-                    <span className={`ml-2 font-semibold ${lastSignal.smart_money_detected ? 'text-green-500' : 'text-zinc-500'}`}>
-                      {lastSignal.smart_money_detected ? '✅ YES' : '❌ NO'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Momentum:</span>
-                    <span className="ml-2 font-semibold text-blue-400">{lastSignal.momentum || 'N/A'}</span>
-                  </div>
-                </div>
-              </div>
-            )}
+                )}
 
-            {/* Reasoning */}
-            {lastSignal.reasoning && (
-              <div className="text-xs text-zinc-400 italic p-2 bg-zinc-800/50 rounded">
-                {lastSignal.reasoning}
+                {selectedAnalysisSignal.volume_analysis && (
+                  <div className="p-3 bg-zinc-800 rounded text-sm">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div>
+                        <span className="text-zinc-400">Volume:</span>
+                        <span className={`ml-2 font-semibold ${
+                          selectedAnalysisSignal.volume_analysis.is_spike ? 'text-amber-500' : 
+                          selectedAnalysisSignal.volume_analysis.is_high ? 'text-yellow-500' : 'text-zinc-400'
+                        }`}>
+                          {formatSignalLevel(selectedAnalysisSignal.volume_analysis.ratio)}x
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-400">Smart Money:</span>
+                        <span className={`ml-2 font-semibold ${selectedAnalysisSignal.smart_money_detected ? 'text-green-500' : 'text-zinc-500'}`}>
+                          {selectedAnalysisSignal.smart_money_detected ? '✅ YES' : '❌ NO'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-400">Momentum:</span>
+                        <span className="ml-2 font-semibold text-blue-400">{selectedAnalysisSignal.momentum || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedAnalysisSignal.reasoning && (
+                  <div className="text-xs text-zinc-400 italic p-2 bg-zinc-800/50 rounded">
+                    {selectedAnalysisSignal.reasoning}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-400">
+                No {selectedAnalysisIndex} analysis yet.
               </div>
             )}
           </CardContent>

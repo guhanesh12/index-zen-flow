@@ -79,6 +79,92 @@ async function safeKVGet(key: string, defaultValue: any = null, maxRetries = 2) 
   return defaultValue;
 }
 
+const MAX_SHARED_LOGS = 500;
+const ENGINE_SIGNAL_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;
+
+function normalizeTimestamp(value: any): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return Date.now();
+}
+
+function normalizeMergedLogEntry(log: any, source = 'shared') {
+  return {
+    ...log,
+    source: log?.source || source,
+    timestamp: normalizeTimestamp(log?.timestamp),
+  };
+}
+
+async function getMergedUserLogs(userId: string) {
+  const [sharedLogs, engineLogRows] = await Promise.all([
+    safeKVGet(`logs:${userId}`, []),
+    kv.getByPrefix(`engine_log_${userId}_`),
+  ]);
+
+  const mergedLogs = [
+    ...(Array.isArray(sharedLogs) ? sharedLogs.map((log: any) => normalizeMergedLogEntry(log, 'shared')) : []),
+    ...((engineLogRows || []).map((row: any) => normalizeMergedLogEntry(row.value, 'engine'))),
+  ];
+
+  const dedupedLogs = mergedLogs.filter((log: any, index: number, self: any[]) => {
+    return index === self.findIndex((candidate: any) =>
+      (candidate?.id && log?.id && candidate.id === log.id) ||
+      (
+        candidate?.timestamp === log?.timestamp &&
+        candidate?.type === log?.type &&
+        candidate?.message === log?.message &&
+        candidate?.symbol === log?.symbol
+      )
+    );
+  });
+
+  return dedupedLogs
+    .sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0))
+    .slice(0, MAX_SHARED_LOGS);
+}
+
+async function clearMergedUserLogs(userId: string) {
+  await kv.set(`logs:${userId}`, []);
+  const engineLogRows = await kv.getByPrefix(`engine_log_${userId}_`);
+  const engineLogKeys = (engineLogRows || []).map((row: any) => row.key).filter(Boolean);
+
+  if (engineLogKeys.length > 0) {
+    await kv.mdel(engineLogKeys);
+  }
+}
+
+function deriveLatestSignals(signals: any[] = [], storedLatestSignals: any = null) {
+  const mergedLatestSignals: any = {
+    NIFTY: storedLatestSignals?.NIFTY || null,
+    BANKNIFTY: storedLatestSignals?.BANKNIFTY || null,
+    SENSEX: storedLatestSignals?.SENSEX || null,
+    __timestamp: storedLatestSignals?.__timestamp || 0,
+  };
+
+  for (const indexName of ENGINE_SIGNAL_INDICES) {
+    if (!mergedLatestSignals[indexName]) {
+      const fallbackSignal = signals.find((signal: any) => signal?.index_name === indexName);
+      if (fallbackSignal) {
+        mergedLatestSignals[indexName] = fallbackSignal;
+      }
+    }
+
+    const signalTimestamp = normalizeTimestamp(
+      mergedLatestSignals[indexName]?.timestamp || mergedLatestSignals[indexName]?.created_at
+    );
+
+    if (signalTimestamp > mergedLatestSignals.__timestamp) {
+      mergedLatestSignals.__timestamp = signalTimestamp;
+    }
+  }
+
+  return mergedLatestSignals;
+}
+
 // ⚡ ADMIN AUTH HELPER: Validate admin access (accepts anon key or user session)
 async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?: any }> {
   const authHeader = c.req.header('Authorization');
@@ -2691,8 +2777,8 @@ app.get("/make-server-c4d79cb7/logs", async (c) => {
       return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
-    const logs = await kv.get(`logs:${user.id}`);
-    return c.json({ logs: logs || [] });
+    const logs = await getMergedUserLogs(user.id);
+    return c.json({ logs });
   } catch (error) {
     console.log(`Error fetching logs: ${error}`);
     return c.json({ error: "Failed to fetch logs" }, 500);
@@ -2732,7 +2818,7 @@ app.delete("/make-server-c4d79cb7/logs", async (c) => {
       return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
-    await kv.set(`logs:${user.id}`, []);
+    await clearMergedUserLogs(user.id);
     return c.json({ success: true, logs: [] });
   } catch (error) {
     console.log(`Error clearing logs: ${error}`);
@@ -9848,8 +9934,9 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
       .order('created_at', { ascending: false })
       .limit(50);
 
-    // Get user logs from KV store
-    const userLogs = await kv.get(`logs:${user.id}`) || [];
+    const storedLatestSignals = await safeKVGet(`latest_signals:${user.id}`, null);
+    const latestSignals = deriveLatestSignals(signals || [], storedLatestSignals);
+    const userLogs = await getMergedUserLogs(user.id);
 
     return c.json({
       success: true,
@@ -9863,6 +9950,7 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
       } : { isRunning: false },
       positions: positions || [],
       stats: stats || { signal_count: 0, order_count: 0, speed_count: 0, total_pnl: 0 },
+      latestSignals,
       signals: signals || [],
       orders: orders || [],
       logs: userLogs
