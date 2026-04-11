@@ -458,118 +458,94 @@ class PersistentTradingEngine {
           // Find matching symbols for this index to place orders
           const matchingSymbols = state.symbols.filter(s => (s.index || 'NIFTY') === indexName && s.active !== false);
           for (const symbol of matchingSymbols) {
-          
-          // ⚡ Save signal to database
-          await this.saveSignalToDB(userId, symbol, aiSignal);
-          
-          // ⚡ Update signal stats
-          await this.incrementSignalStats(userId, 'signal');
-          
-          if (!aiSignal || !aiSignal.signal) {
-            console.log(`⚠️ No signal generated for ${symbol.name}`);
-            continue;
-          }
-          
-          const action = aiSignal.signal.action;
-          const confidence = aiSignal.signal.confidence;
-          
-          console.log(`🎯 AI Decision: ${action} | Confidence: ${confidence}%`);
-          
-          // Check if we should trade
-          if (action === 'WAIT' || confidence < 85) {
-            console.log(`⏸️ SKIPPING - Low confidence or WAIT signal`);
-            continue;
-          }
-          
-          // Check if already have position for this symbol
-          const hasPosition = state.activePositions.some(p => 
-            p.symbolName === symbol.symbolName && p.status === 'ACTIVE'
-          );
-          
-          if (hasPosition) {
-            console.log(`⏸️ SKIPPING - Already have position for ${symbol.name}`);
-            continue;
-          }
-          
-          // ⚡ EXECUTE ORDER!
-          if (action === 'BUY_CALL' || action === 'BUY_PUT') {
-            console.log(`\n💰 PLACING ORDER: ${symbol.name}`);
-            
-            const orderParams = {
-              securityId: symbol.securityId,
-              transactionType: 'BUY',
-              exchangeSegment: 'NSE_FNO',
-              productType: 'INTRADAY',
-              orderType: 'MARKET',
-              validity: 'DAY',
-              quantity: symbol.quantity || 15,
-              disclosedQuantity: 0,
-              price: 0,
-              triggerPrice: 0,
-              afterMarketOrder: false,
-              amoTime: '',
-              boProfitValue: 0,
-              boStopLossValue: 0
-            };
-            
-            const orderResult = await placeOrderViaStaticIP(
-              userId,
-              {
-                dhanClientId: dhanClientId,
-                dhanAccessToken: dhanAccessToken
-              },
-              orderParams
+            // Check if already have position for this symbol
+            const hasPosition = state.activePositions.some(p => 
+              p.symbolName === symbol.symbolName && p.status === 'ACTIVE'
             );
             
-            if (orderResult.orderId) {
-              console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
+            if (hasPosition) {
+              console.log(`⏸️ SKIPPING - Already have position for ${symbol.name}`);
+              continue;
+            }
+            
+            // ⚡ EXECUTE ORDER!
+            if (action === 'BUY_CALL' || action === 'BUY_PUT') {
+              console.log(`\n💰 PLACING ORDER: ${symbol.name}`);
               
-              const positionData = {
-                orderId: orderResult.orderId,
-                symbolName: symbol.symbolName,
+              const orderParams = {
                 securityId: symbol.securityId,
-                optionType: symbol.optionType,
-                entryPrice: orderResult.averagePrice || orderResult.price || 0,
-                currentPrice: orderResult.averagePrice || orderResult.price || 0,
+                transactionType: 'BUY',
+                exchangeSegment: 'NSE_FNO',
+                productType: 'INTRADAY',
+                orderType: 'MARKET',
+                validity: 'DAY',
                 quantity: symbol.quantity || 15,
-                targetAmount: symbol.targetAmount || 500,
-                stopLossAmount: symbol.stopLossAmount || 300,
-                pnl: 0,
-                entryTime: Date.now(),
-                status: 'ACTIVE'
+                disclosedQuantity: 0,
+                price: 0,
+                triggerPrice: 0,
+                afterMarketOrder: false,
+                amoTime: '',
+                boProfitValue: 0,
+                boStopLossValue: 0
               };
               
-              state.activePositions.push(positionData);
-              state.stats.totalOrders++;
+              const orderResult = await placeOrderViaStaticIP(
+                userId,
+                {
+                  dhanClientId: dhanClientId,
+                  dhanAccessToken: dhanAccessToken
+                },
+                orderParams
+              );
               
-              // ⚡ Save order to database
-              await this.saveOrderToDB(userId, symbol, orderResult, action);
-              
-              // ⚡ Save position to database
-              await this.savePositionToDB(userId, positionData, symbol);
-              
-              // ⚡ Update order stats
-              await this.incrementSignalStats(userId, 'order');
-              
-              // Save log to KV (legacy)
-              await kv.set(`engine_log_${userId}_${Date.now()}`, {
-                type: 'ORDER_PLACED',
-                timestamp: Date.now(),
-                symbol: symbol.name,
-                action,
-                confidence,
-                orderId: orderResult.orderId
-              });
-            } else {
-              console.log(`❌ ORDER FAILED: ${orderResult.error}`);
-              
-              // ⚡ Save failed order to database
-              await this.saveOrderToDB(userId, symbol, orderResult, action, 'failed');
+              if (orderResult.orderId) {
+                console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
+                
+                const positionData = {
+                  orderId: orderResult.orderId,
+                  symbolName: symbol.symbolName,
+                  securityId: symbol.securityId,
+                  optionType: symbol.optionType,
+                  entryPrice: orderResult.averagePrice || orderResult.price || 0,
+                  currentPrice: orderResult.averagePrice || orderResult.price || 0,
+                  quantity: symbol.quantity || 15,
+                  targetAmount: symbol.targetAmount || 500,
+                  stopLossAmount: symbol.stopLossAmount || 300,
+                  pnl: 0,
+                  entryTime: Date.now(),
+                  status: 'ACTIVE'
+                };
+                
+                state.activePositions.push(positionData);
+                state.stats.totalOrders++;
+                
+                // ⚡ Save order to database
+                await this.saveOrderToDB(userId, symbol, orderResult, action);
+                
+                // ⚡ Save position to database
+                await this.savePositionToDB(userId, positionData, symbol);
+                
+                // ⚡ Update order stats
+                await this.incrementSignalStats(userId, 'order');
+                
+                // Save log to user's logs
+                const userLogs = await kv.get(`logs:${userId}`) || [];
+                userLogs.unshift({
+                  type: 'ORDER_PLACED',
+                  timestamp: Date.now(),
+                  message: `💰 ORDER PLACED: ${symbol.name} | ${action} | Confidence: ${confidence}% | OrderID: ${orderResult.orderId}`
+                });
+                if (userLogs.length > 500) userLogs.length = 500;
+                await kv.set(`logs:${userId}`, userLogs);
+              } else {
+                console.log(`❌ ORDER FAILED: ${orderResult.error}`);
+                await this.saveOrderToDB(userId, symbol, orderResult, action, 'failed');
+              }
             }
           }
           
         } catch (error) {
-          console.error(`❌ Error analyzing ${symbol.name}:`, error);
+          console.error(`❌ Error analyzing ${indexName}:`, error);
         }
       }
       
