@@ -9771,6 +9771,9 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
       .order('created_at', { ascending: false })
       .limit(50);
 
+    // Get user logs from KV store
+    const userLogs = await kv.get(`logs:${user.id}`) || [];
+
     return c.json({
       success: true,
       engine: engineState ? {
@@ -9784,7 +9787,8 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
       positions: positions || [],
       stats: stats || { signal_count: 0, order_count: 0, speed_count: 0, total_pnl: 0 },
       signals: signals || [],
-      orders: orders || []
+      orders: orders || [],
+      logs: userLogs
     });
   } catch (error: any) {
     console.error('❌ Error getting DB engine status:', error);

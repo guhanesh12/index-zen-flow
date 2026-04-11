@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect, useRef } from "react";
+import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -93,6 +94,31 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   // Core states
   const [credentialsConfigured, setCredentialsConfigured] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
+  const logsLoadedRef = useRef(false);
+
+  // ⚡ LOAD LOGS FROM BACKEND ON MOUNT (same user = same logs on all devices)
+  useEffect(() => {
+    if (!accessToken || logsLoadedRef.current) return;
+    logsLoadedRef.current = true;
+    
+    const loadLogs = async () => {
+      try {
+        const response = await fetch(`${serverUrl}/logs`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.logs && Array.isArray(data.logs)) {
+            setLogs(data.logs.slice(0, 500));
+            console.log(`☁️ Loaded ${data.logs.length} logs from backend`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load logs from backend:', error);
+      }
+    };
+    loadLogs();
+  }, [accessToken, serverUrl]);
   const [stats, setStats] = useState({
     totalTrades: 0,
     profitableTrades: 0,
@@ -388,18 +414,21 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
     }
     
     try {
-      await fetch(`${serverUrl}/logs`, {
+      // Add userId to log
+      const logWithUser = { ...log, userId };
+      
+      await fetchWithAuth(`${serverUrl}/logs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`
         },
-        body: JSON.stringify(log)
+        body: JSON.stringify(logWithUser)
       });
       
       // ⚡ CRITICAL FIX: Limit logs to prevent memory leak and browser crash
       setLogs(prev => {
-        const newLogs = [log, ...prev];
+        const newLogs = [logWithUser, ...prev];
         // Keep only the last 500 logs (reduced from unlimited)
         return newLogs.slice(0, 500);
       });

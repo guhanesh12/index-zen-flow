@@ -190,38 +190,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const [previousSignal, setPreviousSignal] = useState<any>(null); // ⚡ FOR ALERT SYSTEM
   
   // ⚡⚡⚡ MULTI-SYMBOL SIGNALS: Store signals for each index separately ⚡⚡⚡
-  // ⚡ Load signals from localStorage to survive hot reloads
+  // ⚡ Initialize empty — signals will be loaded from backend via syncEngineState
   const [multiSymbolSignals, setMultiSymbolSignals] = useState<{
     NIFTY: any | null;
     BANKNIFTY: any | null;
     SENSEX: any | null;
-  }>(() => {
-    try {
-      const saved = localStorage.getItem('engine_signals');
-      const savedTime = localStorage.getItem('engine_signals_time');
-      
-      if (saved && savedTime) {
-        const ageMinutes = (Date.now() - parseInt(savedTime)) / 60000;
-        
-        // Only restore if less than 30 minutes old
-        if (ageMinutes < 30) {
-          const parsed = JSON.parse(saved);
-          console.log(`🔄 Restored signals from localStorage (${Math.round(ageMinutes)}min old)`);
-          return parsed;
-        } else {
-          console.log(`⏰ Signals expired (${Math.round(ageMinutes)}min old) - clearing`);
-          localStorage.removeItem('engine_signals');
-          localStorage.removeItem('engine_signals_time');
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load signals from localStorage:', e);
-    }
-    return {
-      NIFTY: null,
-      BANKNIFTY: null,
-      SENSEX: null
-    };
+  }>({
+    NIFTY: null,
+    BANKNIFTY: null,
+    SENSEX: null
   });
   
   // ⚡ Force render counter to ensure UI updates
