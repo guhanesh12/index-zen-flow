@@ -476,7 +476,21 @@ class PersistentTradingEngine {
           userLogs.unshift({
             type: action === 'WAIT' ? 'WAIT' : action.includes('BUY') ? 'AI_SIGNAL' : 'INFO',
             timestamp: Date.now(),
-            message: `🎯 ${indexName}: ${action} (${confidence}%) - ${reason || 'AI analysis complete'} | TF: ${state.candleInterval}M`
+            message: `🎯 ${indexName}: ${action} (${confidence}%) - ${reason || 'AI analysis complete'} | TF: ${state.candleInterval}M`,
+            data: {
+              index: indexName,
+              action,
+              confidence,
+              timeframe: `${state.candleInterval}M`,
+              reasoning: aiSignal.signal.reasoning || aiSignal.signal.reason || '',
+              confirmations: aiSignal.signal.confirmations?.details || [],
+              confirmationsPassed: aiSignal.signal.confirmations?.total || 0,
+              patterns: aiSignal.signal.patterns || [],
+              marketRegime: aiSignal.signal.marketRegime || {},
+              volumeAnalysis: aiSignal.signal.volumeAnalysis || {},
+              riskManagement: aiSignal.signal.riskManagement || {},
+              indicators: aiSignal.signal.indicators || {},
+            }
           });
           if (userLogs.length > 500) userLogs.length = 500;
           await kv.set(`logs:${userId}`, userLogs);

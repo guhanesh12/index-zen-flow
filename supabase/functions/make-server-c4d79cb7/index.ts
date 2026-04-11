@@ -2725,6 +2725,21 @@ app.post("/make-server-c4d79cb7/logs", async (c) => {
   }
 });
 
+app.delete("/make-server-c4d79cb7/logs", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (!user || error) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    }
+
+    await kv.set(`logs:${user.id}`, []);
+    return c.json({ success: true, logs: [] });
+  } catch (error) {
+    console.log(`Error clearing logs: ${error}`);
+    return c.json({ error: "Failed to clear logs" }, 500);
+  }
+});
+
 // ==================== HIGH-SPEED TRADING ENGINE ====================
 
 // Search for NIFTY option by strike and expiry

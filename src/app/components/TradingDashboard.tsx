@@ -94,30 +94,77 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   // Core states
   const [credentialsConfigured, setCredentialsConfigured] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
-  const logsLoadedRef = useRef(false);
 
-  // ⚡ LOAD LOGS FROM BACKEND ON MOUNT (same user = same logs on all devices)
+  const normalizeLogs = (rawLogs: any[]) => {
+    if (!Array.isArray(rawLogs)) return [];
+
+    return rawLogs
+      .filter(Boolean)
+      .map((log) => {
+        if (typeof log === 'object') {
+          return {
+            ...log,
+            timestamp: typeof log.timestamp === 'number' ? log.timestamp : Date.now(),
+            type: typeof log.type === 'string' ? log.type : String(log.type || 'INFO'),
+            message: typeof log.message === 'string' ? log.message : JSON.stringify(log.message || log),
+          };
+        }
+
+        return {
+          timestamp: Date.now(),
+          type: 'INFO',
+          message: String(log),
+        };
+      })
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 500);
+  };
+
+  const areLogsEqual = (currentLogs: any[], nextLogs: any[]) => {
+    if (currentLogs.length !== nextLogs.length) return false;
+
+    return currentLogs.every((log, index) => {
+      const nextLog = nextLogs[index];
+      return (
+        log?.timestamp === nextLog?.timestamp &&
+        log?.type === nextLog?.type &&
+        log?.message === nextLog?.message
+      );
+    });
+  };
+
+  // ⚡ LIVE LOG SYNC FROM BACKEND (same user = same logs on all devices + after refresh)
   useEffect(() => {
-    if (!accessToken || logsLoadedRef.current) return;
-    logsLoadedRef.current = true;
-    
+    if (!accessToken) return;
+
+    let cancelled = false;
+
     const loadLogs = async () => {
       try {
-        const response = await fetch(`${serverUrl}/logs`, {
+        const response = await fetchWithAuth(`${serverUrl}/logs`, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.logs && Array.isArray(data.logs)) {
-            setLogs(data.logs.slice(0, 500));
-            console.log(`☁️ Loaded ${data.logs.length} logs from backend`);
-          }
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const nextLogs = normalizeLogs(data.logs || []);
+
+        if (!cancelled) {
+          setLogs(prev => areLogsEqual(prev, nextLogs) ? prev : nextLogs);
         }
       } catch (error) {
         console.error('Failed to load logs from backend:', error);
       }
     };
+
     loadLogs();
+    const interval = setInterval(loadLogs, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [accessToken, serverUrl]);
   const [stats, setStats] = useState({
     totalTrades: 0,
@@ -434,6 +481,18 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       });
     } catch (error) {
       console.error("Failed to add log:", error);
+    }
+  };
+
+  const clearLogs = async () => {
+    try {
+      await fetchWithAuth(`${serverUrl}/logs`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      setLogs([]);
+    } catch (error) {
+      console.error('Failed to clear logs:', error);
     }
   };
 
@@ -1038,7 +1097,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => setLogs([])}
+                        onClick={clearLogs}
                       >
                         Clear Logs
                       </Button>
@@ -1143,11 +1202,11 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                                 )}
                                 
                                 {/* Analysis Action */}
-                                {log.data.action && log.data.reason && (
+                                {log.data.action && (log.data.reason || log.data.reasoning) && (
                                   <div className="text-xs bg-zinc-900/50 p-2 rounded border border-zinc-700">
                                     <div className="font-semibold text-zinc-400 mb-1">🎯 Decision:</div>
                                     <div className="text-zinc-300">
-                                      <span className="font-semibold text-amber-500">{log.data.action}</span> - {log.data.reason}
+                                      <span className="font-semibold text-amber-500">{log.data.action}</span> - {log.data.reason || log.data.reasoning}
                                     </div>
                                   </div>
                                 )}

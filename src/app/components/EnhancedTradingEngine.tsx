@@ -188,6 +188,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   }, [activePositions]);
   const [lastSignal, setLastSignal] = useState<any>(null);
   const [previousSignal, setPreviousSignal] = useState<any>(null); // ⚡ FOR ALERT SYSTEM
+  const lastSignalRef = useRef<any>(null);
   
   // ⚡⚡⚡ MULTI-SYMBOL SIGNALS: Store signals for each index separately ⚡⚡⚡
   // ⚡ Initialize empty — signals will be loaded from backend via syncEngineState
@@ -203,6 +204,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   
   // ⚡ Force render counter to ensure UI updates
   const [renderKey, setRenderKey] = useState(0);
+
+  useEffect(() => {
+    lastSignalRef.current = lastSignal;
+  }, [lastSignal]);
   
   // ⚡ Save signals to localStorage + Log changes (ONLY when signals exist)
   useEffect(() => {
@@ -392,6 +397,52 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
       return changed ? next : prev;
     });
+  };
+
+  const normalizeSignalPayload = (signalRecord: any, fallbackIndex?: 'NIFTY' | 'BANKNIFTY' | 'SENSEX') => {
+    const rawSignal = signalRecord?.raw_data?.signal || signalRecord?.raw_data || signalRecord?.signal || signalRecord;
+    if (!rawSignal) return null;
+
+    const timestamp = signalRecord?.created_at
+      ? new Date(signalRecord.created_at).getTime()
+      : (typeof signalRecord?.timestamp === 'number' ? signalRecord.timestamp : Date.now());
+
+    return {
+      ...rawSignal,
+      index: rawSignal.index || signalRecord?.index_name || fallbackIndex || 'NIFTY',
+      action: rawSignal.action || signalRecord?.signal_type || 'WAIT',
+      confidence: rawSignal.confidence ?? signalRecord?.confidence ?? 0,
+      price: rawSignal.price ?? signalRecord?.price ?? null,
+      reasoning: rawSignal.reasoning || rawSignal.reason || rawSignal.analysis || '',
+      bias: rawSignal.bias || 'Neutral',
+      market_state: rawSignal.market_state || rawSignal.marketState || rawSignal.marketRegime?.type || 'Unknown',
+      timeframe: rawSignal.timeframe || signalRecord?.timeframe || `${candleIntervalRef.current}M`,
+      candlesAnalyzed: rawSignal.candlesAnalyzed || signalRecord?.candlesProcessed || null,
+      confirmations: rawSignal.confirmations || (rawSignal.confirmationDetails ? {
+        total: rawSignal.tripleConfirmation || 0,
+        required: 3,
+        details: rawSignal.confirmationDetails,
+      } : undefined),
+      volumeAnalysis: rawSignal.volumeAnalysis || rawSignal.volume_analysis || null,
+      volume_analysis: rawSignal.volume_analysis || rawSignal.volumeAnalysis || null,
+      riskManagement: rawSignal.riskManagement || null,
+      marketRegime: rawSignal.marketRegime || null,
+      indicators: rawSignal.indicators || null,
+      patterns: rawSignal.patterns || [],
+      resistance_levels: rawSignal.resistance_levels || rawSignal.indicators?.resistance_levels,
+      support_levels: rawSignal.support_levels || rawSignal.indicators?.support_levels,
+      institutional_bias: rawSignal.institutional_bias || rawSignal.institutionalBias || rawSignal.volumeAnalysis?.orderFlow || 'N/A',
+      smart_money_detected: rawSignal.smart_money_detected ?? rawSignal.volumeAnalysis?.smartMoney ?? false,
+      timestamp,
+      source: signalRecord?.created_at ? 'backend' : (rawSignal.source || 'local'),
+    };
+  };
+
+  const getLatestSignalFromMap = (signalsMap: any) => {
+    return ['NIFTY', 'BANKNIFTY', 'SENSEX']
+      .map((index) => signalsMap?.[index])
+      .filter(Boolean)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0] || null;
   };
 
   const ensurePositionMonitorLoop = () => {
@@ -720,14 +771,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         const latestSignals: any = { NIFTY: null, BANKNIFTY: null, SENSEX: null };
         for (const sig of data.signals) {
           const idx = sig.index_name as 'NIFTY' | 'BANKNIFTY' | 'SENSEX';
-          if (idx && !latestSignals[idx]) {
-            latestSignals[idx] = {
-              action: sig.signal_type,
-              confidence: sig.confidence || 0,
-              price: sig.price,
-              timestamp: new Date(sig.created_at).getTime(),
-              source: 'backend'
-            };
+          const normalizedSignal = normalizeSignalPayload(sig, idx);
+          if (idx && normalizedSignal && (!latestSignals[idx] || normalizedSignal.timestamp > latestSignals[idx].timestamp)) {
+            latestSignals[idx] = normalizedSignal;
           }
         }
         
@@ -743,6 +789,13 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             }
             return updated;
           });
+
+          const latestBackendSignal = getLatestSignalFromMap(latestSignals);
+          if (latestBackendSignal && latestBackendSignal.timestamp > (lastSignalRef.current?.timestamp || 0)) {
+            setPreviousSignal(lastSignalRef.current);
+            setLastSignal(latestBackendSignal);
+            lastSignalRef.current = latestBackendSignal;
+          }
         }
       }
       
@@ -2077,8 +2130,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       const executionTime = Math.round(endTime - startTime);
 
       if (data.signal) {
-        setPreviousSignal(lastSignal); // ⚡ SAVE PREVIOUS FOR ALERT COMPARISON
-        setLastSignal(data.signal);
+        const normalizedPrimarySignal = normalizeSignalPayload({ signal: data.signal, timestamp: Date.now(), candlesProcessed: data.candlesProcessed });
+        setPreviousSignal(lastSignalRef.current); // ⚡ SAVE PREVIOUS FOR ALERT COMPARISON
+        setLastSignal(normalizedPrimarySignal);
+        lastSignalRef.current = normalizedPrimarySignal;
         setStats(prev => ({
           ...prev,
           totalSignals: prev.totalSignals + 1,
@@ -2399,12 +2454,13 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           console.log(`============================================\n`);
           
           // Update multi-symbol signals (use functional update for safety)
+          const signalSyncTime = Date.now();
           setMultiSymbolSignals(prev => {
             const newSignals = {
-              NIFTY: data.signals.NIFTY ? {...data.signals.NIFTY} : null,
-              BANKNIFTY: data.signals.BANKNIFTY ? {...data.signals.BANKNIFTY} : null,
-              SENSEX: data.signals.SENSEX ? {...data.signals.SENSEX} : null,
-              __timestamp: Date.now() // ⚡⚡⚡ FORCE NEW OBJECT REFERENCE
+              NIFTY: data.signals.NIFTY ? normalizeSignalPayload({ signal: data.signals.NIFTY, timestamp: signalSyncTime }, 'NIFTY') : null,
+              BANKNIFTY: data.signals.BANKNIFTY ? normalizeSignalPayload({ signal: data.signals.BANKNIFTY, timestamp: signalSyncTime }, 'BANKNIFTY') : null,
+              SENSEX: data.signals.SENSEX ? normalizeSignalPayload({ signal: data.signals.SENSEX, timestamp: signalSyncTime }, 'SENSEX') : null,
+              __timestamp: signalSyncTime // ⚡⚡⚡ FORCE NEW OBJECT REFERENCE
             };
             
             console.log(`\\n⚡⚡⚡ setMultiSymbolSignals CALLBACK EXECUTING ⚡⚡⚡`);
@@ -2435,8 +2491,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           console.log(`   ✅ VERIFIED: Correct timeframe (${responseTimeframe})`);
         }
         
-        setPreviousSignal(lastSignal); // ⚡ SAVE PREVIOUS FOR ALERT COMPARISON
-        setLastSignal(data.signal);
+        const normalizedPrimarySignal = normalizeSignalPayload({ signal: data.signal, timestamp: Date.now(), timeframe: responseTimeframe, candlesProcessed: data.candlesProcessed || data.signal.candlesAnalyzed });
+        setPreviousSignal(lastSignalRef.current); // ⚡ SAVE PREVIOUS FOR ALERT COMPARISON
+        setLastSignal(normalizedPrimarySignal);
+        lastSignalRef.current = normalizedPrimarySignal;
         setStats(prev => ({
           ...prev,
           totalSignals: prev.totalSignals + 1,
@@ -4590,6 +4648,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   <div className="text-sm text-zinc-400">
                     Confidence: <span className="font-semibold">{multiSymbolSignals.NIFTY.confidence}%</span>
                   </div>
+                  <div className="text-xs text-zinc-500 mt-2">
+                    {multiSymbolSignals.NIFTY.timeframe || '--'} • {new Date(multiSymbolSignals.NIFTY.timestamp || Date.now()).toLocaleTimeString()}
+                  </div>
+                  {multiSymbolSignals.NIFTY.reasoning && (
+                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{multiSymbolSignals.NIFTY.reasoning}</div>
+                  )}
                   {multiSymbolSignals.NIFTY.bias && (
                     <Badge variant={multiSymbolSignals.NIFTY.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
                       {multiSymbolSignals.NIFTY.bias}
@@ -4626,6 +4690,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   <div className="text-sm text-zinc-400">
                     Confidence: <span className="font-semibold">{multiSymbolSignals.BANKNIFTY.confidence}%</span>
                   </div>
+                  <div className="text-xs text-zinc-500 mt-2">
+                    {multiSymbolSignals.BANKNIFTY.timeframe || '--'} • {new Date(multiSymbolSignals.BANKNIFTY.timestamp || Date.now()).toLocaleTimeString()}
+                  </div>
+                  {multiSymbolSignals.BANKNIFTY.reasoning && (
+                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{multiSymbolSignals.BANKNIFTY.reasoning}</div>
+                  )}
                   {multiSymbolSignals.BANKNIFTY.bias && (
                     <Badge variant={multiSymbolSignals.BANKNIFTY.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
                       {multiSymbolSignals.BANKNIFTY.bias}
@@ -4662,6 +4732,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   <div className="text-sm text-zinc-400">
                     Confidence: <span className="font-semibold">{multiSymbolSignals.SENSEX.confidence}%</span>
                   </div>
+                  <div className="text-xs text-zinc-500 mt-2">
+                    {multiSymbolSignals.SENSEX.timeframe || '--'} • {new Date(multiSymbolSignals.SENSEX.timestamp || Date.now()).toLocaleTimeString()}
+                  </div>
+                  {multiSymbolSignals.SENSEX.reasoning && (
+                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{multiSymbolSignals.SENSEX.reasoning}</div>
+                  )}
                   {multiSymbolSignals.SENSEX.bias && (
                     <Badge variant={multiSymbolSignals.SENSEX.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
                       {multiSymbolSignals.SENSEX.bias}
