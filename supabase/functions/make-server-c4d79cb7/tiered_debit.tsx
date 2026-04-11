@@ -103,11 +103,23 @@ export async function checkAndDebitTiered(
 
   // Check if we need to debit for this tier
   if (currentTier.tier > dailyData.lastDebitedTier && currentTier.fee > 0) {
-    // New tier reached! Debit ONLY the current tier's fee (not cumulative)
-    // For profit 200+, user is in TIER 1 (₹101-500) → charge ₹29 ONLY
-    const additionalCharge = currentTier.fee;
+    // New tier reached! Charge only the incremental difference from the last paid tier.
+    // Example: Tier 1 = ₹29, Tier 2 cumulative = ₹49, so additional charge at Tier 2 is ₹20.
+    const previousTier = PRICING_TIERS.find(t => t.tier === dailyData.lastDebitedTier);
+    const previousFee = previousTier?.fee || 0;
+    const additionalCharge = Math.max(0, currentTier.fee - previousFee);
 
     console.log(`🔥 NEW TIER REACHED! Charging: ₹${additionalCharge} for ${currentTier.name}`);
+
+    if (additionalCharge === 0) {
+      return {
+        success: true,
+        deducted: false,
+        currentTier: currentTier.name,
+        currentTierFee: currentTier.fee,
+        message: `Already charged up to ${currentTier.name}`,
+      };
+    }
 
     // Check wallet balance
     if (wallet.balance < additionalCharge) {
@@ -183,7 +195,7 @@ export async function checkAndDebitTiered(
         threshold: nextTier.min,
         fee: nextTier.fee
       } : null,
-      message: `₹${additionalCharge} debited for ${currentTier.name}`,
+        message: `₹${additionalCharge} debited for ${currentTier.name} (total today: ₹${currentTier.fee})`,
     };
   } else {
     console.log(`✅ No new tier reached (Current: ${currentTier.name}, Last Debited: Tier ${dailyData.lastDebitedTier})`);

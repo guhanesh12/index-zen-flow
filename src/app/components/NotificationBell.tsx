@@ -12,8 +12,13 @@ export function NotificationBell() {
   const [hasNewNotification, setHasNewNotification] = useState(false);
 
   useEffect(() => {
-    // Load initial count
-    updateUnreadCount();
+    const syncAndUpdate = async () => {
+      await notificationService.syncNotificationsFromBackend();
+      updateUnreadCount();
+    };
+
+    // Load initial count from backend + local cache
+    void syncAndUpdate();
 
     // Subscribe to new notifications
     const unsubscribe = notificationService.subscribe(() => {
@@ -24,8 +29,10 @@ export function NotificationBell() {
       setTimeout(() => setHasNewNotification(false), 2000);
     });
 
-    // Update count every 5 seconds (in case user marks as read elsewhere)
-    const interval = setInterval(updateUnreadCount, 5000);
+    // Keep notifications synced across devices for the same user
+    const interval = setInterval(() => {
+      void syncAndUpdate();
+    }, 5000);
 
     return () => {
       unsubscribe();

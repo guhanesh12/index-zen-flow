@@ -7233,6 +7233,19 @@ app.post("/make-server-c4d79cb7/push/upload-image", async (c) => {
 });
 
 // Get user notifications (for logged-in users)
+const MAX_USER_NOTIFICATIONS = 100;
+
+function isSameUserNotification(existing: any, incoming: any) {
+  if (existing?.id && incoming?.id && existing.id === incoming.id) return true;
+
+  return (
+    existing?.type === incoming?.type &&
+    existing?.title === incoming?.title &&
+    existing?.message === incoming?.message &&
+    Math.abs((existing?.timestamp || 0) - (incoming?.timestamp || 0)) <= 60000
+  );
+}
+
 app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
   try {
     const authHeader = c.req.header('Authorization');
@@ -7315,6 +7328,43 @@ app.post("/make-server-c4d79cb7/user/notifications/:id/read", async (c) => {
     return c.json({ success: true });
   } catch (error: any) {
     console.error('❌ Error marking notification as read:', error);
+    return c.json({ success: false, message: error.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/user/notifications/read-all", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+
+    if (error || !user) {
+      return c.json({ success: false, message: error?.message || 'Invalid token' }, error?.code || 401);
+    }
+
+    const notifications = await kv.get(`user_notifications:${user.id}`) || [];
+    notifications.forEach((notification: any) => {
+      notification.read = true;
+    });
+
+    await kv.set(`user_notifications:${user.id}`, notifications);
+    return c.json({ success: true, count: notifications.length });
+  } catch (error: any) {
+    console.error('❌ Error marking all notifications as read:', error);
+    return c.json({ success: false, message: error.message }, 500);
+  }
+});
+
+app.delete("/make-server-c4d79cb7/user/notifications", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+
+    if (error || !user) {
+      return c.json({ success: false, message: error?.message || 'Invalid token' }, error?.code || 401);
+    }
+
+    await kv.set(`user_notifications:${user.id}`, []);
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('❌ Error clearing user notifications:', error);
     return c.json({ success: false, message: error.message }, 500);
   }
 });
@@ -7766,6 +7816,18 @@ app.post("/make-server-c4d79cb7/engine/state", async (c) => {
       lastUpdated: timestamp || Date.now(),
       userId: user.id
     });
+
+    await supabase
+      .from('trading_engine_state')
+      .upsert({
+        user_id: user.id,
+        is_running: isRunning || false,
+        strategy_settings: {
+          candleInterval: candleInterval || '15',
+          lastUpdated: timestamp || Date.now()
+        },
+        last_heartbeat: new Date().toISOString()
+      }, { onConflict: 'user_id' });
 
     return c.json({
       success: true,
