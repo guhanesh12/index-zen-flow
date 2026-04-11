@@ -6,13 +6,13 @@ import { Label } from "./ui/label";
 import { Button } from "./ui/button";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Key, CheckCircle2, XCircle, Info, AlertTriangle, Plus, MessageSquare, RefreshCw, Shield } from "lucide-react";
-import { supabase } from "@/utils-ext/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { toast } from "sonner";
 import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
+import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
 interface SettingsPanelProps {
   serverUrl: string;
@@ -42,6 +42,25 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [vpsSubInfo, setVpsSubInfo] = useState<{ status: string; daysUntilExpiry: number; expiryDate?: string } | null>(null);
   const [showVpsExpiredModal, setShowVpsExpiredModal] = useState(false);
 
+  const getFreshToken = async (): Promise<string | null> => {
+    try {
+      return (await getAccessToken()) || accessToken || null;
+    } catch (error: any) {
+      if (error?.message !== 'Auth session missing!') {
+        console.error('❌ Error getting fresh token:', error);
+      }
+      return accessToken || null;
+    }
+  };
+
+  const normalizeConnectionStatus = (data: any) => ({
+    dhan: !!(
+      data?.status?.dhan ??
+      (data?.status?.dhanConfigured && data?.status?.accessTokenConfigured) ??
+      data?.isConfigured
+    )
+  });
+
   useEffect(() => {
     loadCredentials();
     fetchVpsSubscriptionStatus();
@@ -50,9 +69,16 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
 
   const loadCredentials = async () => {
     try {
-      const response = await fetch(`${serverUrl}/api-credentials`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
+      const freshToken = await getFreshToken();
+      if (!freshToken) return;
+
+      const response = await fetchWithAuth(`${serverUrl}/api-credentials`, {
+        headers: { Authorization: `Bearer ${freshToken}` }
       });
+      if (!response.ok) {
+        console.error(`❌ Failed to load credentials: ${response.status} ${response.statusText}`);
+        return;
+      }
       const data = await response.json();
       if (data.credentials) {
         setCredentials({
@@ -60,7 +86,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
           dhanAccessToken: data.credentials.dhanAccessToken || "",
           tokenUpdatedAt: data.credentials.tokenUpdatedAt || null
         });
-        setConnectionStatus(data.status || { dhan: false });
+        setConnectionStatus(normalizeConnectionStatus(data));
         
         // ⚡ Save to localStorage for fallback
         if (data.credentials.dhanClientId) {
@@ -75,17 +101,17 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
 
   const fetchVpsSubscriptionStatus = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      const freshToken = await getFreshToken();
+      if (!freshToken) return;
       const [ipRes, provRes] = await Promise.all([
-        fetch(`${serverUrl}/ip-pool/my-ip`, {
+        fetchWithAuth(`${serverUrl}/ip-pool/my-ip`, {
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${freshToken}`,
           },
         }),
-        fetch(`${serverUrl}/ip-pool/provisioning-status`, {
+        fetchWithAuth(`${serverUrl}/ip-pool/provisioning-status`, {
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${freshToken}`,
           },
         }),
       ]);
@@ -113,27 +139,6 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       }
     } catch (e) {
       // Edge-function lookup failed; fail silently
-    }
-  };
-
-  // Get fresh access token
-  const getFreshToken = async (): Promise<string | null> => {
-    try {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if (error || !session) {
-        // ⚡ Suppress "Auth session missing" - expected for unauthenticated users
-        if (error?.message !== 'Auth session missing!') {
-          console.error('❌ Session error:', error);
-        }
-        return null;
-      }
-      return session.access_token;
-    } catch (error: any) {
-      // ⚡ Suppress "Auth session missing" errors
-      if (error?.message !== 'Auth session missing!') {
-        console.error('❌ Error getting fresh token:', error);
-      }
-      return null;
     }
   };
 
@@ -180,7 +185,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         serverUrl
       });
 
-      const response = await fetch(`${serverUrl}/api-credentials`, {
+      const response = await fetchWithAuth(`${serverUrl}/api-credentials`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -241,11 +246,17 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
     setStatus({ type: null, message: '' });
 
     try {
-      const response = await fetch(`${serverUrl}/update-access-token`, {
+      const freshToken = await getFreshToken();
+      if (!freshToken) {
+        setStatus({ type: 'error', message: 'Session expired. Please refresh the page and log in again.' });
+        return;
+      }
+
+      const response = await fetchWithAuth(`${serverUrl}/update-access-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${freshToken}`
         },
         body: JSON.stringify({
           dhanAccessToken: credentials.dhanAccessToken
@@ -275,11 +286,17 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
     setStatus({ type: null, message: '' });
 
     try {
-      const response = await fetch(`${serverUrl}/test-api-connection`, {
+      const freshToken = await getFreshToken();
+      if (!freshToken) {
+        setStatus({ type: 'error', message: 'Session expired. Please refresh the page and log in again.' });
+        return;
+      }
+
+      const response = await fetchWithAuth(`${serverUrl}/test-api-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${freshToken}`
         }
       });
 
@@ -343,7 +360,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
 
       // STEP 3: Save credentials (Client ID)
       setStatus({ type: 'success', message: '🔄 Step 2/4: Saving permanent credentials...' });
-      const saveResponse = await fetch(`${serverUrl}/api-credentials`, {
+      const saveResponse = await fetchWithAuth(`${serverUrl}/api-credentials`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -365,7 +382,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       // STEP 4: Update Access Token (if provided)
       if (credentials.dhanAccessToken && credentials.dhanAccessToken.trim() !== '') {
         setStatus({ type: 'success', message: '🔄 Step 3/4: Updating Dhan access token...' });
-        const updateResponse = await fetch(`${serverUrl}/update-access-token`, {
+        const updateResponse = await fetchWithAuth(`${serverUrl}/update-access-token`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -387,7 +404,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
 
       // STEP 4: Test Connection
       setStatus({ type: 'success', message: '🔄 Step 4/4: Testing connection...' });
-      const testResponse = await fetch(`${serverUrl}/test-api-connection`, {
+      const testResponse = await fetchWithAuth(`${serverUrl}/test-api-connection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -406,6 +423,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
             type: 'success', 
             message: `🎉 ALL CONNECTED! Dhan: ${dhanStatus}` 
           });
+          window.dispatchEvent(new CustomEvent('credentials-updated'));
         } else {
           setStatus({ 
             type: 'error', 

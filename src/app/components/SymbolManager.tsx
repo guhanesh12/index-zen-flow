@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { InstrumentSelector } from "./InstrumentSelector";
 import { DhanInstrumentDownloader } from "./DhanInstrumentDownloader";
 import { SymbolRequest } from "./SymbolRequest";
+import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
 interface DhanOrderSymbol {
   id: string;
@@ -91,10 +92,58 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
   // ✅ Trigger to force InstrumentSelector refresh after download
   const [instrumentRefreshKey, setInstrumentRefreshKey] = useState(0);
 
+  const getFreshToken = async (): Promise<string | null> => {
+    return (await getAccessToken()) || accessToken || null;
+  };
+
+  const normalizeSymbol = (symbol: any): DhanOrderSymbol => {
+    const raw = symbol?.raw_data || symbol;
+    const index = raw.index || raw.indexName || raw.index_name || 'NIFTY';
+    const afterMarketOrder = !!raw.afterMarketOrder;
+
+    return {
+      ...raw,
+      id: raw.id || `SYM_${raw.symbol_id || raw.securityId || raw.symbolId || Date.now()}`,
+      name: raw.name || raw.symbol_name || raw.symbolName || 'UNKNOWN',
+      displayName: raw.displayName || raw.display_name || raw.symbol_name || raw.name,
+      index,
+      optionType: raw.optionType || raw.option_type || 'CE',
+      transactionType: raw.transactionType || raw.transaction_type || 'BUY',
+      exchangeSegment: raw.exchangeSegment || raw.exchange_segment || (index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
+      productType: raw.productType || raw.product_type || 'INTRADAY',
+      orderType: raw.orderType || raw.order_type || 'MARKET',
+      validity: raw.validity || 'DAY',
+      securityId: String(raw.securityId || raw.symbol_id || raw.symbolId || ''),
+      quantity: raw.quantity || raw.lotSize || raw.lot_size || 1,
+      disclosedQuantity: raw.disclosedQuantity ?? 0,
+      price: raw.price ?? 0,
+      triggerPrice: raw.triggerPrice ?? 0,
+      afterMarketOrder,
+      amoTime: afterMarketOrder ? (raw.amoTime || 'OPEN') : undefined,
+      boProfitValue: raw.boProfitValue ?? 0,
+      boStopLossValue: raw.boStopLossValue ?? 0,
+      targetAmount: raw.targetAmount ?? 3000,
+      stopLossAmount: raw.stopLossAmount ?? 2000,
+      trailingEnabled: raw.trailingEnabled ?? false,
+      trailingActivationAmount: raw.trailingActivationAmount ?? 0,
+      targetJumpAmount: raw.targetJumpAmount ?? 0,
+      stopLossJumpAmount: raw.stopLossJumpAmount ?? 0,
+      currentTarget: raw.currentTarget ?? raw.targetAmount ?? 3000,
+      currentStopLoss: raw.currentStopLoss ?? raw.stopLossAmount ?? 2000,
+      trailingActivated: raw.trailingActivated ?? false,
+      active: raw.active ?? true,
+      waitingForSignal: raw.waitingForSignal ?? true
+    } as DhanOrderSymbol;
+  };
+
   useEffect(() => {
-    loadSymbols();
-    loadDhanClientId();
-    syncAllSymbolsToBackend(); // ✅ Sync all symbols on mount
+    const initialize = async () => {
+      await loadSymbols();
+      await loadDhanClientId();
+      await syncAllSymbolsToBackend();
+    };
+
+    initialize();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -123,8 +172,11 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
       }
       
       // ⚡ THEN: Try to fetch fresh data from server
-      const response = await fetch(`${serverUrl}/api-credentials`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
+      const freshToken = await getFreshToken();
+      if (!freshToken) return;
+
+      const response = await fetchWithAuth(`${serverUrl}/api-credentials`, {
+        headers: { Authorization: `Bearer ${freshToken}` }
       });
       
       if (!response.ok) {
@@ -155,9 +207,30 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
 
   const loadSymbols = async () => {
     try {
+      const freshToken = await getFreshToken();
+
+      if (freshToken) {
+        const response = await fetchWithAuth(`${serverUrl}/symbols/get`, {
+          headers: { Authorization: `Bearer ${freshToken}` }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const backendSymbols = (data.symbols || []).map(normalizeSymbol);
+
+          if (backendSymbols.length > 0) {
+            localStorage.setItem('trading_symbols', JSON.stringify(backendSymbols));
+            setSymbols(backendSymbols);
+            window.dispatchEvent(new CustomEvent('symbols-changed'));
+            console.log(`✅ Loaded ${backendSymbols.length} symbols from database`);
+            return;
+          }
+        }
+      }
+
       const stored = localStorage.getItem('trading_symbols');
       if (stored) {
-        setSymbols(JSON.parse(stored));
+        setSymbols(JSON.parse(stored).map(normalizeSymbol));
       }
     } catch (error) {
       console.error("Failed to load symbols:", error);
@@ -208,14 +281,18 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
     // Save to localStorage
     localStorage.setItem('trading_symbols', JSON.stringify(correctedSymbols));
     setSymbols(correctedSymbols);
+    window.dispatchEvent(new CustomEvent('symbols-changed'));
     
     // ✅ Also sync to backend automatically
     try {
-      const response = await fetch(`${serverUrl}/symbols/save`, {
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('No session token available');
+
+      const response = await fetchWithAuth(`${serverUrl}/symbols/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${freshToken}`
         },
         body: JSON.stringify({ symbols: correctedSymbols })
       });
@@ -291,36 +368,21 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
       }
       
       console.log(`🔄 Syncing ${localSymbols.length} symbols to backend...`);
-      
-      // Sync each symbol
-      for (const symbol of localSymbols) {
-        try {
-          // ✅ Clean up the symbol before syncing
-          const cleanedSymbol = { ...symbol };
-          
-          // Fix amoTime issue: Don't send amoTime if afterMarketOrder is false
-          if (!cleanedSymbol.afterMarketOrder && cleanedSymbol.amoTime) {
-            delete cleanedSymbol.amoTime;
-            console.log(`🧹 Cleaned amoTime from ${cleanedSymbol.displayName || cleanedSymbol.name}`);
-          }
-          
-          const response = await fetch(`${serverUrl}/sync-user-symbol`, {
-            method: 'POST',
-            headers: { 
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(cleanedSymbol)
-          });
-          
-          if (response.ok) {
-            console.log(`✅ Synced: ${symbol.displayName || symbol.name}`);
-          } else {
-            console.warn(`⚠️ Failed to sync: ${symbol.displayName || symbol.name}`);
-          }
-        } catch (error) {
-          console.error(`❌ Error syncing ${symbol.displayName || symbol.name}:`, error);
-        }
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('No session token available');
+
+      const response = await fetchWithAuth(`${serverUrl}/symbols/save`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${freshToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ symbols: localSymbols })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to sync symbols');
       }
       
       console.log('✅ Symbol sync complete!');
@@ -617,7 +679,10 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
     setSearchResults([]);
     
     try {
-      const response = await fetch(`${serverUrl}/search-dhan-instruments`, {
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('Session expired');
+
+      const response = await fetchWithAuth(`${serverUrl}/search-dhan-instruments`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${accessToken}`,
@@ -678,7 +743,10 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
     setTestingOrderId(symbolId);
     
     try {
-      const response = await fetch(`${serverUrl}/test-dhan-order`, {
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('Session expired');
+
+      const response = await fetchWithAuth(`${serverUrl}/test-dhan-order`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${accessToken}`,
@@ -744,10 +812,13 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
     setPlacingOrderId(symbolId); // ⚡ Track manual order loading
     
     try {
+      const freshToken = await getFreshToken();
+      if (!freshToken) throw new Error('Session expired');
+
       console.log('🚀 MANUAL ORDER - Step 1: Syncing symbol to backend...');
       
       // ✅ STEP 1: Sync symbol to backend's user-specific storage
-      const syncResponse = await fetch(`${serverUrl}/sync-user-symbol`, {
+      const syncResponse = await fetchWithAuth(`${serverUrl}/sync-user-symbol`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${accessToken}`,
@@ -775,7 +846,7 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
       });
 
       // ✅ STEP 2: Place order with SAME endpoint as AI automatic orders!
-      const response = await fetch(`${serverUrl}/execute-trade`, {
+      const response = await fetchWithAuth(`${serverUrl}/execute-trade`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${accessToken}`,
