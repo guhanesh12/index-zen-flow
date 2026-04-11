@@ -39,6 +39,7 @@ class NotificationService {
   private notificationListeners: ((notification: NotificationData) => void)[] = [];
   private fcmToken: string | null = null;
   private permissionGranted: boolean = false;
+  private readonly MAX_NOTIFICATIONS = 100;
 
   private constructor() {
     this.init();
@@ -261,14 +262,42 @@ class NotificationService {
       notifications.unshift(notification); // Add to beginning
       
       // Keep only last 100 notifications
-      if (notifications.length > 100) {
-        notifications.splice(100);
+      if (notifications.length > this.MAX_NOTIFICATIONS) {
+        notifications.splice(this.MAX_NOTIFICATIONS);
       }
       
       localStorage.setItem('notifications', JSON.stringify(notifications));
     } catch (error) {
       console.error('Error saving notification:', error);
     }
+  }
+
+  private setLocalNotifications(notifications: NotificationData[]) {
+    localStorage.setItem(
+      'notifications',
+      JSON.stringify(
+        notifications
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+          .slice(0, this.MAX_NOTIFICATIONS)
+      )
+    );
+  }
+
+  private isSameNotification(a: NotificationData, b: NotificationData) {
+    if (a.id === b.id) return true;
+
+    return (
+      a.type === b.type &&
+      a.title === b.title &&
+      a.message === b.message &&
+      Math.abs((a.timestamp || 0) - (b.timestamp || 0)) <= 60000
+    );
+  }
+
+  private async getSessionToken(): Promise<string | null> {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session?.access_token) return null;
+    return session.access_token;
   }
 
   getAllNotifications(): NotificationData[] {
@@ -346,36 +375,28 @@ class NotificationService {
         const localNotifications = this.getAllNotifications();
         console.log(`💾 Current local notifications: ${localNotifications.length}`);
         
-        // Merge backend notifications with local ones (avoid duplicates)
+        // Merge backend notifications with local ones, but keep backend read-state as source of truth
         const backendNotifications: NotificationData[] = data.notifications;
-        const localIds = new Set(localNotifications.map(n => n.id));
-        
-        const newNotifications = backendNotifications.filter(n => !localIds.has(n.id));
-        
-        if (newNotifications.length > 0) {
-          console.log(`✅ Found ${newNotifications.length} NEW notifications to sync!`);
-          console.log('📋 New notification IDs:', newNotifications.map(n => n.id));
-          const merged = [...newNotifications, ...localNotifications];
-          
-          // Keep only last 100
-          if (merged.length > 100) {
-            merged.splice(100);
+        const merged: NotificationData[] = [];
+
+        backendNotifications.forEach((backendNotification) => {
+          merged.push(backendNotification);
+        });
+
+        localNotifications.forEach((localNotification) => {
+          const exists = merged.some((existing) => this.isSameNotification(existing, localNotification));
+          if (!exists) {
+            merged.push(localNotification);
           }
-          
-          // Save to localStorage
-          console.log(`💾 Step 4: Saving ${merged.length} notifications to localStorage...`);
-          localStorage.setItem('notifications', JSON.stringify(merged));
-          
-          // Verify save
-          const verified = localStorage.getItem('notifications');
-          const verifiedCount = verified ? JSON.parse(verified).length : 0;
-          console.log(`✅ VERIFICATION: ${verifiedCount} notifications saved in localStorage`);
-          console.log(`💾 Total notifications after merge: ${merged.length}`);
-        } else {
-          console.log('✅ No new notifications to sync (all already in localStorage)');
-          console.log('📋 Backend notification IDs:', backendNotifications.map(n => n.id));
-          console.log('📋 Local notification IDs:', Array.from(localIds));
-        }
+        });
+
+        console.log(`💾 Step 4: Saving ${merged.length} notifications to localStorage...`);
+        this.setLocalNotifications(merged);
+
+        const verified = localStorage.getItem('notifications');
+        const verifiedCount = verified ? JSON.parse(verified).length : 0;
+        console.log(`✅ VERIFICATION: ${verifiedCount} notifications saved in localStorage`);
+        console.log(`💾 Total notifications after merge: ${merged.length}`);
       } else {
         console.error('⚠️ Backend sync failed or returned empty!');
         console.error('Success:', data.success);
@@ -400,13 +421,25 @@ class NotificationService {
     return this.getAllNotifications().filter(n => !n.read).length;
   }
 
-  markAsRead(id: string) {
+  async markAsRead(id: string) {
     try {
       const notifications = this.getAllNotifications();
       const notification = notifications.find(n => n.id === id);
       if (notification) {
         notification.read = true;
-        localStorage.setItem('notifications', JSON.stringify(notifications));
+        this.setLocalNotifications(notifications);
+
+        const accessToken = await this.getSessionToken();
+        if (accessToken) {
+          const serverUrl = getServerUrl();
+          await fetch(`${serverUrl}/user/notifications/${id}/read`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          });
+        }
         
         // Notify listeners of update
         this.notificationListeners.forEach(listener => listener(notification));
@@ -416,18 +449,46 @@ class NotificationService {
     }
   }
 
-  markAllAsRead() {
+  async markAllAsRead() {
     try {
       const notifications = this.getAllNotifications();
       notifications.forEach(n => n.read = true);
-      localStorage.setItem('notifications', JSON.stringify(notifications));
+      this.setLocalNotifications(notifications);
+
+      const accessToken = await this.getSessionToken();
+      if (accessToken) {
+        const serverUrl = getServerUrl();
+        await fetch(`${serverUrl}/user/notifications/read-all`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      }
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
   }
 
-  clearAll() {
-    localStorage.setItem('notifications', '[]');
+  async clearAll() {
+    this.setLocalNotifications([]);
+
+    try {
+      const accessToken = await this.getSessionToken();
+      if (accessToken) {
+        const serverUrl = getServerUrl();
+        await fetch(`${serverUrl}/user/notifications`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+    }
   }
 
   // Helper methods for different notification types

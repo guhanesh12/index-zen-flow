@@ -436,22 +436,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       const maxInactivityTime = interval === 15 ? 1200000 : 420000; // 20min for 15M, 7min for 5M
       
       if (wasRunning && isRunningRef.current && timeSinceLastBeat > maxInactivityTime) {
-        // Engine claims to be running but no activity for too long
-        console.error('🚨 ENGINE HEARTBEAT FAILED!');
-        console.error(`  - Engine says: RUNNING`);
-        console.error(`  - Interval: ${interval}M`);
-        console.error(`  - Last activity: ${Math.round(timeSinceLastBeat / 1000)}s ago`);
-        console.error(`  - Max allowed: ${Math.round(maxInactivityTime / 1000)}s`);
-        console.error(`  - ACTION: STOPPING engine (auto-restart disabled)`);
-        
-        onLog({
-          timestamp: Date.now(),
-          type: 'ERROR',
-          message: `🚨 ENGINE HEARTBEAT FAILED - No activity for ${Math.round(timeSinceLastBeat / 1000)}s. Engine stopped. Please manually restart.`
-        });
-        
-        // ❌ DISABLED: No auto-restart - just stop the engine
-        stopEngine(false);
+        console.warn('⚠️ Local heartbeat delayed - keeping backend engine running and re-syncing UI only');
+        console.warn(`  - Interval: ${interval}M`);
+        console.warn(`  - Last local activity: ${Math.round(timeSinceLastBeat / 1000)}s ago`);
+        console.warn(`  - Max allowed: ${Math.round(maxInactivityTime / 1000)}s`);
+
+        // Never stop the engine automatically from the browser.
+        // The backend engine is the source of truth and must stop only on manual user action.
+        lastHeartbeatRef.current = Date.now();
+        syncEngineState();
       }
     }, 30000); // Check every 30 seconds
     
@@ -486,11 +479,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           
           // Verify timers are still running
           if (isRunningRef.current && !engineTimerRef.current) {
-            console.log('⚠️ TIMERS STOPPED during tab inactivity!');
-            console.log('⚠️ Engine will be stopped. Please manually restart after market opens.');
-            
-            // ❌ DISABLED: No auto-restart - just stop
-            stopEngine(false);
+            console.log('⚠️ Local timers were throttled while tab was inactive.');
+            console.log('☁️ Backend engine remains active - re-syncing UI state instead of stopping.');
+            syncEngineState();
           }
         }
       }
@@ -629,6 +620,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       
       const data = await response.json();
       if (!data.success) return;
+
+      const backendInterval = data.engine?.strategySettings?.candleInterval;
+      if ((backendInterval === '5' || backendInterval === '15') && backendInterval !== candleIntervalRef.current) {
+        console.log(`☁️ Syncing timeframe from backend: ${candleIntervalRef.current}M → ${backendInterval}M`);
+        candleIntervalRef.current = backendInterval;
+        localStorage.setItem('engine_interval', backendInterval);
+        setCandleInterval(backendInterval);
+      }
+
+      if (data.engine?.lastHeartbeat) {
+        const backendHeartbeat = new Date(data.engine.lastHeartbeat).getTime();
+        if (!Number.isNaN(backendHeartbeat)) {
+          lastHeartbeatRef.current = Math.max(lastHeartbeatRef.current, backendHeartbeat);
+        }
+      }
       
       // ⚡ SYNC ENGINE RUNNING STATE FROM BACKEND
       const backendRunning = data.engine?.isRunning || false;
@@ -745,24 +751,39 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   };
 
+  const persistEngineStateSnapshot = async (running: boolean, interval: string) => {
+    const freshToken = await getFreshAccessToken();
+
+    await fetch(`${serverUrl}/engine/state`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${freshToken}`
+      },
+      body: JSON.stringify({
+        isRunning: running,
+        candleInterval: interval,
+        timestamp: Date.now()
+      })
+    });
+
+    return freshToken;
+  };
+
   // ⚡⚡⚡ NEW: SAVE ENGINE STATE TO BACKEND ⚡⚡⚡
-  const saveEngineState = async (running: boolean, interval: string) => {
+  const saveEngineState = async (
+    running: boolean,
+    interval: string,
+    options: { syncServerEngine?: boolean } = {}
+  ) => {
     try {
-      const freshToken = await getFreshAccessToken();
-      
-      // Save basic state
-      await fetch(`${serverUrl}/engine/state`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${freshToken}`
-        },
-        body: JSON.stringify({
-          isRunning: running,
-          candleInterval: interval,
-          timestamp: Date.now()
-        })
-      });
+      const { syncServerEngine = true } = options;
+      const freshToken = await persistEngineStateSnapshot(running, interval);
+
+      if (!syncServerEngine) {
+        console.log(`💾 Saved engine snapshot only: Running=${running}, Interval=${interval}M`);
+        return;
+      }
       
     // ⚡⚡⚡ START/STOP 24/7 BACKGROUND SERVER ENGINE ⚡⚡⚡
       if (running) {
@@ -4179,6 +4200,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                 onValueChange={(val: '5' | '15') => {
                   console.log(`⚡ TIMEFRAME CHANGED: ${candleInterval}M → ${val}M`);
                   setCandleInterval(val);
+                  void saveEngineState(isRunningRef.current, val, { syncServerEngine: false });
                 }} 
                 disabled={isRunning}
               >

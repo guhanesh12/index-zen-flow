@@ -450,6 +450,27 @@ class PersistentTradingEngine {
           const reason = aiSignal.signal.reason || '';
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
 
+          await this.saveUserNotification(userId, {
+            id: `signal_${userId}_${indexName}_${currentCandleTimestamp}_${action}`,
+            type: 'SIGNAL_DETECTED',
+            title: action === 'WAIT'
+              ? `⏸️ ${indexName} - Market Not Suitable`
+              : `📊 ${indexName} Signal Detected`,
+            message: action === 'WAIT'
+              ? `WAIT ${indexName}${confidence ? ` (${confidence}% confidence)` : ''}${reason ? ` - ${reason.substring(0, 60)}...` : ''}`
+              : `BUY ${indexName}${confidence ? ` (${confidence}% confidence)` : ''}`,
+            timestamp: Date.now(),
+            read: false,
+            data: {
+              index: indexName,
+              symbol: indexName,
+              action: action === 'WAIT' ? 'WAIT' : 'BUY',
+              confidence,
+              reasoning: reason,
+              timeframe: state.candleInterval,
+            }
+          });
+
           // ⚡ Save signal log to user's persistent logs
           const userLogs = await kv.get(`logs:${userId}`) || [];
           userLogs.unshift({
@@ -548,6 +569,23 @@ class PersistentTradingEngine {
                 });
                 if (userLogs.length > 500) userLogs.length = 500;
                 await kv.set(`logs:${userId}`, userLogs);
+
+                await this.saveUserNotification(userId, {
+                  id: `order_${orderResult.orderId}`,
+                  type: 'ORDER_PLACED',
+                  title: '💰 Order Placed',
+                  message: `BUY ${symbol.quantity || 15} x ${symbol.name} @ ₹${(orderResult.averagePrice || orderResult.price || 0).toFixed(2)}`,
+                  timestamp: Date.now(),
+                  read: false,
+                  data: {
+                    index: indexName,
+                    symbol: symbol.name,
+                    quantity: symbol.quantity || 15,
+                    price: orderResult.averagePrice || orderResult.price || 0,
+                    action: 'BUY',
+                    orderId: orderResult.orderId,
+                  }
+                });
               } else {
                 console.log(`❌ ORDER FAILED: ${orderResult.error}`);
                 await this.saveOrderToDB(userId, symbol, orderResult, action, 'failed');
@@ -762,6 +800,20 @@ class PersistentTradingEngine {
               reason: exitReason,
               pnl: pnl
             });
+
+            await this.saveUserNotification(userId, {
+              id: `exit_${position.orderId}_${Date.now()}`,
+              type: 'POSITION_CLOSED',
+              title: pnl >= 0 ? '🎉 Position Closed' : '📉 Position Closed',
+              message: `${position.symbolName} | ${exitReason} | P&L: ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}`,
+              timestamp: Date.now(),
+              read: false,
+              data: {
+                symbol: position.symbolName,
+                pnl,
+                exitReason,
+              }
+            });
           } else {
             console.log(`❌ EXIT ORDER FAILED: ${exitResult.error}`);
           }
@@ -819,6 +871,32 @@ class PersistentTradingEngine {
         .eq('user_id', userId);
     } catch (err) {
       console.error('❌ Failed to mark engine stopped in DB:', err);
+    }
+  }
+
+  private static async saveUserNotification(userId: string, notification: any): Promise<void> {
+    try {
+      const existingNotifications = await kv.get(`user_notifications:${userId}`) || [];
+      const duplicateExists = existingNotifications.some((existing: any) =>
+        (existing?.id && notification?.id && existing.id === notification.id) ||
+        (
+          existing?.type === notification?.type &&
+          existing?.title === notification?.title &&
+          existing?.message === notification?.message &&
+          Math.abs((existing?.timestamp || 0) - (notification?.timestamp || 0)) <= 60000
+        )
+      );
+
+      if (duplicateExists) return;
+
+      existingNotifications.unshift(notification);
+      if (existingNotifications.length > 100) {
+        existingNotifications.length = 100;
+      }
+
+      await kv.set(`user_notifications:${userId}`, existingNotifications);
+    } catch (err) {
+      console.error('❌ Failed to save user notification:', err);
     }
   }
 
