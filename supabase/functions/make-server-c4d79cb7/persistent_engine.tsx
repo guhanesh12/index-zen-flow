@@ -447,7 +447,18 @@ class PersistentTradingEngine {
 
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
+          const reason = aiSignal.signal.reason || '';
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
+
+          // ⚡ Save signal log to user's persistent logs
+          const userLogs = await kv.get(`logs:${userId}`) || [];
+          userLogs.unshift({
+            type: action === 'WAIT' ? 'WAIT' : action.includes('BUY') ? 'AI_SIGNAL' : 'INFO',
+            timestamp: Date.now(),
+            message: `🎯 ${indexName}: ${action} (${confidence}%) - ${reason || 'AI analysis complete'} | TF: ${state.candleInterval}M`
+          });
+          if (userLogs.length > 500) userLogs.length = 500;
+          await kv.set(`logs:${userId}`, userLogs);
 
           // Check if we should trade (only for symbols that match this index)
           if (action === 'WAIT' || confidence < 85) {
