@@ -885,15 +885,10 @@ app.get("/make-server-c4d79cb7/api-credentials", async (c) => {
 app.post("/make-server-c4d79cb7/api-credentials", async (c) => {
   try {
     console.log('💾 POST /api-credentials - Starting...');
-    
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    console.log('🔑 Access token present:', !!accessToken);
-    
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (!user || error) {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
       console.log('❌ Auth error:', error?.message || 'No user');
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     console.log('✅ User authenticated:', user.id);
@@ -944,11 +939,9 @@ app.post("/make-server-c4d79cb7/api-credentials", async (c) => {
 // Update Dhan Access Token ONLY (24-hour expiry - DAILY UPDATE)
 app.post("/make-server-c4d79cb7/update-access-token", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { dhanAccessToken } = await c.req.json();
@@ -1004,11 +997,9 @@ app.post("/make-server-c4d79cb7/update-access-token", async (c) => {
 // Test API connections
 app.post("/make-server-c4d79cb7/test-api-connection", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401)
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401)
     }
 
     const credentials = await kv.get(`api_credentials:${user.id}`);
@@ -1264,11 +1255,9 @@ app.delete("/make-server-c4d79cb7/symbols/:id", async (c) => {
 // ⚡ SYNC USER SYMBOL - Store symbol in user-specific storage (for execute-trade)
 app.post("/make-server-c4d79cb7/sync-user-symbol", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const newSymbol = await c.req.json();
@@ -1290,6 +1279,11 @@ app.post("/make-server-c4d79cb7/sync-user-symbol", async (c) => {
     }
     
     await kv.set(`symbols:${user.id}`, userSymbols);
+    await kv.set(`trading_symbols:${user.id}`, {
+      symbols: userSymbols,
+      lastUpdated: Date.now(),
+      userId: user.id
+    });
     console.log(`📊 Total symbols for user: ${userSymbols.length}`);
 
     return c.json({ success: true, symbolCount: userSymbols.length });
@@ -2221,11 +2215,9 @@ app.get("/make-server-c4d79cb7/check-vps-connectivity", async (c) => {
 
 app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
   try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (!user || error) {
-      return c.json({ error: "Unauthorized" }, 401);
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
     const { symbolId, securityId, transactionType, quantity, testMode } = await c.req.json();
@@ -2264,7 +2256,8 @@ app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
     }
 
     // Check daily limits
-    const symbols = await kv.get(`symbols:${user.id}`) || [];
+    const symbols = (await kv.get(`symbols:${user.id}`)) ||
+      (await kv.get(`trading_symbols:${user.id}`))?.symbols || [];
     const symbol = symbols.find((s: any) => s.id === symbolId);
     if (!symbol) {
       return c.json({ error: "Symbol not found" }, 404);
