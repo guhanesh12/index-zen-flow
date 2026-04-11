@@ -767,35 +767,51 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       }
       
       // ⚡ SYNC SIGNALS FROM BACKEND
-      if (data.signals && data.signals.length > 0) {
-        const latestSignals: any = { NIFTY: null, BANKNIFTY: null, SENSEX: null };
-        for (const sig of data.signals) {
-          const idx = sig.index_name as 'NIFTY' | 'BANKNIFTY' | 'SENSEX';
-          const normalizedSignal = normalizeSignalPayload(sig, idx);
-          if (idx && normalizedSignal && (!latestSignals[idx] || normalizedSignal.timestamp > latestSignals[idx].timestamp)) {
+      const latestSignals: any = { NIFTY: null, BANKNIFTY: null, SENSEX: null };
+
+      if (data.latestSignals && typeof data.latestSignals === 'object') {
+        for (const idx of ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const) {
+          const normalizedSignal = normalizeSignalPayload(data.latestSignals[idx], idx);
+          if (normalizedSignal) {
             latestSignals[idx] = normalizedSignal;
           }
         }
-        
-        // Only update if we have backend signals and no fresher local ones
-        const hasBackendSignals = latestSignals.NIFTY || latestSignals.BANKNIFTY || latestSignals.SENSEX;
-        if (hasBackendSignals) {
-          setMultiSymbolSignals(prev => {
-            const updated = { ...prev };
-            for (const idx of ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const) {
-              if (latestSignals[idx] && (!prev[idx] || latestSignals[idx].timestamp > (prev[idx]?.timestamp || 0))) {
-                updated[idx] = latestSignals[idx];
-              }
-            }
-            return updated;
-          });
+      }
 
-          const latestBackendSignal = getLatestSignalFromMap(latestSignals);
-          if (latestBackendSignal && latestBackendSignal.timestamp > (lastSignalRef.current?.timestamp || 0)) {
-            setPreviousSignal(lastSignalRef.current);
-            setLastSignal(latestBackendSignal);
-            lastSignalRef.current = latestBackendSignal;
+      if ((!latestSignals.NIFTY && !latestSignals.BANKNIFTY && !latestSignals.SENSEX) && data.signals && data.signals.length > 0) {
+        for (const sig of data.signals) {
+          const idx = sig.index_name as 'NIFTY' | 'BANKNIFTY' | 'SENSEX';
+          const normalizedSignal = normalizeSignalPayload(sig, idx);
+          if (idx && normalizedSignal && (!latestSignals[idx] || latestSignals[idx].timestamp < normalizedSignal.timestamp)) {
+            latestSignals[idx] = normalizedSignal;
           }
+        }
+      }
+
+      const hasBackendSignals = latestSignals.NIFTY || latestSignals.BANKNIFTY || latestSignals.SENSEX;
+      if (hasBackendSignals) {
+        const backendTimestamp = data.latestSignals?.__timestamp || getLatestSignalFromMap(latestSignals)?.timestamp || Date.now();
+
+        setMultiSymbolSignals(prev => {
+          const updated = {
+            ...prev,
+            __timestamp: backendTimestamp,
+          };
+
+          for (const idx of ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const) {
+            if (latestSignals[idx] && (!prev[idx] || latestSignals[idx].timestamp > (prev[idx]?.timestamp || 0))) {
+              updated[idx] = latestSignals[idx];
+            }
+          }
+
+          return updated;
+        });
+
+        const latestBackendSignal = getLatestSignalFromMap(latestSignals);
+        if (latestBackendSignal && latestBackendSignal.timestamp > (lastSignalRef.current?.timestamp || 0)) {
+          setPreviousSignal(lastSignalRef.current);
+          setLastSignal(latestBackendSignal);
+          lastSignalRef.current = latestBackendSignal;
         }
       }
       
@@ -2501,31 +2517,40 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           avgExecutionTime: Math.round((prev.avgExecutionTime + executionTime) / 2)
         }));
 
-        // 📝 SINGLE COMPREHENSIVE LOG (No duplicates!)
-        const confirmationCount = data.signal.confirmations?.details?.filter((d: string) => d.startsWith('✅')).length || 0;
-        
-        onLog({
-          timestamp: Date.now(),
-          type: data.signal.action === 'WAIT' ? 'WAIT' : 'AI_SIGNAL',
-          message: data.signal.action === 'WAIT' 
-            ? `⏸️ ${data.signal.action} (${data.signal.confidence}%) - ${data.signal.reasoning || data.signal.analysis || 'Market unsuitable'} | TF: ${responseTimeframe} | Confirmations: ${confirmationCount}/10 | ${executionTime}ms`
-            : `✅ ${data.signal.action} | TF: ${responseTimeframe} | Confidence: ${data.signal.confidence}% | Confirmations: ${confirmationCount}/10 | ${executionTime}ms`,
-          data: {
-            action: data.signal.action,
-            confidence: data.signal.confidence,
-            timeframe: responseTimeframe,
-            candlesAnalyzed: data.candlesProcessed || data.signal.candlesAnalyzed,
-            confirmations: data.signal.confirmations?.details || [],
-            confirmationsPassed: confirmationCount,
-            patterns: data.signal.patterns || [],
-            marketRegime: data.signal.marketRegime || {},
-            volumeAnalysis: data.signal.volumeAnalysis || {},
-            riskManagement: data.signal.riskManagement || {},
-            indicators: data.signal.indicators || {},
-            reasoning: data.signal.reasoning || data.signal.analysis || 'Advanced AI analysis',
-            executionTime: `${executionTime}ms`
-          }
-        });
+        // 📝 SHARED DETAILED LOGS FOR ALL SIGNALS
+        const logSignalEntries = data.signals
+          ? Object.entries(data.signals)
+              .filter(([_, signal]) => signal)
+              .map(([index, signal]: [string, any]) => ({ index, signal }))
+          : [{ index: primaryIndex, signal: data.signal }];
+
+        for (const { index, signal } of logSignalEntries) {
+          const confirmationCount = signal.confirmations?.details?.filter((d: string) => d.startsWith('✅')).length || 0;
+
+          onLog({
+            timestamp: Date.now(),
+            type: signal.action === 'WAIT' ? 'WAIT' : 'AI_SIGNAL',
+            message: signal.action === 'WAIT'
+              ? `⏸️ ${index}: ${signal.action} (${signal.confidence}%) - ${signal.reasoning || signal.analysis || 'Market unsuitable'} | TF: ${responseTimeframe} | Confirmations: ${confirmationCount}/10 | ${executionTime}ms`
+              : `✅ ${index}: ${signal.action} | TF: ${responseTimeframe} | Confidence: ${signal.confidence}% | Confirmations: ${confirmationCount}/10 | ${executionTime}ms`,
+            data: {
+              index,
+              action: signal.action,
+              confidence: signal.confidence,
+              timeframe: responseTimeframe,
+              candlesAnalyzed: data.candlesProcessed || signal.candlesAnalyzed,
+              confirmations: signal.confirmations?.details || [],
+              confirmationsPassed: confirmationCount,
+              patterns: signal.patterns || [],
+              marketRegime: signal.marketRegime || {},
+              volumeAnalysis: signal.volumeAnalysis || {},
+              riskManagement: signal.riskManagement || {},
+              indicators: signal.indicators || {},
+              reasoning: signal.reasoning || signal.analysis || 'Advanced AI analysis',
+              executionTime: `${executionTime}ms`
+            }
+          });
+        }
         
         // 🔊 PLAY SIGNAL GENERATED SOUND (only for BUY signals, not WAIT)
         if (data.signal.action !== 'WAIT') {
