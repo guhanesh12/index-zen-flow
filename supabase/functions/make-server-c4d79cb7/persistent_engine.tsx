@@ -509,7 +509,22 @@ class PersistentTradingEngine {
           }
           
           // Find matching symbols for this index to place orders
-          const matchingSymbols = state.symbols.filter(s => (s.index || 'NIFTY') === indexName && s.active !== false);
+          // ⚡ BUY_CALL → only CE symbols, BUY_PUT → only PE symbols
+          const matchingSymbols = state.symbols.filter(s => {
+            const symbolIndex = (s.index || s.indexName || 'NIFTY');
+            if (symbolIndex !== indexName) return false;
+            if (s.active === false) return false;
+            
+            // Match signal action to option type
+            const optType = (s.optionType || '').toUpperCase();
+            if (action === 'BUY_CALL' && optType !== 'CE') return false;
+            if (action === 'BUY_PUT' && optType !== 'PE') return false;
+            
+            return true;
+          });
+
+          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${state.symbols.filter(s => (s.index || s.indexName || 'NIFTY') === indexName).length} total for index)`);
+          
           for (const symbol of matchingSymbols) {
             // Check if already have position for this symbol
             const hasPosition = state.activePositions.some(p => 
@@ -523,7 +538,7 @@ class PersistentTradingEngine {
             
             // ⚡ EXECUTE ORDER!
             if (action === 'BUY_CALL' || action === 'BUY_PUT') {
-              console.log(`\n💰 PLACING ORDER: ${symbol.name}`);
+              console.log(`\n💰 PLACING ORDER: ${symbol.name} (${symbol.optionType}) for ${action}`);
               
               const orderParams = {
                 securityId: symbol.securityId,
