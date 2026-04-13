@@ -1419,31 +1419,26 @@ export class AdvancedAI {
       reasoning = `WAIT: Conditions not met for entry.`;
     }
     
-    // ⚡ PHASE 1: REGIME ALIGNMENT CHECK (CRITICAL!) ⚡
-    // Block counter-trend trades unless at key S/R levels or squeeze
+    // ⚡ HIGH ACCURACY: Only block counter-trend if confirmations < 5 AND no S/R
     if (action !== 'WAIT') {
-      if (marketRegime.type === 'TRENDING_UP' && bias === 'Bearish') {
-        // Bearish signal in uptrend - only allow if at resistance or squeeze
+      if (marketRegime.type === 'TRENDING_UP' && bias === 'Bearish' && confirmations.total < 5) {
         if (!nearResistance && !bollingerSqueeze) {
           action = 'WAIT';
           bias = 'Neutral';
           confidence = 35;
-          reasoning = `⚠️ WAIT: Bearish signal in TRENDING_UP market requires resistance or squeeze. Current: mid-range.`;
-        } else {
-          reasoning += ` ✅ Counter-trend allowed: ${nearResistance ? 'At resistance' : 'Bollinger squeeze'}.`;
+          reasoning = `⚠️ WAIT: Weak bearish in uptrend (${confirmations.total} confirmations). Need resistance or 5+ confirmations.`;
         }
       }
       
-      if (marketRegime.type === 'TRENDING_DOWN' && bias === 'Bullish') {
-        // Bullish signal in downtrend - only allow if at support or squeeze
+      if (marketRegime.type === 'TRENDING_DOWN' && bias === 'Bullish' && confirmations.total < 5) {
         if (!nearSupport && !bollingerSqueeze) {
           action = 'WAIT';
           bias = 'Neutral';
           confidence = 35;
-          reasoning = `⚠️ WAIT: Bullish signal in TRENDING_DOWN market requires support or squeeze. Current: mid-range.`;
-        } else {
-          reasoning += ` ✅ Counter-trend allowed: ${nearSupport ? 'At support' : 'Bollinger squeeze'}.`;
+          reasoning = `⚠️ WAIT: Weak bullish in downtrend (${confirmations.total} confirmations). Need support or 5+ confirmations.`;
         }
+      }
+    }
       }
     }
     
