@@ -1187,15 +1187,19 @@ export class AdvancedAI {
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
-    // ⚡ FIX: Use confirmationBullish/Bearish (trend bias) instead of candle color!
-    if (trending && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend))) {
+    // ⚡ HIGH ACCURACY: ADX confirmation more permissive
+    if (trending && ((confirmationBullish && (emaUptrend || priceAboveEMAs)) || (confirmationBearish && (emaDowntrend || priceBelowEMAs)))) {
       confirmations.adx = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       confirmationDetails.push(`✅ ADX: Strong trend (${adx.toFixed(1)})`);
+    } else if (adx > 15) {
+      // Even moderate ADX with direction confirmation
+      confirmations.adx = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ ADX: Moderate trend (${adx.toFixed(1)})`);
     } else {
-      // ⚡ FIX: Show correct ADX interpretation
       const adxInterpretation = this.getADXInterpretation(adx);
-      confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)}) - ${trending ? 'Strong but' : 'Weak,'} EMAs not aligned`);
+      confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)})`);
     }
     
     // 8. Stochastic Confirmation (Weight: 1)
