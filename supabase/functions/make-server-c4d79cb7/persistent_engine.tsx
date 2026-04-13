@@ -475,15 +475,18 @@ class PersistentTradingEngine {
           analyzedIndices.add(indexName);
           state.stats.totalSignals++;
           
-          // ⚡ Save signal to database with index_name
+          if (!aiSignal || !aiSignal.signal) {
+            console.log(`⚠️ No signal generated for ${indexName} (analyzeMarket returned null)`);
+            // Save as WAIT instead of NONE when AI fails
+            const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
+            await this.saveSignalToDB(userId, pseudoSymbol, { signal: { action: 'WAIT', confidence: 0, reasoning: 'AI analysis failed - no data' } });
+            continue;
+          }
+
+          // ⚡ Save signal to database AFTER validation (not before!)
           const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
           await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
           await this.incrementSignalStats(userId, 'signal');
-
-          if (!aiSignal || !aiSignal.signal) {
-            console.log(`⚠️ No signal generated for ${indexName}`);
-            continue;
-          }
 
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;

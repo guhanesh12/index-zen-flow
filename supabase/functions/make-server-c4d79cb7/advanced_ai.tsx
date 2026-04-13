@@ -1351,17 +1351,19 @@ export class AdvancedAI {
     // For indices (no volume data), we use candle strength % (body as % of total range)
     // For stocks (with volume), we use absolute body size + volume ratio
     
-    const minimumBodySize = 5; // Reduced from 10 for more signals
-    const minimumCandleStrength = 15; // Reduced from 30% for indices
-    const isVeryStrongTrend = adx > 50;
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.3 : 0.5; // Relaxed from 0.5/0.8
+    const minimumBodySize = 3; // Reduced from 5 — even small candles can signal in strong trends
+    const minimumCandleStrength = 10; // Reduced from 15% — allow more entries
+    const isVeryStrongTrend = adx > 40; // Lowered from 50
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.15 : 0.25; // ⚡ FIX: Was 0.3/0.5 — current candle always has less volume than completed avg!
     
     // ⚡ HIGH ACCURACY FIX: More permissive quality check
     let hasAcceptableQuality: boolean;
     
     if (hasVolumeData) {
-      hasAcceptableQuality = (volumeRatio >= minimumVolumeRatio) && (bodySize >= minimumBodySize);
-      console.log(`📊 STOCK MODE: volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize})`);
+      // ⚡ FIX: Current incomplete candle ALWAYS has lower volume than avg of completed candles
+      // So we use a very low threshold OR just check body size
+      hasAcceptableQuality = (volumeRatio >= minimumVolumeRatio) || (bodySize >= minimumBodySize && bodyPercent > 20);
+      console.log(`📊 STOCK MODE: volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), bodyPercent=${bodyPercent.toFixed(1)}%`);
     } else {
       // FOR INDICES: Very relaxed - any candle with some body is acceptable
       hasAcceptableQuality = candleStrength >= minimumCandleStrength || bodySize > 3;
