@@ -209,20 +209,24 @@ export class AdvancedAI {
     let interpretation: 'NEUTRAL' | 'ACCEPTABLE' | 'EXTENDED';
     
     // ⚡ ADAPTIVE THRESHOLDS: Scale with trend strength (ADX)
+    // ⚡ FIX: Much more permissive for indices in strong trends
     let extendedThreshold: number;
     
-    if (!adx || adx < 25) {
+    if (!adx || adx < 20) {
       // No trend or weak trend: Conservative threshold
-      extendedThreshold = 0.6;  // 0.6 ATR - tight control
+      extendedThreshold = 1.5;  // Was 0.6 — too tight, blocking valid entries
+    } else if (adx < 35) {
+      // Moderate trend (20-35): Allow good extension
+      extendedThreshold = 4.0;  // Was 3.0
     } else if (adx < 50) {
-      // Strong trend (25-50): Allow moderate extension
-      extendedThreshold = 3.0;  // 3.0 ATR - standard trending
+      // Strong trend (35-50): Allow large extension
+      extendedThreshold = 6.0;  // Was 3.0 — indices move fast in trends!
     } else if (adx < 60) {
-      // VERY strong trend (50-60): Allow large extension
-      extendedThreshold = 5.0;  // 5.0 ATR - strong continuation
+      // VERY strong trend (50-60): Allow very large extension
+      extendedThreshold = 8.0;  // Was 5.0
     } else {
       // EXTREME trend (60+): Allow maximum extension (climax moves)
-      extendedThreshold = 6.0;  // 6.0 ATR - climax continuation
+      extendedThreshold = 10.0;  // Was 6.0 — never block climax moves
     }
     
     if (distanceATR < 0.3) {
@@ -1038,13 +1042,17 @@ export class AdvancedAI {
     const priceAboveEMAs = lastCandle.close > ema9 && lastCandle.close > ema21;
     const priceBelowEMAs = lastCandle.close < ema9 && lastCandle.close < ema21;
     
-    // ⚡ FIX BUG #9: In strong trends (ADX > 40), allow minor pullbacks (price within 0.5 ATR of EMA9)
-    const priceNearEma9Bullish = lastCandle.close > ema9 || (lastCandle.close > ema9 - atr14 * 0.5);
-    const priceNearEma9Bearish = lastCandle.close < ema9 || (lastCandle.close < ema9 + atr14 * 0.5);
+    // ⚡ FIX: Much more permissive EMA — allow pullbacks in trends (1.5 ATR from EMA9)
+    const priceNearEma9Bullish = lastCandle.close > ema9 || (lastCandle.close > ema9 - atr14 * 1.5);
+    const priceNearEma9Bearish = lastCandle.close < ema9 || (lastCandle.close < ema9 + atr14 * 1.5);
+    
+    // ⚡ FIX: In strong trends (ADX > 25), EMA alignment with trend direction is enough
+    const trendAlignedBullish = useTrendBias && trendBias === 'bullish';
+    const trendAlignedBearish = useTrendBias && trendBias === 'bearish';
     
     if (confirmationBullish && (emaUptrend || priceAboveEMAs) && priceNearEma9Bullish) {
       confirmations.ema = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       if (emaUptrend && priceAboveEMAs) {
         confirmationDetails.push('✅ EMA: Perfect bullish alignment (9>21>50 + price>EMAs)');
       } else if (emaUptrend) {
@@ -1054,7 +1062,7 @@ export class AdvancedAI {
       }
     } else if (confirmationBearish && (emaDowntrend || priceBelowEMAs) && priceNearEma9Bearish) {
       confirmations.ema = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       if (emaDowntrend && priceBelowEMAs) {
         confirmationDetails.push('✅ EMA: Perfect bearish alignment (9<21<50 + price<EMAs)');
       } else if (emaDowntrend) {
@@ -1062,6 +1070,15 @@ export class AdvancedAI {
       } else {
         confirmationDetails.push('✅ EMA: Price below key EMAs (bearish setup)');
       }
+    } else if (trendAlignedBullish && priceNearEma9Bullish) {
+      // ⚡ NEW: In strong uptrend, even if EMAs not perfectly aligned, trend direction confirms
+      confirmations.ema = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ EMA: Trend-aligned bullish (ADX ${adx.toFixed(1)}, pullback within range)`);
+    } else if (trendAlignedBearish && priceNearEma9Bearish) {
+      confirmations.ema = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ EMA: Trend-aligned bearish (ADX ${adx.toFixed(1)}, pullback within range)`);
     } else {
       confirmationDetails.push('❌ EMA: Neutral or mixed');
     }
@@ -1202,25 +1219,34 @@ export class AdvancedAI {
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)})`);
     }
     
-    // 8. Stochastic Confirmation (Weight: 1) — More permissive
+    // 8. Stochastic Confirmation (Weight: 1) — Very permissive for trending markets
     if (isBullish && stochOversold) {
       confirmations.stochastic = true;
-      totalWeightedScore += 2; // Extra weight for reversal
+      totalWeightedScore += 2;
       confirmationDetails.push('✅ Stochastic: Oversold + bullish reversal');
     } else if (isBearish && stochOverbought) {
       confirmations.stochastic = true;
-      totalWeightedScore += 2; // Extra weight for reversal
+      totalWeightedScore += 2;
       confirmationDetails.push('✅ Stochastic: Overbought + bearish reversal');
-    } else if (confirmationBearish && stoch.k > 60) {
-      // Bearish with stoch > 60 = room to fall
+    } else if (confirmationBearish && stoch.k > 50) {
+      // ⚡ FIX: Lowered from 60 to 50 — in downtrends, stoch > 50 means room to fall
       confirmations.stochastic = true;
       totalWeightedScore += 1;
       confirmationDetails.push(`✅ Stochastic: Room to fall (${stoch.k.toFixed(1)})`);
-    } else if (confirmationBullish && stoch.k < 40) {
-      // Bullish with stoch < 40 = room to rise
+    } else if (confirmationBullish && stoch.k < 55) {
+      // ⚡ FIX: Raised from 40 to 55 — in uptrends, stoch < 55 means room to rise
       confirmations.stochastic = true;
       totalWeightedScore += 1;
       confirmationDetails.push(`✅ Stochastic: Room to rise (${stoch.k.toFixed(1)})`);
+    } else if (confirmationBullish && trendingMarket && stoch.k < 70) {
+      // ⚡ NEW: In strong uptrend, even stoch up to 70 is OK (trend continuation)
+      confirmations.stochastic = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Trend continuation (${stoch.k.toFixed(1)})`);
+    } else if (confirmationBearish && trendingMarket && stoch.k > 30) {
+      confirmations.stochastic = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Trend continuation (${stoch.k.toFixed(1)})`);
     } else if (isBearish && stochOversold) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
@@ -1440,24 +1466,27 @@ export class AdvancedAI {
       }
     }
     
-    // ⚡ HIGH ACCURACY: Only block in EXTREME conditions (VWAP extended > 3 ATR)
-    // Removed BB blocking entirely — it was killing too many valid signals
+    // ⚡ FIX: VWAP blocking now uses ADX-adaptive thresholds (not fixed 3.5 ATR)
+    // In strong trends, price CAN stay extended from VWAP for long periods
     if (action !== 'WAIT') {
-      // Only block if VWAP is EXTREMELY extended (> 3 ATR distance)
-      if (bias === 'Bearish' && vwapNormalized.distanceATR > 3.5) {
-        action = 'WAIT';
-        bias = 'Neutral';
-        confidence = 30;
-        reasoning = `🚨 BLOCKED: VWAP extremely extended (${vwapNormalized.distanceATR.toFixed(2)} ATR). Wait for pullback.`;
-        console.log(`🚨 SAFETY: Blocked at ${vwapNormalized.distanceATR.toFixed(2)} ATR`);
+      // ⚡ ADX-adaptive VWAP blocking threshold
+      let vwapBlockThreshold: number;
+      if (adx > 50) {
+        vwapBlockThreshold = 8.0;  // Very strong trend — almost never block
+      } else if (adx > 35) {
+        vwapBlockThreshold = 6.0;  // Strong trend — very permissive
+      } else if (adx > 25) {
+        vwapBlockThreshold = 5.0;  // Moderate trend
+      } else {
+        vwapBlockThreshold = 3.5;  // Weak/no trend — conservative
       }
       
-      if (bias === 'Bullish' && vwapNormalized.distanceATR > 3.5) {
+      if (vwapNormalized.distanceATR > vwapBlockThreshold) {
         action = 'WAIT';
         bias = 'Neutral';
         confidence = 30;
-        reasoning = `🚨 BLOCKED: VWAP extremely extended (${vwapNormalized.distanceATR.toFixed(2)} ATR). Wait for pullback.`;
-        console.log(`🚨 SAFETY: Blocked at ${vwapNormalized.distanceATR.toFixed(2)} ATR`);
+        reasoning = `🚨 BLOCKED: VWAP extremely extended (${vwapNormalized.distanceATR.toFixed(2)} ATR > ${vwapBlockThreshold} threshold). Wait for pullback.`;
+        console.log(`🚨 SAFETY: Blocked at ${vwapNormalized.distanceATR.toFixed(2)} ATR (threshold: ${vwapBlockThreshold})`);
       }
     }
     
