@@ -1384,31 +1384,39 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${requiredConfirmations} for high-confidence signal.`;
       
-    } else if (!hasAcceptableQuality) {  // ⚡ FIX: Use hasAcceptableQuality which handles both stocks (volume+body) and indices (candle strength)
-      // ⚡ FIX: Only block if no strong pattern exists AND confirmations are not strong (< 7)
-      // If we have 7+ confirmations, override weak candle/volume check
-      if (!hasStrongPattern && confirmations.total < 7) {
+    } else if (!hasAcceptableQuality) {
+      // ⚡ HIGH ACCURACY: With 5+ confirmations, trade even with weak candle
+      if (confirmations.total >= 5) {
+        // Strong confirmations override weak candle
+        if (confirmationBullish) {
+          action = 'BUY_CALL';
+          confidence = 55 + (confirmations.total * 4);
+          confidence = Math.min(confidence, 90);
+          bias = 'Bullish';
+          reasoning = `BUY CALL: ${confirmations.total}/10 confirmations override weak candle. ${marketRegime.type}.`;
+        } else if (confirmationBearish) {
+          action = 'BUY_PUT';
+          confidence = 55 + (confirmations.total * 4);
+          confidence = Math.min(confidence, 90);
+          bias = 'Bearish';
+          reasoning = `BUY PUT: ${confirmations.total}/10 confirmations override weak candle. ${marketRegime.type}.`;
+        } else {
+          action = 'WAIT';
+          confidence = 45;
+          bias = 'Neutral';
+          reasoning = `WAIT: ${confirmations.total}/10 confirmations but no clear direction.`;
+        }
+      } else {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
-        // Different message for indices vs stocks
-        if (hasVolumeData) {
-          reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
-        } else {
-          reasoning = `WAIT: Weak candle strength (${candleStrength.toFixed(1)}%, min ${minimumCandleStrength}%). Need stronger price movement.`;
-        }
-      } else if (confirmations.total >= 7) {
-        // ⚡ NEW: With 7+ confirmations, we can trade despite weak candle
-        action = 'WAIT';  // Still WAIT but with better reasoning
-        confidence = 45;
-        bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : 'Neutral';
-        reasoning = `WAIT: ${confirmations.total}/10 confirmations met, but last candle is weak (DOJI/small body). Wait for confirmation on next candle.`;
+        reasoning = `WAIT: Weak candle + low confirmations (${confirmations.total}).`;
       }
     } else {
       action = 'WAIT';
       confidence = 45;
       bias = 'Neutral';
-      reasoning = `WAIT: Conditions not met for high-confidence entry.`;
+      reasoning = `WAIT: Conditions not met for entry.`;
     }
     
     // ⚡ PHASE 1: REGIME ALIGNMENT CHECK (CRITICAL!) ⚡
