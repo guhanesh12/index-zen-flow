@@ -1439,58 +1439,24 @@ export class AdvancedAI {
       }
     }
     
-    // ⚡🚨 ADAPTIVE SAFETY BLOCK: OVERSOLD/OVERBOUGHT CONDITIONS 🚨⚡
-    // Block signals when price is in extreme zones (high reversal risk)
-    // 🔥 FIX: In VERY STRONG trends (ADX > 50), allow continuation even near BB
+    // ⚡ HIGH ACCURACY: Only block in EXTREME conditions (VWAP extended > 3 ATR)
+    // Removed BB blocking entirely — it was killing too many valid signals
     if (action !== 'WAIT') {
-      const isVeryStrongTrend = adx > 50;  // ADX > 50 = allow aggressive continuation
-      
-      // BLOCK SELL signals when OVERSOLD (near lower Bollinger Band OR extended VWAP)
-      // 🔥 In very strong downtrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
-      if (bias === 'Bearish') {
-        const shouldBlock = isVeryStrongTrend 
-          ? vwapNormalized.interpretation === 'EXTENDED'  // Very strong trend: only block if VWAP extended
-          : (priceNearLowerBand || vwapNormalized.interpretation === 'EXTENDED');  // Normal: block if BB or VWAP
-        
-        if (shouldBlock) {
-          const blockReason = [];
-          if (priceNearLowerBand) blockReason.push('Near lower Bollinger Band (oversold)');
-          if (vwapNormalized.interpretation === 'EXTENDED') blockReason.push(`VWAP extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`);
-          
-          action = 'WAIT';
-          bias = 'Neutral';
-          confidence = 30;
-          reasoning = `🚨 BLOCKED SELL: ${blockReason.join(' + ')}. HIGH REVERSAL RISK! Wait for price to stabilize.`;
-          console.log(`🚨 SAFETY BLOCK: SELL signal blocked (ADX: ${adx.toFixed(1)}): ${blockReason.join(', ')}`);
-        } else if (isVeryStrongTrend && priceNearLowerBand) {
-          // Very strong trend + near BB but VWAP acceptable → Allow with warning
-          reasoning += ` ⚠️ CONTINUATION: Very strong downtrend (ADX ${adx.toFixed(1)}) - allowing near lower BB.`;
-          console.log(`✅ CONTINUATION ALLOWED: ADX ${adx.toFixed(1)} - near BB but strong trend continuation`);
-        }
+      // Only block if VWAP is EXTREMELY extended (> 3 ATR distance)
+      if (bias === 'Bearish' && vwapNormalized.distanceATR > 3.5) {
+        action = 'WAIT';
+        bias = 'Neutral';
+        confidence = 30;
+        reasoning = `🚨 BLOCKED: VWAP extremely extended (${vwapNormalized.distanceATR.toFixed(2)} ATR). Wait for pullback.`;
+        console.log(`🚨 SAFETY: Blocked at ${vwapNormalized.distanceATR.toFixed(2)} ATR`);
       }
       
-      // BLOCK BUY signals when OVERBOUGHT (near upper Bollinger Band OR extended VWAP)
-      // 🔥 In very strong uptrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
-      if (bias === 'Bullish') {
-        const shouldBlock = isVeryStrongTrend
-          ? vwapNormalized.interpretation === 'EXTENDED'  // Very strong trend: only block if VWAP extended
-          : (priceNearUpperBand || vwapNormalized.interpretation === 'EXTENDED');  // Normal: block if BB or VWAP
-        
-        if (shouldBlock) {
-          const blockReason = [];
-          if (priceNearUpperBand) blockReason.push('Near upper Bollinger Band (overbought)');
-          if (vwapNormalized.interpretation === 'EXTENDED') blockReason.push(`VWAP extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`);
-          
-          action = 'WAIT';
-          bias = 'Neutral';
-          confidence = 30;
-          reasoning = `🚨 BLOCKED BUY: ${blockReason.join(' + ')}. HIGH REVERSAL RISK! Wait for price to stabilize.`;
-          console.log(`🚨 SAFETY BLOCK: BUY signal blocked (ADX: ${adx.toFixed(1)}): ${blockReason.join(', ')}`);
-        } else if (isVeryStrongTrend && priceNearUpperBand) {
-          // Very strong trend + near BB but VWAP acceptable → Allow with warning
-          reasoning += ` ⚠️ CONTINUATION: Very strong uptrend (ADX ${adx.toFixed(1)}) - allowing near upper BB.`;
-          console.log(`✅ CONTINUATION ALLOWED: ADX ${adx.toFixed(1)} - near BB but strong trend continuation`);
-        }
+      if (bias === 'Bullish' && vwapNormalized.distanceATR > 3.5) {
+        action = 'WAIT';
+        bias = 'Neutral';
+        confidence = 30;
+        reasoning = `🚨 BLOCKED: VWAP extremely extended (${vwapNormalized.distanceATR.toFixed(2)} ATR). Wait for pullback.`;
+        console.log(`🚨 SAFETY: Blocked at ${vwapNormalized.distanceATR.toFixed(2)} ATR`);
       }
     }
     
