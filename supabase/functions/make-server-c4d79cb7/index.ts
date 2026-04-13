@@ -7612,6 +7612,17 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
 
+    // ⚡ Use EdgeRuntime.waitUntil to keep engine running in background
+    // This extends the function execution beyond the response
+    if (result.success && typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+      EdgeRuntime.waitUntil(
+        (async () => {
+          // Run one immediate engine tick in background
+          await PersistentTradingEngine.runCronTick();
+        })()
+      );
+    }
+
     return c.json(result);
   } catch (error: any) {
     console.error('❌ Error starting persistent engine:', error);
@@ -9585,7 +9596,19 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   }
 });
 
-// Native Deno cron disabled here to avoid duplicate engine ticks.
+// Native Deno Cron (Runs every minute automatically if supported)
+if (typeof Deno.cron === "function") {
+  Deno.cron("Engine Tick Worker", "* * * * *", async () => {
+    console.log("==========================================");
+    console.log("⏱️ [CRON] Native Deno Cron Worker Triggered");
+    console.log("==========================================");
+    try {
+      await PersistentTradingEngine.runCronTick();
+    } catch (e) {
+      console.error("❌ [CRON] Native worker failed:", e);
+    }
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // DEBUG: GET /make-server-c4d79cb7/internal/debug-ip?userId=...
