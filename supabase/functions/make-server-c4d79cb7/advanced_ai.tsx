@@ -1202,31 +1202,33 @@ export class AdvancedAI {
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)})`);
     }
     
-    // 8. Stochastic Confirmation (Weight: 1)
+    // 8. Stochastic Confirmation (Weight: 1) — More permissive
     if (isBullish && stochOversold) {
       confirmations.stochastic = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 2; // Extra weight for reversal
       confirmationDetails.push('✅ Stochastic: Oversold + bullish reversal');
     } else if (isBearish && stochOverbought) {
       confirmations.stochastic = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 2; // Extra weight for reversal
       confirmationDetails.push('✅ Stochastic: Overbought + bearish reversal');
-    } else if (isBearish && stochOversold && (emaDowntrend || marketRegime.type === 'TRENDING_DOWN')) {
-      // ⚡ FIX: Use market regime OR EMA (more flexible!)
+    } else if (confirmationBearish && stoch.k > 60) {
+      // Bearish with stoch > 60 = room to fall
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + downtrend continuation`);
-    } else if (isBullish && stochOverbought && (emaUptrend || marketRegime.type === 'TRENDING_UP')) {
-      // ⚡ FIX: Use market regime OR EMA (more flexible!)
+      confirmationDetails.push(`✅ Stochastic: Room to fall (${stoch.k.toFixed(1)})`);
+    } else if (confirmationBullish && stoch.k < 40) {
+      // Bullish with stoch < 40 = room to rise
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Overbought (${stoch.k.toFixed(1)}) + uptrend continuation`);
-    } else if (stochOverbought) {
-      // ⚡ FIX BUG #1: Show overbought warning instead of "Neutral"!
-      confirmationDetails.push(`⚠️ Stochastic: EXTREME Overbought (${stoch.k.toFixed(1)}) - reversal risk HIGH!`);
-    } else if (stochOversold) {
-      // ⚡ FIX BUG #1: Show oversold warning instead of "Neutral"!
-      confirmationDetails.push(`⚠️ Stochastic: EXTREME Oversold (${stoch.k.toFixed(1)}) - reversal risk HIGH!`);
+      confirmationDetails.push(`✅ Stochastic: Room to rise (${stoch.k.toFixed(1)})`);
+    } else if (isBearish && stochOversold) {
+      confirmations.stochastic = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Oversold continuation (${stoch.k.toFixed(1)})`);
+    } else if (isBullish && stochOverbought) {
+      confirmations.stochastic = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Overbought continuation (${stoch.k.toFixed(1)})`);
     } else {
       confirmationDetails.push(`❌ Stochastic: Neutral (${stoch.k.toFixed(1)})`);
     }
