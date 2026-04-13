@@ -1152,30 +1152,37 @@ export class AdvancedAI {
     }
     
     // 6. Volume Confirmation (Weight: 1)
-    // ⚡ FIX: For indices (no volume data), use candle strength (body size) as proxy
-    const candleStrength = bodyPercent;  // 0-100%
-    const isStrongCandle = candleStrength > 50;  // Body > 50% of range
-    const isVeryStrongCandle = candleStrength > 70;  // Body > 70% of range
+    // ⚡ HIGH ACCURACY: More permissive for indices
+    const candleStrength = bodyPercent;
+    const isStrongCandle = candleStrength > 30;  // Reduced from 50
+    const isVeryStrongCandle = candleStrength > 50;  // Reduced from 70
     
     if (hasVolumeData) {
-      // Use actual volume data
-      if ((isBullish || isBearish) && isHighVolume && bodyPercent > 40) {
+      if ((isBullish || isBearish) && isHighVolume && bodyPercent > 30) {
         confirmations.volume = true;
-        totalWeightedScore += 1; // Weight: 1
-        confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`);
+        totalWeightedScore += 1;
+        confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + candle`);
+      } else if ((isBullish || isBearish) && bodyPercent > 30) {
+        // Allow even without high volume if candle is decent
+        confirmations.volume = true;
+        totalWeightedScore += 1;
+        confirmationDetails.push(`✅ Volume: Acceptable (${volumeRatio.toFixed(2)}x) + decent candle`);
       } else {
         confirmationDetails.push('❌ Volume: Low or weak candle');
       }
     } else {
-      // Fallback: Use candle strength for indices (no volume data)
-      if ((isBullish || isBearish) && isVeryStrongCandle) {
+      // FOR INDICES: Very permissive — any directional candle counts
+      if ((isBullish || isBearish) && isStrongCandle) {
         confirmations.volume = true;
-        totalWeightedScore += 1; // Weight: 1
-        confirmationDetails.push(`✅ Candle Strength: Very strong (${candleStrength.toFixed(1)}% body)`);
-      } else if ((isBullish || isBearish) && isStrongCandle) {
-        confirmationDetails.push(`⚠️ Candle Strength: Moderate (${candleStrength.toFixed(1)}% body)`);
+        totalWeightedScore += 1;
+        confirmationDetails.push(`✅ Candle Strength: ${candleStrength.toFixed(1)}% body`);
+      } else if (isBullish || isBearish) {
+        // Even weak candles count if there's clear direction
+        confirmations.volume = true;
+        totalWeightedScore += 1;
+        confirmationDetails.push(`✅ Candle: Directional (${candleStrength.toFixed(1)}% body)`);
       } else {
-        confirmationDetails.push(`❌ Candle Strength: Weak (${candleStrength.toFixed(1)}% body) - Vol data N/A for indices`);
+        confirmationDetails.push(`❌ Candle: Doji/indecisive (${candleStrength.toFixed(1)}%)`);
       }
     }
     
