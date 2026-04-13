@@ -741,16 +741,21 @@ export class AdvancedAI {
     }
     
     // Low ADX = ranging or quiet
-    if (adx < 20 && bollingerWidth < 0.02) {
+    if (adx < 15 && bollingerWidth < 0.02) {
       return { type: 'QUIET', strength: 100 - adx, suitable_for_trading: false };
     }
     
-    if (adx < 25) {
-      return { type: 'RANGING', strength: 50, suitable_for_trading: false };
+    // ⚡ FIX: Allow trading in ranging markets with ADX 15-25 if other confirmations are strong
+    if (adx < 20) {
+      return { type: 'RANGING', strength: 50, suitable_for_trading: true };  // Changed to true!
     }
     
-    // Default to ranging
-    return { type: 'RANGING', strength: 50, suitable_for_trading: false };
+    if (adx < 25) {
+      return { type: 'RANGING', strength: 60, suitable_for_trading: true };  // Changed to true!
+    }
+    
+    // Default to ranging but still tradeable
+    return { type: 'RANGING', strength: 50, suitable_for_trading: true };
   }
   
   /**
@@ -1299,33 +1304,35 @@ export class AdvancedAI {
     // For indices (no volume data), we use candle strength % (body as % of total range)
     // For stocks (with volume), we use absolute body size + volume ratio
     
-    const minimumBodySize = 10; // Points for stocks
-    const minimumCandleStrength = 30; // 30% body size for indices (relaxed from strict point requirement)
-    const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
+    const minimumBodySize = 5; // Reduced from 10 for more signals
+    const minimumCandleStrength = 15; // Reduced from 30% for indices
+    const isVeryStrongTrend = adx > 50;
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.3 : 0.5; // Relaxed from 0.5/0.8
     
-    // ⚡ CRITICAL FIX: Different validation for indices vs stocks
+    // ⚡ HIGH ACCURACY FIX: More permissive quality check
     let hasAcceptableQuality: boolean;
     
     if (hasVolumeData) {
-      // FOR STOCKS: Use volume + body size (original logic)
       hasAcceptableQuality = (volumeRatio >= minimumVolumeRatio) && (bodySize >= minimumBodySize);
       console.log(`📊 STOCK MODE: volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize})`);
     } else {
-      // FOR INDICES: Use candle strength % only (NO volume or absolute body size check)
-      hasAcceptableQuality = candleStrength >= minimumCandleStrength;
-      console.log(`📊 INDEX MODE: candleStrength=${candleStrength.toFixed(1)}% (min=${minimumCandleStrength}%), bodySize=${bodySize.toFixed(2)} points, hasVolumeData=false`);
+      // FOR INDICES: Very relaxed - any candle with some body is acceptable
+      hasAcceptableQuality = candleStrength >= minimumCandleStrength || bodySize > 3;
+      console.log(`📊 INDEX MODE: candleStrength=${candleStrength.toFixed(1)}% (min=${minimumCandleStrength}%), bodySize=${bodySize.toFixed(2)} points`);
     }
     
-    // ⚡ FIX: Bypass quality check if we have STRONG pattern (confidence > 80)
-    const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
+    // ⚡ FIX: Bypass quality check if pattern OR strong confirmations
+    const hasStrongPattern = patterns.some(p => p.confidence >= 70 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
-    // ⚡ FIX ISSUE #7: Lower threshold to 5 for indices (volume often fails, so 6 is too strict)
-    const requiredConfirmations = hasVolumeData ? 6 : 5; // Indices: 5/10, Stocks: 6/10
+    // ⚡ HIGH ACCURACY: Lower to 3 for indices, 4 for stocks (from 5/6)
+    const requiredConfirmations = hasVolumeData ? 4 : 3;
     
-    const strongBullish = confirmations.total >= requiredConfirmations && confirmationBullish && (hasAcceptableQuality || hasStrongPattern);
-    const strongBearish = confirmations.total >= requiredConfirmations && confirmationBearish && (hasAcceptableQuality || hasStrongPattern);
+    // ⚡ Also allow if confirmations >= 3 AND strong trend (ADX > 25)
+    const trendBoost = adx > 25 && confirmations.total >= 3;
+    
+    const strongBullish = (confirmations.total >= requiredConfirmations || trendBoost) && confirmationBullish && (hasAcceptableQuality || hasStrongPattern);
+    const strongBearish = (confirmations.total >= requiredConfirmations || trendBoost) && confirmationBearish && (hasAcceptableQuality || hasStrongPattern);
     
     console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, requiredConfirmations=${requiredConfirmations} (indices=${!hasVolumeData ? '5' : '6'}), confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, hasAcceptableQuality=${hasAcceptableQuality}, hasStrongPattern=${hasStrongPattern}, hasVolumeData=${hasVolumeData}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
