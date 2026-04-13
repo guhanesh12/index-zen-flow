@@ -25,6 +25,45 @@ import * as kv from './kv_store.tsx';
 import { placeOrderViaStaticIP } from './static_ip_helper.tsx';
 import { createClient } from "npm:@supabase/supabase-js";
 
+const SUPPORTED_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;
+type SupportedIndex = typeof SUPPORTED_INDICES[number];
+
+function normalizeIndexName(symbol: any): SupportedIndex {
+  const rawValue = String(
+    symbol?.index ??
+    symbol?.indexName ??
+    symbol?.index_name ??
+    symbol?.underlyingSymbol ??
+    symbol?.underlying ??
+    symbol?.symbol ??
+    symbol?.symbolName ??
+    symbol?.name ??
+    ''
+  ).toUpperCase().replace(/\s+/g, '');
+
+  if (rawValue.includes('BANKNIFTY')) return 'BANKNIFTY';
+  if (rawValue.includes('SENSEX')) return 'SENSEX';
+  return 'NIFTY';
+}
+
+function normalizeOptionType(value: any): 'CE' | 'PE' | '' {
+  const rawValue = String(value ?? '').toUpperCase().trim();
+  if (rawValue === 'CE' || rawValue === 'CALL') return 'CE';
+  if (rawValue === 'PE' || rawValue === 'PUT') return 'PE';
+  return '';
+}
+
+function resolveSymbolExchangeSegment(symbol: any): string {
+  const rawValue = String(symbol?.exchangeSegment ?? symbol?.exchange_segment ?? symbol?.exchange ?? '').toUpperCase().trim();
+  if (rawValue === 'BSE' || rawValue === 'BSE_FNO') return 'BSE_FNO';
+  if (rawValue === 'NSE' || rawValue === 'NSE_FNO') return 'NSE_FNO';
+  return normalizeIndexName(symbol) === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO';
+}
+
+function getSymbolDisplayName(symbol: any): string {
+  return symbol?.symbolName || symbol?.name || symbol?.symbol_name || symbol?.displayName || 'UNKNOWN';
+}
+
 // Supabase client for DB operations
 const supabaseAdmin = createClient(
   Deno.env.get('SUPABASE_URL') || '',
@@ -509,26 +548,30 @@ class PersistentTradingEngine {
           }
           
           // Find matching symbols for this index to place orders
-          // ⚡ BUY_CALL → only CE symbols, BUY_PUT → only PE symbols
-          const matchingSymbols = state.symbols.filter(s => {
-            const symbolIndex = (s.index || s.indexName || 'NIFTY');
-            if (symbolIndex !== indexName) return false;
+          // ⚡ BUY_CALL → only CE/CALL symbols, BUY_PUT → only PE/PUT symbols for the SAME index only
+          const targetOptionType = action === 'BUY_CALL' ? 'CE' : action === 'BUY_PUT' ? 'PE' : '';
+          const symbolsForIndex = state.symbols.filter(s => normalizeIndexName(s) === indexName);
+          const matchingSymbols = symbolsForIndex.filter(s => {
             if (s.active === false) return false;
-            
-            // Match signal action to option type
-            const optType = (s.optionType || '').toUpperCase();
-            if (action === 'BUY_CALL' && optType !== 'CE') return false;
-            if (action === 'BUY_PUT' && optType !== 'PE') return false;
-            
+            if (normalizeOptionType(s.optionType || s.option_type) !== targetOptionType) return false;
+            if (!s.securityId && !s.symbolId && !s.symbol_id) return false;
             return true;
           });
 
-          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${state.symbols.filter(s => (s.index || s.indexName || 'NIFTY') === indexName).length} total for index)`);
+          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index)`);
           
           for (const symbol of matchingSymbols) {
+            const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
+            const normalizedSymbolName = getSymbolDisplayName(symbol);
+            const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
+            const normalizedSecurityId = String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '');
+
             // Check if already have position for this symbol
             const hasPosition = state.activePositions.some(p => 
-              p.symbolName === symbol.symbolName && p.status === 'ACTIVE'
+              p.status === 'ACTIVE' && (
+                p.symbolName === normalizedSymbolName ||
+                p.securityId === normalizedSecurityId
+              )
             );
             
             if (hasPosition) {
@@ -538,23 +581,23 @@ class PersistentTradingEngine {
             
             // ⚡ EXECUTE ORDER!
             if (action === 'BUY_CALL' || action === 'BUY_PUT') {
-              console.log(`\n💰 PLACING ORDER: ${symbol.name} (${symbol.optionType}) for ${action}`);
-              
+              console.log(`\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || 'UNKNOWN'}) for ${action} on ${normalizedExchangeSegment}`);
+
               const orderParams = {
-                securityId: symbol.securityId,
+                securityId: normalizedSecurityId,
                 transactionType: 'BUY',
-                exchangeSegment: 'NSE_FNO',
-                productType: 'INTRADAY',
-                orderType: 'MARKET',
-                validity: 'DAY',
-                quantity: symbol.quantity || 15,
-                disclosedQuantity: 0,
-                price: 0,
-                triggerPrice: 0,
-                afterMarketOrder: false,
-                amoTime: '',
-                boProfitValue: 0,
-                boStopLossValue: 0
+                exchangeSegment: normalizedExchangeSegment,
+                productType: symbol.productType || symbol.product_type || 'INTRADAY',
+                orderType: symbol.orderType || symbol.order_type || 'MARKET',
+                validity: symbol.validity || 'DAY',
+                quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
+                disclosedQuantity: symbol.disclosedQuantity || symbol.disclosed_quantity || 0,
+                price: symbol.price || 0,
+                triggerPrice: symbol.triggerPrice || symbol.trigger_price || 0,
+                afterMarketOrder: Boolean(symbol.afterMarketOrder || symbol.after_market_order),
+                amoTime: symbol.amoTime || symbol.amo_time || '',
+                boProfitValue: symbol.boProfitValue || symbol.bo_profit_value || 0,
+                boStopLossValue: symbol.boStopLossValue || symbol.bo_stop_loss_value || 0
               };
               
               const orderResult = await placeOrderViaStaticIP(
@@ -571,12 +614,14 @@ class PersistentTradingEngine {
                 
                 const positionData = {
                   orderId: orderResult.orderId,
-                  symbolName: symbol.symbolName,
-                  securityId: symbol.securityId,
-                  optionType: symbol.optionType,
+                  symbolName: normalizedSymbolName,
+                  securityId: normalizedSecurityId,
+                  optionType: normalizedOptionType || 'CE',
+                  exchangeSegment: normalizedExchangeSegment,
+                  index: indexName,
                   entryPrice: orderResult.averagePrice || orderResult.price || 0,
                   currentPrice: orderResult.averagePrice || orderResult.price || 0,
-                  quantity: symbol.quantity || 15,
+                  quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
                   targetAmount: symbol.targetAmount || 500,
                   stopLossAmount: symbol.stopLossAmount || 300,
                   pnl: 0,
@@ -992,16 +1037,20 @@ class PersistentTradingEngine {
    */
   private static async saveSignalToDB(userId: string, symbol: any, aiSignal: any): Promise<void> {
     try {
+      const normalizedIndex = normalizeIndexName(symbol);
+      const normalizedSymbolName = getSymbolDisplayName(symbol);
+      const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
+
       await supabaseAdmin
         .from('trading_signals')
         .insert({
           user_id: userId,
-          symbol: symbol.symbolName || symbol.name || 'UNKNOWN',
+          symbol: normalizedSymbolName,
           signal_type: aiSignal?.signal?.action || 'NONE',
-          index_name: symbol.index || 'NIFTY',
+          index_name: normalizedIndex,
           price: aiSignal?.signal?.price || null,
-          strike_price: symbol.strikePrice || null,
-          option_type: symbol.optionType || null,
+          strike_price: symbol.strikePrice || symbol.strike_price || null,
+          option_type: normalizedOptionType || null,
           expiry: symbol.expiry || null,
           confidence: aiSignal?.signal?.confidence || 0,
           raw_data: aiSignal || {},
@@ -1017,19 +1066,23 @@ class PersistentTradingEngine {
    */
   private static async saveOrderToDB(userId: string, symbol: any, orderResult: any, action: string, status: string = 'completed'): Promise<void> {
     try {
+      const normalizedIndex = normalizeIndexName(symbol);
+      const normalizedSymbolName = getSymbolDisplayName(symbol);
+      const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
+
       await supabaseAdmin
         .from('trading_orders')
         .insert({
           user_id: userId,
-          symbol: symbol.symbolName || symbol.name || 'UNKNOWN',
-          index_name: symbol.index || 'NIFTY',
-          order_type: 'MARKET',
+          symbol: normalizedSymbolName,
+          index_name: normalizedIndex,
+          order_type: symbol.orderType || symbol.order_type || 'MARKET',
           transaction_type: 'BUY',
-          quantity: symbol.quantity || 15,
+          quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
           price: orderResult.averagePrice || orderResult.price || 0,
           dhan_order_id: orderResult.orderId || null,
-          exchange_segment: 'NSE_FNO',
-          symbol_id: symbol.securityId?.toString() || null,
+          exchange_segment: normalizedExchangeSegment,
+          symbol_id: String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '') || null,
           status: status,
           error_message: orderResult.error || null,
           raw_response: orderResult || {}
@@ -1044,15 +1097,19 @@ class PersistentTradingEngine {
    */
   private static async savePositionToDB(userId: string, position: any, symbol: any): Promise<void> {
     try {
+      const normalizedIndex = normalizeIndexName(symbol);
+      const normalizedSymbolName = position.symbolName || getSymbolDisplayName(symbol);
+      const normalizedExchangeSegment = position.exchangeSegment || resolveSymbolExchangeSegment(symbol);
+
       await supabaseAdmin
         .from('position_monitor_state')
         .upsert({
           user_id: userId,
           order_id: position.orderId,
-          symbol: position.symbolName || symbol.symbolName || 'UNKNOWN',
-          index_name: symbol.index || 'NIFTY',
-          symbol_id: position.securityId?.toString() || symbol.securityId?.toString() || null,
-          exchange_segment: 'NSE_FNO',
+          symbol: normalizedSymbolName,
+          index_name: normalizedIndex,
+          symbol_id: position.securityId?.toString() || String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '') || null,
+          exchange_segment: normalizedExchangeSegment,
           entry_price: position.entryPrice || 0,
           current_price: position.currentPrice || 0,
           quantity: position.quantity || 15,
