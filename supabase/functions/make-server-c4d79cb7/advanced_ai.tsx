@@ -1439,8 +1439,6 @@ export class AdvancedAI {
         }
       }
     }
-      }
-    }
     
     // ⚡ HIGH ACCURACY: Only block in EXTREME conditions (VWAP extended > 3 ATR)
     // Removed BB blocking entirely — it was killing too many valid signals
