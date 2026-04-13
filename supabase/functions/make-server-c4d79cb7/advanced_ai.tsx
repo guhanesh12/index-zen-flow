@@ -749,17 +749,12 @@ export class AdvancedAI {
       return { type: 'QUIET', strength: 100 - adx, suitable_for_trading: false };
     }
     
-    // ⚡ FIX: Allow trading in ranging markets with ADX 15-25 if other confirmations are strong
-    if (adx < 20) {
-      return { type: 'RANGING', strength: 50, suitable_for_trading: true };  // Changed to true!
-    }
-    
     if (adx < 25) {
-      return { type: 'RANGING', strength: 60, suitable_for_trading: true };  // Changed to true!
+      return { type: 'RANGING', strength: 50, suitable_for_trading: false };
     }
     
-    // Default to ranging but still tradeable
-    return { type: 'RANGING', strength: 50, suitable_for_trading: true };
+    // Default to ranging
+    return { type: 'RANGING', strength: 50, suitable_for_trading: false };
   }
   
   /**
@@ -814,16 +809,22 @@ export class AdvancedAI {
       }));
       
       console.log(`✅ [AdvancedAI] Received ${ohlcData.length} candles. Latest close: ${ohlcData[ohlcData.length - 1].close}`);
+
+      const analysisData = ohlcData.length > 2 ? ohlcData.slice(0, -1) : ohlcData;
+      if (analysisData.length !== ohlcData.length) {
+        const completedCandle = analysisData[analysisData.length - 1];
+        console.log(`🕯️ [AdvancedAI] Using completed candles only. Last completed close: ${completedCandle.close}`);
+      }
       
       // Generate AI signal using existing logic
       console.log(`🤖 [AdvancedAI] Generating AI signal...`);
-      const signal = this.generateAdvancedSignal(ohlcData, accountBalance);
+      const signal = this.generateAdvancedSignal(analysisData, accountBalance);
       
       console.log(`✅ [AdvancedAI] Signal generated: ${signal.action} (${signal.confidence}% confidence)`);
       
       return {
         signal,
-        ohlcData
+        ohlcData: analysisData
       };
       
     } catch (error) {
@@ -1351,37 +1352,33 @@ export class AdvancedAI {
     // For indices (no volume data), we use candle strength % (body as % of total range)
     // For stocks (with volume), we use absolute body size + volume ratio
     
-    const minimumBodySize = 3; // Reduced from 5 — even small candles can signal in strong trends
-    const minimumCandleStrength = 10; // Reduced from 15% — allow more entries
-    const isVeryStrongTrend = adx > 40; // Lowered from 50
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.15 : 0.25; // ⚡ FIX: Was 0.3/0.5 — current candle always has less volume than completed avg!
+    const minimumBodySize = 10; // Points for stocks
+    const minimumCandleStrength = 30; // 30% body size for indices (relaxed from strict point requirement)
+    const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
     
-    // ⚡ HIGH ACCURACY FIX: More permissive quality check
+    // ⚡ CRITICAL FIX: Different validation for indices vs stocks
     let hasAcceptableQuality: boolean;
     
     if (hasVolumeData) {
-      // ⚡ FIX: Current incomplete candle ALWAYS has lower volume than avg of completed candles
-      // So we use a very low threshold OR just check body size
-      hasAcceptableQuality = (volumeRatio >= minimumVolumeRatio) || (bodySize >= minimumBodySize && bodyPercent > 20);
-      console.log(`📊 STOCK MODE: volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), bodyPercent=${bodyPercent.toFixed(1)}%`);
+      // FOR STOCKS: Use volume + body size (original logic)
+      hasAcceptableQuality = (volumeRatio >= minimumVolumeRatio) && (bodySize >= minimumBodySize);
+      console.log(`📊 STOCK MODE: volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize})`);
     } else {
-      // FOR INDICES: Very relaxed - any candle with some body is acceptable
-      hasAcceptableQuality = candleStrength >= minimumCandleStrength || bodySize > 3;
-      console.log(`📊 INDEX MODE: candleStrength=${candleStrength.toFixed(1)}% (min=${minimumCandleStrength}%), bodySize=${bodySize.toFixed(2)} points`);
+      // FOR INDICES: Use candle strength % only (NO volume or absolute body size check)
+      hasAcceptableQuality = candleStrength >= minimumCandleStrength;
+      console.log(`📊 INDEX MODE: candleStrength=${candleStrength.toFixed(1)}% (min=${minimumCandleStrength}%), bodySize=${bodySize.toFixed(2)} points, hasVolumeData=false`);
     }
     
-    // ⚡ FIX: Bypass quality check if pattern OR strong confirmations
-    const hasStrongPattern = patterns.some(p => p.confidence >= 70 && 
+    // ⚡ FIX: Bypass quality check if we have STRONG pattern (confidence > 80)
+    const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
-    // ⚡ HIGH ACCURACY: Lower to 3 for indices, 4 for stocks (from 5/6)
-    const requiredConfirmations = hasVolumeData ? 4 : 3;
+    // ⚡ FIX ISSUE #7: Lower threshold to 5 for indices (volume often fails, so 6 is too strict)
+    const requiredConfirmations = hasVolumeData ? 6 : 5; // Indices: 5/10, Stocks: 6/10
     
-    // ⚡ Also allow if confirmations >= 3 AND strong trend (ADX > 25)
-    const trendBoost = adx > 25 && confirmations.total >= 3;
-    
-    const strongBullish = (confirmations.total >= requiredConfirmations || trendBoost) && confirmationBullish && (hasAcceptableQuality || hasStrongPattern);
-    const strongBearish = (confirmations.total >= requiredConfirmations || trendBoost) && confirmationBearish && (hasAcceptableQuality || hasStrongPattern);
+    const strongBullish = confirmations.total >= requiredConfirmations && confirmationBullish && (hasAcceptableQuality || hasStrongPattern);
+    const strongBearish = confirmations.total >= requiredConfirmations && confirmationBearish && (hasAcceptableQuality || hasStrongPattern);
     
     console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, requiredConfirmations=${requiredConfirmations} (indices=${!hasVolumeData ? '5' : '6'}), confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, hasAcceptableQuality=${hasAcceptableQuality}, hasStrongPattern=${hasStrongPattern}, hasVolumeData=${hasVolumeData}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
@@ -1412,83 +1409,111 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${requiredConfirmations} for high-confidence signal.`;
       
-    } else if (!hasAcceptableQuality) {
-      // ⚡ HIGH ACCURACY: With 5+ confirmations, trade even with weak candle
-      if (confirmations.total >= 5) {
-        // Strong confirmations override weak candle
-        if (confirmationBullish) {
-          action = 'BUY_CALL';
-          confidence = 55 + (confirmations.total * 4);
-          confidence = Math.min(confidence, 90);
-          bias = 'Bullish';
-          reasoning = `BUY CALL: ${confirmations.total}/10 confirmations override weak candle. ${marketRegime.type}.`;
-        } else if (confirmationBearish) {
-          action = 'BUY_PUT';
-          confidence = 55 + (confirmations.total * 4);
-          confidence = Math.min(confidence, 90);
-          bias = 'Bearish';
-          reasoning = `BUY PUT: ${confirmations.total}/10 confirmations override weak candle. ${marketRegime.type}.`;
-        } else {
-          action = 'WAIT';
-          confidence = 45;
-          bias = 'Neutral';
-          reasoning = `WAIT: ${confirmations.total}/10 confirmations but no clear direction.`;
-        }
-      } else {
+    } else if (!hasAcceptableQuality) {  // ⚡ FIX: Use hasAcceptableQuality which handles both stocks (volume+body) and indices (candle strength)
+      // ⚡ FIX: Only block if no strong pattern exists AND confirmations are not strong (< 7)
+      // If we have 7+ confirmations, override weak candle/volume check
+      if (!hasStrongPattern && confirmations.total < 7) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
-        reasoning = `WAIT: Weak candle + low confirmations (${confirmations.total}).`;
+        // Different message for indices vs stocks
+        if (hasVolumeData) {
+          reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
+        } else {
+          reasoning = `WAIT: Weak candle strength (${candleStrength.toFixed(1)}%, min ${minimumCandleStrength}%). Need stronger price movement.`;
+        }
+      } else if (confirmations.total >= 7) {
+        // ⚡ NEW: With 7+ confirmations, we can trade despite weak candle
+        action = 'WAIT';  // Still WAIT but with better reasoning
+        confidence = 45;
+        bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : 'Neutral';
+        reasoning = `WAIT: ${confirmations.total}/10 confirmations met, but last candle is weak (DOJI/small body). Wait for confirmation on next candle.`;
       }
     } else {
       action = 'WAIT';
       confidence = 45;
       bias = 'Neutral';
-      reasoning = `WAIT: Conditions not met for entry.`;
+      reasoning = `WAIT: Conditions not met for high-confidence entry.`;
     }
     
-    // ⚡ HIGH ACCURACY: Only block counter-trend if confirmations < 5 AND no S/R
+    // ⚡ PHASE 1: REGIME ALIGNMENT CHECK (CRITICAL!) ⚡
+    // Block counter-trend trades unless at key S/R levels or squeeze
     if (action !== 'WAIT') {
-      if (marketRegime.type === 'TRENDING_UP' && bias === 'Bearish' && confirmations.total < 5) {
+      if (marketRegime.type === 'TRENDING_UP' && bias === 'Bearish') {
+        // Bearish signal in uptrend - only allow if at resistance or squeeze
         if (!nearResistance && !bollingerSqueeze) {
           action = 'WAIT';
           bias = 'Neutral';
           confidence = 35;
-          reasoning = `⚠️ WAIT: Weak bearish in uptrend (${confirmations.total} confirmations). Need resistance or 5+ confirmations.`;
+          reasoning = `⚠️ WAIT: Bearish signal in TRENDING_UP market requires resistance or squeeze. Current: mid-range.`;
+        } else {
+          reasoning += ` ✅ Counter-trend allowed: ${nearResistance ? 'At resistance' : 'Bollinger squeeze'}.`;
         }
       }
       
-      if (marketRegime.type === 'TRENDING_DOWN' && bias === 'Bullish' && confirmations.total < 5) {
+      if (marketRegime.type === 'TRENDING_DOWN' && bias === 'Bullish') {
+        // Bullish signal in downtrend - only allow if at support or squeeze
         if (!nearSupport && !bollingerSqueeze) {
           action = 'WAIT';
           bias = 'Neutral';
           confidence = 35;
-          reasoning = `⚠️ WAIT: Weak bullish in downtrend (${confirmations.total} confirmations). Need support or 5+ confirmations.`;
+          reasoning = `⚠️ WAIT: Bullish signal in TRENDING_DOWN market requires support or squeeze. Current: mid-range.`;
+        } else {
+          reasoning += ` ✅ Counter-trend allowed: ${nearSupport ? 'At support' : 'Bollinger squeeze'}.`;
         }
       }
     }
     
-    // ⚡ FIX: VWAP blocking now uses ADX-adaptive thresholds (not fixed 3.5 ATR)
-    // In strong trends, price CAN stay extended from VWAP for long periods
+    // ⚡🚨 ADAPTIVE SAFETY BLOCK: OVERSOLD/OVERBOUGHT CONDITIONS 🚨⚡
+    // Block signals when price is in extreme zones (high reversal risk)
+    // 🔥 FIX: In VERY STRONG trends (ADX > 50), allow continuation even near BB
     if (action !== 'WAIT') {
-      // ⚡ ADX-adaptive VWAP blocking threshold
-      let vwapBlockThreshold: number;
-      if (adx > 50) {
-        vwapBlockThreshold = 8.0;  // Very strong trend — almost never block
-      } else if (adx > 35) {
-        vwapBlockThreshold = 6.0;  // Strong trend — very permissive
-      } else if (adx > 25) {
-        vwapBlockThreshold = 5.0;  // Moderate trend
-      } else {
-        vwapBlockThreshold = 3.5;  // Weak/no trend — conservative
+      const isVeryStrongTrend = adx > 50;  // ADX > 50 = allow aggressive continuation
+      
+      // BLOCK SELL signals when OVERSOLD (near lower Bollinger Band OR extended VWAP)
+      // 🔥 In very strong downtrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
+      if (bias === 'Bearish') {
+        const shouldBlock = isVeryStrongTrend 
+          ? vwapNormalized.interpretation === 'EXTENDED'
+          : (priceNearLowerBand || vwapNormalized.interpretation === 'EXTENDED');
+        
+        if (shouldBlock) {
+          const blockReason = [];
+          if (priceNearLowerBand) blockReason.push('Near lower Bollinger Band (oversold)');
+          if (vwapNormalized.interpretation === 'EXTENDED') blockReason.push(`VWAP extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`);
+          
+          action = 'WAIT';
+          bias = 'Neutral';
+          confidence = 30;
+          reasoning = `🚨 BLOCKED SELL: ${blockReason.join(' + ')}. HIGH REVERSAL RISK! Wait for price to stabilize.`;
+          console.log(`🚨 SAFETY BLOCK: SELL signal blocked (ADX: ${adx.toFixed(1)}): ${blockReason.join(', ')}`);
+        } else if (isVeryStrongTrend && priceNearLowerBand) {
+          reasoning += ` ⚠️ CONTINUATION: Very strong downtrend (ADX ${adx.toFixed(1)}) - allowing near lower BB.`;
+          console.log(`✅ CONTINUATION ALLOWED: ADX ${adx.toFixed(1)} - near BB but strong trend continuation`);
+        }
       }
       
-      if (vwapNormalized.distanceATR > vwapBlockThreshold) {
-        action = 'WAIT';
-        bias = 'Neutral';
-        confidence = 30;
-        reasoning = `🚨 BLOCKED: VWAP extremely extended (${vwapNormalized.distanceATR.toFixed(2)} ATR > ${vwapBlockThreshold} threshold). Wait for pullback.`;
-        console.log(`🚨 SAFETY: Blocked at ${vwapNormalized.distanceATR.toFixed(2)} ATR (threshold: ${vwapBlockThreshold})`);
+      // BLOCK BUY signals when OVERBOUGHT (near upper Bollinger Band OR extended VWAP)
+      // 🔥 In very strong uptrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
+      if (bias === 'Bullish') {
+        const shouldBlock = isVeryStrongTrend
+          ? vwapNormalized.interpretation === 'EXTENDED'
+          : (priceNearUpperBand || vwapNormalized.interpretation === 'EXTENDED');
+        
+        if (shouldBlock) {
+          const blockReason = [];
+          if (priceNearUpperBand) blockReason.push('Near upper Bollinger Band (overbought)');
+          if (vwapNormalized.interpretation === 'EXTENDED') blockReason.push(`VWAP extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`);
+          
+          action = 'WAIT';
+          bias = 'Neutral';
+          confidence = 30;
+          reasoning = `🚨 BLOCKED BUY: ${blockReason.join(' + ')}. HIGH REVERSAL RISK! Wait for price to stabilize.`;
+          console.log(`🚨 SAFETY BLOCK: BUY signal blocked (ADX: ${adx.toFixed(1)}): ${blockReason.join(', ')}`);
+        } else if (isVeryStrongTrend && priceNearUpperBand) {
+          reasoning += ` ⚠️ CONTINUATION: Very strong uptrend (ADX ${adx.toFixed(1)}) - allowing near upper BB.`;
+          console.log(`✅ CONTINUATION ALLOWED: ADX ${adx.toFixed(1)} - near BB but strong trend continuation`);
+        }
       }
     }
     
