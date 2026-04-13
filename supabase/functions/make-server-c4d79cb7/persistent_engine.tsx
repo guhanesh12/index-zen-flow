@@ -25,6 +25,45 @@ import * as kv from './kv_store.tsx';
 import { placeOrderViaStaticIP } from './static_ip_helper.tsx';
 import { createClient } from "npm:@supabase/supabase-js";
 
+const SUPPORTED_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;
+type SupportedIndex = typeof SUPPORTED_INDICES[number];
+
+function normalizeIndexName(symbol: any): SupportedIndex {
+  const rawValue = String(
+    symbol?.index ??
+    symbol?.indexName ??
+    symbol?.index_name ??
+    symbol?.underlyingSymbol ??
+    symbol?.underlying ??
+    symbol?.symbol ??
+    symbol?.symbolName ??
+    symbol?.name ??
+    ''
+  ).toUpperCase().replace(/\s+/g, '');
+
+  if (rawValue.includes('BANKNIFTY')) return 'BANKNIFTY';
+  if (rawValue.includes('SENSEX')) return 'SENSEX';
+  return 'NIFTY';
+}
+
+function normalizeOptionType(value: any): 'CE' | 'PE' | '' {
+  const rawValue = String(value ?? '').toUpperCase().trim();
+  if (rawValue === 'CE' || rawValue === 'CALL') return 'CE';
+  if (rawValue === 'PE' || rawValue === 'PUT') return 'PE';
+  return '';
+}
+
+function resolveSymbolExchangeSegment(symbol: any): string {
+  const rawValue = String(symbol?.exchangeSegment ?? symbol?.exchange_segment ?? symbol?.exchange ?? '').toUpperCase().trim();
+  if (rawValue === 'BSE' || rawValue === 'BSE_FNO') return 'BSE_FNO';
+  if (rawValue === 'NSE' || rawValue === 'NSE_FNO') return 'NSE_FNO';
+  return normalizeIndexName(symbol) === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO';
+}
+
+function getSymbolDisplayName(symbol: any): string {
+  return symbol?.symbolName || symbol?.name || symbol?.symbol_name || symbol?.displayName || 'UNKNOWN';
+}
+
 // Supabase client for DB operations
 const supabaseAdmin = createClient(
   Deno.env.get('SUPABASE_URL') || '',
@@ -63,6 +102,9 @@ interface EngineConfig {
 class PersistentTradingEngine {
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
+  private static activeLoops: Set<string> = new Set();
+  private static recentOrderKeys: Map<string, number> = new Map();
+  private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
   
   /**
    * START ENGINE FOR USER
@@ -368,13 +410,36 @@ class PersistentTradingEngine {
     dhanClientId: string,
     dhanAccessToken: string
   ): Promise<void> {
+    if (this.activeLoops.has(userId)) {
+      console.log(`⏸️ Skipping overlapping engine loop for ${userId}`);
+      return;
+    }
+
     const state = this.engineStates.get(userId);
     if (!state || !state.isRunning) {
       console.log(`⚠️ Engine loop called but state not found or not running for ${userId}`);
       return;
     }
+
+    this.activeLoops.add(userId);
     
     try {
+      const liveEngineState = await this.getLiveEngineState(userId);
+      if (!liveEngineState?.is_running) {
+        console.log(`🛑 Engine is stopped in DB for ${userId} - blocking all trading`);
+        state.isRunning = false;
+
+        const timerId = this.instances.get(userId);
+        if (timerId) {
+          clearInterval(timerId);
+          this.instances.delete(userId);
+        }
+
+        this.engineStates.delete(userId);
+        await kv.set(`engine_state_${userId}`, state);
+        return;
+      }
+
       // Update heartbeat
       state.lastHeartbeat = Date.now();
       
@@ -403,10 +468,12 @@ class PersistentTradingEngine {
       // Check if new candle is ready for AI analysis
       const candleMinutes = parseInt(state.candleInterval);
       const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
+      const dbLastProcessedCandle = liveEngineState?.strategy_settings?.lastProcessedCandle || '';
       
-      console.log(`📊 Candle check: current=${currentCandleTimestamp} last=${state.lastProcessedCandle} interval=${candleMinutes}M symbols=${state.symbols.length}`);
+      console.log(`📊 Candle check: current=${currentCandleTimestamp} last=${state.lastProcessedCandle} dbLast=${dbLastProcessedCandle} interval=${candleMinutes}M symbols=${state.symbols.length}`);
       
-      if (currentCandleTimestamp === state.lastProcessedCandle) {
+      if (currentCandleTimestamp === state.lastProcessedCandle || currentCandleTimestamp === dbLastProcessedCandle) {
+        state.lastProcessedCandle = currentCandleTimestamp;
         console.log(`⏸️ Same candle ${currentCandleTimestamp} - monitoring positions only`);
         await kv.set(`engine_state_${userId}`, state);
         return;
@@ -416,6 +483,7 @@ class PersistentTradingEngine {
       
       // Mark as processed
       state.lastProcessedCandle = currentCandleTimestamp;
+      await this.saveEngineStateToDB(userId, state);
       
       // ⚡⚡⚡ ANALYZE ALL 3 INDICES INDEPENDENTLY (like frontend does) ⚡⚡⚡
       const allIndices = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
@@ -436,15 +504,18 @@ class PersistentTradingEngine {
           analyzedIndices.add(indexName);
           state.stats.totalSignals++;
           
-          // ⚡ Save signal to database with index_name
+          if (!aiSignal || !aiSignal.signal) {
+            console.log(`⚠️ No signal generated for ${indexName} (analyzeMarket returned null)`);
+            // Save as WAIT instead of NONE when AI fails
+            const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
+            await this.saveSignalToDB(userId, pseudoSymbol, { signal: { action: 'WAIT', confidence: 0, reasoning: 'AI analysis failed - no data' } });
+            continue;
+          }
+
+          // ⚡ Save signal to database AFTER validation (not before!)
           const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
           await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
           await this.incrementSignalStats(userId, 'signal');
-
-          if (!aiSignal || !aiSignal.signal) {
-            console.log(`⚠️ No signal generated for ${indexName}`);
-            continue;
-          }
 
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
@@ -509,26 +580,47 @@ class PersistentTradingEngine {
           }
           
           // Find matching symbols for this index to place orders
-          // ⚡ BUY_CALL → only CE symbols, BUY_PUT → only PE symbols
-          const matchingSymbols = state.symbols.filter(s => {
-            const symbolIndex = (s.index || s.indexName || 'NIFTY');
-            if (symbolIndex !== indexName) return false;
+          // ⚡ BUY_CALL → only CE/CALL symbols, BUY_PUT → only PE/PUT symbols for the SAME index only
+          const targetOptionType = action === 'BUY_CALL' ? 'CE' : action === 'BUY_PUT' ? 'PE' : '';
+          const symbolsForIndex = state.symbols.filter(s => normalizeIndexName(s) === indexName);
+          const matchingSymbols = symbolsForIndex.filter(s => {
             if (s.active === false) return false;
-            
-            // Match signal action to option type
-            const optType = (s.optionType || '').toUpperCase();
-            if (action === 'BUY_CALL' && optType !== 'CE') return false;
-            if (action === 'BUY_PUT' && optType !== 'PE') return false;
-            
+            if (normalizeOptionType(s.optionType || s.option_type) !== targetOptionType) return false;
+            if (!s.securityId && !s.symbolId && !s.symbol_id) return false;
             return true;
           });
 
-          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${state.symbols.filter(s => (s.index || s.indexName || 'NIFTY') === indexName).length} total for index)`);
+          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index)`);
           
           for (const symbol of matchingSymbols) {
+            const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
+            const normalizedSymbolName = getSymbolDisplayName(symbol);
+            const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
+            const normalizedSecurityId = String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '');
+            const orderKey = `${userId}:${currentCandleTimestamp}:${normalizedSecurityId}:${action}`;
+
+            if (!(await this.isEngineStillRunning(userId))) {
+              console.log(`🛑 Engine stopped before placing order for ${normalizedSymbolName}`);
+              return;
+            }
+
+            if (this.hasRecentOrderKey(orderKey)) {
+              console.log(`⏸️ SKIPPING DUPLICATE - Recent in-memory order key exists for ${normalizedSymbolName}`);
+              continue;
+            }
+
+            if (await this.hasRecentOrderInDB(userId, normalizedSecurityId)) {
+              console.log(`⏸️ SKIPPING DUPLICATE - Recent DB order exists for ${normalizedSymbolName}`);
+              this.markRecentOrderKey(orderKey);
+              continue;
+            }
+
             // Check if already have position for this symbol
             const hasPosition = state.activePositions.some(p => 
-              p.symbolName === symbol.symbolName && p.status === 'ACTIVE'
+              p.status === 'ACTIVE' && (
+                p.symbolName === normalizedSymbolName ||
+                p.securityId === normalizedSecurityId
+              )
             );
             
             if (hasPosition) {
@@ -538,23 +630,24 @@ class PersistentTradingEngine {
             
             // ⚡ EXECUTE ORDER!
             if (action === 'BUY_CALL' || action === 'BUY_PUT') {
-              console.log(`\n💰 PLACING ORDER: ${symbol.name} (${symbol.optionType}) for ${action}`);
-              
+              this.markRecentOrderKey(orderKey);
+              console.log(`\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || 'UNKNOWN'}) for ${action} on ${normalizedExchangeSegment}`);
+
               const orderParams = {
-                securityId: symbol.securityId,
+                securityId: normalizedSecurityId,
                 transactionType: 'BUY',
-                exchangeSegment: 'NSE_FNO',
-                productType: 'INTRADAY',
-                orderType: 'MARKET',
-                validity: 'DAY',
-                quantity: symbol.quantity || 15,
-                disclosedQuantity: 0,
-                price: 0,
-                triggerPrice: 0,
-                afterMarketOrder: false,
-                amoTime: '',
-                boProfitValue: 0,
-                boStopLossValue: 0
+                exchangeSegment: normalizedExchangeSegment,
+                productType: symbol.productType || symbol.product_type || 'INTRADAY',
+                orderType: symbol.orderType || symbol.order_type || 'MARKET',
+                validity: symbol.validity || 'DAY',
+                quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
+                disclosedQuantity: symbol.disclosedQuantity || symbol.disclosed_quantity || 0,
+                price: symbol.price || 0,
+                triggerPrice: symbol.triggerPrice || symbol.trigger_price || 0,
+                afterMarketOrder: Boolean(symbol.afterMarketOrder || symbol.after_market_order),
+                amoTime: symbol.amoTime || symbol.amo_time || '',
+                boProfitValue: symbol.boProfitValue || symbol.bo_profit_value || 0,
+                boStopLossValue: symbol.boStopLossValue || symbol.bo_stop_loss_value || 0
               };
               
               const orderResult = await placeOrderViaStaticIP(
@@ -571,12 +664,14 @@ class PersistentTradingEngine {
                 
                 const positionData = {
                   orderId: orderResult.orderId,
-                  symbolName: symbol.symbolName,
-                  securityId: symbol.securityId,
-                  optionType: symbol.optionType,
+                  symbolName: normalizedSymbolName,
+                  securityId: normalizedSecurityId,
+                  optionType: normalizedOptionType || 'CE',
+                  exchangeSegment: normalizedExchangeSegment,
+                  index: indexName,
                   entryPrice: orderResult.averagePrice || orderResult.price || 0,
                   currentPrice: orderResult.averagePrice || orderResult.price || 0,
-                  quantity: symbol.quantity || 15,
+                  quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
                   targetAmount: symbol.targetAmount || 500,
                   stopLossAmount: symbol.stopLossAmount || 300,
                   pnl: 0,
@@ -631,6 +726,7 @@ class PersistentTradingEngine {
               } else {
                 console.log(`❌ ORDER FAILED: ${orderResult.error}`);
                 await this.saveOrderToDB(userId, symbol, orderResult, action, 'failed');
+                this.recentOrderKeys.delete(orderKey);
               }
             }
           }
@@ -658,6 +754,8 @@ class PersistentTradingEngine {
         timestamp: Date.now(),
         error: String(error)
       });
+    } finally {
+      this.activeLoops.delete(userId);
     }
   }
   
@@ -992,16 +1090,20 @@ class PersistentTradingEngine {
    */
   private static async saveSignalToDB(userId: string, symbol: any, aiSignal: any): Promise<void> {
     try {
+      const normalizedIndex = normalizeIndexName(symbol);
+      const normalizedSymbolName = getSymbolDisplayName(symbol);
+      const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
+
       await supabaseAdmin
         .from('trading_signals')
         .insert({
           user_id: userId,
-          symbol: symbol.symbolName || symbol.name || 'UNKNOWN',
+          symbol: normalizedSymbolName,
           signal_type: aiSignal?.signal?.action || 'NONE',
-          index_name: symbol.index || 'NIFTY',
+          index_name: normalizedIndex,
           price: aiSignal?.signal?.price || null,
-          strike_price: symbol.strikePrice || null,
-          option_type: symbol.optionType || null,
+          strike_price: symbol.strikePrice || symbol.strike_price || null,
+          option_type: normalizedOptionType || null,
           expiry: symbol.expiry || null,
           confidence: aiSignal?.signal?.confidence || 0,
           raw_data: aiSignal || {},
@@ -1017,19 +1119,23 @@ class PersistentTradingEngine {
    */
   private static async saveOrderToDB(userId: string, symbol: any, orderResult: any, action: string, status: string = 'completed'): Promise<void> {
     try {
+      const normalizedIndex = normalizeIndexName(symbol);
+      const normalizedSymbolName = getSymbolDisplayName(symbol);
+      const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
+
       await supabaseAdmin
         .from('trading_orders')
         .insert({
           user_id: userId,
-          symbol: symbol.symbolName || symbol.name || 'UNKNOWN',
-          index_name: symbol.index || 'NIFTY',
-          order_type: 'MARKET',
+          symbol: normalizedSymbolName,
+          index_name: normalizedIndex,
+          order_type: symbol.orderType || symbol.order_type || 'MARKET',
           transaction_type: 'BUY',
-          quantity: symbol.quantity || 15,
+          quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
           price: orderResult.averagePrice || orderResult.price || 0,
           dhan_order_id: orderResult.orderId || null,
-          exchange_segment: 'NSE_FNO',
-          symbol_id: symbol.securityId?.toString() || null,
+          exchange_segment: normalizedExchangeSegment,
+          symbol_id: String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '') || null,
           status: status,
           error_message: orderResult.error || null,
           raw_response: orderResult || {}
@@ -1044,15 +1150,19 @@ class PersistentTradingEngine {
    */
   private static async savePositionToDB(userId: string, position: any, symbol: any): Promise<void> {
     try {
+      const normalizedIndex = normalizeIndexName(symbol);
+      const normalizedSymbolName = position.symbolName || getSymbolDisplayName(symbol);
+      const normalizedExchangeSegment = position.exchangeSegment || resolveSymbolExchangeSegment(symbol);
+
       await supabaseAdmin
         .from('position_monitor_state')
         .upsert({
           user_id: userId,
           order_id: position.orderId,
-          symbol: position.symbolName || symbol.symbolName || 'UNKNOWN',
-          index_name: symbol.index || 'NIFTY',
-          symbol_id: position.securityId?.toString() || symbol.securityId?.toString() || null,
-          exchange_segment: 'NSE_FNO',
+          symbol: normalizedSymbolName,
+          index_name: normalizedIndex,
+          symbol_id: position.securityId?.toString() || String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '') || null,
+          exchange_segment: normalizedExchangeSegment,
           entry_price: position.entryPrice || 0,
           current_price: position.currentPrice || 0,
           quantity: position.quantity || 15,
@@ -1162,6 +1272,75 @@ class PersistentTradingEngine {
    */
   private static getIntervalMilliseconds(interval: '5' | '15'): number {
     return 1000; // Run every 1 second
+  }
+
+  private static async getLiveEngineState(userId: string): Promise<{ is_running: boolean; strategy_settings?: any } | null> {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('trading_engine_state')
+        .select('is_running, strategy_settings')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error(`❌ Failed to fetch live engine state for ${userId}:`, error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error(`❌ Failed to read live engine state for ${userId}:`, error);
+      return null;
+    }
+  }
+
+  private static async isEngineStillRunning(userId: string): Promise<boolean> {
+    const liveState = await this.getLiveEngineState(userId);
+    return liveState?.is_running === true;
+  }
+
+  private static pruneRecentOrderKeys(): void {
+    const cutoff = Date.now() - this.RECENT_ORDER_WINDOW_MS;
+    for (const [key, timestamp] of this.recentOrderKeys.entries()) {
+      if (timestamp < cutoff) {
+        this.recentOrderKeys.delete(key);
+      }
+    }
+  }
+
+  private static hasRecentOrderKey(orderKey: string): boolean {
+    this.pruneRecentOrderKeys();
+    return this.recentOrderKeys.has(orderKey);
+  }
+
+  private static markRecentOrderKey(orderKey: string): void {
+    this.pruneRecentOrderKeys();
+    this.recentOrderKeys.set(orderKey, Date.now());
+  }
+
+  private static async hasRecentOrderInDB(userId: string, symbolId: string): Promise<boolean> {
+    if (!symbolId) return false;
+
+    try {
+      const since = new Date(Date.now() - this.RECENT_ORDER_WINDOW_MS).toISOString();
+      const { data, error } = await supabaseAdmin
+        .from('trading_orders')
+        .select('id, created_at, status, dhan_order_id')
+        .eq('user_id', userId)
+        .eq('symbol_id', symbolId)
+        .gt('created_at', since)
+        .limit(1);
+
+      if (error) {
+        console.error(`❌ Failed duplicate-order lookup for ${symbolId}:`, error);
+        return false;
+      }
+
+      return Boolean(data && data.length > 0);
+    } catch (error) {
+      console.error(`❌ Duplicate-order DB check failed for ${symbolId}:`, error);
+      return false;
+    }
   }
   
   /**
