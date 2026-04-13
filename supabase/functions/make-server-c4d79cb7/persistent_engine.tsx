@@ -561,9 +561,17 @@ class PersistentTradingEngine {
           console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index)`);
           
           for (const symbol of matchingSymbols) {
+            const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
+            const normalizedSymbolName = getSymbolDisplayName(symbol);
+            const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
+            const normalizedSecurityId = String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '');
+
             // Check if already have position for this symbol
             const hasPosition = state.activePositions.some(p => 
-              p.symbolName === symbol.symbolName && p.status === 'ACTIVE'
+              p.status === 'ACTIVE' && (
+                p.symbolName === normalizedSymbolName ||
+                p.securityId === normalizedSecurityId
+              )
             );
             
             if (hasPosition) {
@@ -573,12 +581,7 @@ class PersistentTradingEngine {
             
             // ⚡ EXECUTE ORDER!
             if (action === 'BUY_CALL' || action === 'BUY_PUT') {
-              console.log(`\n💰 PLACING ORDER: ${symbol.name} (${symbol.optionType}) for ${action}`);
-              
-              const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
-              const normalizedSymbolName = getSymbolDisplayName(symbol);
-              const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
-              const normalizedSecurityId = String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '');
+              console.log(`\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || 'UNKNOWN'}) for ${action} on ${normalizedExchangeSegment}`);
 
               const orderParams = {
                 securityId: normalizedSecurityId,
