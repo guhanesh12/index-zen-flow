@@ -1067,61 +1067,69 @@ export class AdvancedAI {
     }
     
     // 3. RSI Confirmation (Weight: 1)
-    // ⚡ FIX BUG #3: In ranging markets (ADX < 20), RSI is unreliable!
-    const isRangingMarket = adx < 20;
+    // ⚡ HIGH ACCURACY: Allow RSI in ranging markets too (was blocking too many signals)
+    const isRangingMarket = adx < 12;  // Reduced from 20 to 12 — only truly flat markets
     
-    // ⚡ FIX ISSUE #4: RSI zones - 60-70 is BULLISH momentum, not neutral!
-    if (!isRangingMarket && confirmationBullish && rsi >= 60 && rsi < 70) {
-      confirmations.rsi = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ RSI: Strong bullish momentum (${rsi.toFixed(1)} - bullish zone 60-70)`);
-    } else if (!isRangingMarket && confirmationBullish && rsi > 40 && rsi < 60 && rsi > 50) {
-      confirmations.rsi = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ RSI: Bullish momentum (50-60)');
-    } else if (!isRangingMarket && confirmationBearish && rsi > 30 && rsi <= 40) {
-      confirmations.rsi = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ RSI: Strong bearish momentum (${rsi.toFixed(1)} - bearish zone 30-40)`);
-    } else if (!isRangingMarket && confirmationBearish && rsi < 60 && rsi > 40 && rsi < 50) {
-      confirmations.rsi = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ RSI: Bearish momentum (40-50)');
-    } else if (rsiOversold && confirmationBearish && (emaDowntrend || marketRegime.type === 'TRENDING_DOWN')) {
-      // ⚡ FIX: RSI oversold in strong downtrend = continuation, not reversal!
+    // ⚡ Expanded RSI zones for more signals
+    if (!isRangingMarket && confirmationBullish && rsi >= 55 && rsi < 75) {
       confirmations.rsi = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ RSI: Oversold (${rsi.toFixed(1)}) + downtrend continuation`);
-    } else if (rsiOverbought && confirmationBullish && (emaUptrend || marketRegime.type === 'TRENDING_UP')) {
-      // ⚡ FIX: RSI overbought in strong uptrend = continuation, not reversal!
+      confirmationDetails.push(`✅ RSI: Bullish momentum (${rsi.toFixed(1)})`);
+    } else if (!isRangingMarket && confirmationBullish && rsi > 40 && rsi < 55) {
       confirmations.rsi = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ RSI: Overbought (${rsi.toFixed(1)}) + uptrend continuation`);
-    } else if (rsiOverbought) {
-      confirmationDetails.push('⚠️ RSI: Overbought (>70)');
-    } else if (rsiOversold) {
-      confirmationDetails.push('⚠️ RSI: Oversold (<30)');
+      confirmationDetails.push(`✅ RSI: Mild bullish (${rsi.toFixed(1)})`);
+    } else if (!isRangingMarket && confirmationBearish && rsi > 25 && rsi <= 45) {
+      confirmations.rsi = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ RSI: Bearish momentum (${rsi.toFixed(1)})`);
+    } else if (!isRangingMarket && confirmationBearish && rsi > 45 && rsi < 55) {
+      confirmations.rsi = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ RSI: Mild bearish (${rsi.toFixed(1)})`);
+    } else if (rsiOversold && confirmationBearish) {
+      confirmations.rsi = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ RSI: Oversold (${rsi.toFixed(1)}) continuation`);
+    } else if (rsiOverbought && confirmationBullish) {
+      confirmations.rsi = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ RSI: Overbought (${rsi.toFixed(1)}) continuation`);
+    } else if (rsiOverbought && confirmationBearish) {
+      // Overbought + bearish = reversal signal (GOOD for BUY_PUT)
+      confirmations.rsi = true;
+      totalWeightedScore += 2; // Extra weight for reversal
+      confirmationDetails.push(`✅ RSI: Overbought reversal (${rsi.toFixed(1)}) - strong PUT signal`);
+    } else if (rsiOversold && confirmationBullish) {
+      // Oversold + bullish = reversal signal (GOOD for BUY_CALL)
+      confirmations.rsi = true;
+      totalWeightedScore += 2;
+      confirmationDetails.push(`✅ RSI: Oversold reversal (${rsi.toFixed(1)}) - strong CALL signal`);
     } else if (isRangingMarket) {
-      // ⚡ FIX BUG #3: In ranging markets, RSI doesn't count!
-      confirmationDetails.push(`❌ RSI: Unreliable in ranging market (ADX ${adx.toFixed(1)} < 20)`);
+      confirmationDetails.push(`⚠️ RSI: Ranging market (ADX ${adx.toFixed(1)} < 12)`);
     } else {
       confirmationDetails.push('❌ RSI: Neutral');
     }
     
     // 4. MACD Confirmation (Weight: 1)
-    // ⚡ FIX BUG #10: Use confirmationBullish/Bearish instead of candle color
-    // ⚡ FIX BUG #3: In ranging markets (ADX < 20), MACD gives false signals!
-    if (!isRangingMarket && confirmationBullish && macdBullish && macdData.histogram > 0) {
+    // ⚡ HIGH ACCURACY: Allow MACD in all markets (was blocking in ranging)
+    if (confirmationBullish && macdBullish && macdData.histogram > 0) {
       confirmations.macd = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       confirmationDetails.push('✅ MACD: Bullish crossover');
-    } else if (!isRangingMarket && confirmationBearish && !macdBullish && macdData.histogram < 0) {
+    } else if (confirmationBearish && !macdBullish && macdData.histogram < 0) {
       confirmations.macd = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       confirmationDetails.push('✅ MACD: Bearish crossover');
-    } else if (isRangingMarket) {
-      // ⚡ FIX BUG #3: In ranging markets, MACD doesn't count!
-      confirmationDetails.push(`❌ MACD: Unreliable in ranging market (ADX ${adx.toFixed(1)} < 20)`);
+    } else if (confirmationBullish && macdBullish) {
+      // MACD line above signal = mild bullish even without positive histogram
+      confirmations.macd = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push('✅ MACD: Bullish (line > signal)');
+    } else if (confirmationBearish && !macdBullish) {
+      confirmations.macd = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push('✅ MACD: Bearish (line < signal)');
     } else {
       confirmationDetails.push('❌ MACD: No clear signal');
     }
