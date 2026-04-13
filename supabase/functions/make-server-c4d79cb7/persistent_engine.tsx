@@ -102,6 +102,9 @@ interface EngineConfig {
 class PersistentTradingEngine {
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
+  private static activeLoops: Set<string> = new Set();
+  private static recentOrderKeys: Map<string, number> = new Map();
+  private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
   
   /**
    * START ENGINE FOR USER
@@ -407,13 +410,36 @@ class PersistentTradingEngine {
     dhanClientId: string,
     dhanAccessToken: string
   ): Promise<void> {
+    if (this.activeLoops.has(userId)) {
+      console.log(`⏸️ Skipping overlapping engine loop for ${userId}`);
+      return;
+    }
+
     const state = this.engineStates.get(userId);
     if (!state || !state.isRunning) {
       console.log(`⚠️ Engine loop called but state not found or not running for ${userId}`);
       return;
     }
+
+    this.activeLoops.add(userId);
     
     try {
+      const liveEngineState = await this.getLiveEngineState(userId);
+      if (!liveEngineState?.is_running) {
+        console.log(`🛑 Engine is stopped in DB for ${userId} - blocking all trading`);
+        state.isRunning = false;
+
+        const timerId = this.instances.get(userId);
+        if (timerId) {
+          clearInterval(timerId);
+          this.instances.delete(userId);
+        }
+
+        this.engineStates.delete(userId);
+        await kv.set(`engine_state_${userId}`, state);
+        return;
+      }
+
       // Update heartbeat
       state.lastHeartbeat = Date.now();
       
@@ -442,10 +468,12 @@ class PersistentTradingEngine {
       // Check if new candle is ready for AI analysis
       const candleMinutes = parseInt(state.candleInterval);
       const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
+      const dbLastProcessedCandle = liveEngineState?.strategy_settings?.lastProcessedCandle || '';
       
-      console.log(`📊 Candle check: current=${currentCandleTimestamp} last=${state.lastProcessedCandle} interval=${candleMinutes}M symbols=${state.symbols.length}`);
+      console.log(`📊 Candle check: current=${currentCandleTimestamp} last=${state.lastProcessedCandle} dbLast=${dbLastProcessedCandle} interval=${candleMinutes}M symbols=${state.symbols.length}`);
       
-      if (currentCandleTimestamp === state.lastProcessedCandle) {
+      if (currentCandleTimestamp === state.lastProcessedCandle || currentCandleTimestamp === dbLastProcessedCandle) {
+        state.lastProcessedCandle = currentCandleTimestamp;
         console.log(`⏸️ Same candle ${currentCandleTimestamp} - monitoring positions only`);
         await kv.set(`engine_state_${userId}`, state);
         return;
@@ -455,6 +483,7 @@ class PersistentTradingEngine {
       
       // Mark as processed
       state.lastProcessedCandle = currentCandleTimestamp;
+      await this.saveEngineStateToDB(userId, state);
       
       // ⚡⚡⚡ ANALYZE ALL 3 INDICES INDEPENDENTLY (like frontend does) ⚡⚡⚡
       const allIndices = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
@@ -568,6 +597,23 @@ class PersistentTradingEngine {
             const normalizedSymbolName = getSymbolDisplayName(symbol);
             const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
             const normalizedSecurityId = String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '');
+            const orderKey = `${userId}:${currentCandleTimestamp}:${normalizedSecurityId}:${action}`;
+
+            if (!(await this.isEngineStillRunning(userId))) {
+              console.log(`🛑 Engine stopped before placing order for ${normalizedSymbolName}`);
+              return;
+            }
+
+            if (this.hasRecentOrderKey(orderKey)) {
+              console.log(`⏸️ SKIPPING DUPLICATE - Recent in-memory order key exists for ${normalizedSymbolName}`);
+              continue;
+            }
+
+            if (await this.hasRecentOrderInDB(userId, normalizedSecurityId)) {
+              console.log(`⏸️ SKIPPING DUPLICATE - Recent DB order exists for ${normalizedSymbolName}`);
+              this.markRecentOrderKey(orderKey);
+              continue;
+            }
 
             // Check if already have position for this symbol
             const hasPosition = state.activePositions.some(p => 
@@ -584,6 +630,7 @@ class PersistentTradingEngine {
             
             // ⚡ EXECUTE ORDER!
             if (action === 'BUY_CALL' || action === 'BUY_PUT') {
+              this.markRecentOrderKey(orderKey);
               console.log(`\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || 'UNKNOWN'}) for ${action} on ${normalizedExchangeSegment}`);
 
               const orderParams = {
@@ -679,6 +726,7 @@ class PersistentTradingEngine {
               } else {
                 console.log(`❌ ORDER FAILED: ${orderResult.error}`);
                 await this.saveOrderToDB(userId, symbol, orderResult, action, 'failed');
+                this.recentOrderKeys.delete(orderKey);
               }
             }
           }
@@ -706,6 +754,8 @@ class PersistentTradingEngine {
         timestamp: Date.now(),
         error: String(error)
       });
+    } finally {
+      this.activeLoops.delete(userId);
     }
   }
   
@@ -1222,6 +1272,75 @@ class PersistentTradingEngine {
    */
   private static getIntervalMilliseconds(interval: '5' | '15'): number {
     return 1000; // Run every 1 second
+  }
+
+  private static async getLiveEngineState(userId: string): Promise<{ is_running: boolean; strategy_settings?: any } | null> {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('trading_engine_state')
+        .select('is_running, strategy_settings')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error(`❌ Failed to fetch live engine state for ${userId}:`, error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error(`❌ Failed to read live engine state for ${userId}:`, error);
+      return null;
+    }
+  }
+
+  private static async isEngineStillRunning(userId: string): Promise<boolean> {
+    const liveState = await this.getLiveEngineState(userId);
+    return liveState?.is_running === true;
+  }
+
+  private static pruneRecentOrderKeys(): void {
+    const cutoff = Date.now() - this.RECENT_ORDER_WINDOW_MS;
+    for (const [key, timestamp] of this.recentOrderKeys.entries()) {
+      if (timestamp < cutoff) {
+        this.recentOrderKeys.delete(key);
+      }
+    }
+  }
+
+  private static hasRecentOrderKey(orderKey: string): boolean {
+    this.pruneRecentOrderKeys();
+    return this.recentOrderKeys.has(orderKey);
+  }
+
+  private static markRecentOrderKey(orderKey: string): void {
+    this.pruneRecentOrderKeys();
+    this.recentOrderKeys.set(orderKey, Date.now());
+  }
+
+  private static async hasRecentOrderInDB(userId: string, symbolId: string): Promise<boolean> {
+    if (!symbolId) return false;
+
+    try {
+      const since = new Date(Date.now() - this.RECENT_ORDER_WINDOW_MS).toISOString();
+      const { data, error } = await supabaseAdmin
+        .from('trading_orders')
+        .select('id, created_at, status, dhan_order_id')
+        .eq('user_id', userId)
+        .eq('symbol_id', symbolId)
+        .gt('created_at', since)
+        .limit(1);
+
+      if (error) {
+        console.error(`❌ Failed duplicate-order lookup for ${symbolId}:`, error);
+        return false;
+      }
+
+      return Boolean(data && data.length > 0);
+    } catch (error) {
+      console.error(`❌ Duplicate-order DB check failed for ${symbolId}:`, error);
+      return false;
+    }
   }
   
   /**
