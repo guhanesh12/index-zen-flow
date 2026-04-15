@@ -148,6 +148,9 @@ export interface AdvancedSignal {
     isHigh: boolean;
     isSpike: boolean;
     smartMoney: boolean;
+    currentVolume: number;
+    averageVolume: number;
+    hasData: boolean;
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -805,16 +808,29 @@ export class AdvancedAI {
       }));
       
       console.log(`✅ [AdvancedAI] Received ${ohlcData.length} candles. Latest close: ${ohlcData[ohlcData.length - 1].close}`);
+
+      const analysisCandles = ohlcData.length > 3 ? ohlcData.slice(0, -1) : ohlcData;
+      const analyzedCandle = analysisCandles[analysisCandles.length - 1];
+
+      if (analysisCandles.length !== ohlcData.length) {
+        const liveCandle = ohlcData[ohlcData.length - 1];
+        console.log(
+          `⏱️ [AdvancedAI] Ignoring live candle for analysis: ${new Date(liveCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | volume=${liveCandle.volume}`,
+        );
+      }
+      console.log(
+        `📊 [AdvancedAI] Using last closed candle: ${new Date(analyzedCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | close=${analyzedCandle.close} | volume=${analyzedCandle.volume}`,
+      );
       
       // Generate AI signal using existing logic
       console.log(`🤖 [AdvancedAI] Generating AI signal...`);
-      const signal = this.generateAdvancedSignal(ohlcData, accountBalance);
+      const signal = this.generateAdvancedSignal(analysisCandles, accountBalance);
       
       console.log(`✅ [AdvancedAI] Signal generated: ${signal.action} (${signal.confidence}% confidence)`);
       
       return {
         signal,
-        ohlcData
+        ohlcData: analysisCandles
       };
       
     } catch (error) {
@@ -1490,6 +1506,9 @@ export class AdvancedAI {
         isHigh: isHighVolume,
         isSpike: isVolumeSpike,
         smartMoney,
+        currentVolume: lastCandle.volume,
+        averageVolume: avgVolume,
+        hasData: hasVolumeData,
         buyPressure: orderFlow.buyPressure,
         sellPressure: orderFlow.sellPressure,
         orderFlow: orderFlow.orderFlow
