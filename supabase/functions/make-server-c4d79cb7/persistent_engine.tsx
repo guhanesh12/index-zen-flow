@@ -227,7 +227,17 @@ class PersistentTradingEngine {
    * ⚡⚡⚡ CRON JOB TICK - PROCESSES ALL ACTIVE ENGINES ⚡⚡⚡
    * This is called every 1 minute by pg_cron
    */
+  private static cronLockUntil = 0;
+
   static async runCronTick(): Promise<any> {
+    // ⚡ LOCK: Prevent concurrent cron ticks (duplicate signal prevention)
+    const now = Date.now();
+    if (now < this.cronLockUntil) {
+      console.log(`⏸️ [CRON] Skipping - already processing (lock until ${new Date(this.cronLockUntil).toISOString()})`);
+      return { success: true, skipped: true, message: "Concurrent tick blocked by lock" };
+    }
+    this.cronLockUntil = now + 55_000; // Lock for 55 seconds (cron runs every 60s)
+    
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
     
     try {
@@ -602,7 +612,10 @@ class PersistentTradingEngine {
             return true;
           });
 
-          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index)`);
+          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`);
+          if (matchingSymbols.length === 0) {
+            console.log(`⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`, JSON.stringify(symbolsForIndex.map(s => ({ name: s.name, optionType: s.optionType || s.option_type, active: s.active, securityId: s.securityId || s.symbolId || s.symbol_id })), null, 2));
+          }
           
           for (const symbol of matchingSymbols) {
             const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
