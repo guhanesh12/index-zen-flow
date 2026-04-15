@@ -413,9 +413,23 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       smart_money_detected: rawVolumeAnalysis.smart_money_detected ?? rawVolumeAnalysis.smartMoney ?? false,
       current_volume: Number(rawVolumeAnalysis.current_volume ?? rawVolumeAnalysis.currentVolume ?? rawVolumeAnalysis.current ?? 0),
       average_volume: Number(rawVolumeAnalysis.average_volume ?? rawVolumeAnalysis.averageVolume ?? rawVolumeAnalysis.average ?? 0),
+      buyPressure: Number(rawVolumeAnalysis.buyPressure ?? rawVolumeAnalysis.buy_pressure ?? 0),
+      sellPressure: Number(rawVolumeAnalysis.sellPressure ?? rawVolumeAnalysis.sell_pressure ?? 0),
       has_data: rawVolumeAnalysis.has_data ?? rawVolumeAnalysis.hasData ?? false,
       orderFlow: rawVolumeAnalysis.orderFlow || rawVolumeAnalysis.order_flow || 'N/A',
     } : null;
+
+    if (normalizedVolumeAnalysis) {
+      const currentVolume = normalizedVolumeAnalysis.current_volume;
+      const averageVolume = normalizedVolumeAnalysis.average_volume;
+      const computedRatio = currentVolume > 0 && averageVolume > 0 ? currentVolume / averageVolume : 0;
+
+      if ((!normalizedVolumeAnalysis.ratio || normalizedVolumeAnalysis.ratio < 0.01) && computedRatio > 0) {
+        normalizedVolumeAnalysis.ratio = computedRatio;
+      } else if (computedRatio > 0 && Math.abs(normalizedVolumeAnalysis.ratio - computedRatio) > 0.05) {
+        normalizedVolumeAnalysis.ratio = computedRatio;
+      }
+    }
 
     const timestamp = signalRecord?.created_at
       ? new Date(signalRecord.created_at).getTime()
@@ -446,6 +460,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       resistance_levels: rawSignal.resistance_levels || rawSignal.indicators?.resistance_levels,
       support_levels: rawSignal.support_levels || rawSignal.indicators?.support_levels,
       institutional_bias: rawSignal.institutional_bias || rawSignal.institutionalBias || normalizedVolumeAnalysis?.orderFlow || 'N/A',
+      momentum: rawSignal.momentum || rawSignal.marketMomentum || normalizedVolumeAnalysis?.orderFlow || 'NEUTRAL',
       smart_money_detected: rawSignal.smart_money_detected ?? normalizedVolumeAnalysis?.smart_money_detected ?? false,
       timestamp,
       source: signalRecord?.created_at ? 'backend' : (rawSignal.source || 'local'),
@@ -470,12 +485,30 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
   const formatSignalLevel = (value: any) => {
     const numericValue = typeof value === 'number' ? value : Number(value);
-    return Number.isFinite(numericValue) ? numericValue.toFixed(2) : '--';
+    if (!Number.isFinite(numericValue)) return '--';
+    if (numericValue === 0) return '0.00';
+    if (Math.abs(numericValue) < 0.01) return numericValue.toFixed(4);
+    return numericValue.toFixed(2);
   };
 
   const formatVolumeCount = (value: any) => {
     const numericValue = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(numericValue) ? Math.round(numericValue).toLocaleString('en-IN') : '--';
+  };
+
+  const getSignalMomentumLabel = (signal: any) => {
+    const directMomentum = signal?.momentum;
+    if (directMomentum && directMomentum !== 'N/A') return directMomentum;
+
+    const orderFlow = signal?.volume_analysis?.orderFlow || signal?.volumeAnalysis?.orderFlow || signal?.institutional_bias;
+    if (orderFlow && orderFlow !== 'N/A') return orderFlow;
+
+    const buyPressure = Number(signal?.volume_analysis?.buyPressure ?? signal?.volumeAnalysis?.buyPressure ?? 0);
+    const sellPressure = Number(signal?.volume_analysis?.sellPressure ?? signal?.volumeAnalysis?.sellPressure ?? 0);
+
+    if (buyPressure > sellPressure) return 'BULLISH';
+    if (sellPressure > buyPressure) return 'BEARISH';
+    return 'NEUTRAL';
   };
 
   const ensurePositionMonitorLoop = () => {
@@ -4558,7 +4591,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                       </div>
                       <div>
                         <span className="text-zinc-400">Momentum:</span>
-                        <span className="ml-2 font-semibold text-blue-400">{selectedAnalysisSignal.momentum || 'N/A'}</span>
+                          <span className="ml-2 font-semibold text-blue-400">{getSignalMomentumLabel(selectedAnalysisSignal)}</span>
                       </div>
                     </div>
                   </div>
