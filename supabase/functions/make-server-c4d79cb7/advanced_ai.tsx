@@ -212,21 +212,18 @@ export class AdvancedAI {
     // ⚡ FIX: Much more permissive for indices in strong trends
     let extendedThreshold: number;
     
-    if (!adx || adx < 20) {
+    if (!adx || adx < 25) {
       // No trend or weak trend: Conservative threshold
-      extendedThreshold = 1.5;  // Was 0.6 — too tight, blocking valid entries
-    } else if (adx < 35) {
-      // Moderate trend (20-35): Allow good extension
-      extendedThreshold = 4.0;  // Was 3.0
+      extendedThreshold = 0.6;
     } else if (adx < 50) {
-      // Strong trend (35-50): Allow large extension
-      extendedThreshold = 6.0;  // Was 3.0 — indices move fast in trends!
+      // Strong trend (25-50): Allow moderate extension
+      extendedThreshold = 3.0;
     } else if (adx < 60) {
-      // VERY strong trend (50-60): Allow very large extension
-      extendedThreshold = 8.0;  // Was 5.0
+      // VERY strong trend (50-60): Allow large extension
+      extendedThreshold = 5.0;
     } else {
       // EXTREME trend (60+): Allow maximum extension (climax moves)
-      extendedThreshold = 10.0;  // Was 6.0 — never block climax moves
+      extendedThreshold = 6.0;
     }
     
     if (distanceATR < 0.3) {
