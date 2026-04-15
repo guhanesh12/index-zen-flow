@@ -429,6 +429,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       } else if (computedRatio > 0 && Math.abs(normalizedVolumeAnalysis.ratio - computedRatio) > 0.05) {
         normalizedVolumeAnalysis.ratio = computedRatio;
       }
+
+       if (!normalizedVolumeAnalysis.has_data && (currentVolume > 0 || averageVolume > 0 || normalizedVolumeAnalysis.ratio > 0)) {
+         normalizedVolumeAnalysis.has_data = true;
+       }
     }
 
     const timestamp = signalRecord?.created_at
