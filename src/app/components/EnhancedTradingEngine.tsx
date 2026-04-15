@@ -404,6 +404,19 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const rawSignal = signalRecord?.raw_data?.signal || signalRecord?.raw_data || signalRecord?.signal || signalRecord;
     if (!rawSignal) return null;
 
+    const rawVolumeAnalysis = rawSignal.volume_analysis || rawSignal.volumeAnalysis || null;
+    const normalizedVolumeAnalysis = rawVolumeAnalysis ? {
+      ...rawVolumeAnalysis,
+      ratio: Number(rawVolumeAnalysis.ratio ?? 0),
+      is_high: rawVolumeAnalysis.is_high ?? rawVolumeAnalysis.isHigh ?? false,
+      is_spike: rawVolumeAnalysis.is_spike ?? rawVolumeAnalysis.isSpike ?? false,
+      smart_money_detected: rawVolumeAnalysis.smart_money_detected ?? rawVolumeAnalysis.smartMoney ?? false,
+      current_volume: Number(rawVolumeAnalysis.current_volume ?? rawVolumeAnalysis.currentVolume ?? rawVolumeAnalysis.current ?? 0),
+      average_volume: Number(rawVolumeAnalysis.average_volume ?? rawVolumeAnalysis.averageVolume ?? rawVolumeAnalysis.average ?? 0),
+      has_data: rawVolumeAnalysis.has_data ?? rawVolumeAnalysis.hasData ?? false,
+      orderFlow: rawVolumeAnalysis.orderFlow || rawVolumeAnalysis.order_flow || 'N/A',
+    } : null;
+
     const timestamp = signalRecord?.created_at
       ? new Date(signalRecord.created_at).getTime()
       : (typeof signalRecord?.timestamp === 'number' ? signalRecord.timestamp : Date.now());
@@ -424,16 +437,16 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         required: 3,
         details: rawSignal.confirmationDetails,
       } : undefined),
-      volumeAnalysis: rawSignal.volumeAnalysis || rawSignal.volume_analysis || null,
-      volume_analysis: rawSignal.volume_analysis || rawSignal.volumeAnalysis || null,
+      volumeAnalysis: normalizedVolumeAnalysis,
+      volume_analysis: normalizedVolumeAnalysis,
       riskManagement: rawSignal.riskManagement || null,
       marketRegime: rawSignal.marketRegime || null,
       indicators: rawSignal.indicators || null,
       patterns: rawSignal.patterns || [],
       resistance_levels: rawSignal.resistance_levels || rawSignal.indicators?.resistance_levels,
       support_levels: rawSignal.support_levels || rawSignal.indicators?.support_levels,
-      institutional_bias: rawSignal.institutional_bias || rawSignal.institutionalBias || rawSignal.volumeAnalysis?.orderFlow || 'N/A',
-      smart_money_detected: rawSignal.smart_money_detected ?? rawSignal.volumeAnalysis?.smartMoney ?? false,
+      institutional_bias: rawSignal.institutional_bias || rawSignal.institutionalBias || normalizedVolumeAnalysis?.orderFlow || 'N/A',
+      smart_money_detected: rawSignal.smart_money_detected ?? normalizedVolumeAnalysis?.smart_money_detected ?? false,
       timestamp,
       source: signalRecord?.created_at ? 'backend' : (rawSignal.source || 'local'),
     };
@@ -458,6 +471,11 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const formatSignalLevel = (value: any) => {
     const numericValue = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(numericValue) ? numericValue.toFixed(2) : '--';
+  };
+
+  const formatVolumeCount = (value: any) => {
+    const numericValue = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numericValue) ? Math.round(numericValue).toLocaleString('en-IN') : '--';
   };
 
   const ensurePositionMonitorLoop = () => {
@@ -4526,6 +4544,11 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                         }`}>
                           {formatSignalLevel(selectedAnalysisSignal.volume_analysis.ratio)}x
                         </span>
+                        {selectedAnalysisSignal.volume_analysis.has_data && (
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Current {formatVolumeCount(selectedAnalysisSignal.volume_analysis.current_volume)} · Avg {formatVolumeCount(selectedAnalysisSignal.volume_analysis.average_volume)}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <span className="text-zinc-400">Smart Money:</span>

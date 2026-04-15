@@ -4022,14 +4022,19 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         
         console.log(`✅ ${idx}: ${ohlcData.length} candles fetched`);
         const latestCandle = ohlcData[ohlcData.length - 1];
+        const analysisCandles = ohlcData.length > 3 ? ohlcData.slice(0, -1) : ohlcData;
+        const analyzedCandle = analysisCandles[analysisCandles.length - 1];
         const firstCandle = ohlcData[0];
         console.log(`   First candle: O:${firstCandle?.open} C:${firstCandle?.close} (timestamp: ${new Date(firstCandle?.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })})`);
         console.log(`   Latest candle: O:${latestCandle?.open} H:${latestCandle?.high} L:${latestCandle?.low} C:${latestCandle?.close} V:${latestCandle?.volume}`);
+        if (analysisCandles.length !== ohlcData.length) {
+          console.log(`   Ignoring live candle for AI analysis. Using closed candle: O:${analyzedCandle?.open} H:${analyzedCandle?.high} L:${analyzedCandle?.low} C:${analyzedCandle?.close} V:${analyzedCandle?.volume}`);
+        }
         console.log(`   Price range: ${Math.min(...ohlcData.map(c => c.low)).toFixed(2)} - ${Math.max(...ohlcData.map(c => c.high)).toFixed(2)}`);
         
         // Generate AI signal for this index
         const aiStart = performance.now();
-        const signal = AdvancedAI.generateAdvancedSignal(ohlcData, accountBalance || 100000);
+        const signal = AdvancedAI.generateAdvancedSignal(analysisCandles, accountBalance || 100000);
         const aiEnd = performance.now();
         
         console.log(`\n⚡ ${idx} SIGNAL: ${signal.action} | Confidence: ${signal.confidence}%`);
@@ -4043,9 +4048,9 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
             ...signal,
             index: idx,
             timeframe: `${interval}M`,
-            candlesAnalyzed: ohlcData.length
+              candlesAnalyzed: analysisCandles.length
           },
-          candlesProcessed: ohlcData.length,
+          candlesProcessed: analysisCandles.length,
           processingTime: Math.round(aiEnd - aiStart)
         });
       } catch (error) {
