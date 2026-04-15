@@ -146,6 +146,18 @@ class PersistentTradingEngine {
       dhanClientId,
       dhanAccessToken
     };
+
+    const now = new Date();
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const istTime = new Date(now.getTime() + istOffsetMs);
+    const currentTimeMinutes = (istTime.getUTCHours() * 60) + istTime.getUTCMinutes();
+    const marketOpen = 9 * 60 + 15;
+    const marketClose = 15 * 60 + 30;
+
+    if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
+      engineState.lastProcessedCandle = this.getCurrentCandleTimestamp(istTime, parseInt(candleInterval));
+      console.log(`⏱️ Engine armed for ${userId} at candle ${engineState.lastProcessedCandle} - waiting for next ${candleInterval}M candle close`);
+    }
     
     this.engineStates.set(userId, engineState);
     
@@ -155,27 +167,19 @@ class PersistentTradingEngine {
     // ⚡ Save to new Supabase table
     await this.saveEngineStateToDB(userId, engineState);
     
-    // Create DhanService instance
-    const dhanService = new DhanService({
-      clientId: dhanClientId,
-      accessToken: dhanAccessToken
-    });
-    
     console.log(`🚀 STARTING PERSISTENT ENGINE for user ${userId}`);
     console.log(`   Interval: ${candleInterval}M`);
     console.log(`   Symbols: ${symbols.length}`);
-    
-    // Start engine loop
-    const intervalMs = this.getIntervalMilliseconds(candleInterval);
-    const timerId = setInterval(async () => {
-      await this.engineLoop(userId, dhanService, dhanClientId, dhanAccessToken);
-    }, intervalMs);
-    
-    this.instances.set(userId, timerId);
+
+    const staleTimer = this.instances.get(userId);
+    if (staleTimer) {
+      clearInterval(staleTimer);
+      this.instances.delete(userId);
+    }
     
     return {
       success: true,
-      message: `✅ Engine started successfully! Running every ${intervalMs/1000}s`
+      message: `✅ Engine started successfully! Waiting for the next ${candleInterval}M candle close.`
     };
   }
   
@@ -465,8 +469,16 @@ class PersistentTradingEngine {
       // ⚡⚡⚡ ALWAYS MONITOR ACTIVE POSITIONS (EVERY TICK) ⚡⚡⚡
       await this.monitorPositions(userId, dhanService, state);
       
-      // Check if new candle is ready for AI analysis
       const candleMinutes = parseInt(state.candleInterval);
+      const minutesSinceOpen = currentTimeMinutes - marketOpen;
+
+      if (minutesSinceOpen < candleMinutes) {
+        console.log(`⏳ Waiting for first ${state.candleInterval}M candle to close for user ${userId}`);
+        await kv.set(`engine_state_${userId}`, state);
+        return;
+      }
+
+      // Check if new candle is ready for AI analysis
       const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
       const dbLastProcessedCandle = liveEngineState?.strategy_settings?.lastProcessedCandle || '';
       
@@ -893,7 +905,7 @@ class PersistentTradingEngine {
           const exitParams = {
             securityId: position.securityId,
             transactionType: 'SELL',
-            exchangeSegment: 'NSE_FNO',
+            exchangeSegment: position.exchangeSegment || (position.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
             productType: 'INTRADAY',
             orderType: 'MARKET',
             validity: 'DAY',
@@ -910,8 +922,8 @@ class PersistentTradingEngine {
           const exitResult = await placeOrderViaStaticIP(
             userId,
             {
-              dhanClientId: state.dhanClientId || dhanClientId,
-              dhanAccessToken: state.dhanAccessToken || dhanAccessToken
+              dhanClientId: state.dhanClientId || '',
+              dhanAccessToken: state.dhanAccessToken || ''
             },
             exitParams
           );
@@ -1099,7 +1111,7 @@ class PersistentTradingEngine {
         .insert({
           user_id: userId,
           symbol: normalizedSymbolName,
-          signal_type: aiSignal?.signal?.action || 'NONE',
+          signal_type: aiSignal?.signal?.action || 'WAIT',
           index_name: normalizedIndex,
           price: aiSignal?.signal?.price || null,
           strike_price: symbol.strikePrice || symbol.strike_price || null,

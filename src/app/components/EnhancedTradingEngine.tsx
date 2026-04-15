@@ -461,14 +461,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
 
   const ensurePositionMonitorLoop = () => {
-    if (positionMonitorRef.current) return;
-
-    console.log('🔁 Starting independent position monitor loop...');
-    positionMonitorRef.current = setInterval(() => {
-      if (isPositionMonitorActiveRef.current && activePositionsRef.current.length > 0) {
-        monitorPositions().catch(err => console.error('Position monitor loop error:', err));
-      }
-    }, 5000); // ⚡ Check every 5 seconds (not 1s - avoids API rate limits)
+    console.log('☁️ Backend position monitor is active - skipping local monitor loop.');
   };
 
   const clearPositionMonitorLoop = () => {
@@ -1559,22 +1552,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
     clearPositionMonitorLoop();
 
-    // ⚡ CHECK EVERY 1 SECOND for candle close (SILENT CHECKS)
-    engineTimerRef.current = setInterval(() => {
-      checkCandleStatus();
-    }, 1000);
-
-    console.log(`✅ Engine timer started!`);
-
     ensurePositionMonitorLoop();
-    console.log(`✅ Position monitor loop ready!`);
-
-    // Initial check immediately
-    console.log(`🚀 Running FIRST check immediately...`);
-    setTimeout(() => {
-      console.log(`🔥 FIRST CHECK TRIGGERED`);
-      checkCandleStatus();
-    }, 500);
+    console.log(`☁️ Backend engine started - UI will wait for backend candle-close processing.`);
+    await syncEngineState();
   };
 
   const handleStopEngine = () => {
@@ -1802,26 +1782,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   // ⚡ AUTO-CHECK: Every 60 seconds, check for new positions and auto-start monitoring
   // Works regardless of engine running state - ensures positions are always detected
   useEffect(() => {
-    const runAutoCheck = async () => {
-      console.log('🔄 [Auto-Check 60s] Checking for active positions...');
-      try {
-        const result = await forceCheckPositions();
-        if (result.found) {
-          console.log(`✅ [Auto-Check] Found ${result.count} position(s) - monitoring active`);
-        } else {
-          console.log('📭 [Auto-Check] No active positions found');
-        }
-      } catch (err) {
-        console.error('❌ [Auto-Check] Error:', err);
-      }
-    };
-
-    // Run immediately on mount
-    runAutoCheck();
-
-    // Then every 60 seconds
-    autoPositionCheckRef.current = setInterval(runAutoCheck, 60000);
-
+    console.log('☁️ Backend engine handles position discovery - local auto-check disabled.');
     return () => {
       if (autoPositionCheckRef.current) {
         clearInterval(autoPositionCheckRef.current);
@@ -2184,10 +2145,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           data: data.signal
         });
 
-        // Auto-execute if BUY signal with high confidence
-        if (['BUY_CALL', 'BUY_PUT'].includes(data.signal.action) && data.signal.confidence >= 60) {
-          await processSignal(data.signal);
-        }
       }
     } catch (error) {
       console.error('AI signal error:', error);
@@ -2591,85 +2548,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           console.error('❌ Failed to send notification:', notifError);
         }
 
-        // ⚡⚡⚡ AUTO-EXECUTE: Process signals for ALL active indices ⚡⚡⚡
-        console.log(`\n🎯 ============ AUTO-EXECUTE CHECK (MULTI-SYMBOL) ============`);
-        
-        // Get all signals to process (if multi-symbol response, process all; otherwise process single signal)
-        const signalsToProcess = data.signals 
-          ? Object.entries(data.signals)
-              .filter(([_, signal]) => signal !== null)
-              .map(([index, signal]: [string, any]) => ({ ...signal, index }))
-          : [data.signal];
-        
-        console.log(`🎯 Total signals received: ${signalsToProcess.length}`);
-        
-        // ⚡⚡⚡ CRITICAL FIX: Track which indices we've already processed to prevent duplicates ⚡⚡⚡
-        const processedIndices = new Set<string>();
-        
-        // ⚡⚡⚡ UPDATED LOGIC: EXECUTE ALL HIGH-CONFIDENCE SIGNALS ⚡⚡⚡
-        // Find all positive signals (BUY_CALL or BUY_PUT with high confidence)
-        const positiveSignals = signalsToProcess.filter(signal => {
-          const isBuySignal = ['BUY_CALL', 'BUY_PUT'].includes(signal.action);
-          const highConfidence = signal.confidence >= 65;
-          return isBuySignal && highConfidence;
-        });
-        
-        console.log(`\n🎯 Positive signals found: ${positiveSignals.length}`);
-        positiveSignals.forEach(s => {
-          console.log(`   ${s.index}: ${s.action} (${s.confidence}%)`);
-        });
-        
-        if (positiveSignals.length > 0) {
-          console.log(`\n✅ ALL ${positiveSignals.length} HIGH-CONFIDENCE SIGNALS WILL BE EXECUTED`);
-          console.log(`   System will place orders for all indices with valid signals`);
-        }
-        
-        // Process each signal - Execute ALL high-confidence buy signals
-        for (const signal of signalsToProcess) {
-          const index = signal.index || 'UNKNOWN';
-          const isBuySignal = ['BUY_CALL', 'BUY_PUT'].includes(signal.action);
-          const highConfidence = signal.confidence >= 65;
-          
-          console.log(`\n🎯 Checking ${index}:`);
-          console.log(`   Action: ${signal.action}`);
-          console.log(`   Confidence: ${signal.confidence}%`);
-          console.log(`   Is BUY: ${isBuySignal}`);
-          console.log(`   High Confidence: ${highConfidence}`);
-          console.log(`   Already Processed: ${processedIndices.has(index) ? 'YES ⚠️' : 'NO ✅'}`);
-          console.log(`   Will Execute: ${(isBuySignal && highConfidence && !processedIndices.has(index)) ? 'YES ✅' : 'NO ❌'}`);
-          
-          // ⚡⚡⚡ DUPLICATE PREVENTION: Skip if we already processed this index ⚡⚡⚡
-          if (processedIndices.has(index)) {
-            console.log(`⚠️ ${index}: ALREADY PROCESSED - Skipping to prevent duplicate order`);
-            continue;
-          }
-          
-          if (isBuySignal && highConfidence) {
-            const orderStartTime = performance.now();
-            console.log(`\n⚡⚡⚡ ${index}: EXECUTING ORDER ⚡⚡⚡`);
-            console.log(`   ${signal.action} | ${signal.confidence}% confidence`);
-            
-            // ⚡ Mark as processed BEFORE executing to prevent duplicates
-            processedIndices.add(index);
-            
-            await processSignal(signal);
-            
-            const orderEndTime = performance.now();
-            const orderExecutionTime = Math.round(orderEndTime - orderStartTime);
-            console.log(`✅ ${index} Order completed in ${orderExecutionTime}ms`);
-          } else {
-            console.log(`⏸️ ${index}: SKIPPED (${signal.action}, ${signal.confidence}%)`);
-            
-            // Log WAIT signals
-            if (signal.action === 'WAIT') {
-              onLog({
-                timestamp: Date.now(),
-                type: 'WAIT',
-                message: `⏸️ ${index}: ${signal.action} (${signal.confidence}%) - ${signal.reasoning?.substring(0, 100) || 'Market unsuitable'}`
-              });
-            }
-          }
-        }
+        console.log(`\n☁️ Backend engine is responsible for order execution and duplicate protection.`);
+        console.log(`☁️ UI is display-only for signal results.`);
         
         const totalPipelineTime = Math.round(performance.now() - triggerTime);
         console.log(`\n✅ TOTAL PIPELINE: ${totalPipelineTime}ms (Target: <1000ms) ${totalPipelineTime < 1000 ? '✅' : '⚠️'}`);
@@ -3139,6 +3019,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.log('⏭️ Position monitor is DISABLED - Skipping auto-exit checks');
       return;
     }
+
+    console.log('☁️ Backend monitor owns exits and P&L updates - syncing UI only.');
+    await syncEngineState();
+    return;
     
     // ⚡ CRITICAL FIX: Always fetch P&L and check wallet, even with no active positions
     // This ensures wallet debit happens after closing profitable positions
