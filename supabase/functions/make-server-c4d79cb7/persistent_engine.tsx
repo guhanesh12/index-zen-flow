@@ -612,7 +612,10 @@ class PersistentTradingEngine {
             return true;
           });
 
-          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index)`);
+          console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`);
+          if (matchingSymbols.length === 0) {
+            console.log(`⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`, JSON.stringify(symbolsForIndex.map(s => ({ name: s.name, optionType: s.optionType || s.option_type, active: s.active, securityId: s.securityId || s.symbolId || s.symbol_id })), null, 2));
+          }
           
           for (const symbol of matchingSymbols) {
             const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
