@@ -227,7 +227,17 @@ class PersistentTradingEngine {
    * ⚡⚡⚡ CRON JOB TICK - PROCESSES ALL ACTIVE ENGINES ⚡⚡⚡
    * This is called every 1 minute by pg_cron
    */
+  private static cronLockUntil = 0;
+
   static async runCronTick(): Promise<any> {
+    // ⚡ LOCK: Prevent concurrent cron ticks (duplicate signal prevention)
+    const now = Date.now();
+    if (now < this.cronLockUntil) {
+      console.log(`⏸️ [CRON] Skipping - already processing (lock until ${new Date(this.cronLockUntil).toISOString()})`);
+      return { success: true, skipped: true, message: "Concurrent tick blocked by lock" };
+    }
+    this.cronLockUntil = now + 55_000; // Lock for 55 seconds (cron runs every 60s)
+    
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
     
     try {
