@@ -9847,19 +9847,12 @@ app.post("/make-server-c4d79cb7/auth/admin-2fa-secret", async (c) => {
 // ==================== BACKEND ENGINE CRON ROUTES ====================
 
 /**
- * ⚡ CRON EXECUTE - Called by pg_cron every 1 minute
- * Processes all active engines (signal detection, order placement, position monitoring)
+ * ⚡ CRON EXECUTE - DISABLED (duplicate of /cron/engine-tick)
+ * Use /cron/engine-tick instead to avoid double signal generation
  */
 app.post("/make-server-c4d79cb7/backend-engine/execute", async (c) => {
-  try {
-    console.log(`\n⏱️ ========== CRON ENGINE TICK ==========`);
-    const result = await PersistentTradingEngine.runCronTick();
-    console.log(`⏱️ ========== CRON TICK COMPLETE ==========\n`);
-    return c.json(result);
-  } catch (error: any) {
-    console.error('❌ Cron engine execute error:', error);
-    return c.json({ success: false, error: error.message }, 500);
-  }
+  console.log(`⚠️ /backend-engine/execute called but REDIRECTING to single cron path`);
+  return c.json({ success: true, message: "Use /cron/engine-tick instead", skipped: true });
 });
 
 /**
