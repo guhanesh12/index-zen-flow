@@ -64,6 +64,68 @@ function getSymbolDisplayName(symbol: any): string {
   return symbol?.symbolName || symbol?.name || symbol?.symbol_name || symbol?.displayName || 'UNKNOWN';
 }
 
+async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('user_symbols')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error(`❌ Failed loading user symbols from DB for ${userId}:`, error);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      ...(row.raw_data || {}),
+      id: row.raw_data?.id || `SYM_${row.symbol_id || crypto.randomUUID()}`,
+      name: row.raw_data?.name || row.symbol_name || 'UNKNOWN',
+      symbolName: row.raw_data?.symbolName || row.symbol_name || 'UNKNOWN',
+      displayName: row.raw_data?.displayName || row.symbol_name || 'UNKNOWN',
+      index: row.raw_data?.index || row.index_name || 'NIFTY',
+      indexName: row.raw_data?.indexName || row.index_name || 'NIFTY',
+      optionType: row.raw_data?.optionType || row.option_type || '',
+      transactionType: row.raw_data?.transactionType || 'BUY',
+      exchangeSegment: row.raw_data?.exchangeSegment || row.exchange_segment || (row.index_name === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
+      productType: row.raw_data?.productType || 'INTRADAY',
+      orderType: row.raw_data?.orderType || 'MARKET',
+      validity: row.raw_data?.validity || 'DAY',
+      securityId: String(row.raw_data?.securityId || row.symbol_id || ''),
+      quantity: row.raw_data?.quantity || row.lot_size || 1,
+      lotSize: row.raw_data?.lotSize || row.lot_size || 1,
+      strikePrice: row.raw_data?.strikePrice || row.strike_price || null,
+      expiry: row.raw_data?.expiry || row.expiry || null,
+      active: row.raw_data?.active ?? true,
+      targetAmount: row.raw_data?.targetAmount ?? 500,
+      stopLossAmount: row.raw_data?.stopLossAmount ?? 300,
+    }));
+  } catch (error) {
+    console.error(`❌ Unexpected error loading user symbols for ${userId}:`, error);
+    return [];
+  }
+}
+
+async function getFreshSymbolsForEngine(userId: string, stateSymbols: any[]): Promise<any[]> {
+  const dbSymbols = await loadUserSymbolsFromDB(userId);
+  if (dbSymbols.length === 0) {
+    return stateSymbols || [];
+  }
+
+  const kvSymbols = await kv.get(`symbols:${userId}`) || [];
+  const candidates = [...dbSymbols, ...kvSymbols, ...(stateSymbols || [])];
+  const deduped = new Map<string, any>();
+
+  for (const symbol of candidates) {
+    const key = String(symbol?.securityId || symbol?.symbolId || symbol?.symbol_id || symbol?.id || '');
+    if (!key) continue;
+    if (!deduped.has(key)) {
+      deduped.set(key, symbol);
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
 // Supabase client for DB operations
 const supabaseAdmin = createClient(
   Deno.env.get('SUPABASE_URL') || '',
@@ -601,6 +663,13 @@ class PersistentTradingEngine {
             continue;
           }
           
+          const freshSymbols = await getFreshSymbolsForEngine(userId, state.symbols || []);
+          if (freshSymbols.length !== (state.symbols || []).length) {
+            state.symbols = freshSymbols;
+            await kv.set(`engine_state_${userId}`, state);
+            await this.saveEngineStateToDB(userId, state);
+          }
+
           // Find matching symbols for this index to place orders
           // ⚡ BUY_CALL → only CE/CALL symbols, BUY_PUT → only PE/PUT symbols for the SAME index only
           const targetOptionType = action === 'BUY_CALL' ? 'CE' : action === 'BUY_PUT' ? 'PE' : '';
@@ -615,6 +684,23 @@ class PersistentTradingEngine {
           console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`);
           if (matchingSymbols.length === 0) {
             console.log(`⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`, JSON.stringify(symbolsForIndex.map(s => ({ name: s.name, optionType: s.optionType || s.option_type, active: s.active, securityId: s.securityId || s.symbolId || s.symbol_id })), null, 2));
+            await this.appendSharedLog(userId, {
+              type: 'ERROR',
+              timestamp: Date.now(),
+              message: `❌ ${indexName} ${action} signal skipped - no matching active ${targetOptionType || 'option'} symbol found for order placement`,
+              data: {
+                index: indexName,
+                action,
+                targetOptionType,
+                symbolsForIndex: symbolsForIndex.map(s => ({
+                  name: getSymbolDisplayName(s),
+                  index: normalizeIndexName(s),
+                  optionType: normalizeOptionType(s.optionType || s.option_type),
+                  active: s.active !== false,
+                  securityId: String(s.securityId || s.symbolId || s.symbol_id || ''),
+                })),
+              }
+            });
           }
           
           for (const symbol of matchingSymbols) {
