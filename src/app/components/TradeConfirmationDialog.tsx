@@ -54,6 +54,12 @@ export function TradeConfirmationDialog({
   const potentialProfit = symbol.targetAmount;
   const potentialLoss = symbol.stopLossAmount;
   const riskRewardRatio = (potentialProfit / potentialLoss).toFixed(2);
+  const formatRatio = (value: number) => {
+    if (!Number.isFinite(value)) return '--';
+    if (value === 0) return '0.00';
+    if (Math.abs(value) < 0.01) return value.toFixed(4);
+    return value.toFixed(2);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -145,7 +151,7 @@ export function TradeConfirmationDialog({
                       signal.volume_analysis.is_high ? 'text-yellow-500' : 
                       'text-zinc-400'
                     }`}>
-                      {signal.volume_analysis.ratio.toFixed(2)}x avg
+                      {formatRatio(signal.volume_analysis.ratio)}x avg
                     </span>
                   </div>
 

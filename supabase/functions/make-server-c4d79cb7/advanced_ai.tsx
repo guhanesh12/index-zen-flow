@@ -1167,7 +1167,11 @@ export class AdvancedAI {
         totalWeightedScore += 1; // Weight: 1
         confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`);
       } else {
-        confirmationDetails.push('❌ Volume: Low or weak candle');
+        const volumeIssues: string[] = [];
+        if (!isHighVolume) volumeIssues.push(`low volume (${volumeRatio.toFixed(2)}x)`);
+        if (bodyPercent <= 40) volumeIssues.push(`weak body (${bodyPercent.toFixed(1)}%)`);
+        if (!isBullish && !isBearish) volumeIssues.push('indecision candle');
+        confirmationDetails.push(`❌ Volume: ${volumeIssues.join(' + ') || 'Low or weak candle'}`);
       }
     } else {
       // Fallback: Use candle strength for indices (no volume data)
@@ -1323,14 +1327,31 @@ export class AdvancedAI {
     // ⚡ CRITICAL FIX: Different validation for indices vs stocks
     let hasAcceptableQuality: boolean;
     
+    const failedVolumeCheck = hasVolumeData && volumeRatio < minimumVolumeRatio;
+    const failedBodyCheck = hasVolumeData ? (bodySize < minimumBodySize && bodyPercent < minimumCandleStrength) : candleStrength < minimumCandleStrength;
+    const isDojiCandle = bodyPercent < 10;
+    const qualityIssues: string[] = [];
+
+    if (failedVolumeCheck) {
+      qualityIssues.push(`low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x)`);
+    }
+
+    if (failedBodyCheck) {
+      qualityIssues.push(
+        hasVolumeData
+          ? isDojiCandle
+            ? `doji body (${bodyPercent.toFixed(1)}% of range)`
+            : `small body (${bodySize.toFixed(1)}pts / ${bodyPercent.toFixed(1)}%)`
+          : `weak candle strength (${candleStrength.toFixed(1)}%, min ${minimumCandleStrength}%)`
+      );
+    }
+
     if (hasVolumeData) {
-      // FOR STOCKS: Use volume + body size (original logic)
-      hasAcceptableQuality = (volumeRatio >= minimumVolumeRatio) && (bodySize >= minimumBodySize);
-      console.log(`📊 STOCK MODE: volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize})`);
+      hasAcceptableQuality = !failedVolumeCheck && !failedBodyCheck;
+      console.log(`📊 VOLUME MODE: volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), bodyPercent=${bodyPercent.toFixed(1)}%, issues=${qualityIssues.join(' | ') || 'none'}`);
     } else {
-      // FOR INDICES: Use candle strength % only (NO volume or absolute body size check)
-      hasAcceptableQuality = candleStrength >= minimumCandleStrength;
-      console.log(`📊 INDEX MODE: candleStrength=${candleStrength.toFixed(1)}% (min=${minimumCandleStrength}%), bodySize=${bodySize.toFixed(2)} points, hasVolumeData=false`);
+      hasAcceptableQuality = !failedBodyCheck;
+      console.log(`📊 INDEX MODE: candleStrength=${candleStrength.toFixed(1)}% (min=${minimumCandleStrength}%), bodySize=${bodySize.toFixed(2)} points, issues=${qualityIssues.join(' | ') || 'none'}, hasVolumeData=false`);
     }
     
     // ⚡ FIX: Bypass quality check if we have STRONG pattern (confidence > 80)
@@ -1381,16 +1402,15 @@ export class AdvancedAI {
         bias = 'Neutral';
         // Different message for indices vs stocks
         if (hasVolumeData) {
-          reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
+          reasoning = `WAIT: ${qualityIssues.join(' + ') || `execution quality below threshold (body ${bodySize.toFixed(1)}pts, volume ${volumeRatio.toFixed(2)}x)`}.`;
         } else {
-          reasoning = `WAIT: Weak candle strength (${candleStrength.toFixed(1)}%, min ${minimumCandleStrength}%). Need stronger price movement.`;
+          reasoning = `WAIT: ${qualityIssues.join(' + ') || `weak candle strength (${candleStrength.toFixed(1)}%, min ${minimumCandleStrength}%)`}. Need stronger price movement.`;
         }
       } else if (confirmations.total >= 7) {
-        // ⚡ NEW: With 7+ confirmations, we can trade despite weak candle
-        action = 'WAIT';  // Still WAIT but with better reasoning
+        action = 'WAIT';
         confidence = 45;
         bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : 'Neutral';
-        reasoning = `WAIT: ${confirmations.total}/10 confirmations met, but last candle is weak (DOJI/small body). Wait for confirmation on next candle.`;
+        reasoning = `WAIT: ${confirmations.total}/10 confirmations met, but execution quality is incomplete (${qualityIssues.join(' + ') || 'quality filter not met'}). Wait for next candle close.`;
       }
     } else {
       action = 'WAIT';
