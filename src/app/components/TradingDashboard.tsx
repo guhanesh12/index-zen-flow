@@ -4,7 +4,7 @@ import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock } from "lucide-react";
+import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, ChevronLeft, ChevronRight } from "lucide-react";
 const logoWhite = "/logo-white.png";
 import { SettingsPanel } from "./SettingsPanel";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
