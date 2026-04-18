@@ -877,6 +877,19 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               <span className={isMobile ? '' : 'hidden sm:inline'}>Logs</span>
             </TabsTrigger>
           </TabsList>
+            {isMobile && (
+              <button
+                type="button"
+                aria-label="Scroll tabs right"
+                onClick={() => {
+                  const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
+                  if (list) list.scrollLeft = Math.min(list.scrollWidth - list.clientWidth, list.scrollLeft + 200);
+                }}
+                className="flex-shrink-0 flex items-center justify-center size-9 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
           
           {/* Mobile Scroll Indicator */}
           {isMobile && (
