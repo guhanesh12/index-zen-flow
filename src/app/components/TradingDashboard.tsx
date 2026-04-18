@@ -362,15 +362,18 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
   // ⚡ MOBILE: Ensure Dashboard tab is visible on load
   useEffect(() => {
-    if (isMobile && tabsScrollRef.current) {
-      // Find the TabsList element (first child with overflow-x-auto)
-      const tabsList = tabsScrollRef.current.querySelector('[role="tablist"]') as HTMLElement;
+    if (!isMobile) return;
+    const scrollToStart = () => {
+      const tabsList = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
       if (tabsList) {
-        // Scroll to the beginning to show Dashboard tab
         tabsList.scrollLeft = 0;
-        console.log('📱 Mobile: Scrolled to Dashboard tab');
+        console.log('📱 Mobile: Scrolled to Dashboard tab', tabsList.scrollWidth, tabsList.clientWidth);
       }
-    }
+    };
+    scrollToStart();
+    const t1 = setTimeout(scrollToStart, 100);
+    const t2 = setTimeout(scrollToStart, 500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [isMobile]);
 
   // Check if credentials are configured on load
