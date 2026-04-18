@@ -812,10 +812,10 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsList 
               className={`${
               isMobile 
-                ? 'flex w-full overflow-x-auto overflow-y-hidden scrollbar-hide px-10' 
+                ? '!flex !w-full !h-auto !max-w-full overflow-x-auto overflow-y-hidden scrollbar-hide px-10' 
                 : 'grid grid-cols-7 w-full'
             } bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1`}
-            style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none', scrollBehavior: 'smooth' } : {}}
+            style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none', scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' } : {}}
             >
             <TabsTrigger 
               value="dashboard"
