@@ -898,7 +898,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                     <p className="text-zinc-400">
                       Your wallet balance is below the minimum required (₹89) to use AI signals.
                     </p>
-                    </div>
                     
                     <div className="space-y-3">
                       <Button
