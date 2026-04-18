@@ -726,16 +726,37 @@ class PersistentTradingEngine {
               continue;
             }
 
-            // Check if already have position for this symbol
-            const hasPosition = state.activePositions.some(p => 
+            // ✅ DUPLICATE-SIGNAL BLOCK: If a position is ALREADY RUNNING for this
+            // symbol OR for the same INDEX (NIFTY / BANKNIFTY / SENSEX), skip the
+            // order on the next candle and just log "already running".
+            // Always re-hydrate from DB so the very first signal of a new candle is checked.
+            if (!state.activePositions || state.activePositions.length === 0) {
+              const { data: dbPositions } = await supabaseAdmin
+                .from('position_monitor_state')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('is_active', true);
+              if (dbPositions && dbPositions.length > 0) {
+                state.activePositions = dbPositions.map((dbPos: any) => ({
+                  orderId: dbPos.order_id,
+                  symbolName: dbPos.symbol,
+                  securityId: dbPos.symbol_id,
+                  index: dbPos.index_name,
+                  status: 'ACTIVE',
+                }));
+              }
+            }
+
+            const hasPosition = state.activePositions.some((p: any) =>
               p.status === 'ACTIVE' && (
                 p.symbolName === normalizedSymbolName ||
-                p.securityId === normalizedSecurityId
+                p.securityId === normalizedSecurityId ||
+                (p.index && indexName && p.index === indexName)
               )
             );
-            
+
             if (hasPosition) {
-              console.log(`⏸️ SKIPPING - Already have position for ${symbol.name}`);
+              console.log(`⏸️ ALREADY RUNNING - Position open for ${indexName} (${symbol.name}). Skipping ${action} on next candle.`);
               continue;
             }
             
