@@ -781,7 +781,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
         <Tabs 
           key="trading-tabs-v1" 
-          defaultValue="dashboard" 
+          value={activeTab}
           className="space-y-4 sm:space-y-6"
           onValueChange={(value) => setActiveTab(value)}
         >
