@@ -4175,34 +4175,34 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       {/* ENGINE CONTROLS */}
       <Card className="bg-gradient-to-br from-zinc-900 to-zinc-900/50 border-amber-900/30">
         <CardHeader>
-          <CardTitle className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-            <span className="flex items-center gap-3 min-w-0">
-              <div className="relative flex-shrink-0">
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-3">
+              <div className="relative">
                 <Zap className="size-6 text-amber-500 animate-pulse" />
                 <div className="absolute -top-1 -right-1 size-3 rounded-full bg-green-500 animate-ping" />
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-base sm:text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-500 break-words">
+              <div>
+                <div className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-500">
                   ADVANCED AI Trading Engine
                 </div>
-                <div className="text-[10px] sm:text-xs text-zinc-400 font-normal mt-0.5 break-words">
+                <div className="text-xs text-zinc-400 font-normal mt-0.5">
                   ⚡ 15+ Indicators | 🎯 Triple Verification | 💰 Auto P&L Monitor | ⏱️ Millisecond Speed
                 </div>
               </div>
             </span>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2">
               <Badge 
                 variant="default"
-                className={`text-[10px] sm:text-xs ${isRunning 
+                className={isRunning 
                   ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 animate-pulse' 
                   : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                }`}
+                }
               >
                 ⚡ {candleInterval}M | 🚀 Market Exit {isRunning ? '(ACTIVE)' : ''}
               </Badge>
               <Badge 
                 variant={marketStatus === 'OPEN' ? 'default' : 'secondary'}
-                className={`text-[10px] sm:text-xs ${marketStatus === 'OPEN' ? 'bg-green-500/10 text-green-500 border-green-500/20' : ''}`}
+                className={marketStatus === 'OPEN' ? 'bg-green-500/10 text-green-500 border-green-500/20' : ''}
               >
                 {marketStatus}
               </Badge>
@@ -4229,7 +4229,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           )}
 
           {/* Config Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             <div>
               <Label className="text-zinc-400">Candle Interval</Label>
               <Select 
