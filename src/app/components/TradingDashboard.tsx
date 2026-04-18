@@ -879,7 +879,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               </div>
             );
           })()}
-                    </div>
                     
                     <div className="space-y-3">
                       <Button
