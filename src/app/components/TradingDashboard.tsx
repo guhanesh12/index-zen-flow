@@ -820,7 +820,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsTrigger 
               value="dashboard"
               className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
               } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
             >
               <BarChart3 className="w-4 h-4" />
@@ -830,7 +830,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsTrigger 
               value="symbols"
               className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
               } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
             >
               <DollarSign className="w-4 h-4" />
@@ -839,7 +839,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsTrigger 
               value="settings"
               className={`${
-                isMobile ? 'flex-shrink-0 min-w-[120px] snap-center' : ''
+                isMobile ? 'flex-shrink-0 min-w-[120px]' : ''
               } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
             >
               <Settings className="w-4 h-4" />
@@ -848,7 +848,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsTrigger 
               value="journal"
               className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
               } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
             >
               <FileText className="w-4 h-4" />
@@ -857,7 +857,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsTrigger 
               value="strategies"
               className={`${
-                isMobile ? 'flex-shrink-0 min-w-[110px] snap-center' : ''
+                isMobile ? 'flex-shrink-0 min-w-[110px]' : ''
               } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
             >
               <Zap className="w-4 h-4" />
@@ -866,7 +866,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsTrigger 
               value="support"
               className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
               } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative`}
             >
               <MessageSquare className="w-4 h-4" />
@@ -880,7 +880,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsTrigger 
               value="logs"
               className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
               } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
             >
               <FileText className="w-4 h-4" />
