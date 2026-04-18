@@ -789,9 +789,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 aria-label="Scroll tabs left"
                 onClick={() => {
                   const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
-                  list?.scrollBy({ left: -120, behavior: 'smooth' });
+                  if (list) list.scrollLeft = Math.max(0, list.scrollLeft - 200);
                 }}
-                className="absolute left-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/90 border border-zinc-700/60 text-white shadow-lg backdrop-blur-sm active:scale-95"
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -802,9 +802,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 aria-label="Scroll tabs right"
                 onClick={() => {
                   const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
-                  list?.scrollBy({ left: 120, behavior: 'smooth' });
+                  if (list) list.scrollLeft = Math.min(list.scrollWidth - list.clientWidth, list.scrollLeft + 200);
                 }}
-                className="absolute right-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/90 border border-zinc-700/60 text-white shadow-lg backdrop-blur-sm active:scale-95"
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -812,10 +812,10 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <TabsList 
               className={`${
               isMobile 
-                ? 'flex w-full overflow-x-auto overflow-y-hidden scrollbar-hide snap-x snap-mandatory px-10' 
+                ? 'flex w-full overflow-x-auto overflow-y-hidden scrollbar-hide px-10' 
                 : 'grid grid-cols-7 w-full'
             } bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1`}
-            style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none' } : {}}
+            style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none', scrollBehavior: 'smooth' } : {}}
             >
             <TabsTrigger 
               value="dashboard"
