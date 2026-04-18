@@ -4,8 +4,7 @@ import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, ChevronLeft, ChevronRight, MoreVertical, Check } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, ChevronLeft, ChevronRight } from "lucide-react";
 const logoWhite = "/logo-white.png";
 import { SettingsPanel } from "./SettingsPanel";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
@@ -363,18 +362,15 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
   // ⚡ MOBILE: Ensure Dashboard tab is visible on load
   useEffect(() => {
-    if (!isMobile) return;
-    const scrollToStart = () => {
-      const tabsList = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
+    if (isMobile && tabsScrollRef.current) {
+      // Find the TabsList element (first child with overflow-x-auto)
+      const tabsList = tabsScrollRef.current.querySelector('[role="tablist"]') as HTMLElement;
       if (tabsList) {
+        // Scroll to the beginning to show Dashboard tab
         tabsList.scrollLeft = 0;
-        console.log('📱 Mobile: Scrolled to Dashboard tab', tabsList.scrollWidth, tabsList.clientWidth);
+        console.log('📱 Mobile: Scrolled to Dashboard tab');
       }
-    };
-    scrollToStart();
-    const t1 = setTimeout(scrollToStart, 100);
-    const t2 = setTimeout(scrollToStart, 500);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    }
   }, [isMobile]);
 
   // Check if credentials are configured on load
@@ -781,124 +777,191 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
         <Tabs 
           key="trading-tabs-v1" 
-          value={activeTab}
+          defaultValue="dashboard" 
           className="space-y-4 sm:space-y-6"
           onValueChange={(value) => setActiveTab(value)}
         >
-          {/* Professional Tabs - Desktop grid / Mobile: current tab + 3-dot menu */}
-          {(() => {
-            const TAB_ITEMS = [
-              { value: "dashboard", label: "Dashboard", Icon: BarChart3 },
-              { value: "symbols", label: "Symbols", Icon: DollarSign },
-              { value: "settings", label: "Broker Setup", Icon: Settings },
-              { value: "journal", label: "Journal", Icon: FileText },
-              { value: "strategies", label: "Strategies", Icon: Zap },
-              { value: "support", label: "Support", Icon: MessageSquare },
-              { value: "logs", label: "Logs", Icon: FileText },
-            ] as const;
-            const current = TAB_ITEMS.find(t => t.value === activeTab) ?? TAB_ITEMS[0];
-            const CurrentIcon = current.Icon;
+          {/* Professional Tabs with Smooth Animation - RESPONSIVE SCROLLABLE */}
+          <div className="relative" ref={tabsScrollRef}>
+            {isMobile && (
+              <button
+                type="button"
+                aria-label="Scroll tabs left"
+                onClick={() => {
+                  const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
+                  list?.scrollBy({ left: -120, behavior: 'smooth' });
+                }}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/90 border border-zinc-700/60 text-white shadow-lg backdrop-blur-sm active:scale-95"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            )}
+            {isMobile && (
+              <button
+                type="button"
+                aria-label="Scroll tabs right"
+                onClick={() => {
+                  const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
+                  list?.scrollBy({ left: 120, behavior: 'smooth' });
+                }}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/90 border border-zinc-700/60 text-white shadow-lg backdrop-blur-sm active:scale-95"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+            <TabsList 
+              className={`${
+              isMobile 
+                ? 'flex w-full overflow-x-auto overflow-y-hidden scrollbar-hide snap-x snap-mandatory px-10' 
+                : 'grid grid-cols-7 w-full'
+            } bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1`}
+            style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none' } : {}}
+            >
+            <TabsTrigger 
+              value="dashboard"
+              className={`${
+                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span className="hidden sm:inline">Dashboard</span>
+              <span className="sm:hidden">Home</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="symbols"
+              className={`${
+                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
+            >
+              <DollarSign className="w-4 h-4" />
+              <span className={isMobile ? '' : 'hidden sm:inline'}>Symbols</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="settings"
+              className={`${
+                isMobile ? 'flex-shrink-0 min-w-[120px] snap-center' : ''
+              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
+            >
+              <Settings className="w-4 h-4" />
+              <span className={isMobile ? 'text-xs' : 'hidden sm:inline'}>Broker Setup</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="journal"
+              className={`${
+                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
+            >
+              <FileText className="w-4 h-4" />
+              <span className={isMobile ? '' : 'hidden sm:inline'}>Journal</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="strategies"
+              className={`${
+                isMobile ? 'flex-shrink-0 min-w-[110px] snap-center' : ''
+              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
+            >
+              <Zap className="w-4 h-4" />
+              <span className={isMobile ? 'text-xs' : 'hidden sm:inline'}>Strategies</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="support"
+              className={`${
+                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative`}
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span className={isMobile ? '' : 'hidden sm:inline'}>Support</span>
+              {supportUnreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                  {supportUnreadCount}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger 
+              value="logs"
+              className={`${
+                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
+              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
+            >
+              <FileText className="w-4 h-4" />
+              <span className={isMobile ? '' : 'hidden sm:inline'}>Logs</span>
+            </TabsTrigger>
+          </TabsList>
+          
+          {/* Mobile Scroll Indicator */}
+          {isMobile && (
+            <div className="text-center mt-2">
+              <p className="text-xs text-zinc-500 animate-pulse">← Swipe to see more tabs →</p>
+            </div>
+          )}
+          </div>
 
-            if (isMobile) {
-              return (
-                <div className="w-full">
-                  <div className="flex items-center gap-2 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1.5 rounded-xl shadow-xl">
-                    <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/20">
-                      <CurrentIcon className="w-4 h-4 flex-shrink-0" />
-                      <span className="truncate text-sm font-medium">{current.label}</span>
-                      {current.value === "support" && supportUnreadCount > 0 && (
-                        <span className="ml-auto size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse flex-shrink-0">
-                          {supportUnreadCount}
-                        </span>
-                      )}
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label="Open all tabs"
-                          className="flex-shrink-0 flex items-center justify-center size-10 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 active:scale-95 transition-transform"
-                        >
-                          <MoreVertical className="w-5 h-5" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56 bg-zinc-900 border-zinc-700 text-zinc-100">
-                        <DropdownMenuLabel className="text-zinc-400">Switch tab</DropdownMenuLabel>
-                        <DropdownMenuSeparator className="bg-zinc-700" />
-                        {TAB_ITEMS.map(({ value, label, Icon }) => {
-                          const isActive = value === activeTab;
-                          return (
-                            <DropdownMenuItem
-                              key={value}
-                              onSelect={() => setActiveTab(value)}
-                              className={`flex items-center gap-2 cursor-pointer ${isActive ? 'bg-zinc-800 text-white' : 'text-zinc-200'} focus:bg-zinc-800 focus:text-white`}
-                            >
-                              <Icon className="w-4 h-4" />
-                              <span className="flex-1">{label}</span>
-                              {value === "support" && supportUnreadCount > 0 && (
-                                <span className="size-5 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
-                                  {supportUnreadCount}
-                                </span>
-                              )}
-                              {isActive && <Check className="w-4 h-4 text-emerald-400" />}
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {/* Hidden TabsList to keep Radix Tabs happy with controlled value */}
-                  <TabsList className="hidden">
-                    {TAB_ITEMS.map(({ value }) => (
-                      <TabsTrigger key={value} value={value} />
-                    ))}
-                  </TabsList>
-                </div>
-              );
-            }
+          {/* ⚡⚡⚡ PERSISTENT ENGINE - ALWAYS MOUNTED, CONDITIONALLY VISIBLE ⚡⚡⚡ */}
+          {/* This stays mounted even when switching tabs to keep the engine running */}
+          {walletBalance >= 89 && (
+            <div 
+              className={activeTab === "dashboard" ? "block space-y-6" : "hidden"}
+            >
+              <EnhancedTradingEngine
+                serverUrl={serverUrl}
+                accessToken={accessToken}
+                onLog={addLog}
+              />
+            </div>
+          )}
 
-            return (
-              <div className="relative" ref={tabsScrollRef}>
-                <TabsList className="grid grid-cols-7 w-full bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1">
-                  {TAB_ITEMS.map(({ value, label, Icon }) => (
-                    <TabsTrigger
-                      key={value}
-                      value={value}
-                      className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative"
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span className="hidden sm:inline">{label}</span>
-                      {value === "support" && supportUnreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                          {supportUnreadCount}
-                        </span>
-                      )}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
-            );
-          })()}
-
-          <TabsContent value="dashboard">
-            {walletBalance >= 89 && (
-              <div className="block space-y-6">
-                <EnhancedTradingEngine
+          {/* Dashboard Tab Content */}
+          <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-500">
+            {/* 💰 WALLET BALANCE CHECK - Show Dashboard UI only if balance >= ₹89 */}
+            {walletBalance >= 89 ? (
+              <>
+                {/* 💰 PROFIT DASHBOARD - Tiered Pricing & Daily Stats */}
+                <ProfitDashboard accessToken={accessToken} />
+                
+                {/* 📊 POSITIONS & ANALYTICS - Shows current positions and P&L */}
+                <AdvancedDashboard 
                   serverUrl={serverUrl}
                   accessToken={accessToken}
-                  onLog={(msg: string) => console.log('[Engine]', msg)}
+                  credentialsConfigured={credentialsConfigured}
                 />
-              </div>
-            )}
-            {walletBalance < 89 && (
-              <Card className="bg-zinc-900/50 border-zinc-800">
+              </>
+            ) : (
+              /* 💳 INSUFFICIENT WALLET BALANCE WARNING */
+              <Card className="bg-gradient-to-br from-red-900/20 to-orange-900/20 border-2 border-red-500/50">
                 <CardContent className="p-8">
-                  <div className="text-center space-y-4">
-                    <div className="text-6xl">💰</div>
-                    <h2 className="text-2xl font-bold text-white">Recharge Wallet to Start Trading</h2>
-                    <p className="text-zinc-400">
-                      Your wallet balance is below the minimum required (₹89) to use AI signals.
+                  <div className="text-center">
+                    <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <Wallet className="w-10 h-10 text-red-400" />
+                    </div>
+                    
+                    <h2 className="text-2xl font-bold text-white mb-3">
+                      Insufficient Wallet Balance
+                    </h2>
+                    
+                    <p className="text-zinc-300 mb-2">
+                      Your wallet balance is <span className="font-bold text-red-400">₹{walletBalance.toLocaleString('en-IN')}</span>
                     </p>
+                    
+                    <p className="text-zinc-400 text-sm mb-6">
+                      You need at least <span className="font-bold text-green-400">₹89</span> to access the AI Trading Engine
+                    </p>
+                    
+                    <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-700 mb-6 max-w-md mx-auto">
+                      <div className="text-sm text-zinc-300 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span>Required Balance:</span>
+                          <span className="font-bold text-green-400">₹89</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Current Balance:</span>
+                          <span className="font-bold text-red-400">₹{walletBalance}</span>
+                        </div>
+                        <div className="border-t border-zinc-700 pt-2 mt-2 flex items-center justify-between">
+                          <span>Need to Add:</span>
+                          <span className="font-bold text-yellow-400">₹{Math.max(0, 89 - walletBalance)}</span>
+                        </div>
+                      </div>
+                    </div>
                     
                     <div className="space-y-3">
                       <Button
