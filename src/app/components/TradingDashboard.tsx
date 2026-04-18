@@ -879,6 +879,26 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               </div>
             );
           })()}
+
+          <TabsContent value="dashboard">
+            {walletBalance >= 89 && (
+              <div className="block space-y-6">
+                <EnhancedTradingEngine
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                />
+              </div>
+            )}
+            {walletBalance < 89 && (
+              <Card className="bg-zinc-900/50 border-zinc-800">
+                <CardContent className="p-8">
+                  <div className="text-center space-y-4">
+                    <div className="text-6xl">💰</div>
+                    <h2 className="text-2xl font-bold text-white">Recharge Wallet to Start Trading</h2>
+                    <p className="text-zinc-400">
+                      Your wallet balance is below the minimum required (₹89) to use AI signals.
+                    </p>
+                    </div>
                     
                     <div className="space-y-3">
                       <Button
