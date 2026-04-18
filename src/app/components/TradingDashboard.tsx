@@ -785,7 +785,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
           onValueChange={(value) => setActiveTab(value)}
         >
           {/* Professional Tabs with Smooth Animation - RESPONSIVE SCROLLABLE */}
-          <div className="relative" ref={tabsScrollRef}>
+          <div className={isMobile ? "flex items-center gap-1 w-full" : "relative"} ref={tabsScrollRef}>
             {isMobile && (
               <button
                 type="button"
@@ -794,28 +794,15 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                   const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
                   if (list) list.scrollLeft = Math.max(0, list.scrollLeft - 200);
                 }}
-                className="absolute left-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
+                className="flex-shrink-0 flex items-center justify-center size-9 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
               >
                 <ChevronLeft className="w-4 h-4" />
-              </button>
-            )}
-            {isMobile && (
-              <button
-                type="button"
-                aria-label="Scroll tabs right"
-                onClick={() => {
-                  const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
-                  if (list) list.scrollLeft = Math.min(list.scrollWidth - list.clientWidth, list.scrollLeft + 200);
-                }}
-                className="absolute right-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center size-8 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
-              >
-                <ChevronRight className="w-4 h-4" />
               </button>
             )}
             <TabsList 
               className={`${
               isMobile 
-                ? '!flex !w-full !h-auto !max-w-full overflow-x-auto overflow-y-hidden scrollbar-hide px-10' 
+                ? '!flex !w-full !h-auto !max-w-full flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide' 
                 : 'grid grid-cols-7 w-full'
             } bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1`}
             style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none', scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' } : {}}
@@ -890,6 +877,19 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               <span className={isMobile ? '' : 'hidden sm:inline'}>Logs</span>
             </TabsTrigger>
           </TabsList>
+            {isMobile && (
+              <button
+                type="button"
+                aria-label="Scroll tabs right"
+                onClick={() => {
+                  const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
+                  if (list) list.scrollLeft = Math.min(list.scrollWidth - list.clientWidth, list.scrollLeft + 200);
+                }}
+                className="flex-shrink-0 flex items-center justify-center size-9 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
           
           {/* Mobile Scroll Indicator */}
           {isMobile && (
