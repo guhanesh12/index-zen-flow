@@ -886,6 +886,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 <EnhancedTradingEngine
                   serverUrl={serverUrl}
                   accessToken={accessToken}
+                  onLog={(msg: string) => console.log('[Engine]', msg)}
                 />
               </div>
             )}
