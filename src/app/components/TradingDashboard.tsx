@@ -785,186 +785,100 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
           className="space-y-4 sm:space-y-6"
           onValueChange={(value) => setActiveTab(value)}
         >
-          {/* Professional Tabs with Smooth Animation - RESPONSIVE SCROLLABLE */}
-          <div className={isMobile ? "flex items-center gap-1 w-full" : "relative"} ref={tabsScrollRef}>
-            {isMobile && (
-              <button
-                type="button"
-                aria-label="Scroll tabs left"
-                onClick={() => {
-                  const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
-                  if (list) list.scrollLeft = Math.max(0, list.scrollLeft - 200);
-                }}
-                className="flex-shrink-0 flex items-center justify-center size-9 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            )}
-            <TabsList 
-              className={`${
-              isMobile 
-                ? '!flex !w-full !h-auto !max-w-full flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide' 
-                : 'grid grid-cols-7 w-full'
-            } bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1`}
-            style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none', scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' } : {}}
-            >
-            <TabsTrigger 
-              value="dashboard"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span className="hidden sm:inline">Dashboard</span>
-              <span className="sm:hidden">Home</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="symbols"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <DollarSign className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Symbols</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="settings"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[120px]' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <Settings className="w-4 h-4" />
-              <span className={isMobile ? 'text-xs' : 'hidden sm:inline'}>Broker Setup</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="journal"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <FileText className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Journal</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="strategies"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[110px]' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <Zap className="w-4 h-4" />
-              <span className={isMobile ? 'text-xs' : 'hidden sm:inline'}>Strategies</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="support"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative`}
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Support</span>
-              {supportUnreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                  {supportUnreadCount}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger 
-              value="logs"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px]' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <FileText className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Logs</span>
-            </TabsTrigger>
-          </TabsList>
-            {isMobile && (
-              <button
-                type="button"
-                aria-label="Scroll tabs right"
-                onClick={() => {
-                  const list = tabsScrollRef.current?.querySelector('[role="tablist"]') as HTMLElement | null;
-                  if (list) list.scrollLeft = Math.min(list.scrollWidth - list.clientWidth, list.scrollLeft + 200);
-                }}
-                className="flex-shrink-0 flex items-center justify-center size-9 rounded-full bg-zinc-900/95 border border-zinc-700/60 text-white shadow-lg active:scale-95"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            )}
-          
-          {/* Mobile Scroll Indicator */}
-          {isMobile && (
-            <div className="text-center mt-2">
-              <p className="text-xs text-zinc-500 animate-pulse">← Swipe to see more tabs →</p>
-            </div>
-          )}
-          </div>
+          {/* Professional Tabs - Desktop grid / Mobile: current tab + 3-dot menu */}
+          {(() => {
+            const TAB_ITEMS = [
+              { value: "dashboard", label: "Dashboard", Icon: BarChart3 },
+              { value: "symbols", label: "Symbols", Icon: DollarSign },
+              { value: "settings", label: "Broker Setup", Icon: Settings },
+              { value: "journal", label: "Journal", Icon: FileText },
+              { value: "strategies", label: "Strategies", Icon: Zap },
+              { value: "support", label: "Support", Icon: MessageSquare },
+              { value: "logs", label: "Logs", Icon: FileText },
+            ] as const;
+            const current = TAB_ITEMS.find(t => t.value === activeTab) ?? TAB_ITEMS[0];
+            const CurrentIcon = current.Icon;
 
-          {/* ⚡⚡⚡ PERSISTENT ENGINE - ALWAYS MOUNTED, CONDITIONALLY VISIBLE ⚡⚡⚡ */}
-          {/* This stays mounted even when switching tabs to keep the engine running */}
-          {walletBalance >= 89 && (
-            <div 
-              className={activeTab === "dashboard" ? "block space-y-6" : "hidden"}
-            >
-              <EnhancedTradingEngine
-                serverUrl={serverUrl}
-                accessToken={accessToken}
-                onLog={addLog}
-              />
-            </div>
-          )}
-
-          {/* Dashboard Tab Content */}
-          <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-500">
-            {/* 💰 WALLET BALANCE CHECK - Show Dashboard UI only if balance >= ₹89 */}
-            {walletBalance >= 89 ? (
-              <>
-                {/* 💰 PROFIT DASHBOARD - Tiered Pricing & Daily Stats */}
-                <ProfitDashboard accessToken={accessToken} />
-                
-                {/* 📊 POSITIONS & ANALYTICS - Shows current positions and P&L */}
-                <AdvancedDashboard 
-                  serverUrl={serverUrl}
-                  accessToken={accessToken}
-                  credentialsConfigured={credentialsConfigured}
-                />
-              </>
-            ) : (
-              /* 💳 INSUFFICIENT WALLET BALANCE WARNING */
-              <Card className="bg-gradient-to-br from-red-900/20 to-orange-900/20 border-2 border-red-500/50">
-                <CardContent className="p-8">
-                  <div className="text-center">
-                    <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                      <Wallet className="w-10 h-10 text-red-400" />
+            if (isMobile) {
+              return (
+                <div className="w-full">
+                  <div className="flex items-center gap-2 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1.5 rounded-xl shadow-xl">
+                    <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/20">
+                      <CurrentIcon className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate text-sm font-medium">{current.label}</span>
+                      {current.value === "support" && supportUnreadCount > 0 && (
+                        <span className="ml-auto size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse flex-shrink-0">
+                          {supportUnreadCount}
+                        </span>
+                      )}
                     </div>
-                    
-                    <h2 className="text-2xl font-bold text-white mb-3">
-                      Insufficient Wallet Balance
-                    </h2>
-                    
-                    <p className="text-zinc-300 mb-2">
-                      Your wallet balance is <span className="font-bold text-red-400">₹{walletBalance.toLocaleString('en-IN')}</span>
-                    </p>
-                    
-                    <p className="text-zinc-400 text-sm mb-6">
-                      You need at least <span className="font-bold text-green-400">₹89</span> to access the AI Trading Engine
-                    </p>
-                    
-                    <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-700 mb-6 max-w-md mx-auto">
-                      <div className="text-sm text-zinc-300 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span>Required Balance:</span>
-                          <span className="font-bold text-green-400">₹89</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Current Balance:</span>
-                          <span className="font-bold text-red-400">₹{walletBalance}</span>
-                        </div>
-                        <div className="border-t border-zinc-700 pt-2 mt-2 flex items-center justify-between">
-                          <span>Need to Add:</span>
-                          <span className="font-bold text-yellow-400">₹{Math.max(0, 89 - walletBalance)}</span>
-                        </div>
-                      </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Open all tabs"
+                          className="flex-shrink-0 flex items-center justify-center size-10 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 active:scale-95 transition-transform"
+                        >
+                          <MoreVertical className="w-5 h-5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56 bg-zinc-900 border-zinc-700 text-zinc-100">
+                        <DropdownMenuLabel className="text-zinc-400">Switch tab</DropdownMenuLabel>
+                        <DropdownMenuSeparator className="bg-zinc-700" />
+                        {TAB_ITEMS.map(({ value, label, Icon }) => {
+                          const isActive = value === activeTab;
+                          return (
+                            <DropdownMenuItem
+                              key={value}
+                              onSelect={() => setActiveTab(value)}
+                              className={`flex items-center gap-2 cursor-pointer ${isActive ? 'bg-zinc-800 text-white' : 'text-zinc-200'} focus:bg-zinc-800 focus:text-white`}
+                            >
+                              <Icon className="w-4 h-4" />
+                              <span className="flex-1">{label}</span>
+                              {value === "support" && supportUnreadCount > 0 && (
+                                <span className="size-5 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                                  {supportUnreadCount}
+                                </span>
+                              )}
+                              {isActive && <Check className="w-4 h-4 text-emerald-400" />}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  {/* Hidden TabsList to keep Radix Tabs happy with controlled value */}
+                  <TabsList className="hidden">
+                    {TAB_ITEMS.map(({ value }) => (
+                      <TabsTrigger key={value} value={value} />
+                    ))}
+                  </TabsList>
+                </div>
+              );
+            }
+
+            return (
+              <div className="relative" ref={tabsScrollRef}>
+                <TabsList className="grid grid-cols-7 w-full bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1">
+                  {TAB_ITEMS.map(({ value, label, Icon }) => (
+                    <TabsTrigger
+                      key={value}
+                      value={value}
+                      className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative"
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span className="hidden sm:inline">{label}</span>
+                      {value === "support" && supportUnreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                          {supportUnreadCount}
+                        </span>
+                      )}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+            );
+          })()}
                     </div>
                     
                     <div className="space-y-3">
