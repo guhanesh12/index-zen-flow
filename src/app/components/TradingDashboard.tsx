@@ -4,7 +4,8 @@ import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock } from "lucide-react";
+import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, MoreVertical } from "lucide-react";
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "./ui/sheet";
 const logoWhite = "/logo-white.png";
 import { SettingsPanel } from "./SettingsPanel";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
@@ -181,6 +182,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   
   // ⚡ CRITICAL: Track active tab to keep engine mounted
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [mobileTabMenuOpen, setMobileTabMenuOpen] = useState(false);
 
   // Broker Setup sub-tab
   const [brokerTab, setBrokerTab] = useState<'static-ip' | 'broker-request' | 'broker-connect'>('broker-connect');
@@ -777,97 +779,126 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
         <Tabs 
           key="trading-tabs-v1" 
+          value={activeTab}
           defaultValue="dashboard" 
           className="space-y-4 sm:space-y-6"
           onValueChange={(value) => setActiveTab(value)}
         >
-          {/* Professional Tabs with Smooth Animation - RESPONSIVE SCROLLABLE */}
+          {/* Tabs - Desktop: grid; Mobile: 3-dot menu */}
           <div className="relative" ref={tabsScrollRef}>
-            <TabsList 
-              className={`${
-              isMobile 
-                ? 'flex w-full overflow-x-auto overflow-y-hidden scrollbar-hide snap-x snap-mandatory' 
-                : 'grid grid-cols-7 w-full'
-            } bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1`}
-            style={isMobile ? { scrollbarWidth: 'none', msOverflowStyle: 'none' } : {}}
-            >
-            <TabsTrigger 
-              value="dashboard"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span className="hidden sm:inline">Dashboard</span>
-              <span className="sm:hidden">Home</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="symbols"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <DollarSign className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Symbols</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="settings"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[120px] snap-center' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <Settings className="w-4 h-4" />
-              <span className={isMobile ? 'text-xs' : 'hidden sm:inline'}>Broker Setup</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="journal"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <FileText className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Journal</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="strategies"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[110px] snap-center' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <Zap className="w-4 h-4" />
-              <span className={isMobile ? 'text-xs' : 'hidden sm:inline'}>Strategies</span>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="support"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative`}
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Support</span>
-              {supportUnreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                  {supportUnreadCount}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger 
-              value="logs"
-              className={`${
-                isMobile ? 'flex-shrink-0 min-w-[100px] snap-center' : ''
-              } text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm`}
-            >
-              <FileText className="w-4 h-4" />
-              <span className={isMobile ? '' : 'hidden sm:inline'}>Logs</span>
-            </TabsTrigger>
-          </TabsList>
-          
-          {/* Mobile Scroll Indicator */}
-          {isMobile && (
-            <div className="text-center mt-2">
-              <p className="text-xs text-zinc-500 animate-pulse">← Swipe to see more tabs →</p>
-            </div>
-          )}
+            {isMobile ? (
+              <div className="flex items-center justify-between gap-2 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-2 rounded-xl shadow-xl">
+                <div className="flex items-center gap-2 min-w-0">
+                  {(() => {
+                    const tabMeta: Record<string, { icon: any; label: string }> = {
+                      dashboard: { icon: BarChart3, label: 'Dashboard' },
+                      symbols: { icon: DollarSign, label: 'Symbols' },
+                      settings: { icon: Settings, label: 'Broker Setup' },
+                      journal: { icon: FileText, label: 'Journal' },
+                      strategies: { icon: Zap, label: 'Strategies' },
+                      support: { icon: MessageSquare, label: 'Support' },
+                      logs: { icon: FileText, label: 'Logs' },
+                    };
+                    const current = tabMeta[activeTab] || tabMeta.dashboard;
+                    const Icon = current.icon;
+                    return (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 text-white text-sm font-medium truncate">
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{current.label}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+                <Sheet open={mobileTabMenuOpen} onOpenChange={setMobileTabMenuOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-zinc-300 hover:bg-zinc-800 flex-shrink-0"
+                      aria-label="Open tab menu"
+                    >
+                      <MoreVertical className="w-5 h-5" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
+                    <SheetHeader className="p-4 border-b border-zinc-800">
+                      <SheetTitle className="text-white">All Tabs</SheetTitle>
+                    </SheetHeader>
+                    <div className="p-2 space-y-1">
+                      {[
+                        { value: 'dashboard', icon: BarChart3, label: 'Dashboard' },
+                        { value: 'symbols', icon: DollarSign, label: 'Symbols' },
+                        { value: 'settings', icon: Settings, label: 'Broker Setup' },
+                        { value: 'journal', icon: FileText, label: 'Journal' },
+                        { value: 'strategies', icon: Zap, label: 'Strategies' },
+                        { value: 'support', icon: MessageSquare, label: 'Support' },
+                        { value: 'logs', icon: FileText, label: 'Logs' },
+                      ].map(({ value, icon: Icon, label }) => {
+                        const active = activeTab === value;
+                        return (
+                          <button
+                            key={value}
+                            onClick={() => {
+                              setActiveTab(value);
+                              setMobileTabMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${
+                              active
+                                ? 'bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/20'
+                                : 'text-zinc-300 hover:bg-zinc-800'
+                            }`}
+                          >
+                            <Icon className="w-5 h-5 flex-shrink-0" />
+                            <span className="font-medium flex-1">{label}</span>
+                            {value === 'support' && supportUnreadCount > 0 && (
+                              <span className="size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                                {supportUnreadCount}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
+            ) : (
+              <TabsList className="grid grid-cols-7 w-full bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1">
+                <TabsTrigger value="dashboard" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <BarChart3 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Dashboard</span>
+                </TabsTrigger>
+                <TabsTrigger value="symbols" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <DollarSign className="w-4 h-4" />
+                  <span className="hidden sm:inline">Symbols</span>
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden sm:inline">Broker Setup</span>
+                </TabsTrigger>
+                <TabsTrigger value="journal" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden sm:inline">Journal</span>
+                </TabsTrigger>
+                <TabsTrigger value="strategies" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <Zap className="w-4 h-4" />
+                  <span className="hidden sm:inline">Strategies</span>
+                </TabsTrigger>
+                <TabsTrigger value="support" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative">
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="hidden sm:inline">Support</span>
+                  {supportUnreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                      {supportUnreadCount}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="logs" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden sm:inline">Logs</span>
+                </TabsTrigger>
+              </TabsList>
+            )}
           </div>
 
           {/* ⚡⚡⚡ PERSISTENT ENGINE - ALWAYS MOUNTED, CONDITIONALLY VISIBLE ⚡⚡⚡ */}
