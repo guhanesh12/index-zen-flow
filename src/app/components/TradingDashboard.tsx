@@ -182,6 +182,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   
   // ⚡ CRITICAL: Track active tab to keep engine mounted
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [mobileTabMenuOpen, setMobileTabMenuOpen] = useState(false);
 
   // Broker Setup sub-tab
   const [brokerTab, setBrokerTab] = useState<'static-ip' | 'broker-request' | 'broker-connect'>('broker-connect');
