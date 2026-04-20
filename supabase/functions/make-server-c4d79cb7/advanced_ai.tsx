@@ -1451,7 +1451,9 @@ export class AdvancedAI {
     // Block signals when price is in extreme zones (high reversal risk)
     // 🔥 FIX: In VERY STRONG trends (ADX > 50), allow continuation even near BB
     if (action !== 'WAIT') {
-      const isVeryStrongTrend = adx > 50;  // ADX > 50 = allow aggressive continuation
+      // 🔥 FIX: Lowered from 50 → 45. Signals at ADX 45-50 (e.g. 49.7) are still very strong trends
+      // and should not be blocked by a single risk factor. Both BB AND VWAP extreme = still blocked.
+      const isVeryStrongTrend = adx > 45;  // ADX > 45 = allow aggressive continuation
       
       // BLOCK SELL signals when OVERSOLD (near lower Bollinger Band OR extended VWAP)
       // 🔥 In very strong downtrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
