@@ -743,12 +743,19 @@ export class AdvancedAI {
       return { type: 'VOLATILE', strength: adx, suitable_for_trading: false };
     }
     
-    // Low ADX = ranging or quiet
-    if (adx < 20 && bollingerWidth < 0.02) {
+    // Low ADX = ranging or quiet, but allow slow-trend continuation setups
+    if (adx < 16 && bollingerWidth < 0.02) {
       return { type: 'QUIET', strength: 100 - adx, suitable_for_trading: false };
     }
-    
+
+    // 🔥 FIX: ADX 16-25 can still be a tradable slow trend when EMA alignment + price action agree
     if (adx < 25) {
+      if ((emaUptrend || emaSimpleUptrend || higherHighs10 || higherHighs5) && lastCandle.close > indicators.vwap) {
+        return { type: 'TRENDING_UP', strength: adx, suitable_for_trading: true };
+      }
+      if ((emaDowntrend || emaSimpleDowntrend || lowerLows10 || lowerLows5) && lastCandle.close < indicators.vwap) {
+        return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
+      }
       return { type: 'RANGING', strength: 50, suitable_for_trading: false };
     }
     
@@ -1078,8 +1085,8 @@ export class AdvancedAI {
     }
     
     // 3. RSI Confirmation (Weight: 1)
-    // ⚡ FIX BUG #3: In ranging markets (ADX < 20), RSI is unreliable!
-    const isRangingMarket = adx < 20;
+    // ⚡ FIX BUG #3: Treat only ADX < 16 as true ranging/quiet; 16-25 may still trend slowly
+    const isRangingMarket = adx < 16;
     
     // ⚡ FIX ISSUE #4: RSI zones - 60-70 is BULLISH momentum, not neutral!
     if (!isRangingMarket && confirmationBullish && rsi >= 60 && rsi < 70) {
