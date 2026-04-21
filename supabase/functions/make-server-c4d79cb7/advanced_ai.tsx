@@ -1401,13 +1401,25 @@ export class AdvancedAI {
       reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${requiredConfirmations} for high-confidence signal.`;
       
     } else if (!hasAcceptableQuality) {  // ⚡ FIX: Use hasAcceptableQuality which handles both stocks (volume+body) and indices (candle strength)
-      // ⚡ FIX: Only block if no strong pattern exists AND confirmations are not strong (< 7)
-      // If we have 7+ confirmations, override weak candle/volume check
-      if (!hasStrongPattern && confirmations.total < 7) {
+      // 🔥 FIX: In strong trend continuation setups, do not block only because of low volume.
+      const onlyLowVolumeIssue = qualityIssues.length === 1 && qualityIssues[0]?.startsWith('low volume');
+      const allowStrongTrendVolumeBypass =
+        onlyLowVolumeIssue &&
+        confirmations.total >= 6 &&
+        marketRegime.type === 'TRENDING_UP' &&
+        bias === 'Bullish' &&
+        adx >= 35 &&
+        (emaUptrend || priceAboveEMAs) &&
+        macdBullish;
+
+      if (allowStrongTrendVolumeBypass) {
+        action = 'BUY_CALL';
+        confidence = Math.min(60 + (confirmations.total * 5), 95);
+        reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. Low volume bypassed due to strong bullish continuation.`;
+      } else if (!hasStrongPattern && confirmations.total < 7) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
-        // Different message for indices vs stocks
         if (hasVolumeData) {
           reasoning = `WAIT: ${qualityIssues.join(' + ') || `execution quality below threshold (body ${bodySize.toFixed(1)}pts, volume ${volumeRatio.toFixed(2)}x)`}.`;
         } else {
@@ -1489,9 +1501,16 @@ export class AdvancedAI {
       // BLOCK BUY signals when OVERBOUGHT (near upper Bollinger Band OR extended VWAP)
       // 🔥 In very strong uptrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
       if (bias === 'Bullish') {
-        const shouldBlock = isVeryStrongTrend
-          ? (priceNearUpperBand && vwapNormalized.interpretation === 'EXTENDED')  // Strong trend: only dual-risk block
-          : (priceNearUpperBand && vwapNormalized.interpretation === 'EXTENDED');  // Normal: also require both
+        const continuationBullishSetup =
+          confirmations.total >= 6 &&
+          adx >= 35 &&
+          marketRegime.type === 'TRENDING_UP' &&
+          (emaUptrend || priceAboveEMAs) &&
+          macdBullish;
+
+        const shouldBlock = continuationBullishSetup
+          ? false  // 🔥 Allow strong bullish continuation even when BB + VWAP are stretched
+          : (priceNearUpperBand && vwapNormalized.interpretation === 'EXTENDED');
         
         if (shouldBlock) {
           const blockReason = [];
@@ -1503,10 +1522,9 @@ export class AdvancedAI {
           confidence = 30;
           reasoning = `🚨 BLOCKED BUY: ${blockReason.join(' + ')}. HIGH REVERSAL RISK! Wait for price to stabilize.`;
           console.log(`🚨 SAFETY BLOCK: BUY signal blocked (ADX: ${adx.toFixed(1)}): ${blockReason.join(', ')}`);
-        } else if (isVeryStrongTrend && priceNearUpperBand) {
-          // Very strong trend + near BB but VWAP acceptable → Allow with warning
-          reasoning += ` ⚠️ CONTINUATION: Very strong uptrend (ADX ${adx.toFixed(1)}) - allowing near upper BB.`;
-          console.log(`✅ CONTINUATION ALLOWED: ADX ${adx.toFixed(1)} - near BB but strong trend continuation`);
+        } else if ((isVeryStrongTrend && priceNearUpperBand) || continuationBullishSetup) {
+          reasoning += ` ⚠️ CONTINUATION: Strong uptrend (ADX ${adx.toFixed(1)}) - allowing upper-band/VWAP extension.`;
+          console.log(`✅ CONTINUATION ALLOWED: ADX ${adx.toFixed(1)} - strong bullish continuation despite stretched conditions`);
         }
       }
     }
