@@ -1451,16 +1451,16 @@ export class AdvancedAI {
     // Block signals when price is in extreme zones (high reversal risk)
     // 🔥 FIX: In VERY STRONG trends (ADX > 50), allow continuation even near BB
     if (action !== 'WAIT') {
-      // 🔥 FIX: Lowered from 50 → 45. Signals at ADX 45-50 (e.g. 49.7) are still very strong trends
-      // and should not be blocked by a single risk factor. Both BB AND VWAP extreme = still blocked.
-      const isVeryStrongTrend = adx > 45;  // ADX > 45 = allow aggressive continuation
+      // 🔥 FIX: Lowered from 45 → 38. Signals like NIFTY 12:15 (ADX 40.2 + Morning Star + EMA aligned + MACD bullish)
+      // are valid strong trends and should not be blocked by a single risk factor.
+      // Only block if BOTH BB extreme AND VWAP extended occur together (true reversal trap).
+      const isVeryStrongTrend = adx > 38;  // ADX > 38 = allow aggressive continuation
       
-      // BLOCK SELL signals when OVERSOLD (near lower Bollinger Band OR extended VWAP)
-      // 🔥 In very strong downtrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
+      // BLOCK SELL signals when OVERSOLD — only when BOTH BB AND VWAP extreme together
       if (bias === 'Bearish') {
         const shouldBlock = isVeryStrongTrend 
-          ? vwapNormalized.interpretation === 'EXTENDED'  // Very strong trend: only block if VWAP extended
-          : (priceNearLowerBand || vwapNormalized.interpretation === 'EXTENDED');  // Normal: block if BB or VWAP
+          ? (priceNearLowerBand && vwapNormalized.interpretation === 'EXTENDED')  // Strong trend: only dual-risk block
+          : (priceNearLowerBand && vwapNormalized.interpretation === 'EXTENDED');  // Normal: also require both
         
         if (shouldBlock) {
           const blockReason = [];
@@ -1483,8 +1483,8 @@ export class AdvancedAI {
       // 🔥 In very strong uptrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
       if (bias === 'Bullish') {
         const shouldBlock = isVeryStrongTrend
-          ? vwapNormalized.interpretation === 'EXTENDED'  // Very strong trend: only block if VWAP extended
-          : (priceNearUpperBand || vwapNormalized.interpretation === 'EXTENDED');  // Normal: block if BB or VWAP
+          ? (priceNearUpperBand && vwapNormalized.interpretation === 'EXTENDED')  // Strong trend: only dual-risk block
+          : (priceNearUpperBand && vwapNormalized.interpretation === 'EXTENDED');  // Normal: also require both
         
         if (shouldBlock) {
           const blockReason = [];
