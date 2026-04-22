@@ -24,6 +24,7 @@ import { AdvancedAI } from './advanced_ai.tsx';
 import * as kv from './kv_store.tsx';
 import { placeOrderViaStaticIP } from './static_ip_helper.tsx';
 import { createClient } from "npm:@supabase/supabase-js";
+import { checkAndDebitTiered } from './tiered_debit.tsx';
 
 const SUPPORTED_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;
 type SupportedIndex = typeof SUPPORTED_INDICES[number];
@@ -1140,6 +1141,11 @@ class PersistentTradingEngine {
             
             // ⚡ Update P&L in stats
             await this.updatePnLStats(userId, pnl);
+
+            // 💰 AUTO-DEBIT WALLET on realized profit (server-side, no browser required)
+            await this.runWalletAutoDebit(userId, state).catch((err) => {
+              console.error(`❌ Wallet auto-debit failed for ${userId}:`, err);
+            });
             
             // Save log
             await kv.set(`engine_log_${userId}_${Date.now()}`, {
@@ -1454,8 +1460,58 @@ class PersistentTradingEngine {
   }
 
   /**
-   * Cleanup signals older than 24 hours
+   * 💰 Server-side wallet auto-debit. Computes today's realized profit from
+   * signal_stats and triggers tiered debit. Runs on every position close so
+   * commission is deducted automatically without needing the browser open.
    */
+  private static async runWalletAutoDebit(userId: string, _state: EngineState): Promise<void> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const { data: stats } = await supabaseAdmin
+        .from('signal_stats')
+        .select('total_pnl')
+        .eq('user_id', userId)
+        .eq('stat_date', today)
+        .maybeSingle();
+
+      const todayProfit = Number(stats?.total_pnl || 0);
+      if (todayProfit <= 100) {
+        return; // FREE tier
+      }
+
+      let email = '';
+      try {
+        const { data: userRes } = await supabaseAdmin.auth.admin.getUserById(userId);
+        email = userRes?.user?.email || '';
+      } catch (_e) {
+        console.warn(`⚠️ Could not resolve email for ${userId}`);
+      }
+
+      const platformOwnerEmail = Deno.env.get('PLATFORM_OWNER_EMAIL') || '';
+      const result = await checkAndDebitTiered(userId, email, todayProfit, platformOwnerEmail);
+
+      if (result.deducted) {
+        console.log(`💳 [AUTO-DEBIT] ₹${result.amount} debited from ${userId} (${result.currentTier})`);
+        await this.appendSharedLog(userId, {
+          type: 'WALLET_DEBIT',
+          timestamp: Date.now(),
+          message: `💳 ₹${result.amount} auto-debited (${result.currentTier}) | Profit: ₹${todayProfit.toFixed(2)} | Balance: ₹${result.newBalance}`,
+          data: { amount: result.amount, tier: result.currentTier, newBalance: result.newBalance, profit: todayProfit }
+        });
+      } else if (result.error === 'Insufficient wallet balance') {
+        await this.appendSharedLog(userId, {
+          type: 'WALLET_ERROR',
+          timestamp: Date.now(),
+          message: `⚠️ Wallet auto-debit failed: insufficient balance (need ₹${result.required}, have ₹${result.available})`,
+          data: result
+        });
+      }
+    } catch (err: any) {
+      console.error(`❌ runWalletAutoDebit error for ${userId}:`, err?.message || err);
+    }
+  }
+
+
   private static async cleanupOldSignals(): Promise<void> {
     try {
       const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
