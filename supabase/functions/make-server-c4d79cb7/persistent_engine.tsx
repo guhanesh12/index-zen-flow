@@ -375,12 +375,53 @@ class PersistentTradingEngine {
           console.error(`❌ [CRON] Error processing engine for user ${engine.user_id}:`, engineErr);
         }
       }
+
+      // ⚡⚡⚡ ALSO MONITOR USERS WITH OPEN POSITIONS BUT ENGINE STOPPED ⚡⚡⚡
+      // (so SL/Target still triggers even if user clicks "Stop Engine")
+      let monitoredOnlyCount = 0;
+      try {
+        const activeEngineIds = new Set(activeEngines.map((e: any) => e.user_id));
+        const { data: orphanPositions } = await supabaseAdmin
+          .from('position_monitor_state')
+          .select('user_id')
+          .eq('is_active', true);
+        const orphanUserIds = Array.from(new Set(
+          (orphanPositions || [])
+            .map((p: any) => p.user_id)
+            .filter((uid: string) => uid && !activeEngineIds.has(uid))
+        ));
+        for (const uid of orphanUserIds) {
+          try {
+            const credentials = await kv.get(`api_credentials:${uid}`);
+            if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) continue;
+            const dhanService = new DhanService({
+              clientId: credentials.dhanClientId,
+              accessToken: credentials.dhanAccessToken,
+            });
+            // Build a minimal state and run only the position monitor
+            const minimalState: any = {
+              isRunning: false,
+              userId: uid,
+              activePositions: [],
+              stats: { totalSignals: 0, totalOrders: 0, totalPnL: 0 },
+              dhanClientId: credentials.dhanClientId,
+              dhanAccessToken: credentials.dhanAccessToken,
+            };
+            await this.monitorPositions(uid, dhanService, minimalState);
+            monitoredOnlyCount++;
+          } catch (orphanErr) {
+            console.error(`❌ [CRON] Orphan monitor failed for ${uid}:`, orphanErr);
+          }
+        }
+      } catch (orphanScanErr) {
+        console.error(`❌ [CRON] Orphan scan failed:`, orphanScanErr);
+      }
       
       // ⚡ Auto-cleanup: delete signals older than 24 hours
       await this.cleanupOldSignals();
       
-      console.log(`⏱️ [CRON] Tick complete. Processed ${processedCount} engines.`);
-      return { success: true, processed: processedCount };
+      console.log(`⏱️ [CRON] Tick complete. Processed ${processedCount} engines + ${monitoredOnlyCount} orphan monitors.`);
+      return { success: true, processed: processedCount, orphanMonitored: monitoredOnlyCount };
       
     } catch (error) {
       console.error(`❌ [CRON] Tick error:`, error);
