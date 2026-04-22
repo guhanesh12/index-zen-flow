@@ -1141,6 +1141,11 @@ class PersistentTradingEngine {
             
             // ⚡ Update P&L in stats
             await this.updatePnLStats(userId, pnl);
+
+            // 💰 AUTO-DEBIT WALLET on realized profit (server-side, no browser required)
+            await this.runWalletAutoDebit(userId, state).catch((err) => {
+              console.error(`❌ Wallet auto-debit failed for ${userId}:`, err);
+            });
             
             // Save log
             await kv.set(`engine_log_${userId}_${Date.now()}`, {
