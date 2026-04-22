@@ -1366,12 +1366,46 @@ export class AdvancedAI {
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
     // ⚡ FIX ISSUE #7: Lower threshold to 5 for indices (volume often fails, so 6 is too strict)
-    const requiredConfirmations = hasVolumeData ? 6 : 5; // Indices: 5/10, Stocks: 6/10
+    const baseRequiredConfirmations = hasVolumeData ? 6 : 5; // Indices: 5/10, Stocks: 6/10
+    const dominantTradeBias: 'Bullish' | 'Bearish' | 'Neutral' = confirmationBullish
+      ? 'Bullish'
+      : confirmationBearish
+        ? 'Bearish'
+        : 'Neutral';
+
+    // 🔥 FIX: Strong trend continuation on indices was still getting stuck at 5/10.
+    // If price action + regime + EMA/MACD all agree, allow 5 confirmations instead of 6.
+    const strongTrendContinuationBullish =
+      hasVolumeData &&
+      marketRegime.type === 'TRENDING_UP' &&
+      confirmationBullish &&
+      confirmations.total >= 5 &&
+      adx >= 35 &&
+      (emaUptrend || priceAboveEMAs) &&
+      macdBullish &&
+      (rsi >= 55 || rsiOverbought) &&
+      (confirmations.priceAction || confirmations.adx);
+
+    const strongTrendContinuationBearish =
+      hasVolumeData &&
+      marketRegime.type === 'TRENDING_DOWN' &&
+      confirmationBearish &&
+      confirmations.total >= 5 &&
+      adx >= 35 &&
+      (emaDowntrend || priceBelowEMAs) &&
+      !macdBullish &&
+      (rsi <= 45 || rsiOversold) &&
+      (confirmations.priceAction || confirmations.adx);
+
+    const requiredConfirmations =
+      strongTrendContinuationBullish || strongTrendContinuationBearish
+        ? 5
+        : baseRequiredConfirmations;
     
     const strongBullish = confirmations.total >= requiredConfirmations && confirmationBullish && (hasAcceptableQuality || hasStrongPattern);
     const strongBearish = confirmations.total >= requiredConfirmations && confirmationBearish && (hasAcceptableQuality || hasStrongPattern);
     
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, requiredConfirmations=${requiredConfirmations} (indices=${!hasVolumeData ? '5' : '6'}), confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, hasAcceptableQuality=${hasAcceptableQuality}, hasStrongPattern=${hasStrongPattern}, hasVolumeData=${hasVolumeData}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, baseRequired=${baseRequiredConfirmations}, requiredConfirmations=${requiredConfirmations}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, hasAcceptableQuality=${hasAcceptableQuality}, hasStrongPattern=${hasStrongPattern}, hasVolumeData=${hasVolumeData}, strongTrendContinuationBullish=${strongTrendContinuationBullish}, strongTrendContinuationBearish=${strongTrendContinuationBearish}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
@@ -1405,9 +1439,9 @@ export class AdvancedAI {
       const onlyLowVolumeIssue = qualityIssues.length === 1 && qualityIssues[0]?.startsWith('low volume');
       const allowStrongTrendVolumeBypass =
         onlyLowVolumeIssue &&
-        confirmations.total >= 6 &&
+        confirmations.total >= requiredConfirmations &&
         marketRegime.type === 'TRENDING_UP' &&
-        bias === 'Bullish' &&
+        dominantTradeBias === 'Bullish' &&
         adx >= 35 &&
         (emaUptrend || priceAboveEMAs) &&
         macdBullish;
@@ -1415,6 +1449,7 @@ export class AdvancedAI {
       if (allowStrongTrendVolumeBypass) {
         action = 'BUY_CALL';
         confidence = Math.min(60 + (confirmations.total * 5), 95);
+        bias = 'Bullish';
         reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. Low volume bypassed due to strong bullish continuation.`;
       } else if (!hasStrongPattern && confirmations.total < 7) {
         action = 'WAIT';
@@ -1502,11 +1537,14 @@ export class AdvancedAI {
       // 🔥 In very strong uptrends (ADX > 50), only block if VWAP truly extended (beyond adaptive threshold)
       if (bias === 'Bullish') {
         const continuationBullishSetup =
-          confirmations.total >= 6 &&
-          adx >= 35 &&
-          marketRegime.type === 'TRENDING_UP' &&
-          (emaUptrend || priceAboveEMAs) &&
-          macdBullish;
+          strongTrendContinuationBullish ||
+          (
+            confirmations.total >= 5 &&
+            adx >= 35 &&
+            marketRegime.type === 'TRENDING_UP' &&
+            (emaUptrend || priceAboveEMAs) &&
+            macdBullish
+          );
 
         const shouldBlock = continuationBullishSetup
           ? false  // 🔥 Allow strong bullish continuation even when BB + VWAP are stretched
