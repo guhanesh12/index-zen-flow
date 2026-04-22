@@ -375,12 +375,53 @@ class PersistentTradingEngine {
           console.error(`❌ [CRON] Error processing engine for user ${engine.user_id}:`, engineErr);
         }
       }
+
+      // ⚡⚡⚡ ALSO MONITOR USERS WITH OPEN POSITIONS BUT ENGINE STOPPED ⚡⚡⚡
+      // (so SL/Target still triggers even if user clicks "Stop Engine")
+      let monitoredOnlyCount = 0;
+      try {
+        const activeEngineIds = new Set(activeEngines.map((e: any) => e.user_id));
+        const { data: orphanPositions } = await supabaseAdmin
+          .from('position_monitor_state')
+          .select('user_id')
+          .eq('is_active', true);
+        const orphanUserIds = Array.from(new Set(
+          (orphanPositions || [])
+            .map((p: any) => p.user_id)
+            .filter((uid: string) => uid && !activeEngineIds.has(uid))
+        ));
+        for (const uid of orphanUserIds) {
+          try {
+            const credentials = await kv.get(`api_credentials:${uid}`);
+            if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) continue;
+            const dhanService = new DhanService({
+              clientId: credentials.dhanClientId,
+              accessToken: credentials.dhanAccessToken,
+            });
+            // Build a minimal state and run only the position monitor
+            const minimalState: any = {
+              isRunning: false,
+              userId: uid,
+              activePositions: [],
+              stats: { totalSignals: 0, totalOrders: 0, totalPnL: 0 },
+              dhanClientId: credentials.dhanClientId,
+              dhanAccessToken: credentials.dhanAccessToken,
+            };
+            await this.monitorPositions(uid, dhanService, minimalState);
+            monitoredOnlyCount++;
+          } catch (orphanErr) {
+            console.error(`❌ [CRON] Orphan monitor failed for ${uid}:`, orphanErr);
+          }
+        }
+      } catch (orphanScanErr) {
+        console.error(`❌ [CRON] Orphan scan failed:`, orphanScanErr);
+      }
       
       // ⚡ Auto-cleanup: delete signals older than 24 hours
       await this.cleanupOldSignals();
       
-      console.log(`⏱️ [CRON] Tick complete. Processed ${processedCount} engines.`);
-      return { success: true, processed: processedCount };
+      console.log(`⏱️ [CRON] Tick complete. Processed ${processedCount} engines + ${monitoredOnlyCount} orphan monitors.`);
+      return { success: true, processed: processedCount, orphanMonitored: monitoredOnlyCount };
       
     } catch (error) {
       console.error(`❌ [CRON] Tick error:`, error);
@@ -936,6 +977,12 @@ class PersistentTradingEngine {
     }
     
     console.log(`\n🔍 MONITORING ${state.activePositions.length} POSITIONS for user ${userId}`);
+
+    await this.appendSharedLog(userId, {
+      type: 'POSITION_MONITOR_TICK',
+      timestamp: Date.now(),
+      message: `🔍 Position monitor tick — checking ${state.activePositions.length} active position(s)`,
+    });
     
     try {
       // Fetch fresh positions from Dhan
@@ -965,6 +1012,14 @@ class PersistentTradingEngine {
             })
             .eq('user_id', userId)
             .eq('order_id', position.orderId);
+
+          await this.appendSharedLog(userId, {
+            type: 'POSITION_CLOSED',
+            timestamp: Date.now(),
+            symbol: position.symbolName,
+            message: `🚪 ${position.symbolName} closed externally (qty=0 on broker)`,
+            reason: 'Position closed externally',
+          });
           
           continue;
         }
@@ -982,12 +1037,30 @@ class PersistentTradingEngine {
         }
         
         console.log(`📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)}`);
+
+        // ⚡ Push monitor heartbeat into shared logs (visible in UI)
+        await this.appendSharedLog(userId, {
+          type: 'POSITION_MONITOR',
+          timestamp: Date.now(),
+          symbol: position.symbolName,
+          message: `📊 ${position.symbolName} | LTP ₹${currentPrice.toFixed(2)} | P&L ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)} | Peak ₹${(position.highestPnl || 0).toFixed(2)} | Target ₹${position.targetAmount || 0} | SL ₹${position.stopLossAmount || 0}`,
+          pnl,
+          data: {
+            symbol: position.symbolName,
+            currentPrice,
+            pnl,
+            highestPnl: position.highestPnl || 0,
+            targetAmount: position.targetAmount,
+            stopLossAmount: position.stopLossAmount,
+          }
+        });
         
-        // ⚡ Update position in DB
+        // ⚡ Update position in DB (also persist entry_price the first time we see it)
         await supabaseAdmin
           .from('position_monitor_state')
           .update({
             current_price: currentPrice,
+            entry_price: position.entryPrice || parseFloat(dhanPos.buyAvg || dhanPos.costPrice || 0),
             pnl: pnl,
             highest_pnl: position.highestPnl || 0,
             raw_position: dhanPos
