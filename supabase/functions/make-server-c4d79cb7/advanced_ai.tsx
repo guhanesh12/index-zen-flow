@@ -704,19 +704,16 @@ export class AdvancedAI {
     const emaSimpleUptrend = indicators.ema9 > indicators.ema50;
     const emaSimpleDowntrend = indicators.ema9 < indicators.ema50;
     
+    // Check price action for trend direction (10 candles for better stability)
+    const last10 = data.slice(-10);
+    const last5 = data.slice(-5);
+    const higherHighs10 = last10.length >= 10 && last10[9].high > last10[4].high && last10[4].high > last10[0].high;
+    const lowerLows10 = last10.length >= 10 && last10[9].low < last10[4].low && last10[4].low < last10[0].low;
+    const higherHighs5 = last5.length >= 5 && last5.every((candle, i) => i === 0 || candle.high >= last5[i - 1].high);
+    const lowerLows5 = last5.length >= 5 && last5.every((candle, i) => i === 0 || candle.low <= last5[i - 1].low);
+
     // ⚡ FIX: Strong ADX means trending even if EMAs are mixed (price action overrides)
     if (isTrending) {
-      // Check price action for trend direction (10 candles for better stability)
-      const last10 = data.slice(-10);
-      const last5 = data.slice(-5);
-      
-      // Longer-term price action (10 candles)
-      const higherHighs10 = last10[9].high > last10[4].high && last10[4].high > last10[0].high;
-      const lowerLows10 = last10[9].low < last10[4].low && last10[4].low < last10[0].low;
-      
-      // Short-term price action (5 candles)
-      const higherHighs5 = last5.every((candle, i) => i === 0 || candle.high >= last5[i - 1].high);
-      const lowerLows5 = last5.every((candle, i) => i === 0 || candle.low <= last5[i - 1].low);
       
       // ⚡ CRITICAL FIX: Very strong ADX (>60) with simple EMA divergence = trending
       if (isVeryStrongTrend) {
