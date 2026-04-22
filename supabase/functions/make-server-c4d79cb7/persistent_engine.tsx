@@ -1000,26 +1000,45 @@ class PersistentTradingEngine {
         
         // Check if position is closed
         if (!dhanPos || dhanPos.netQty === 0) {
-          console.log(`🚪 Position CLOSED: ${position.symbolName}`);
+          // Try to read realized P&L from Dhan so we can record it
+          const realizedPnl = parseFloat(
+            dhanPos?.realizedProfit ||
+            dhanPos?.realizedPnl ||
+            dhanPos?.realizedPnL ||
+            position.pnl ||
+            0
+          );
+
+          console.log(`🚪 Position CLOSED externally: ${position.symbolName} | Realized P&L: ₹${realizedPnl.toFixed(2)}`);
           position.status = 'CLOSED';
-          
-          // ⚡ Update DB
+          state.stats.totalPnL += realizedPnl;
+
           await supabaseAdmin
             .from('position_monitor_state')
             .update({ 
               is_active: false, 
               exit_reason: 'Position closed externally',
-              exited_at: new Date().toISOString()
+              exited_at: new Date().toISOString(),
+              pnl: realizedPnl,
             })
             .eq('user_id', userId)
             .eq('order_id', position.orderId);
+
+          // ⚡ Record into signal_stats so wallet auto-debit can read today's profit
+          await this.updatePnLStats(userId, realizedPnl);
+
+          // 💰 Trigger wallet auto-debit (server-side, no browser required)
+          await this.runWalletAutoDebit(userId, state).catch((err) => {
+            console.error(`❌ Wallet auto-debit failed for ${userId}:`, err);
+          });
 
           await this.appendSharedLog(userId, {
             type: 'POSITION_CLOSED',
             timestamp: Date.now(),
             symbol: position.symbolName,
-            message: `🚪 ${position.symbolName} closed externally (qty=0 on broker)`,
+            message: `🚪 ${position.symbolName} closed externally | P&L: ${realizedPnl >= 0 ? '+' : ''}₹${realizedPnl.toFixed(2)}`,
             reason: 'Position closed externally',
+            pnl: realizedPnl,
           });
           
           continue;
