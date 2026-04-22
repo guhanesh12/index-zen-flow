@@ -24,6 +24,7 @@ import { AdvancedAI } from './advanced_ai.tsx';
 import * as kv from './kv_store.tsx';
 import { placeOrderViaStaticIP } from './static_ip_helper.tsx';
 import { createClient } from "npm:@supabase/supabase-js";
+import { checkAndDebitTiered } from './tiered_debit.tsx';
 
 const SUPPORTED_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;
 type SupportedIndex = typeof SUPPORTED_INDICES[number];
