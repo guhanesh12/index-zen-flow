@@ -9728,9 +9728,91 @@ app.post("/make-server-c4d79cb7/internal/deduct-wallet", async (c) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 🔑 FORGOT PASSWORD — EMAIL + PHONE VERIFICATION + OTP RESET
-// ═══════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────
+// 💰 INTERNAL: Backfill today's realized profit & run tiered wallet debit
+// Sums today's `position_monitor_state.pnl` for the user, syncs into
+// signal_stats, then triggers checkAndDebitTiered. For admin recovery.
+// Auth: x-internal-key header must match INTERNAL_SYNC_KEY env var.
+// ─────────────────────────────────────────────────────────────────────────
+app.post("/make-server-c4d79cb7/internal/backfill-debit", async (c) => {
+  try {
+    const internalKey = c.req.header("x-internal-key");
+    const expectedKey = Deno.env.get("INTERNAL_SYNC_KEY");
+    if (!expectedKey || internalKey !== expectedKey) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const targetUserId: string | undefined = body.userId;
+
+    // Today range
+    const today = new Date().toISOString().split('T')[0];
+    const startIso = `${today}T00:00:00.000Z`;
+
+    // Aggregate realized P&L per user from position_monitor_state for today
+    let query = supabase
+      .from('position_monitor_state')
+      .select('user_id, pnl')
+      .gte('exited_at', startIso)
+      .eq('is_active', false);
+    if (targetUserId) query = query.eq('user_id', targetUserId);
+
+    const { data: rows, error: qErr } = await query;
+    if (qErr) return c.json({ error: qErr.message }, 500);
+
+    const totals = new Map<string, number>();
+    for (const r of rows || []) {
+      const uid = (r as any).user_id;
+      const pnl = Number((r as any).pnl || 0);
+      totals.set(uid, (totals.get(uid) || 0) + pnl);
+    }
+
+    const results: any[] = [];
+    const platformOwnerEmail = Deno.env.get('PLATFORM_OWNER_EMAIL') || '';
+
+    for (const [userId, totalPnl] of totals.entries()) {
+      // Sync into signal_stats so dashboards show today's profit
+      const { data: existing } = await supabase
+        .from('signal_stats')
+        .select('id, total_pnl')
+        .eq('user_id', userId)
+        .eq('stat_date', today)
+        .maybeSingle();
+
+      if (existing) {
+        // Only bump if smaller than computed total
+        if ((existing.total_pnl || 0) < totalPnl) {
+          await supabase.from('signal_stats').update({ total_pnl: totalPnl }).eq('id', existing.id);
+        }
+      } else {
+        await supabase.from('signal_stats').insert({ user_id: userId, stat_date: today, total_pnl: totalPnl });
+      }
+
+      // Skip non-profit users
+      if (totalPnl <= 100) {
+        results.push({ userId, totalPnl, deducted: false, message: 'FREE tier (<=100)' });
+        continue;
+      }
+
+      // Resolve email
+      let email = '';
+      try {
+        const { data: u } = await supabase.auth.admin.getUserById(userId);
+        email = u?.user?.email || '';
+      } catch (_e) {}
+
+      const debit = await checkAndDebitTiered(userId, email, totalPnl, platformOwnerEmail);
+      results.push({ userId, email, totalPnl, ...debit });
+    }
+
+    return c.json({ success: true, today, results });
+  } catch (err: any) {
+    console.error('❌ [BACKFILL-DEBIT] Error:', err?.message || err);
+    return c.json({ error: err?.message || 'Internal error' }, 500);
+  }
+});
+
+
 
 // Step 1: Verify email+phone match in Supabase, then send OTP
 app.post("/make-server-c4d79cb7/auth/forgot-password", async (c) => {
