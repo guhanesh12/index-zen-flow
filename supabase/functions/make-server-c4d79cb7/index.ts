@@ -9592,7 +9592,14 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
 
 app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
   try {
-    const result = await PersistentTradingEngine.runPositionMonitorTick();
+    let targetUserId = '';
+    const authHeader = c.req.header('Authorization');
+    if (authHeader) {
+      const { user } = await validateAuth(c, 1);
+      targetUserId = user?.id || '';
+    }
+
+    const result = await PersistentTradingEngine.runPositionMonitorTick(targetUserId || undefined);
     return c.json(result);
   } catch (error: any) {
     console.error("❌ [POSITION-MONITOR] Tick failed:", error);
