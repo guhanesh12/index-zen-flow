@@ -1576,7 +1576,7 @@ class PersistentTradingEngine {
    * signal_stats and triggers tiered debit. Runs on every position close so
    * commission is deducted automatically without needing the browser open.
    */
-  private static async runWalletAutoDebit(userId: string, _state: EngineState): Promise<void> {
+  private static async runWalletAutoDebit(userId: string, _state: EngineState, runningProfit?: number): Promise<void> {
     try {
       const today = new Date().toISOString().split('T')[0];
       const { data: stats } = await supabaseAdmin
@@ -1586,8 +1586,9 @@ class PersistentTradingEngine {
         .eq('stat_date', today)
         .maybeSingle();
 
-      const todayProfit = Number(stats?.total_pnl || 0);
-      if (todayProfit <= 100) {
+      const realizedProfit = Number(stats?.total_pnl || 0);
+      const todayProfit = Math.max(realizedProfit, Number(runningProfit || 0));
+      if (todayProfit < 100) {
         return; // FREE tier
       }
 
