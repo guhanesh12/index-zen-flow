@@ -2521,8 +2521,8 @@ app.post("/make-server-c4d79cb7/place-bracket-order", async (c) => {
       targetPrice: parseFloat(targetPrice),
       stopLossPrice: parseFloat(stopLossPrice),
       exchangeSegment: exchangeSegment || 'NSE_FNO',
-      orderType: 'LIMIT',
-      productType: 'BO', // Bracket Order
+      orderType: 'MARKET',
+      productType: 'INTRADAY',
       validity: 'DAY'
     };
 
@@ -2592,8 +2592,8 @@ app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
       price: parseFloat(price),
       stopLossPrice: parseFloat(stopLossPrice),
       exchangeSegment: exchangeSegment || 'NSE_FNO',
-      orderType: 'LIMIT',
-      productType: 'CO', // Cover Order
+      orderType: 'MARKET',
+      productType: 'INTRADAY',
       validity: 'DAY'
     };
 
