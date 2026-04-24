@@ -34,19 +34,10 @@ async function unregisterServiceWorkers(): Promise<boolean> {
 }
 
 async function registerCleanupWorker(version: string) {
-  if (!('serviceWorker' in navigator)) {
-    return;
-  }
-
-  try {
-    const registration = await navigator.serviceWorker.register(`/sw.js?build=${encodeURIComponent(version)}`, {
-      scope: '/',
-    });
-
-    registration.update().catch(() => undefined);
-  } catch (error) {
-    console.warn('⚠️ Cache cleanup worker registration skipped:', error);
-  }
+  // Do not re-register a service worker here. Re-registering after cleanup made
+  // the production domain reload again on the next visit and caused double-load
+  // / stale admin-screen issues on custom domains.
+  return;
 }
 
 export async function startCacheRecovery() {
@@ -70,7 +61,7 @@ export async function startCacheRecovery() {
     sessionStorage.removeItem(CACHE_RECOVERY_RELOAD_KEY);
   }
 
-  if ((hadCaches || hadServiceWorkers) && !alreadyReloadedForVersion) {
+  if (false && (hadCaches || hadServiceWorkers) && !alreadyReloadedForVersion) {
     sessionStorage.setItem(CACHE_RECOVERY_RELOAD_KEY, version);
     const url = new URL(window.location.href);
     url.searchParams.set('v', version);

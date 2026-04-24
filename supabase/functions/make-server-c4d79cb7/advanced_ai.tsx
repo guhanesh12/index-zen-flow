@@ -1324,9 +1324,9 @@ export class AdvancedAI {
     // For stocks (with volume), we use absolute body size + volume ratio
     
     const minimumBodySize = 10; // Points for stocks
-    const minimumCandleStrength = 30; // 30% body size for indices (relaxed from strict point requirement)
+    const minimumCandleStrength = 25; // 25% body size: avoid blocking valid index continuation candles
     const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
+    const minimumVolumeRatio = adx >= 30 ? 0.15 : isVeryStrongTrend ? 0.5 : 0.8; // TradingView index volume can be synthetic/low
     
     // ⚡ CRITICAL FIX: Different validation for indices vs stocks
     let hasAcceptableQuality: boolean;
@@ -1363,7 +1363,7 @@ export class AdvancedAI {
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
     // ⚡ FIX ISSUE #7: Lower threshold to 5 for indices (volume often fails, so 6 is too strict)
-    const baseRequiredConfirmations = hasVolumeData ? 6 : 5; // Indices: 5/10, Stocks: 6/10
+    const baseRequiredConfirmations = hasVolumeData ? (adx >= 30 ? 5 : 6) : 5; // Strong index trends should not wait for 6/10
     const dominantTradeBias: 'Bullish' | 'Bearish' | 'Neutral' = confirmationBullish
       ? 'Bullish'
       : confirmationBearish
@@ -1373,7 +1373,6 @@ export class AdvancedAI {
     // 🔥 FIX: Strong trend continuation on indices was still getting stuck at 5/10.
     // If price action + regime + EMA/MACD all agree, allow 5 confirmations instead of 6.
     const strongTrendContinuationBullish =
-      hasVolumeData &&
       marketRegime.type === 'TRENDING_UP' &&
       confirmationBullish &&
       confirmations.total >= 5 &&
@@ -1384,7 +1383,6 @@ export class AdvancedAI {
       (confirmations.priceAction || confirmations.adx);
 
     const strongTrendContinuationBearish =
-      hasVolumeData &&
       marketRegime.type === 'TRENDING_DOWN' &&
       confirmationBearish &&
       confirmations.total >= 5 &&
@@ -1448,7 +1446,7 @@ export class AdvancedAI {
         confidence = Math.min(60 + (confirmations.total * 5), 95);
         bias = 'Bullish';
         reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. Low volume bypassed due to strong bullish continuation.`;
-      } else if (!hasStrongPattern && confirmations.total < 7) {
+      } else if (!hasStrongPattern && confirmations.total < requiredConfirmations) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
@@ -1457,7 +1455,17 @@ export class AdvancedAI {
         } else {
           reasoning = `WAIT: ${qualityIssues.join(' + ') || `weak candle strength (${candleStrength.toFixed(1)}%, min ${minimumCandleStrength}%)`}. Need stronger price movement.`;
         }
-      } else if (confirmations.total >= 7) {
+      } else if (dominantTradeBias === 'Bearish' && marketRegime.type === 'TRENDING_DOWN' && adx >= 30 && confirmations.total >= requiredConfirmations) {
+        action = 'BUY_PUT';
+        confidence = Math.min(60 + (confirmations.total * 5), 95);
+        bias = 'Bearish';
+        reasoning = `STRONG SELL: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. Quality blocker bypassed for strong bearish continuation (${qualityIssues.join(' + ') || 'minor quality issue'}).`;
+      } else if (dominantTradeBias === 'Bullish' && marketRegime.type === 'TRENDING_UP' && adx >= 30 && confirmations.total >= requiredConfirmations) {
+        action = 'BUY_CALL';
+        confidence = Math.min(60 + (confirmations.total * 5), 95);
+        bias = 'Bullish';
+        reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. Quality blocker bypassed for strong bullish continuation (${qualityIssues.join(' + ') || 'minor quality issue'}).`;
+      } else if (confirmations.total >= requiredConfirmations) {
         action = 'WAIT';
         confidence = 45;
         bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : 'Neutral';
