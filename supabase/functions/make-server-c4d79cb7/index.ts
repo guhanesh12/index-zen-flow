@@ -9590,6 +9590,45 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   }
 });
 
+app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
+  try {
+    const result = await PersistentTradingEngine.runPositionMonitorTick();
+    return c.json(result);
+  } catch (error: any) {
+    console.error("❌ [POSITION-MONITOR] Tick failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/position-monitor/update", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || 'Unauthorized' }, 401);
+
+    const body = await c.req.json();
+    const orderId = String(body.orderId || '').trim();
+    const targetAmount = Number(body.targetAmount);
+    const stopLossAmount = Number(body.stopLossAmount);
+
+    if (!orderId || !Number.isFinite(targetAmount) || !Number.isFinite(stopLossAmount)) {
+      return c.json({ error: 'orderId, targetAmount and stopLossAmount are required' }, 400);
+    }
+
+    const { error: updateError } = await supabase
+      .from('position_monitor_state')
+      .update({ target_amount: targetAmount, stop_loss_amount: stopLossAmount })
+      .eq('user_id', user.id)
+      .eq('order_id', orderId)
+      .eq('is_active', true);
+
+    if (updateError) return c.json({ error: updateError.message }, 500);
+    return c.json({ success: true, orderId, targetAmount, stopLossAmount });
+  } catch (error: any) {
+    console.error('❌ Position update failed:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // Native Deno cron disabled here to avoid duplicate engine ticks.
 
 // ─────────────────────────────────────────────────────────────────────────
