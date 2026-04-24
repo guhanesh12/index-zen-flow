@@ -6166,9 +6166,27 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
         const brokerFunds = brokerFundsData?.availableBalance !== undefined 
           ? brokerFundsData.availableBalance 
           : 0;
-        
-        // ✅ Today's Profit: Prioritize daily_profit (tiered system) over daily_pnl
-        const todayProfit = dailyProfit?.profit || dailyPnl?.totalPnL || 0;
+
+        // ✅ Today's Profit: use REAL Dhan positions P&L, not wallet/system estimates.
+        // The old daily_profit/daily_pnl keys can include repeated system-calculated values
+        // from failed/closed loops, so admin should show broker truth only.
+        let realDhanTodayProfit = 0;
+        if (credentials?.dhanClientId && credentials?.dhanAccessToken) {
+          try {
+            const dhanService = new DhanService({
+              clientId: credentials.dhanClientId,
+              accessToken: credentials.dhanAccessToken,
+            });
+            const dhanPositions = await dhanService.getPositions();
+            realDhanTodayProfit = (dhanPositions || []).reduce((sum: number, position: any) => {
+              const pnl = Number(position?.pnl ?? 0);
+              return sum + (Number.isFinite(pnl) ? pnl : 0);
+            }, 0);
+          } catch (dhanPnlError: any) {
+            console.warn(`⚠️ Could not fetch real Dhan P&L for ${userId}:`, dhanPnlError?.message || dhanPnlError);
+            realDhanTodayProfit = 0;
+          }
+        }
         
         // ✅ Total/Cumulative P&L from lifetime tracking
         const totalPnL = cumulativePnl || 0;
@@ -6189,7 +6207,7 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
           communityId: userProfile?.communityId || authUser.user_metadata?.communityId || 'N/A',
           wallet: wallet?.balance || 0,
           brokerBalance: brokerFunds,
-          dailyPnL: todayProfit,
+          dailyPnL: realDhanTodayProfit,
           totalPnL: totalPnL,
           engineRunning: engineStatus || false,
           isActive: isActive,
