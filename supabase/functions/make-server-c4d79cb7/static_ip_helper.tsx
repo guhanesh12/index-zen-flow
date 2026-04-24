@@ -113,16 +113,16 @@ export async function placeOrderViaStaticIP(
     securityId: String(orderDetails.securityId || ""),
     transactionType: orderDetails.transactionType || "BUY",
     exchangeSegment: orderDetails.exchangeSegment || "NSE_FNO",
-    productType: orderDetails.productType || "INTRADAY",
-    orderType: orderDetails.orderType || "MARKET",
+    productType: "INTRADAY",
+    orderType: "MARKET",
     validity: orderDetails.validity || "DAY",
     quantity: orderDetails.quantity,
     correlationId:
       orderDetails.correlationId ||
       `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     disclosedQuantity: orderDetails.disclosedQuantity || 0,
-    price: orderDetails.price || 0,
-    triggerPrice: orderDetails.triggerPrice || 0,
+    price: 0,
+    triggerPrice: 0,
     afterMarketOrder: orderDetails.afterMarketOrder || false,
     ...(orderDetails.amoTime && { amoTime: orderDetails.amoTime }),
     ...(orderDetails.boProfitValue && {
