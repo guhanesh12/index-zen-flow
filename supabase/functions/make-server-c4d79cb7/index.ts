@@ -3149,17 +3149,14 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       exchangeSegment: exchangeSegment, // ⚡ Using migrated value
       productType: 'INTRADAY',
       orderType: 'MARKET',
-      validity: orderRequest.validity,
-      quantity: orderRequest.quantity,
-      disclosedQuantity: orderRequest.disclosedQuantity,
+      validity: 'DAY',
+      quantity: Math.max(1, Number(orderRequest.quantity) || 0),
+      disclosedQuantity: 0,
       price: 0,
       triggerPrice: 0,
-      afterMarketOrder: orderRequest.afterMarketOrder,
+      afterMarketOrder: Boolean(orderRequest.afterMarketOrder),
       // ✅ Only include amoTime if AMO is enabled
-      ...(orderRequest.afterMarketOrder && orderRequest.amoTime ? { amoTime: orderRequest.amoTime } : {}),
-      // ✅ Only include BO/CO fields if relevant
-      ...(orderRequest.productType === 'BO' && orderRequest.boProfitValue ? { boProfitValue: orderRequest.boProfitValue } : {}),
-      ...((orderRequest.productType === 'BO' || orderRequest.productType === 'CO') && orderRequest.boStopLossValue ? { boStopLossValue: orderRequest.boStopLossValue } : {})
+      ...(orderRequest.afterMarketOrder && orderRequest.amoTime ? { amoTime: orderRequest.amoTime } : {})
     };
 
     console.log(`🔍 Forwarding to Static IP server with:`, JSON.stringify(cleanedOrderRequest, null, 2));
