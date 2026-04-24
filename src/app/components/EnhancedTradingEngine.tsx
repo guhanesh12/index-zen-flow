@@ -783,8 +783,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         stopEngine(false);
       }
       
-      // ⚡ SYNC POSITIONS FROM BACKEND (merge with local)
-      if (data.positions && data.positions.length > 0) {
+      // ⚡ SYNC POSITIONS FROM BACKEND (replace local with backend source of truth)
+      if (data.positions) {
         const backendPositions: ActivePosition[] = data.positions.map((p: any) => ({
           symbolId: p.symbol_id || p.order_id,
           orderId: p.order_id,
@@ -811,27 +811,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           exchangeSegment: p.exchange_segment || 'NSE_FNO'
         }));
         
-        // Merge: add backend positions not already tracked locally
+        const backendOrderIds = new Set(backendPositions.map(p => p.orderId));
         const currentOrderIds = new Set(activePositionsRef.current.map(p => p.orderId));
-        const newPositions = backendPositions.filter(p => !currentOrderIds.has(p.orderId));
-        
-        if (newPositions.length > 0) {
-          console.log(`☁️ Syncing ${newPositions.length} new positions from backend`);
-          const merged = [...activePositionsRef.current, ...newPositions];
-          setActivePositions(merged);
-          activePositionsRef.current = merged;
-          ensureMonitoringStatusInitialized(newPositions);
+        const hasChanged = backendPositions.length !== activePositionsRef.current.length || backendPositions.some(p => {
+          const current = activePositionsRef.current.find(existing => existing.orderId === p.orderId);
+          return !current || current.pnl !== p.pnl || current.currentPrice !== p.currentPrice || current.currentTarget !== p.currentTarget || current.currentStopLoss !== p.currentStopLoss;
+        });
+
+        if (hasChanged) {
+          setActivePositions(backendPositions);
+          activePositionsRef.current = backendPositions;
+          ensureMonitoringStatusInitialized(backendPositions.filter(p => !currentOrderIds.has(p.orderId)));
           ensurePositionMonitorLoop();
         }
-        
-        // Update P&L from backend for existing positions
-        backendPositions.forEach(bp => {
-          const localPos = activePositionsRef.current.find(p => p.orderId === bp.orderId);
-          if (localPos && bp.pnl !== localPos.pnl) {
-            localPos.pnl = bp.pnl;
-            localPos.currentPrice = bp.currentPrice;
-          }
-        });
+
+        if (backendOrderIds.size === 0) clearPositionMonitorLoop();
       }
       
       // ⚡ SYNC STATS FROM BACKEND (for performance section)
