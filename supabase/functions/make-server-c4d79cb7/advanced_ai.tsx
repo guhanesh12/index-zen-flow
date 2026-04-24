@@ -1321,54 +1321,62 @@ export class AdvancedAI {
   }
   
   /**
-   * ⚡⚡⚡ ANALYZE MARKET - WRAPPER FOR PERSISTENT ENGINE ⚡⚡⚡
-   * 
-   * This method fetches OHLC data and generates signal
-   * Used by the persistent trading engine
+   * ⚡⚡⚡ ANALYZE MARKET WRAPPER - FETCHES DATA & GENERATES SIGNAL ⚡⚡⚡
    */
   public static async analyzeMarket(
+    dhanService: any,
     index: string,
-    candleInterval: '5' | '15',
+    candleInterval: string,
     accountBalance: number = 100000
-  ): Promise<{ success: boolean; signal: AdvancedSignal | null; error?: string }> {
+  ): Promise<{ signal: AdvancedSignal; ohlcData: OHLCCandle[] } | null> {
     try {
-      console.log(`\n🤖 AI ANALYZING: ${index} | Interval: ${candleInterval}M`);
-      
-      // Import DhanService dynamically
-      const { DhanService } = await import('./dhan_service.tsx');
-      const kv = await import('./kv_store.tsx');
-      
-      // Get Dhan credentials from environment/KV store
-      // Note: This assumes credentials are stored or passed through engine config
-      // For now, we'll return an error if this is called without proper setup
-      
-      // Security ID mapping
-      const securityIdMap: { [key: string]: string } = {
-        'NIFTY': '13',
-        'BANKNIFTY': '25',
-        'FINNIFTY': '27',
-        'MIDCPNIFTY': '288'
+      console.log(`\n🔍 [AdvancedAI] analyzeMarket() called for ${index} (${candleInterval}M)`);
+
+      const getSecurityId = (idx: string): string => {
+        if (idx === 'NIFTY') return '13';
+        if (idx === 'BANKNIFTY') return '25';
+        if (idx === 'SENSEX') return '51';
+        if (idx === 'FINNIFTY') return '27';
+        if (idx === 'MIDCPNIFTY') return '288';
+        return '13';
       };
-      
-      const securityId = securityIdMap[index.toUpperCase()] || '13';
-      
-      console.log(`⚠️ WARNING: analyzeMarket requires DhanService instance to be passed.`);
-      console.log(`   This method should not be called directly from persistent_engine.`);
-      console.log(`   Use the corrected implementation that passes dhanService instance.`);
-      
-      return {
-        success: false,
-        signal: null,
-        error: 'Method requires refactoring - use generateAdvancedSignal with OHLC data'
-      };
-      
+
+      const securityId = getSecurityId(index.toUpperCase());
+      console.log(`📊 [AdvancedAI] Security ID: ${securityId} for ${index}`);
+      console.log(`📡 [AdvancedAI] Fetching OHLC data...`);
+
+      const rawData = await dhanService.getOHLCData(securityId, candleInterval, 250);
+      if (!rawData || rawData.length === 0) {
+        console.error(`❌ [AdvancedAI] No OHLC data received for ${index}`);
+        return null;
+      }
+
+      const ohlcData: OHLCCandle[] = rawData.map((candle: any) => ({
+        timestamp: candle.timestamp || new Date(candle.start_time).getTime(),
+        open: parseFloat(candle.open),
+        high: parseFloat(candle.high),
+        low: parseFloat(candle.low),
+        close: parseFloat(candle.close),
+        volume: parseFloat(candle.volume || 0)
+      }));
+
+      const analysisCandles = ohlcData.length > 3 ? ohlcData.slice(0, -1) : ohlcData;
+      const analyzedCandle = analysisCandles[analysisCandles.length - 1];
+
+      if (analysisCandles.length !== ohlcData.length) {
+        const liveCandle = ohlcData[ohlcData.length - 1];
+        console.log(`⏱️ [AdvancedAI] Ignoring live candle: ${new Date(liveCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | volume=${liveCandle.volume}`);
+      }
+
+      console.log(`📊 [AdvancedAI] Using closed candle: ${new Date(analyzedCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | close=${analyzedCandle.close} | volume=${analyzedCandle.volume}`);
+
+      const signal = this.generateAdvancedSignal(analysisCandles, accountBalance);
+      console.log(`✅ [AdvancedAI] Signal generated: ${signal.action} (${signal.confidence}% confidence)`);
+
+      return { signal, ohlcData: analysisCandles };
     } catch (error) {
-      console.error('❌ AI Analysis Error:', error);
-      return {
-        success: false,
-        signal: null,
-        error: String(error)
-      };
+      console.error(`❌ [AdvancedAI] analyzeMarket() error:`, error);
+      return null;
     }
   }
 }
