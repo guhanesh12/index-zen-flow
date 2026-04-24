@@ -11,6 +11,65 @@
 
 import * as kv from "./kv_store.tsx";
 
+const REQUIRED_ORDER_SERVER_VERSION = "1.1.0";
+
+function compareSemver(a: string, b: string): number {
+  const aParts = String(a || "0.0.0").split('.').map((part) => parseInt(part, 10) || 0);
+  const bParts = String(b || "0.0.0").split('.').map((part) => parseInt(part, 10) || 0);
+  const maxLength = Math.max(aParts.length, bParts.length);
+
+  for (let i = 0; i < maxLength; i++) {
+    const aValue = aParts[i] || 0;
+    const bValue = bParts[i] || 0;
+    if (aValue > bValue) return 1;
+    if (aValue < bValue) return -1;
+  }
+
+  return 0;
+}
+
+async function assertMarketOnlyVpsServer(ipAddress: string): Promise<void> {
+  const healthEndpoint = `http://${ipAddress}:3000/health`;
+
+  try {
+    const response = await fetch(healthEndpoint, {
+      signal: AbortSignal.timeout(4000),
+      headers: {
+        "Cache-Control": "no-cache",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Health check failed with HTTP ${response.status}`);
+    }
+
+    const healthData = await response.json().catch(() => ({}));
+    const version = String(healthData?.version || "0.0.0");
+    const marketOnlyEnforced = healthData?.marketOnlyEnforced === true;
+
+    if (!marketOnlyEnforced || compareSemver(version, REQUIRED_ORDER_SERVER_VERSION) < 0) {
+      const outdatedError = new Error(
+        `OUTDATED_VPS_SERVER:Your VPS order server is outdated and may still send limit orders. ` +
+        `Current version: ${version || 'unknown'}. Required version: ${REQUIRED_ORDER_SERVER_VERSION}. ` +
+        `Please redeploy or restart your VPS order server before placing orders.`
+      );
+      (outdatedError as any).code = "OUTDATED_VPS_SERVER";
+      (outdatedError as any).vpsIP = ipAddress;
+      (outdatedError as any).serverVersion = version;
+      throw outdatedError;
+    }
+  } catch (error: any) {
+    if (error?.code === "OUTDATED_VPS_SERVER" || error?.message?.startsWith("OUTDATED_VPS_SERVER:")) {
+      throw error;
+    }
+
+    throw new Error(
+      `Cannot verify your dedicated VPS order server at ${ipAddress}:3000. ` +
+      `Please ensure the latest market-only order server is running on your VPS.`
+    );
+  }
+}
+
 function normalizeOrderPlacementResponse(result: any) {
   const correlationId =
     result?.correlationId ??
@@ -104,6 +163,8 @@ export async function placeOrderViaStaticIP(
   console.log(
     `📍 [ORDER ROUTING] User ${userId.substring(0, 8)} → Dedicated IP: ${userIP.ipAddress}`
   );
+
+  await assertMarketOnlyVpsServer(userIP.ipAddress);
 
   const endpoint = `http://${userIP.ipAddress}:3000/place-order`;
 
@@ -238,7 +299,8 @@ export async function placeOrderViaStaticIP(
     // Re-throw known structured errors immediately — retries won't help
     if (
       err.code === "IP_WHITELIST_PENDING" || err.message?.startsWith("IP_WHITELIST_PENDING:") ||
-      err.code === "TOKEN_EXPIRED" || err.message?.startsWith("TOKEN_EXPIRED:")
+      err.code === "TOKEN_EXPIRED" || err.message?.startsWith("TOKEN_EXPIRED:") ||
+      err.code === "OUTDATED_VPS_SERVER" || err.message?.startsWith("OUTDATED_VPS_SERVER:")
     ) {
       throw err;
     }

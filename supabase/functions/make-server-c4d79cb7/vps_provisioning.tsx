@@ -50,6 +50,7 @@ interface ProvisioningJob {
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
 const DEDICATED_IP_MONTHLY_FEE = 599;
+const ORDER_SERVER_VERSION = '1.1.0';
 
 async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
   try {
@@ -301,10 +302,11 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     service: 'indexpilot-order-server',
-    version: '1.0.0',
+    version: '${ORDER_SERVER_VERSION}',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    apiKeyConfigured: !!ORDER_SERVER_API_KEY
+    apiKeyConfigured: !!ORDER_SERVER_API_KEY,
+    marketOnlyEnforced: true
   });
 });
 
@@ -312,9 +314,10 @@ app.get('/health', (req, res) => {
 app.get('/test', (req, res) => {
   res.json({
     message: 'IndexpilotAI Order Server is running!',
-    version: '1.0.0',
+    version: '${ORDER_SERVER_VERSION}',
     timestamp: new Date().toISOString(),
     apiKeyConfigured: !!ORDER_SERVER_API_KEY,
+    marketOnlyEnforced: true,
     endpoints: {
       health: '/health',
       placeOrder: '/place-order (POST)',
@@ -468,7 +471,7 @@ SERVEREOF
 cat > package.json << 'PACKAGEEOF'
 {
   "name": "indexpilot-order-server",
-  "version": "1.0.0",
+  "version": "${ORDER_SERVER_VERSION}",
   "description": "IndexpilotAI Order Placement Server - Auto-deployed",
   "main": "server.js",
   "scripts": {

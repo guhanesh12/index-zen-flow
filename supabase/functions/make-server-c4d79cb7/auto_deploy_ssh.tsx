@@ -5,6 +5,8 @@
  * 100% AUTOMATIC - NO HUMAN INTERVENTION NEEDED!
  */
 
+const ORDER_SERVER_VERSION = '1.1.0';
+
 /**
  * Generate SSH deployment script (runs automatically via SSH)
  */
@@ -54,8 +56,10 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     service: 'indexpilot-order-server',
+    version: '${ORDER_SERVER_VERSION}',
     uptime: process.uptime(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    marketOnlyEnforced: true
   });
 });
 
@@ -73,11 +77,19 @@ app.post('/place-order', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    log(\`📤 Placing order for user \${userId}\`);
+    const sanitizedOrderDetails = {
+      ...orderDetails,
+      productType: 'INTRADAY',
+      orderType: 'MARKET',
+      price: 0,
+      triggerPrice: 0,
+    };
+
+    log(\`📤 Placing MARKET order for user \${userId}\`);
 
     const response = await axios.post(
       'https://api.dhan.co/v2/orders',
-      orderDetails,
+      sanitizedOrderDetails,
       {
         headers: {
           'access-token': accessToken,
@@ -111,7 +123,7 @@ SERVEREOF
 cat > package.json << 'PACKAGEEOF'
 {
   "name": "indexpilot-order-server",
-  "version": "1.0.0",
+  "version": "${ORDER_SERVER_VERSION}",
   "dependencies": {
     "express": "^4.18.2",
     "axios": "^1.6.0",
