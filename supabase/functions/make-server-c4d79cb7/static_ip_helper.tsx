@@ -13,6 +13,12 @@ import * as kv from "./kv_store.tsx";
 
 const REQUIRED_ORDER_SERVER_VERSION = "1.1.0";
 
+type VpsServerInspection = {
+  version: string;
+  marketOnlyEnforced: boolean;
+  isOutdated: boolean;
+};
+
 function compareSemver(a: string, b: string): number {
   const aParts = String(a || "0.0.0").split('.').map((part) => parseInt(part, 10) || 0);
   const bParts = String(b || "0.0.0").split('.').map((part) => parseInt(part, 10) || 0);
@@ -28,7 +34,37 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-async function assertMarketOnlyVpsServer(ipAddress: string): Promise<void> {
+function buildMarketOnlyOrderDetails(
+  credentials: { dhanClientId: string; dhanAccessToken: string },
+  orderDetails: any
+) {
+  return {
+    dhanClientId: credentials.dhanClientId,
+    securityId: String(orderDetails.securityId || ""),
+    transactionType: orderDetails.transactionType || "BUY",
+    exchangeSegment: orderDetails.exchangeSegment || "NSE_FNO",
+    productType: "INTRADAY",
+    orderType: "MARKET",
+    validity: orderDetails.validity || "DAY",
+    quantity: orderDetails.quantity,
+    correlationId:
+      orderDetails.correlationId ||
+      `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    disclosedQuantity: orderDetails.disclosedQuantity || 0,
+    price: 0,
+    triggerPrice: 0,
+    afterMarketOrder: orderDetails.afterMarketOrder || false,
+    ...(orderDetails.amoTime && { amoTime: orderDetails.amoTime }),
+    ...(orderDetails.boProfitValue && {
+      boProfitValue: orderDetails.boProfitValue,
+    }),
+    ...(orderDetails.boStopLossValue && {
+      boStopLossValue: orderDetails.boStopLossValue,
+    }),
+  };
+}
+
+async function inspectVpsOrderServer(ipAddress: string): Promise<VpsServerInspection> {
   const healthEndpoint = `http://${ipAddress}:3000/health`;
 
   try {
@@ -47,22 +83,12 @@ async function assertMarketOnlyVpsServer(ipAddress: string): Promise<void> {
     const version = String(healthData?.version || "0.0.0");
     const marketOnlyEnforced = healthData?.marketOnlyEnforced === true;
 
-    if (!marketOnlyEnforced || compareSemver(version, REQUIRED_ORDER_SERVER_VERSION) < 0) {
-      const outdatedError = new Error(
-        `OUTDATED_VPS_SERVER:Your VPS order server is outdated and may still send limit orders. ` +
-        `Current version: ${version || 'unknown'}. Required version: ${REQUIRED_ORDER_SERVER_VERSION}. ` +
-        `Please redeploy or restart your VPS order server before placing orders.`
-      );
-      (outdatedError as any).code = "OUTDATED_VPS_SERVER";
-      (outdatedError as any).vpsIP = ipAddress;
-      (outdatedError as any).serverVersion = version;
-      throw outdatedError;
-    }
+    return {
+      version,
+      marketOnlyEnforced,
+      isOutdated: !marketOnlyEnforced || compareSemver(version, REQUIRED_ORDER_SERVER_VERSION) < 0,
+    };
   } catch (error: any) {
-    if (error?.code === "OUTDATED_VPS_SERVER" || error?.message?.startsWith("OUTDATED_VPS_SERVER:")) {
-      throw error;
-    }
-
     throw new Error(
       `Cannot verify your dedicated VPS order server at ${ipAddress}:3000. ` +
       `Please ensure the latest market-only order server is running on your VPS.`
@@ -164,35 +190,19 @@ export async function placeOrderViaStaticIP(
     `📍 [ORDER ROUTING] User ${userId.substring(0, 8)} → Dedicated IP: ${userIP.ipAddress}`
   );
 
-  await assertMarketOnlyVpsServer(userIP.ipAddress);
+  const vpsInspection = await inspectVpsOrderServer(userIP.ipAddress);
+  if (vpsInspection.isOutdated) {
+    console.warn(
+      `⚠️ [DEDICATED IP] Legacy VPS server detected at ${userIP.ipAddress} ` +
+      `(version ${vpsInspection.version}, marketOnlyEnforced=${vpsInspection.marketOnlyEnforced}). ` +
+      `Continuing with edge-enforced MARKET payload for automatic compatibility.`
+    );
+  }
 
   const endpoint = `http://${userIP.ipAddress}:3000/place-order`;
 
   // ── Step 2: Build the order payload ────────────────────────
-  const dhanOrderDetails = {
-    dhanClientId: credentials.dhanClientId,
-    securityId: String(orderDetails.securityId || ""),
-    transactionType: orderDetails.transactionType || "BUY",
-    exchangeSegment: orderDetails.exchangeSegment || "NSE_FNO",
-    productType: "INTRADAY",
-    orderType: "MARKET",
-    validity: orderDetails.validity || "DAY",
-    quantity: orderDetails.quantity,
-    correlationId:
-      orderDetails.correlationId ||
-      `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    disclosedQuantity: orderDetails.disclosedQuantity || 0,
-    price: 0,
-    triggerPrice: 0,
-    afterMarketOrder: orderDetails.afterMarketOrder || false,
-    ...(orderDetails.amoTime && { amoTime: orderDetails.amoTime }),
-    ...(orderDetails.boProfitValue && {
-      boProfitValue: orderDetails.boProfitValue,
-    }),
-    ...(orderDetails.boStopLossValue && {
-      boStopLossValue: orderDetails.boStopLossValue,
-    }),
-  };
+  const dhanOrderDetails = buildMarketOnlyOrderDetails(credentials, orderDetails);
 
   console.log(`📤 [DEDICATED IP] Sending to: ${endpoint}`);
 
@@ -299,8 +309,7 @@ export async function placeOrderViaStaticIP(
     // Re-throw known structured errors immediately — retries won't help
     if (
       err.code === "IP_WHITELIST_PENDING" || err.message?.startsWith("IP_WHITELIST_PENDING:") ||
-      err.code === "TOKEN_EXPIRED" || err.message?.startsWith("TOKEN_EXPIRED:") ||
-      err.code === "OUTDATED_VPS_SERVER" || err.message?.startsWith("OUTDATED_VPS_SERVER:")
+      err.code === "TOKEN_EXPIRED" || err.message?.startsWith("TOKEN_EXPIRED:")
     ) {
       throw err;
     }
