@@ -81,11 +81,28 @@ app.post('/place-order', async (req, res) => {
       ...orderDetails,
       productType: 'INTRADAY',
       orderType: 'MARKET',
+      validity: 'DAY',
+      disclosedQuantity: 0,
       price: 0,
       triggerPrice: 0,
     };
 
     log(\`📤 Placing MARKET order for user \${userId}\`);
+    log(\`🛡️ Sanitized broker payload: \${JSON.stringify({
+      securityId: sanitizedOrderDetails.securityId,
+      transactionType: sanitizedOrderDetails.transactionType,
+      exchangeSegment: sanitizedOrderDetails.exchangeSegment,
+      productType: sanitizedOrderDetails.productType,
+      orderType: sanitizedOrderDetails.orderType,
+      validity: sanitizedOrderDetails.validity,
+      quantity: sanitizedOrderDetails.quantity,
+      disclosedQuantity: sanitizedOrderDetails.disclosedQuantity,
+      price: sanitizedOrderDetails.price,
+      triggerPrice: sanitizedOrderDetails.triggerPrice,
+      afterMarketOrder: sanitizedOrderDetails.afterMarketOrder,
+      hasAmoTime: Boolean(sanitizedOrderDetails.amoTime),
+      hasBracketFields: false
+    })}\`);
 
     const response = await axios.post(
       'https://api.dhan.co/v2/orders',
