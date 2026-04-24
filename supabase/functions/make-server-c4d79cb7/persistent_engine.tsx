@@ -903,6 +903,10 @@ class PersistentTradingEngine {
                   quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
                   targetAmount: symbol.targetAmount || 500,
                   stopLossAmount: symbol.stopLossAmount || 300,
+                  trailingEnabled: symbol.trailingEnabled || false,
+                  trailingActivationAmount: symbol.trailingActivationAmount || 0,
+                  targetJumpAmount: symbol.targetJumpAmount || 0,
+                  stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
                   pnl: 0,
                   entryTime: Date.now(),
                   status: 'ACTIVE'
