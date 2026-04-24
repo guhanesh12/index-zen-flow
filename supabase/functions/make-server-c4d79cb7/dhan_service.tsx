@@ -965,17 +965,41 @@ export class DhanService {
       }
       
       // Map positions silently
-      const mappedPositions = positionsArray.map((pos: any) => ({
+      const mappedPositions = await Promise.all(positionsArray.map(async (pos: any) => {
+        const securityId = String(pos.securityId || '');
+        const exchangeSegment = pos.exchangeSegment || pos.exchange || (String(pos.tradingSymbol || '').includes('SENSEX') ? 'BSE_FNO' : 'NSE_FNO');
+        let livePrice = parseFloat(pos.lastPrice || pos.ltp || pos.lastTradedPrice || pos.currentPrice || 0);
+
+        if ((!livePrice || livePrice <= 0) && securityId) {
+          try {
+            const quote = await this.getMarketQuote(securityId, exchangeSegment);
+            livePrice = Number(quote?.ltp || quote?.close || 0);
+          } catch (quoteError) {
+            console.warn(`⚠️ Position live quote fallback failed for ${securityId}:`, quoteError?.message || quoteError);
+          }
+        }
+
+        const netQty = Number(pos.netQty ?? (Number(pos.buyQty || 0) - Number(pos.sellQty || 0)));
+        const avgPrice = parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || pos.costPrice || 0);
+        const apiUnrealized = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || pos.unrealizedPnL || 0);
+        const computedUnrealized = avgPrice && livePrice && netQty ? (livePrice - avgPrice) * netQty : 0;
+
+        return {
         // Preserve all original Dhan API fields
         ...pos,
         // Add normalized fields for easier access
-        securityId: pos.securityId,
-        quantity: parseInt(pos.netQty || 0),
-        averagePrice: parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || 0),
-        currentPrice: parseFloat(pos.ltp || 0),
-        pnl: parseFloat(pos.realizedProfit || 0) + parseFloat(pos.unrealizedProfit || 0),
+        securityId,
+        exchangeSegment,
+        lastPrice: livePrice,
+        ltp: livePrice,
+        quantity: netQty,
+        averagePrice: avgPrice,
+        currentPrice: livePrice,
+        pnl: parseFloat(pos.realizedProfit || 0) + (apiUnrealized || computedUnrealized),
         realizedPnl: parseFloat(pos.realizedProfit || 0),
-        unrealizedPnl: parseFloat(pos.unrealizedProfit || 0)
+        unrealizedPnl: apiUnrealized || computedUnrealized,
+        unrealizedProfit: apiUnrealized || computedUnrealized
+        };
       }));
       
       return mappedPositions;
