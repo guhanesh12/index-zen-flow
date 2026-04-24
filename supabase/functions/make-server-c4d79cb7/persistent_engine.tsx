@@ -432,6 +432,55 @@ class PersistentTradingEngine {
     }
   }
 
+  static async runPositionMonitorTick(): Promise<any> {
+    const startedAt = Date.now();
+    let monitoredCount = 0;
+
+    const { data: activePositions, error } = await supabaseAdmin
+      .from('position_monitor_state')
+      .select('user_id')
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('❌ [POSITION-MONITOR] Failed loading active positions:', error);
+      return { success: false, error: error.message };
+    }
+
+    const userIds = Array.from(new Set((activePositions || []).map((p: any) => p.user_id).filter(Boolean)));
+
+    for (const userId of userIds) {
+      if (this.monitorLoops.has(userId)) continue;
+
+      const loop = (async () => {
+        const credentials = await kv.get(`api_credentials:${userId}`);
+        if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;
+
+        const dhanService = new DhanService({ clientId: credentials.dhanClientId, accessToken: credentials.dhanAccessToken });
+        const state = this.engineStates.get(userId) || {
+          isRunning: false,
+          userId,
+          candleInterval: '15',
+          symbols: [],
+          lastProcessedCandle: '',
+          activePositions: [],
+          stats: { totalSignals: 0, totalOrders: 0, totalPnL: 0 },
+          startTime: startedAt,
+          lastHeartbeat: startedAt,
+          dhanClientId: credentials.dhanClientId,
+          dhanAccessToken: credentials.dhanAccessToken,
+        } as EngineState;
+
+        await this.monitorPositions(userId, dhanService, state);
+        await kv.set(`engine_state_${userId}`, state);
+      })().finally(() => this.monitorLoops.delete(userId));
+
+      this.monitorLoops.set(userId, loop);
+      monitoredCount++;
+    }
+
+    return { success: true, intervalMs: this.POSITION_MONITOR_INTERVAL_MS, monitored: monitoredCount };
+  }
+
   /**
    * Fallback: run cron from KV store (legacy)
    */
