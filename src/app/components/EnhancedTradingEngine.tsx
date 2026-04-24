@@ -1868,7 +1868,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     setEditValues({ target: '', stopLoss: '' });
   };
 
-  const saveEditPosition = () => {
+  const saveEditPosition = async () => {
     if (!editingPosition) return;
     
     const newTarget = parseFloat(editValues.target);
@@ -1908,6 +1908,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.error('Failed to update position metadata:', err);
     }
     
+    try {
+      const freshToken = await getFreshAccessToken();
+      await fetch(`${serverUrl}/position-monitor/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${freshToken}`
+        },
+        body: JSON.stringify({ orderId: editingPosition, targetAmount: newTarget, stopLossAmount: newStopLoss })
+      });
+      await syncEngineState();
+    } catch (error) {
+      console.error('Failed to sync edited position to backend:', error);
+    }
+
     console.log(`✏️ Position ${position?.symbolName || editingPosition} updated - New Target: ₹${newTarget}, New SL: ₹${newStopLoss}`);
     
     onLog({
