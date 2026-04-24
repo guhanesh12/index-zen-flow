@@ -2480,6 +2480,11 @@ app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
       return c.json({ error: cleanMsg, errorCode: "TOKEN_EXPIRED" }, 400);
     }
 
+    if (error.code === "OUTDATED_VPS_SERVER" || error.message?.includes("OUTDATED_VPS_SERVER:")) {
+      const cleanMsg = error.message.replace("OUTDATED_VPS_SERVER:", "").trim();
+      return c.json({ error: cleanMsg, errorCode: "OUTDATED_VPS_SERVER", vpsIP: error.vpsIP, serverVersion: error.serverVersion }, 400);
+    }
+
     return c.json({ error: `Trade execution failed: ${error.message || error}` }, 500);
   }
 });
@@ -3092,6 +3097,10 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
     if (error.code === "TOKEN_EXPIRED" || error.message?.includes("TOKEN_EXPIRED:")) {
       const cleanMsg = error.message.replace("TOKEN_EXPIRED:", "").trim();
       return c.json({ error: cleanMsg, errorCode: "TOKEN_EXPIRED" }, 400);
+    }
+    if (error.code === "OUTDATED_VPS_SERVER" || error.message?.includes("OUTDATED_VPS_SERVER:")) {
+      const cleanMsg = error.message.replace("OUTDATED_VPS_SERVER:", "").trim();
+      return c.json({ error: cleanMsg, errorCode: "OUTDATED_VPS_SERVER", vpsIP: error.vpsIP, serverVersion: error.serverVersion }, 400);
     }
     return c.json({ error: `Failed to place order: ${error.message}` }, 500);
   }
