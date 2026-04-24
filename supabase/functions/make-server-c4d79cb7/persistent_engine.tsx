@@ -99,6 +99,10 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
       active: row.raw_data?.active ?? true,
       targetAmount: row.raw_data?.targetAmount ?? 500,
       stopLossAmount: row.raw_data?.stopLossAmount ?? 300,
+      trailingEnabled: row.raw_data?.trailingEnabled ?? false,
+      trailingActivationAmount: row.raw_data?.trailingActivationAmount ?? 0,
+      targetJumpAmount: row.raw_data?.targetJumpAmount ?? 0,
+      stopLossJumpAmount: row.raw_data?.stopLossJumpAmount ?? 0,
     }));
   } catch (error) {
     console.error(`❌ Unexpected error loading user symbols for ${userId}:`, error);
