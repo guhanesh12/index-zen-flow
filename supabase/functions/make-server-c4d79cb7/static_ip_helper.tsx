@@ -38,6 +38,8 @@ function buildMarketOnlyOrderDetails(
   credentials: { dhanClientId: string; dhanAccessToken: string },
   orderDetails: any
 ) {
+  const normalizedQuantity = Math.max(1, Number(orderDetails.quantity) || 0);
+
   return {
     dhanClientId: credentials.dhanClientId,
     securityId: String(orderDetails.securityId || ""),
@@ -45,22 +47,18 @@ function buildMarketOnlyOrderDetails(
     exchangeSegment: orderDetails.exchangeSegment || "NSE_FNO",
     productType: "INTRADAY",
     orderType: "MARKET",
-    validity: orderDetails.validity || "DAY",
-    quantity: orderDetails.quantity,
+    validity: "DAY",
+    quantity: normalizedQuantity,
     correlationId:
       orderDetails.correlationId ||
       `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    disclosedQuantity: orderDetails.disclosedQuantity || 0,
+    disclosedQuantity: 0,
     price: 0,
     triggerPrice: 0,
-    afterMarketOrder: orderDetails.afterMarketOrder || false,
-    ...(orderDetails.amoTime && { amoTime: orderDetails.amoTime }),
-    ...(orderDetails.boProfitValue && {
-      boProfitValue: orderDetails.boProfitValue,
-    }),
-    ...(orderDetails.boStopLossValue && {
-      boStopLossValue: orderDetails.boStopLossValue,
-    }),
+    afterMarketOrder: Boolean(orderDetails.afterMarketOrder),
+    ...(orderDetails.afterMarketOrder && orderDetails.amoTime
+      ? { amoTime: orderDetails.amoTime }
+      : {}),
   };
 }
 
@@ -203,6 +201,23 @@ export async function placeOrderViaStaticIP(
 
   // ── Step 2: Build the order payload ────────────────────────
   const dhanOrderDetails = buildMarketOnlyOrderDetails(credentials, orderDetails);
+
+  console.log(
+    `🛡️ [DEDICATED IP] Market-only payload enforced for ${userId.substring(0, 8)}:`,
+    JSON.stringify({
+      securityId: dhanOrderDetails.securityId,
+      transactionType: dhanOrderDetails.transactionType,
+      exchangeSegment: dhanOrderDetails.exchangeSegment,
+      productType: dhanOrderDetails.productType,
+      orderType: dhanOrderDetails.orderType,
+      quantity: dhanOrderDetails.quantity,
+      price: dhanOrderDetails.price,
+      triggerPrice: dhanOrderDetails.triggerPrice,
+      afterMarketOrder: dhanOrderDetails.afterMarketOrder,
+      hasAmoTime: Boolean(dhanOrderDetails.amoTime),
+      hasBracketFields: false,
+    })
+  );
 
   console.log(`📤 [DEDICATED IP] Sending to: ${endpoint}`);
 

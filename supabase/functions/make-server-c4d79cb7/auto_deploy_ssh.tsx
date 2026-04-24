@@ -78,14 +78,38 @@ app.post('/place-order', async (req, res) => {
     }
 
     const sanitizedOrderDetails = {
-      ...orderDetails,
+      dhanClientId: orderDetails.dhanClientId,
+      securityId: String(orderDetails.securityId || ''),
+      transactionType: orderDetails.transactionType || 'BUY',
+      exchangeSegment: orderDetails.exchangeSegment || 'NSE_FNO',
       productType: 'INTRADAY',
       orderType: 'MARKET',
+      validity: 'DAY',
+      quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+      correlationId: orderDetails.correlationId || ('ORDER_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)),
+      disclosedQuantity: 0,
       price: 0,
       triggerPrice: 0,
+      afterMarketOrder: Boolean(orderDetails.afterMarketOrder),
+      ...(orderDetails.afterMarketOrder && orderDetails.amoTime ? { amoTime: orderDetails.amoTime } : {}),
     };
 
     log(\`📤 Placing MARKET order for user \${userId}\`);
+    log(\`🛡️ Sanitized broker payload: \${JSON.stringify({
+      securityId: sanitizedOrderDetails.securityId,
+      transactionType: sanitizedOrderDetails.transactionType,
+      exchangeSegment: sanitizedOrderDetails.exchangeSegment,
+      productType: sanitizedOrderDetails.productType,
+      orderType: sanitizedOrderDetails.orderType,
+      validity: sanitizedOrderDetails.validity,
+      quantity: sanitizedOrderDetails.quantity,
+      disclosedQuantity: sanitizedOrderDetails.disclosedQuantity,
+      price: sanitizedOrderDetails.price,
+      triggerPrice: sanitizedOrderDetails.triggerPrice,
+      afterMarketOrder: sanitizedOrderDetails.afterMarketOrder,
+      hasAmoTime: Boolean(sanitizedOrderDetails.amoTime),
+      hasBracketFields: false
+    })}\`);
 
     const response = await axios.post(
       'https://api.dhan.co/v2/orders',
