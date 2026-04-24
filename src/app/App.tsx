@@ -175,11 +175,9 @@ export default function App() {
         // NOTE: Do NOT store unique code here - AdminRoute will handle it from the URL
         // The URL is the single source of truth for the unique code
         
-        // Keep navigation on the same real domain path. Relative navigation can
-        // resolve incorrectly when the custom domain is mounted with a base path.
-        const adminLoginUrl = new URL(`/admin/hotkey/${data.uniqueCode}/login`, window.location.origin);
-        console.log(`🚀 Navigating to admin login: ${adminLoginUrl.pathname}`);
-        window.location.assign(adminLoginUrl.toString());
+        const adminLoginPath = `/admin/hotkey/${data.uniqueCode}/login`;
+        console.log(`🚀 Navigating to admin login: ${adminLoginPath}`);
+        await router.navigate(adminLoginPath);
       } else {
         console.error('❌ Failed to generate unique code:', data.message);
         alert('Failed to generate admin access code. Please try again.');
