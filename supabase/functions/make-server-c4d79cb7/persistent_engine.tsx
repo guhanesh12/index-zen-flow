@@ -1170,13 +1170,14 @@ class PersistentTradingEngine {
           shouldExit = true;
           exitReason = `Target Achieved (₹${pnl.toFixed(2)})`;
         }
-        // Trailing Stop Loss
+        // Trailing Stop Loss - activates after configured profit, then locks profit below peak
         else if (position.trailingEnabled && position.highestPnl > 0) {
-          const trailingStep = position.trailingStep || 50;
-          const trailTrigger = position.highestPnl - trailingStep;
-          if (pnl <= trailTrigger && pnl > 0) {
+          const activationAmount = Number(position.trailingActivationAmount || 0);
+          const trailingStep = Number(position.stopLossJumpAmount || position.trailingStep || 50);
+          const trailTrigger = Math.max(0, position.highestPnl - trailingStep);
+          if (position.highestPnl >= activationAmount && pnl <= trailTrigger) {
             shouldExit = true;
-            exitReason = `Trailing SL Hit (Peak: ₹${position.highestPnl.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+            exitReason = `Trailing SL Hit (Peak: ₹${position.highestPnl.toFixed(2)}, Trail: ₹${trailTrigger.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
           }
         }
         
