@@ -2431,14 +2431,6 @@ app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
       orderParams.amoTime = symbol.amoTime;
     }
 
-    // ✅ Only add BO/CO values if productType requires them
-    if (symbol.productType === 'BO' && symbol.boProfitValue) {
-      orderParams.boProfitValue = symbol.boProfitValue;
-    }
-    if ((symbol.productType === 'BO' || symbol.productType === 'CO') && symbol.boStopLossValue) {
-      orderParams.boStopLossValue = symbol.boStopLossValue;
-    }
-
     console.log('📤 [EXECUTE TRADE] Placing order via Static IP server...');
     
     // ✅ Use Static IP server for order placement (SEBI compliance)
