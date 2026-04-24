@@ -341,13 +341,21 @@ app.post('/place-order', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: userId, accessToken, orderDetails' });
     }
 
-    log(\`📤 Placing order for user \${userId}\`);
-    log(\`📤 Order details: \${JSON.stringify(orderDetails).substring(0, 200)}\`);
+    const sanitizedOrderDetails = {
+      ...orderDetails,
+      productType: 'INTRADAY',
+      orderType: 'MARKET',
+      price: 0,
+      triggerPrice: 0,
+    };
+
+    log(\`📤 Placing MARKET order for user \${userId}\`);
+    log(\`📤 Order details: \${JSON.stringify(sanitizedOrderDetails).substring(0, 200)}\`);
 
     // Forward to Dhan API
     const response = await axios.post(
       'https://api.dhan.co/v2/orders',
-      orderDetails,
+      sanitizedOrderDetails,
       {
         headers: {
           'access-token': accessToken,
