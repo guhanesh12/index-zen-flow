@@ -77,7 +77,7 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
       return [];
     }
 
-    return (data || []).map((row: any) => ({
+      return (data || []).map((row: any) => ({
       ...(row.raw_data || {}),
       id: row.raw_data?.id || `SYM_${row.symbol_id || crypto.randomUUID()}`,
       name: row.raw_data?.name || row.symbol_name || 'UNKNOWN',
@@ -89,7 +89,7 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
       transactionType: row.raw_data?.transactionType || 'BUY',
       exchangeSegment: row.raw_data?.exchangeSegment || row.exchange_segment || (row.index_name === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
       productType: row.raw_data?.productType || 'INTRADAY',
-      orderType: row.raw_data?.orderType || 'MARKET',
+        orderType: 'MARKET',
       validity: row.raw_data?.validity || 'DAY',
       securityId: String(row.raw_data?.securityId || row.symbol_id || ''),
       quantity: row.raw_data?.quantity || row.lot_size || 1,
@@ -1576,7 +1576,7 @@ class PersistentTradingEngine {
    * signal_stats and triggers tiered debit. Runs on every position close so
    * commission is deducted automatically without needing the browser open.
    */
-  private static async runWalletAutoDebit(userId: string, _state: EngineState, runningProfit?: number): Promise<void> {
+  private static async runWalletAutoDebit(userId: string, _state: EngineState): Promise<void> {
     try {
       const today = new Date().toISOString().split('T')[0];
       const { data: stats } = await supabaseAdmin
@@ -1587,7 +1587,7 @@ class PersistentTradingEngine {
         .maybeSingle();
 
       const realizedProfit = Number(stats?.total_pnl || 0);
-      const todayProfit = Math.max(realizedProfit, Number(runningProfit || 0));
+      const todayProfit = realizedProfit;
       if (todayProfit < 100) {
         return; // FREE tier
       }
