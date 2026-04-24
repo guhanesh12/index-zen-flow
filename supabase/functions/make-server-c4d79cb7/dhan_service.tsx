@@ -75,7 +75,8 @@ export class DhanService {
   private clientId: string;
   private accessToken: string;
   private priceCache: Map<string, { price: any; timestamp: number }> = new Map();
-  private readonly CACHE_DURATION = 120000; // Increased to 2 minutes (120 seconds) to avoid rate limits
+  private readonly CACHE_DURATION = 15000; // Keep strategy candles fresh without overloading Dhan
+  private readonly QUOTE_CACHE_DURATION = 1000; // Live position monitor needs near real-time prices
   private readonly MAX_RETRIES = 3; // Maximum retry attempts for 502 errors
   private readonly RETRY_DELAY = 1000; // Initial retry delay in ms
   private rateLimitRetryCount = 0;
@@ -198,7 +199,7 @@ export class DhanService {
       const cacheKey = `ohlc_${securityId}_${exchangeSegment}`;
       const cached = this.priceCache.get(cacheKey);
       
-      if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
+      if (cached && (Date.now() - cached.timestamp) < this.QUOTE_CACHE_DURATION) {
         console.log(`✅ Using cached OHLC data for ${cacheKey} (${cached.price.candles.length} candles)`);
         return cached.price;
       }
