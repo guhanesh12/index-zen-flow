@@ -436,14 +436,18 @@ class PersistentTradingEngine {
     }
   }
 
-  static async runPositionMonitorTick(): Promise<any> {
+  static async runPositionMonitorTick(targetUserId?: string): Promise<any> {
     const startedAt = Date.now();
     let monitoredCount = 0;
 
-    const { data: activePositions, error } = await supabaseAdmin
+    let positionsQuery = supabaseAdmin
       .from('position_monitor_state')
       .select('user_id')
       .eq('is_active', true);
+
+    if (targetUserId) positionsQuery = positionsQuery.eq('user_id', targetUserId);
+
+    const { data: activePositions, error } = await positionsQuery;
 
     if (error) {
       console.error('❌ [POSITION-MONITOR] Failed loading active positions:', error);
