@@ -992,21 +992,25 @@ class PersistentTradingEngine {
     dhanService: DhanService,
     state: EngineState
   ): Promise<void> {
-    // Also check DB for positions (in case frontend added them)
-    if (state.activePositions.length === 0) {
-      const { data: dbPositions } = await supabaseAdmin
-        .from('position_monitor_state')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('is_active', true);
-      
-      if (dbPositions && dbPositions.length > 0) {
-        // Hydrate state from DB
-        for (const dbPos of dbPositions) {
-          state.activePositions.push({
+    // Always refresh active positions from DB so edited Target/SL and trailing settings apply immediately
+    const { data: dbPositions } = await supabaseAdmin
+      .from('position_monitor_state')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (dbPositions && dbPositions.length > 0) {
+      const dbOrderIds = new Set(dbPositions.map((p: any) => p.order_id));
+      state.activePositions = state.activePositions.filter((p: any) => dbOrderIds.has(p.orderId));
+
+      for (const dbPos of dbPositions) {
+        const existing = state.activePositions.find((p: any) => p.orderId === dbPos.order_id);
+        const dbState = {
             orderId: dbPos.order_id,
             symbolName: dbPos.symbol,
             securityId: dbPos.symbol_id,
+            exchangeSegment: dbPos.exchange_segment,
+            index: dbPos.index_name,
             entryPrice: dbPos.entry_price,
             currentPrice: dbPos.current_price,
             quantity: dbPos.quantity,
@@ -1018,10 +1022,12 @@ class PersistentTradingEngine {
             trailingStep: dbPos.trailing_step,
             entryTime: new Date(dbPos.created_at).getTime(),
             status: 'ACTIVE'
-          });
-        }
-        console.log(`📊 Loaded ${dbPositions.length} positions from DB for user ${userId}`);
+          };
+
+        if (existing) Object.assign(existing, dbState);
+        else state.activePositions.push(dbState);
       }
+      console.log(`📊 Synced ${dbPositions.length} active position(s) from DB for user ${userId}`);
     }
     
     if (state.activePositions.length === 0) {
