@@ -584,7 +584,7 @@ export class DhanService {
 
       // 3. Validate product type + exchange segment combinations
       const exchangeSegment = orderRequest.exchangeSegment || 'NSE_FNO';
-      const productType = orderRequest.productType;
+      const productType = 'INTRADAY';
       
       // ⚡ CRITICAL: Validate exchange segment format
       const validExchangeSegments = ['NSE_EQ', 'NSE_FNO', 'NSE_CURR', 'BSE_EQ', 'BSE_FNO', 'BSE_CURR', 'MCX_COMM'];
@@ -616,14 +616,9 @@ export class DhanService {
       }
 
       // 4. Validate order type requirements
-      if (orderRequest.orderType === 'LIMIT' && !orderRequest.price) {
-        throw new Error('Price is required for LIMIT orders');
-      }
-
-      if ((orderRequest.orderType === 'STOP_LOSS' || orderRequest.orderType === 'STOP_LOSS_MARKET') 
-          && !orderRequest.triggerPrice) {
-        throw new Error('Trigger price is required for STOP_LOSS orders');
-      }
+      orderRequest.orderType = 'MARKET';
+      orderRequest.price = 0;
+      orderRequest.triggerPrice = 0;
 
       // 5. Validate quantity (must be positive and within lot size)
       if (!orderRequest.quantity || orderRequest.quantity <= 0) {
@@ -652,8 +647,8 @@ export class DhanService {
         correlationId: String(orderRequest.correlationId || `ORDER_${Date.now()}`),
         transactionType: String(orderRequest.transactionType), // BUY or SELL
         exchangeSegment: String(exchangeSegment), // NSE_FNO, BSE_FNO, etc.
-        productType: String(orderRequest.productType), // INTRADAY, MARGIN, CO, BO, CNC, MTF
-        orderType: String(orderRequest.orderType), // MARKET, LIMIT, STOP_LOSS, STOP_LOSS_MARKET
+        productType: 'INTRADAY',
+        orderType: 'MARKET',
         validity: String(orderRequest.validity || 'DAY'), // DAY or IOC
         securityId: String(securityId), // Must be string
         quantity: Number(orderRequest.quantity), // Must be number
