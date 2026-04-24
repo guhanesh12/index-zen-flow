@@ -77,7 +77,7 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
       return [];
     }
 
-    return (data || []).map((row: any) => ({
+      return (data || []).map((row: any) => ({
       ...(row.raw_data || {}),
       id: row.raw_data?.id || `SYM_${row.symbol_id || crypto.randomUUID()}`,
       name: row.raw_data?.name || row.symbol_name || 'UNKNOWN',
@@ -89,7 +89,7 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
       transactionType: row.raw_data?.transactionType || 'BUY',
       exchangeSegment: row.raw_data?.exchangeSegment || row.exchange_segment || (row.index_name === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
       productType: row.raw_data?.productType || 'INTRADAY',
-      orderType: row.raw_data?.orderType || 'MARKET',
+        orderType: 'MARKET',
       validity: row.raw_data?.validity || 'DAY',
       securityId: String(row.raw_data?.securityId || row.symbol_id || ''),
       quantity: row.raw_data?.quantity || row.lot_size || 1,
@@ -1170,7 +1170,7 @@ class PersistentTradingEngine {
           .eq('user_id', userId)
           .eq('order_id', position.orderId);
         
-        await this.runWalletAutoDebit(userId, state, pnl).catch((err) => {
+        await this.runWalletAutoDebit(userId, state).catch((err) => {
           console.error(`❌ Running wallet auto-debit failed for ${userId}:`, err);
         });
 
@@ -1572,25 +1572,41 @@ class PersistentTradingEngine {
   }
 
   /**
-   * 💰 Server-side wallet auto-debit. Computes today's realized profit from
-   * signal_stats and triggers tiered debit. Runs on every position close so
-   * commission is deducted automatically without needing the browser open.
+   * 💰 Server-side wallet auto-debit.
+   * Uses only confirmed live running positions from position_monitor_state.
+   * Failed orders or estimated frontend P&L must never trigger wallet debit.
    */
-  private static async runWalletAutoDebit(userId: string, _state: EngineState, runningProfit?: number): Promise<void> {
+  private static async runWalletAutoDebit(userId: string, _state: EngineState): Promise<void> {
     try {
       const today = new Date().toISOString().split('T')[0];
+      const startIso = `${today}T00:00:00.000Z`;
+      const { data: activePositions, error: activePositionsError } = await supabaseAdmin
+        .from('position_monitor_state')
+        .select('pnl')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .gte('created_at', startIso);
+
+      if (activePositionsError) {
+        console.error(`❌ Failed to load active positions for wallet debit (${userId}):`, activePositionsError);
+        return;
+      }
+
+      const todayProfit = (activePositions || []).reduce((sum: number, position: any) => {
+        const pnl = Number(position?.pnl || 0);
+        return pnl > 0 ? sum + pnl : sum;
+      }, 0);
+
+      if (todayProfit < 100) {
+        return; // FREE tier / no confirmed running profit milestone
+      }
+
       const { data: stats } = await supabaseAdmin
         .from('signal_stats')
         .select('total_pnl')
         .eq('user_id', userId)
         .eq('stat_date', today)
         .maybeSingle();
-
-      const realizedProfit = Number(stats?.total_pnl || 0);
-      const todayProfit = Math.max(realizedProfit, Number(runningProfit || 0));
-      if (todayProfit < 100) {
-        return; // FREE tier
-      }
 
       let email = '';
       try {
@@ -1608,8 +1624,8 @@ class PersistentTradingEngine {
         await this.appendSharedLog(userId, {
           type: 'WALLET_DEBIT',
           timestamp: Date.now(),
-          message: `💳 ₹${result.amount} auto-debited (${result.currentTier}) | Profit: ₹${todayProfit.toFixed(2)} | Balance: ₹${result.newBalance}`,
-          data: { amount: result.amount, tier: result.currentTier, newBalance: result.newBalance, profit: todayProfit }
+          message: `💳 ₹${result.amount} auto-debited (${result.currentTier}) | Running Profit: ₹${todayProfit.toFixed(2)} | Realized Today: ₹${Number(stats?.total_pnl || 0).toFixed(2)} | Balance: ₹${result.newBalance}`,
+          data: { amount: result.amount, tier: result.currentTier, newBalance: result.newBalance, profit: todayProfit, realizedProfit: Number(stats?.total_pnl || 0) }
         });
       } else if (result.error === 'Insufficient wallet balance') {
         await this.appendSharedLog(userId, {

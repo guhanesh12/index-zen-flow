@@ -1051,7 +1051,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     localStorage.setItem('trading_symbols', JSON.stringify(symbols));
     const activeSymbols = symbols.filter((s: TradingSymbol) => s.active).map((s: TradingSymbol) => ({
       ...s,
-      orderType: s.orderType || 'MARKET',
+      orderType: 'MARKET',
       productType: s.productType || 'INTRADAY',
       validity: s.validity || 'DAY',
       price: s.price || 0,
@@ -3189,68 +3189,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         // Don't block monitoring if P&L save fails - it will retry on next update
       }
 
-      // 💰 AUTO-DEBIT WALLET CHECK: If total profit > ₹200, deduct ₹89
-      const totalProfit = totalUnrealizedPnL + totalRealizedPnL;
-      if (totalProfit > 200) {
-        try {
-          console.log(`\n💰 PROFIT ₹${totalProfit.toFixed(2)} > ₹200 - Checking wallet debit...`);
-          
-          // ⚡ Add timeout to prevent hanging
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-          
-          const debitResponse = await fetch(`${serverUrl}/wallet/check-and-debit`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${freshToken}`
-            },
-            body: JSON.stringify({ totalProfit }),
-            signal: controller.signal
-          });
-          
-          clearTimeout(timeoutId);
-          
-          // ⚡ Handle network errors gracefully
-          if (!debitResponse.ok) {
-            if (debitResponse.status === 503) {
-              console.warn('⚠️ Wallet check temporarily unavailable (network issue) - will retry next cycle');
-              return; // Skip this cycle, retry next time
-            }
-            const errorData = await debitResponse.json().catch(() => ({ message: 'Unknown error' }));
-            console.error(`❌ Wallet check error (${debitResponse.status}):`, errorData.message);
-            return;
-          }
-          
-          const debitData = await debitResponse.json();
-          console.log('💳 Wallet debit response:', debitData);
-          
-          if (debitData.isPlatformOwner) {
-            console.log(`👑 PLATFORM OWNER - No charges applied (Free trading)`);
-            onLog({
-              timestamp: Date.now(),
-              type: 'INFO',
-              message: `👑 Platform Owner - No charges (Profit: ₹${totalProfit.toFixed(2)})`
-            });
-          } else if (debitData.deducted) {
-            console.log(`✅ Wallet debited: ₹${debitData.amount}`);
-            onLog({
-              timestamp: Date.now(),
-              type: 'WALLET_DEBIT',
-              message: `💳 ₹${debitData.amount} deducted from wallet (Profit: ₹${totalProfit.toFixed(2)})`
-            });
-          } else {
-            console.log(`ℹ️ ${debitData.message}`);
-          }
-        } catch (walletError: any) {
-          if (walletError.name === 'AbortError') {
-            console.warn('⚠️ Wallet check timed out after 5s - will retry next cycle');
-          } else {
-            console.warn('⚠️ Wallet check failed (network error) - will retry next cycle:', walletError.message);
-          }
-          // Don't crash the engine, just skip this cycle and retry next time
-        }
-      }
+      // Wallet debit is handled only by backend-confirmed running/closed positions.
 
     } catch (error) {
       console.error('❌ Error fetching positions:', error);

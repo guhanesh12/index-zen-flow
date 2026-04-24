@@ -4992,11 +4992,27 @@ app.post("/make-server-c4d79cb7/wallet/check-and-debit", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    const { totalProfit } = await c.req.json();
+    const today = new Date().toISOString().split('T')[0];
+    const startIso = `${today}T00:00:00.000Z`;
 
-    // Use tiered debit system
+    const { data: activePositions, error: positionsError } = await supabase
+      .from('position_monitor_state')
+      .select('pnl')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .gte('created_at', startIso);
+
+    if (positionsError) {
+      return c.json({ success: false, error: 'Failed to verify running positions' }, 500);
+    }
+
+    const confirmedRunningProfit = (activePositions || []).reduce((sum: number, position: any) => {
+      const pnl = Number(position?.pnl || 0);
+      return pnl > 0 ? sum + pnl : sum;
+    }, 0);
+
     const PLATFORM_OWNER_EMAIL = Deno.env.get('PLATFORM_OWNER_EMAIL') || 'your-email@example.com';
-    const result = await checkAndDebitTiered(user.id, user.email, totalProfit, PLATFORM_OWNER_EMAIL);
+    const result = await checkAndDebitTiered(user.id, user.email, confirmedRunningProfit, PLATFORM_OWNER_EMAIL);
     
     if (!result.success && result.error) {
       return c.json(result, 400);
