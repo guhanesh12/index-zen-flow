@@ -1032,8 +1032,8 @@ class PersistentTradingEngine {
             highestPnl: dbPos.highest_pnl,
             trailingEnabled: dbPos.trailing_enabled,
             trailingStep: dbPos.trailing_step,
-            trailingActivationAmount: dbPos.raw_position?.trailingActivationAmount || 0,
-            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || 0,
+            trailingActivationAmount: dbPos.raw_position?.trailingActivationAmount || dbPos.raw_position?.trailing_activation_amount || dbPos.trailing_step || 0,
+            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || dbPos.raw_position?.target_jump_amount || 0,
             stopLossJumpAmount: dbPos.raw_position?.stopLossJumpAmount || dbPos.trailing_step || 50,
             entryTime: new Date(dbPos.created_at).getTime(),
             status: 'ACTIVE'
@@ -1116,9 +1116,13 @@ class PersistentTradingEngine {
           continue;
         }
         
-        // Update P&L
-        const currentPrice = parseFloat(dhanPos.lastPrice || dhanPos.ltp || position.currentPrice);
-        const pnl = parseFloat(dhanPos.unrealizedProfit || dhanPos.unrealizedPnl || 0);
+        // Update P&L from live Dhan price, with computed fallback when broker P&L is absent/stale
+        const currentPrice = parseFloat(dhanPos.lastPrice || dhanPos.ltp || dhanPos.currentPrice || position.currentPrice || 0);
+        const entryPrice = parseFloat(position.entryPrice || dhanPos.buyAvg || dhanPos.avgPrice || dhanPos.costPrice || 0);
+        const quantity = Math.abs(Number(position.quantity || dhanPos.quantity || dhanPos.netQty || 1));
+        const brokerPnl = parseFloat(dhanPos.unrealizedProfit || dhanPos.unrealizedPnl || dhanPos.unrealizedPnL || 0);
+        const computedPnl = entryPrice && currentPrice ? (currentPrice - entryPrice) * quantity : 0;
+        const pnl = Number.isFinite(brokerPnl) && brokerPnl !== 0 ? brokerPnl : computedPnl;
         
         position.currentPrice = currentPrice;
         position.pnl = pnl;
@@ -1152,14 +1156,24 @@ class PersistentTradingEngine {
           .from('position_monitor_state')
           .update({
             current_price: currentPrice,
-            entry_price: position.entryPrice || parseFloat(dhanPos.buyAvg || dhanPos.costPrice || 0),
+            entry_price: entryPrice,
             pnl: pnl,
             highest_pnl: position.highestPnl || 0,
-            raw_position: dhanPos
+            raw_position: {
+              ...dhanPos,
+              trailingActivationAmount: position.trailingActivationAmount || 0,
+              targetJumpAmount: position.targetJumpAmount || 0,
+              stopLossJumpAmount: position.stopLossJumpAmount || position.trailingStep || 50,
+              lastMonitorAt: Date.now(),
+            }
           })
           .eq('user_id', userId)
           .eq('order_id', position.orderId);
         
+        await this.runWalletAutoDebit(userId, state, pnl).catch((err) => {
+          console.error(`❌ Running wallet auto-debit failed for ${userId}:`, err);
+        });
+
         // Check exit conditions
         let shouldExit = false;
         let exitReason = '';
