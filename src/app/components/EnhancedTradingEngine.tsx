@@ -2919,6 +2919,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         price: symbol.price || 0,
         triggerPrice: symbol.triggerPrice || 0,
         afterMarketOrder: symbol.afterMarketOrder || false,
+        symbolName: symbol.name,
+        index: symbol.index,
+        optionType: symbol.optionType,
+        targetAmount: symbol.targetAmount,
+        stopLossAmount: symbol.stopLossAmount,
+        trailingEnabled: symbol.trailingEnabled || false,
+        trailingActivationAmount: symbol.trailingActivationAmount || 0,
+        targetJumpAmount: symbol.targetJumpAmount || 0,
+        stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
         userId: userIdRef.current  // ⚡ Fallback for session-less auth
       };
       
