@@ -260,13 +260,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     return validSaved as '5' | '15';
   });
   
-  // ⚡ EXIT ORDER TYPE CONFIGURATION (MARKET or LIMIT)
-  const [exitOrderType, setExitOrderType] = useState<'MARKET' | 'LIMIT'>(() => {
-    const saved = localStorage.getItem('exit_order_type');
-    const validSaved = (saved === 'MARKET' || saved === 'LIMIT') ? saved : 'MARKET'; // ⚡ DEFAULT: MARKET for instant exits
-    console.log(`🔧 Exit Order Type: ${validSaved} (from localStorage: ${saved})`);
-    return validSaved as 'MARKET' | 'LIMIT';
-  });
+  // ⚡ MARKET-ONLY EXECUTION: no LIMIT order path for any user
+  const [exitOrderType, setExitOrderType] = useState<'MARKET'>('MARKET');
   
   // ⚡ FORCE START OVERRIDE (For special sessions on weekends/holidays)
   const [forceStartEnabled, setForceStartEnabled] = useState<boolean>(() => {
@@ -2877,7 +2872,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.log(`📊 ORDER DETAILS BEING SENT:`);
       console.log(`  Security ID: ${symbol.securityId}`);
       console.log(`  Transaction Type: ${symbol.transactionType}`);
-      console.log(`  Order Type: ${symbol.orderType}`);
+      console.log(`  Order Type: MARKET`);
       console.log(`  Price: ₹${symbol.price}`);
       console.log(`  Quantity: ${symbol.quantity}`);
       console.log(`  Product Type: ${symbol.productType}`);
@@ -2910,14 +2905,14 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         correlationId,
         transactionType: symbol.transactionType,
         exchangeSegment: exchangeSegment, // ⚡ Using migrated value
-        productType: symbol.productType || 'INTRADAY',
-        orderType: symbol.orderType || 'MARKET',
+        productType: 'INTRADAY',
+        orderType: 'MARKET',
         validity: symbol.validity || 'DAY',
         securityId: symbol.securityId,
         quantity: symbol.quantity,
         disclosedQuantity: symbol.disclosedQuantity || 0,
-        price: symbol.price || 0,
-        triggerPrice: symbol.triggerPrice || 0,
+        price: 0,
+        triggerPrice: 0,
         afterMarketOrder: symbol.afterMarketOrder || false,
         symbolName: symbol.name,
         index: symbol.index,

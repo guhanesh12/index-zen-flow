@@ -75,7 +75,8 @@ export class DhanService {
   private clientId: string;
   private accessToken: string;
   private priceCache: Map<string, { price: any; timestamp: number }> = new Map();
-  private readonly CACHE_DURATION = 120000; // Increased to 2 minutes (120 seconds) to avoid rate limits
+  private readonly CACHE_DURATION = 15000; // Keep strategy candles fresh without overloading Dhan
+  private readonly QUOTE_CACHE_DURATION = 1000; // Live position monitor needs near real-time prices
   private readonly MAX_RETRIES = 3; // Maximum retry attempts for 502 errors
   private readonly RETRY_DELAY = 1000; // Initial retry delay in ms
   private rateLimitRetryCount = 0;
@@ -198,7 +199,7 @@ export class DhanService {
       const cacheKey = `ohlc_${securityId}_${exchangeSegment}`;
       const cached = this.priceCache.get(cacheKey);
       
-      if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
+      if (cached && (Date.now() - cached.timestamp) < this.QUOTE_CACHE_DURATION) {
         console.log(`✅ Using cached OHLC data for ${cacheKey} (${cached.price.candles.length} candles)`);
         return cached.price;
       }
@@ -583,7 +584,7 @@ export class DhanService {
 
       // 3. Validate product type + exchange segment combinations
       const exchangeSegment = orderRequest.exchangeSegment || 'NSE_FNO';
-      const productType = orderRequest.productType;
+      const productType = 'INTRADAY';
       
       // ⚡ CRITICAL: Validate exchange segment format
       const validExchangeSegments = ['NSE_EQ', 'NSE_FNO', 'NSE_CURR', 'BSE_EQ', 'BSE_FNO', 'BSE_CURR', 'MCX_COMM'];
@@ -615,14 +616,9 @@ export class DhanService {
       }
 
       // 4. Validate order type requirements
-      if (orderRequest.orderType === 'LIMIT' && !orderRequest.price) {
-        throw new Error('Price is required for LIMIT orders');
-      }
-
-      if ((orderRequest.orderType === 'STOP_LOSS' || orderRequest.orderType === 'STOP_LOSS_MARKET') 
-          && !orderRequest.triggerPrice) {
-        throw new Error('Trigger price is required for STOP_LOSS orders');
-      }
+      orderRequest.orderType = 'MARKET';
+      orderRequest.price = 0;
+      orderRequest.triggerPrice = 0;
 
       // 5. Validate quantity (must be positive and within lot size)
       if (!orderRequest.quantity || orderRequest.quantity <= 0) {
@@ -651,8 +647,8 @@ export class DhanService {
         correlationId: String(orderRequest.correlationId || `ORDER_${Date.now()}`),
         transactionType: String(orderRequest.transactionType), // BUY or SELL
         exchangeSegment: String(exchangeSegment), // NSE_FNO, BSE_FNO, etc.
-        productType: String(orderRequest.productType), // INTRADAY, MARGIN, CO, BO, CNC, MTF
-        orderType: String(orderRequest.orderType), // MARKET, LIMIT, STOP_LOSS, STOP_LOSS_MARKET
+        productType: 'INTRADAY',
+        orderType: 'MARKET',
         validity: String(orderRequest.validity || 'DAY'), // DAY or IOC
         securityId: String(securityId), // Must be string
         quantity: Number(orderRequest.quantity), // Must be number
@@ -867,10 +863,10 @@ export class DhanService {
         securityId: params.securityId,
         transactionType: params.transactionType,
         quantity: params.quantity,
-        orderType: 'LIMIT',
-        productType: 'BO',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
         exchangeSegment: params.exchangeSegment || 'NSE_FNO',
-        price: params.price,
+        price: 0,
         validity: 'DAY',
         boProfitValue: params.targetPrice,
         boStopLossValue: params.stopLossPrice,
@@ -893,10 +889,10 @@ export class DhanService {
         securityId: params.securityId,
         transactionType: params.transactionType,
         quantity: params.quantity,
-        orderType: 'LIMIT',
-        productType: 'CO',
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
         exchangeSegment: params.exchangeSegment || 'NSE_FNO',
-        price: params.price,
+        price: 0,
         validity: 'DAY',
         boStopLossValue: params.stopLossPrice,
         correlationId: `CO_${Date.now()}`
@@ -964,17 +960,41 @@ export class DhanService {
       }
       
       // Map positions silently
-      const mappedPositions = positionsArray.map((pos: any) => ({
+      const mappedPositions = await Promise.all(positionsArray.map(async (pos: any) => {
+        const securityId = String(pos.securityId || '');
+        const exchangeSegment = pos.exchangeSegment || pos.exchange || (String(pos.tradingSymbol || '').includes('SENSEX') ? 'BSE_FNO' : 'NSE_FNO');
+        let livePrice = parseFloat(pos.lastPrice || pos.ltp || pos.lastTradedPrice || pos.currentPrice || 0);
+
+        if ((!livePrice || livePrice <= 0) && securityId) {
+          try {
+            const quote = await this.getMarketQuote(securityId, exchangeSegment);
+            livePrice = Number(quote?.ltp || quote?.close || 0);
+          } catch (quoteError) {
+            console.warn(`⚠️ Position live quote fallback failed for ${securityId}:`, quoteError?.message || quoteError);
+          }
+        }
+
+        const netQty = Number(pos.netQty ?? (Number(pos.buyQty || 0) - Number(pos.sellQty || 0)));
+        const avgPrice = parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || pos.costPrice || 0);
+        const apiUnrealized = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || pos.unrealizedPnL || 0);
+        const computedUnrealized = avgPrice && livePrice && netQty ? (livePrice - avgPrice) * netQty : 0;
+
+        return {
         // Preserve all original Dhan API fields
         ...pos,
         // Add normalized fields for easier access
-        securityId: pos.securityId,
-        quantity: parseInt(pos.netQty || 0),
-        averagePrice: parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || 0),
-        currentPrice: parseFloat(pos.ltp || 0),
-        pnl: parseFloat(pos.realizedProfit || 0) + parseFloat(pos.unrealizedProfit || 0),
+        securityId,
+        exchangeSegment,
+        lastPrice: livePrice,
+        ltp: livePrice,
+        quantity: netQty,
+        averagePrice: avgPrice,
+        currentPrice: livePrice,
+        pnl: parseFloat(pos.realizedProfit || 0) + (apiUnrealized || computedUnrealized),
         realizedPnl: parseFloat(pos.realizedProfit || 0),
-        unrealizedPnl: parseFloat(pos.unrealizedProfit || 0)
+        unrealizedPnl: apiUnrealized || computedUnrealized,
+        unrealizedProfit: apiUnrealized || computedUnrealized
+        };
       }));
       
       return mappedPositions;

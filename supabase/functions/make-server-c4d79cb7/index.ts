@@ -2417,11 +2417,11 @@ app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
       exchangeSegment: exchangeSegment,
       transactionType,
       quantity: parseInt(quantity),
-      orderType: symbol.orderType || 'MARKET',
-      productType: symbol.productType || 'INTRADAY',
+      orderType: 'MARKET',
+      productType: 'INTRADAY',
       validity: symbol.validity || 'DAY',
-      price: symbol.price || 0,
-      triggerPrice: symbol.triggerPrice || 0,
+      price: 0,
+      triggerPrice: 0,
       disclosedQuantity: symbol.disclosedQuantity || 0,
       afterMarketOrder: symbol.afterMarketOrder || false
     };
@@ -2508,7 +2508,9 @@ app.post("/make-server-c4d79cb7/place-bracket-order", async (c) => {
       return c.json({ error: "Dhan credentials not configured" }, 400);
     }
 
-    console.log('🚀 [BRACKET ORDER] Using Static IP server for SEBI compliance');
+    console.log('🚀 [BRACKET ORDER] Disabled: forcing all executions to MARKET only');
+
+    return c.json({ success: false, error: 'Bracket/limit orders are disabled. Only MARKET orders are allowed.' }, 400);
 
     // ✅ Use Static IP server for bracket order placement
     const orderParams = {
@@ -2519,8 +2521,8 @@ app.post("/make-server-c4d79cb7/place-bracket-order", async (c) => {
       targetPrice: parseFloat(targetPrice),
       stopLossPrice: parseFloat(stopLossPrice),
       exchangeSegment: exchangeSegment || 'NSE_FNO',
-      orderType: 'LIMIT',
-      productType: 'BO', // Bracket Order
+      orderType: 'MARKET',
+      productType: 'INTRADAY',
       validity: 'DAY'
     };
 
@@ -2578,7 +2580,9 @@ app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
       return c.json({ error: "Dhan credentials not configured" }, 400);
     }
 
-    console.log('🚀 [COVER ORDER] Using Static IP server for SEBI compliance');
+    console.log('🚀 [COVER ORDER] Disabled: forcing all executions to MARKET only');
+
+    return c.json({ success: false, error: 'Cover/limit orders are disabled. Only MARKET orders are allowed.' }, 400);
 
     // ✅ Use Static IP server for cover order placement
     const orderParams = {
@@ -2588,8 +2592,8 @@ app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
       price: parseFloat(price),
       stopLossPrice: parseFloat(stopLossPrice),
       exchangeSegment: exchangeSegment || 'NSE_FNO',
-      orderType: 'LIMIT',
-      productType: 'CO', // Cover Order
+      orderType: 'MARKET',
+      productType: 'INTRADAY',
       validity: 'DAY'
     };
 
@@ -3048,10 +3052,11 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         securityId: orderRequest.securityId,
         transactionType: orderRequest.transactionType,
         quantity: orderRequest.quantity,
-        orderType: orderRequest.orderType,
-        productType: orderRequest.productType,
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
         exchangeSegment: orderRequest.exchangeSegment || 'NSE_FNO',
-        price: orderRequest.price,
+        price: 0,
+        triggerPrice: 0,
         validity: 'DAY'
       }
     );
@@ -3070,7 +3075,7 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         orderId: orderResponse.orderId,
         status: orderResponse.orderStatus,
         message: orderResponse.message,
-        executedPrice: orderRequest.price || 0,
+        executedPrice: 0,
       });
     } else {
       return c.json({
@@ -3133,13 +3138,13 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       securityId: orderRequest.securityId,
       transactionType: orderRequest.transactionType,
       exchangeSegment: exchangeSegment, // ⚡ Using migrated value
-      productType: orderRequest.productType,
-      orderType: orderRequest.orderType,
+      productType: 'INTRADAY',
+      orderType: 'MARKET',
       validity: orderRequest.validity,
       quantity: orderRequest.quantity,
       disclosedQuantity: orderRequest.disclosedQuantity,
-      price: orderRequest.price,
-      triggerPrice: orderRequest.triggerPrice,
+      price: 0,
+      triggerPrice: 0,
       afterMarketOrder: orderRequest.afterMarketOrder,
       // ✅ Only include amoTime if AMO is enabled
       ...(orderRequest.afterMarketOrder && orderRequest.amoTime ? { amoTime: orderRequest.amoTime } : {}),
