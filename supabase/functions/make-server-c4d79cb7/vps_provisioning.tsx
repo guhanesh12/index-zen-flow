@@ -353,7 +353,7 @@ app.post('/place-order', async (req, res) => {
       orderType: 'MARKET',
       validity: 'DAY',
       quantity: Math.max(1, Number(orderDetails.quantity) || 0),
-      correlationId: orderDetails.correlationId || `ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      correlationId: orderDetails.correlationId || ('ORDER_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)),
       disclosedQuantity: 0,
       price: 0,
       triggerPrice: 0,
