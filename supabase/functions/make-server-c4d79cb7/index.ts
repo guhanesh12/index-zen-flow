@@ -3052,10 +3052,11 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         securityId: orderRequest.securityId,
         transactionType: orderRequest.transactionType,
         quantity: orderRequest.quantity,
-        orderType: orderRequest.orderType,
-        productType: orderRequest.productType,
+        orderType: 'MARKET',
+        productType: 'INTRADAY',
         exchangeSegment: orderRequest.exchangeSegment || 'NSE_FNO',
-        price: orderRequest.price,
+        price: 0,
+        triggerPrice: 0,
         validity: 'DAY'
       }
     );
@@ -3074,7 +3075,7 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         orderId: orderResponse.orderId,
         status: orderResponse.orderStatus,
         message: orderResponse.message,
-        executedPrice: orderRequest.price || 0,
+        executedPrice: 0,
       });
     } else {
       return c.json({
