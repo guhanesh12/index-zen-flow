@@ -29,7 +29,7 @@ export const PRICING_TIERS = [
   { min: 100, max: 499.99, fee: 29, tier: 1, name: 'TIER 1' },
   { min: 500, max: 999.99, fee: 49, tier: 2, name: 'TIER 2' },
   { min: 1000, max: 1999.99, fee: 69, tier: 3, name: 'TIER 3' },
-  { min: 2001, max: Infinity, fee: 89, tier: 4, name: 'TIER 4' }
+  { min: 2000, max: Infinity, fee: 89, tier: 4, name: 'TIER 4' }
 ];
 
 export async function checkAndDebitTiered(
