@@ -3185,6 +3185,31 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       console.log(`  Price: ${result.price || orderRequest.price}`);
       console.log(`  Timestamp saved for spam prevention`);
 
+      await supabase.from('position_monitor_state').upsert({
+        user_id: effectiveUserId,
+        order_id: resolvedOrderId,
+        symbol: orderRequest.symbolName || orderRequest.tradingSymbol || orderRequest.securityId,
+        index_name: orderRequest.index || (exchangeSegment === 'BSE_FNO' ? 'SENSEX' : 'NIFTY'),
+        symbol_id: String(orderRequest.securityId || ''),
+        exchange_segment: exchangeSegment,
+        entry_price: Number(result.averagePrice || result.price || orderRequest.price || 0),
+        current_price: Number(result.averagePrice || result.price || orderRequest.price || 0),
+        quantity: Number(orderRequest.quantity || 1),
+        pnl: 0,
+        target_amount: Number(orderRequest.targetAmount || 3000),
+        stop_loss_amount: Number(orderRequest.stopLossAmount || 2000),
+        trailing_enabled: Boolean(orderRequest.trailingEnabled),
+        trailing_step: Number(orderRequest.stopLossJumpAmount || 50),
+        highest_pnl: 0,
+        is_active: true,
+        raw_position: {
+          optionType: orderRequest.optionType,
+          trailingActivationAmount: Number(orderRequest.trailingActivationAmount || 0),
+          targetJumpAmount: Number(orderRequest.targetJumpAmount || 0),
+          stopLossJumpAmount: Number(orderRequest.stopLossJumpAmount || 50),
+        },
+      }, { onConflict: 'user_id,order_id' });
+
       return c.json({
         success: true,
         orderId: resolvedOrderId,
