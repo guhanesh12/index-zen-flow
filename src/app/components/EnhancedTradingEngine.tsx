@@ -516,7 +516,22 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
 
   const ensurePositionMonitorLoop = () => {
-    console.log('☁️ Backend position monitor is active - skipping local monitor loop.');
+    if (positionMonitorRef.current) return;
+    console.log('⚡ Starting 1-second position monitor sync loop.');
+
+    positionMonitorRef.current = setInterval(async () => {
+      if (!isPositionMonitorActiveRef.current) return;
+      try {
+        const freshToken = await getFreshAccessToken();
+        await fetch(`${serverUrl}/position-monitor/tick`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${freshToken}` }
+        });
+        await syncEngineState();
+      } catch (error) {
+        console.warn('⚠️ Position monitor tick failed:', error);
+      }
+    }, 1000);
   };
 
   const clearPositionMonitorLoop = () => {
