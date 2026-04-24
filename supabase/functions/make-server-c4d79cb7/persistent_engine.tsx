@@ -878,9 +878,7 @@ class PersistentTradingEngine {
                 price: 0,
                 triggerPrice: 0,
                 afterMarketOrder: Boolean(symbol.afterMarketOrder || symbol.after_market_order),
-                amoTime: symbol.amoTime || symbol.amo_time || '',
-                boProfitValue: symbol.boProfitValue || symbol.bo_profit_value || 0,
-                boStopLossValue: symbol.boStopLossValue || symbol.bo_stop_loss_value || 0
+                amoTime: symbol.amoTime || symbol.amo_time || ''
               };
               
               const orderResult = await placeOrderViaStaticIP(
@@ -1214,9 +1212,7 @@ class PersistentTradingEngine {
             price: 0,
             triggerPrice: 0,
             afterMarketOrder: false,
-            amoTime: '',
-            boProfitValue: 0,
-            boStopLossValue: 0
+            amoTime: ''
           };
           
           const exitResult = await placeOrderViaStaticIP(
