@@ -3138,13 +3138,13 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       securityId: orderRequest.securityId,
       transactionType: orderRequest.transactionType,
       exchangeSegment: exchangeSegment, // ⚡ Using migrated value
-      productType: orderRequest.productType,
-      orderType: orderRequest.orderType,
+      productType: 'INTRADAY',
+      orderType: 'MARKET',
       validity: orderRequest.validity,
       quantity: orderRequest.quantity,
       disclosedQuantity: orderRequest.disclosedQuantity,
-      price: orderRequest.price,
-      triggerPrice: orderRequest.triggerPrice,
+      price: 0,
+      triggerPrice: 0,
       afterMarketOrder: orderRequest.afterMarketOrder,
       // ✅ Only include amoTime if AMO is enabled
       ...(orderRequest.afterMarketOrder && orderRequest.amoTime ? { amoTime: orderRequest.amoTime } : {}),
