@@ -1469,8 +1469,14 @@ class PersistentTradingEngine {
           target_amount: position.targetAmount || 500,
           stop_loss_amount: position.stopLossAmount || 300,
           trailing_enabled: position.trailingEnabled || false,
-          trailing_step: position.trailingStep || 50,
+          trailing_step: position.stopLossJumpAmount || position.trailingStep || 50,
           highest_pnl: 0,
+          raw_position: {
+            ...(symbol.raw_data || {}),
+            trailingActivationAmount: position.trailingActivationAmount || symbol.trailingActivationAmount || 0,
+            targetJumpAmount: position.targetJumpAmount || symbol.targetJumpAmount || 0,
+            stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 50,
+          },
           is_active: true
         }, { onConflict: 'user_id,order_id' });
     } catch (err) {
