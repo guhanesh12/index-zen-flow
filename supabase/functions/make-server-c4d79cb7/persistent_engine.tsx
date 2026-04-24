@@ -1170,7 +1170,7 @@ class PersistentTradingEngine {
           .eq('user_id', userId)
           .eq('order_id', position.orderId);
         
-        await this.runWalletAutoDebit(userId, state, pnl).catch((err) => {
+        await this.runWalletAutoDebit(userId, state).catch((err) => {
           console.error(`❌ Running wallet auto-debit failed for ${userId}:`, err);
         });
 
