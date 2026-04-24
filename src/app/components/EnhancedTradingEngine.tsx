@@ -516,7 +516,22 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
 
   const ensurePositionMonitorLoop = () => {
-    console.log('☁️ Backend position monitor is active - skipping local monitor loop.');
+    if (positionMonitorRef.current) return;
+    console.log('⚡ Starting 1-second position monitor sync loop.');
+
+    positionMonitorRef.current = setInterval(async () => {
+      if (!isPositionMonitorActiveRef.current) return;
+      try {
+        const freshToken = await getFreshAccessToken();
+        await fetch(`${serverUrl}/position-monitor/tick`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${freshToken}` }
+        });
+        await syncEngineState();
+      } catch (error) {
+        console.warn('⚠️ Position monitor tick failed:', error);
+      }
+    }, 1000);
   };
 
   const clearPositionMonitorLoop = () => {
@@ -768,8 +783,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         stopEngine(false);
       }
       
-      // ⚡ SYNC POSITIONS FROM BACKEND (merge with local)
-      if (data.positions && data.positions.length > 0) {
+      // ⚡ SYNC POSITIONS FROM BACKEND (replace local with backend source of truth)
+      if (data.positions) {
         const backendPositions: ActivePosition[] = data.positions.map((p: any) => ({
           symbolId: p.symbol_id || p.order_id,
           orderId: p.order_id,
@@ -796,27 +811,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           exchangeSegment: p.exchange_segment || 'NSE_FNO'
         }));
         
-        // Merge: add backend positions not already tracked locally
+        const backendOrderIds = new Set(backendPositions.map(p => p.orderId));
         const currentOrderIds = new Set(activePositionsRef.current.map(p => p.orderId));
-        const newPositions = backendPositions.filter(p => !currentOrderIds.has(p.orderId));
-        
-        if (newPositions.length > 0) {
-          console.log(`☁️ Syncing ${newPositions.length} new positions from backend`);
-          const merged = [...activePositionsRef.current, ...newPositions];
-          setActivePositions(merged);
-          activePositionsRef.current = merged;
-          ensureMonitoringStatusInitialized(newPositions);
+        const hasChanged = backendPositions.length !== activePositionsRef.current.length || backendPositions.some(p => {
+          const current = activePositionsRef.current.find(existing => existing.orderId === p.orderId);
+          return !current || current.pnl !== p.pnl || current.currentPrice !== p.currentPrice || current.currentTarget !== p.currentTarget || current.currentStopLoss !== p.currentStopLoss;
+        });
+
+        if (hasChanged) {
+          setActivePositions(backendPositions);
+          activePositionsRef.current = backendPositions;
+          ensureMonitoringStatusInitialized(backendPositions.filter(p => !currentOrderIds.has(p.orderId)));
           ensurePositionMonitorLoop();
         }
-        
-        // Update P&L from backend for existing positions
-        backendPositions.forEach(bp => {
-          const localPos = activePositionsRef.current.find(p => p.orderId === bp.orderId);
-          if (localPos && bp.pnl !== localPos.pnl) {
-            localPos.pnl = bp.pnl;
-            localPos.currentPrice = bp.currentPrice;
-          }
-        });
+
+        if (backendOrderIds.size === 0) clearPositionMonitorLoop();
       }
       
       // ⚡ SYNC STATS FROM BACKEND (for performance section)
@@ -1859,7 +1868,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     setEditValues({ target: '', stopLoss: '' });
   };
 
-  const saveEditPosition = () => {
+  const saveEditPosition = async () => {
     if (!editingPosition) return;
     
     const newTarget = parseFloat(editValues.target);
@@ -1899,6 +1908,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.error('Failed to update position metadata:', err);
     }
     
+    try {
+      const freshToken = await getFreshAccessToken();
+      await fetch(`${serverUrl}/position-monitor/update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${freshToken}`
+        },
+        body: JSON.stringify({ orderId: editingPosition, targetAmount: newTarget, stopLossAmount: newStopLoss })
+      });
+      await syncEngineState();
+    } catch (error) {
+      console.error('Failed to sync edited position to backend:', error);
+    }
+
     console.log(`✏️ Position ${position?.symbolName || editingPosition} updated - New Target: ₹${newTarget}, New SL: ₹${newStopLoss}`);
     
     onLog({
@@ -2895,6 +2919,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         price: symbol.price || 0,
         triggerPrice: symbol.triggerPrice || 0,
         afterMarketOrder: symbol.afterMarketOrder || false,
+        symbolName: symbol.name,
+        index: symbol.index,
+        optionType: symbol.optionType,
+        targetAmount: symbol.targetAmount,
+        stopLossAmount: symbol.stopLossAmount,
+        trailingEnabled: symbol.trailingEnabled || false,
+        trailingActivationAmount: symbol.trailingActivationAmount || 0,
+        targetJumpAmount: symbol.targetJumpAmount || 0,
+        stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
         userId: userIdRef.current  // ⚡ Fallback for session-less auth
       };
       

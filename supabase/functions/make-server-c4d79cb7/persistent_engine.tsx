@@ -99,6 +99,10 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
       active: row.raw_data?.active ?? true,
       targetAmount: row.raw_data?.targetAmount ?? 500,
       stopLossAmount: row.raw_data?.stopLossAmount ?? 300,
+      trailingEnabled: row.raw_data?.trailingEnabled ?? false,
+      trailingActivationAmount: row.raw_data?.trailingActivationAmount ?? 0,
+      targetJumpAmount: row.raw_data?.targetJumpAmount ?? 0,
+      stopLossJumpAmount: row.raw_data?.stopLossJumpAmount ?? 0,
     }));
   } catch (error) {
     console.error(`❌ Unexpected error loading user symbols for ${userId}:`, error);
@@ -166,8 +170,10 @@ class PersistentTradingEngine {
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
   private static activeLoops: Set<string> = new Set();
+  private static monitorLoops: Map<string, Promise<void>> = new Map();
   private static recentOrderKeys: Map<string, number> = new Map();
   private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
+  private static readonly POSITION_MONITOR_INTERVAL_MS = 1000;
   
   /**
    * START ENGINE FOR USER
@@ -299,7 +305,7 @@ class PersistentTradingEngine {
       console.log(`⏸️ [CRON] Skipping - already processing (lock until ${new Date(this.cronLockUntil).toISOString()})`);
       return { success: true, skipped: true, message: "Concurrent tick blocked by lock" };
     }
-    this.cronLockUntil = now + 55_000; // Lock for 55 seconds (cron runs every 60s)
+    this.cronLockUntil = now + 4_500; // Short lock: position monitor now runs every 1 second
     
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
     
@@ -428,6 +434,59 @@ class PersistentTradingEngine {
       console.error(`❌ [CRON] Tick error:`, error);
       return { success: false, error: String(error) };
     }
+  }
+
+  static async runPositionMonitorTick(targetUserId?: string): Promise<any> {
+    const startedAt = Date.now();
+    let monitoredCount = 0;
+
+    let positionsQuery = supabaseAdmin
+      .from('position_monitor_state')
+      .select('user_id')
+      .eq('is_active', true);
+
+    if (targetUserId) positionsQuery = positionsQuery.eq('user_id', targetUserId);
+
+    const { data: activePositions, error } = await positionsQuery;
+
+    if (error) {
+      console.error('❌ [POSITION-MONITOR] Failed loading active positions:', error);
+      return { success: false, error: error.message };
+    }
+
+    const userIds = Array.from(new Set((activePositions || []).map((p: any) => p.user_id).filter(Boolean)));
+
+    for (const userId of userIds) {
+      if (this.monitorLoops.has(userId)) continue;
+
+      const loop = (async () => {
+        const credentials = await kv.get(`api_credentials:${userId}`);
+        if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;
+
+        const dhanService = new DhanService({ clientId: credentials.dhanClientId, accessToken: credentials.dhanAccessToken });
+        const state = this.engineStates.get(userId) || {
+          isRunning: false,
+          userId,
+          candleInterval: '15',
+          symbols: [],
+          lastProcessedCandle: '',
+          activePositions: [],
+          stats: { totalSignals: 0, totalOrders: 0, totalPnL: 0 },
+          startTime: startedAt,
+          lastHeartbeat: startedAt,
+          dhanClientId: credentials.dhanClientId,
+          dhanAccessToken: credentials.dhanAccessToken,
+        } as EngineState;
+
+        await this.monitorPositions(userId, dhanService, state);
+        await kv.set(`engine_state_${userId}`, state);
+      })().finally(() => this.monitorLoops.delete(userId));
+
+      this.monitorLoops.set(userId, loop);
+      monitoredCount++;
+    }
+
+    return { success: true, intervalMs: this.POSITION_MONITOR_INTERVAL_MS, monitored: monitoredCount };
   }
 
   /**
@@ -848,6 +907,10 @@ class PersistentTradingEngine {
                   quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
                   targetAmount: symbol.targetAmount || 500,
                   stopLossAmount: symbol.stopLossAmount || 300,
+                  trailingEnabled: symbol.trailingEnabled || false,
+                  trailingActivationAmount: symbol.trailingActivationAmount || 0,
+                  targetJumpAmount: symbol.targetJumpAmount || 0,
+                  stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
                   pnl: 0,
                   entryTime: Date.now(),
                   status: 'ACTIVE'
@@ -941,21 +1004,25 @@ class PersistentTradingEngine {
     dhanService: DhanService,
     state: EngineState
   ): Promise<void> {
-    // Also check DB for positions (in case frontend added them)
-    if (state.activePositions.length === 0) {
-      const { data: dbPositions } = await supabaseAdmin
-        .from('position_monitor_state')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('is_active', true);
-      
-      if (dbPositions && dbPositions.length > 0) {
-        // Hydrate state from DB
-        for (const dbPos of dbPositions) {
-          state.activePositions.push({
+    // Always refresh active positions from DB so edited Target/SL and trailing settings apply immediately
+    const { data: dbPositions } = await supabaseAdmin
+      .from('position_monitor_state')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (dbPositions && dbPositions.length > 0) {
+      const dbOrderIds = new Set(dbPositions.map((p: any) => p.order_id));
+      state.activePositions = state.activePositions.filter((p: any) => dbOrderIds.has(p.orderId));
+
+      for (const dbPos of dbPositions) {
+        const existing = state.activePositions.find((p: any) => p.orderId === dbPos.order_id);
+        const dbState = {
             orderId: dbPos.order_id,
             symbolName: dbPos.symbol,
             securityId: dbPos.symbol_id,
+            exchangeSegment: dbPos.exchange_segment,
+            index: dbPos.index_name,
             entryPrice: dbPos.entry_price,
             currentPrice: dbPos.current_price,
             quantity: dbPos.quantity,
@@ -965,12 +1032,17 @@ class PersistentTradingEngine {
             highestPnl: dbPos.highest_pnl,
             trailingEnabled: dbPos.trailing_enabled,
             trailingStep: dbPos.trailing_step,
+            trailingActivationAmount: dbPos.raw_position?.trailingActivationAmount || 0,
+            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || 0,
+            stopLossJumpAmount: dbPos.raw_position?.stopLossJumpAmount || dbPos.trailing_step || 50,
             entryTime: new Date(dbPos.created_at).getTime(),
             status: 'ACTIVE'
-          });
-        }
-        console.log(`📊 Loaded ${dbPositions.length} positions from DB for user ${userId}`);
+          };
+
+        if (existing) Object.assign(existing, dbState);
+        else state.activePositions.push(dbState);
       }
+      console.log(`📊 Synced ${dbPositions.length} active position(s) from DB for user ${userId}`);
     }
     
     if (state.activePositions.length === 0) {
@@ -1102,13 +1174,14 @@ class PersistentTradingEngine {
           shouldExit = true;
           exitReason = `Target Achieved (₹${pnl.toFixed(2)})`;
         }
-        // Trailing Stop Loss
+        // Trailing Stop Loss - activates after configured profit, then locks profit below peak
         else if (position.trailingEnabled && position.highestPnl > 0) {
-          const trailingStep = position.trailingStep || 50;
-          const trailTrigger = position.highestPnl - trailingStep;
-          if (pnl <= trailTrigger && pnl > 0) {
+          const activationAmount = Number(position.trailingActivationAmount || 0);
+          const trailingStep = Number(position.stopLossJumpAmount || position.trailingStep || 50);
+          const trailTrigger = Math.max(0, position.highestPnl - trailingStep);
+          if (position.highestPnl >= activationAmount && pnl <= trailTrigger) {
             shouldExit = true;
-            exitReason = `Trailing SL Hit (Peak: ₹${position.highestPnl.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+            exitReason = `Trailing SL Hit (Peak: ₹${position.highestPnl.toFixed(2)}, Trail: ₹${trailTrigger.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
           }
         }
         
@@ -1400,8 +1473,14 @@ class PersistentTradingEngine {
           target_amount: position.targetAmount || 500,
           stop_loss_amount: position.stopLossAmount || 300,
           trailing_enabled: position.trailingEnabled || false,
-          trailing_step: position.trailingStep || 50,
+          trailing_step: position.stopLossJumpAmount || position.trailingStep || 50,
           highest_pnl: 0,
+          raw_position: {
+            ...(symbol.raw_data || {}),
+            trailingActivationAmount: position.trailingActivationAmount || symbol.trailingActivationAmount || 0,
+            targetJumpAmount: position.targetJumpAmount || symbol.targetJumpAmount || 0,
+            stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 50,
+          },
           is_active: true
         }, { onConflict: 'user_id,order_id' });
     } catch (err) {

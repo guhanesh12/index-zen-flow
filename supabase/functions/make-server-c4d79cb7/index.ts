@@ -3185,6 +3185,31 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
       console.log(`  Price: ${result.price || orderRequest.price}`);
       console.log(`  Timestamp saved for spam prevention`);
 
+      await supabase.from('position_monitor_state').upsert({
+        user_id: effectiveUserId,
+        order_id: resolvedOrderId,
+        symbol: orderRequest.symbolName || orderRequest.tradingSymbol || orderRequest.securityId,
+        index_name: orderRequest.index || (exchangeSegment === 'BSE_FNO' ? 'SENSEX' : 'NIFTY'),
+        symbol_id: String(orderRequest.securityId || ''),
+        exchange_segment: exchangeSegment,
+        entry_price: Number(result.averagePrice || result.price || orderRequest.price || 0),
+        current_price: Number(result.averagePrice || result.price || orderRequest.price || 0),
+        quantity: Number(orderRequest.quantity || 1),
+        pnl: 0,
+        target_amount: Number(orderRequest.targetAmount || 3000),
+        stop_loss_amount: Number(orderRequest.stopLossAmount || 2000),
+        trailing_enabled: Boolean(orderRequest.trailingEnabled),
+        trailing_step: Number(orderRequest.stopLossJumpAmount || 50),
+        highest_pnl: 0,
+        is_active: true,
+        raw_position: {
+          optionType: orderRequest.optionType,
+          trailingActivationAmount: Number(orderRequest.trailingActivationAmount || 0),
+          targetJumpAmount: Number(orderRequest.targetJumpAmount || 0),
+          stopLossJumpAmount: Number(orderRequest.stopLossJumpAmount || 50),
+        },
+      }, { onConflict: 'user_id,order_id' });
+
       return c.json({
         success: true,
         orderId: resolvedOrderId,
@@ -9587,6 +9612,52 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   } catch (error: any) {
     console.error("❌ [CRON] Tick failed:", error);
     return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
+  try {
+    let targetUserId = '';
+    const authHeader = c.req.header('Authorization');
+    if (authHeader) {
+      const { user } = await validateAuth(c, 1);
+      targetUserId = user?.id || '';
+    }
+
+    const result = await PersistentTradingEngine.runPositionMonitorTick(targetUserId || undefined);
+    return c.json(result);
+  } catch (error: any) {
+    console.error("❌ [POSITION-MONITOR] Tick failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/position-monitor/update", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || 'Unauthorized' }, 401);
+
+    const body = await c.req.json();
+    const orderId = String(body.orderId || '').trim();
+    const targetAmount = Number(body.targetAmount);
+    const stopLossAmount = Number(body.stopLossAmount);
+
+    if (!orderId || !Number.isFinite(targetAmount) || !Number.isFinite(stopLossAmount)) {
+      return c.json({ error: 'orderId, targetAmount and stopLossAmount are required' }, 400);
+    }
+
+    const { error: updateError } = await supabase
+      .from('position_monitor_state')
+      .update({ target_amount: targetAmount, stop_loss_amount: stopLossAmount })
+      .eq('user_id', user.id)
+      .eq('order_id', orderId)
+      .eq('is_active', true);
+
+    if (updateError) return c.json({ error: updateError.message }, 500);
+    return c.json({ success: true, orderId, targetAmount, stopLossAmount });
+  } catch (error: any) {
+    console.error('❌ Position update failed:', error);
+    return c.json({ error: error.message }, 500);
   }
 });
 
