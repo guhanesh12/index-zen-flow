@@ -1517,9 +1517,20 @@ export class AdvancedAI {
       
       // BLOCK SELL signals when OVERSOLD — only when BOTH BB AND VWAP extreme together
       if (bias === 'Bearish') {
-        const shouldBlock = isVeryStrongTrend 
-          ? (priceNearLowerBand && vwapNormalized.interpretation === 'EXTENDED')  // Strong trend: only dual-risk block
-          : (priceNearLowerBand && vwapNormalized.interpretation === 'EXTENDED');  // Normal: also require both
+        const continuationBearishSetup =
+          strongTrendContinuationBearish ||
+          (
+            confirmations.total >= 5 &&
+            adx >= 35 &&
+            marketRegime.type === 'TRENDING_DOWN' &&
+            (emaDowntrend || priceBelowEMAs) &&
+            !macdBullish &&
+            (confirmations.priceAction || confirmations.adx)
+          );
+
+        const shouldBlock = continuationBearishSetup
+          ? false
+          : (priceNearLowerBand && vwapNormalized.interpretation === 'EXTENDED');
         
         if (shouldBlock) {
           const blockReason = [];
@@ -1531,6 +1542,9 @@ export class AdvancedAI {
           confidence = 30;
           reasoning = `🚨 BLOCKED SELL: ${blockReason.join(' + ')}. HIGH REVERSAL RISK! Wait for price to stabilize.`;
           console.log(`🚨 SAFETY BLOCK: SELL signal blocked (ADX: ${adx.toFixed(1)}): ${blockReason.join(', ')}`);
+        } else if (continuationBearishSetup && (priceNearLowerBand || vwapNormalized.interpretation === 'EXTENDED')) {
+          reasoning += ` ⚠️ CONTINUATION: Strong downtrend (ADX ${adx.toFixed(1)}) - allowing bearish continuation despite stretched downside conditions.`;
+          console.log(`✅ BEARISH CONTINUATION ALLOWED: ADX ${adx.toFixed(1)} | confirmations=${confirmations.total} | priceNearLowerBand=${priceNearLowerBand} | vwap=${vwapNormalized.interpretation}`);
         } else if (isVeryStrongTrend && priceNearLowerBand) {
           // Very strong trend + near BB but VWAP acceptable → Allow with warning
           reasoning += ` ⚠️ CONTINUATION: Very strong downtrend (ADX ${adx.toFixed(1)}) - allowing near lower BB.`;
