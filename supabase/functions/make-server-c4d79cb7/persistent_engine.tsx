@@ -166,8 +166,10 @@ class PersistentTradingEngine {
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
   private static activeLoops: Set<string> = new Set();
+  private static monitorLoops: Map<string, Promise<void>> = new Map();
   private static recentOrderKeys: Map<string, number> = new Map();
   private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
+  private static readonly POSITION_MONITOR_INTERVAL_MS = 1000;
   
   /**
    * START ENGINE FOR USER
@@ -299,7 +301,7 @@ class PersistentTradingEngine {
       console.log(`⏸️ [CRON] Skipping - already processing (lock until ${new Date(this.cronLockUntil).toISOString()})`);
       return { success: true, skipped: true, message: "Concurrent tick blocked by lock" };
     }
-    this.cronLockUntil = now + 55_000; // Lock for 55 seconds (cron runs every 60s)
+    this.cronLockUntil = now + 4_500; // Short lock: position monitor now runs every 1 second
     
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
     
