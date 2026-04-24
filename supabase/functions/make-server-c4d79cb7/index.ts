@@ -2508,7 +2508,9 @@ app.post("/make-server-c4d79cb7/place-bracket-order", async (c) => {
       return c.json({ error: "Dhan credentials not configured" }, 400);
     }
 
-    console.log('🚀 [BRACKET ORDER] Using Static IP server for SEBI compliance');
+    console.log('🚀 [BRACKET ORDER] Disabled: forcing all executions to MARKET only');
+
+    return c.json({ success: false, error: 'Bracket/limit orders are disabled. Only MARKET orders are allowed.' }, 400);
 
     // ✅ Use Static IP server for bracket order placement
     const orderParams = {
@@ -2578,7 +2580,9 @@ app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
       return c.json({ error: "Dhan credentials not configured" }, 400);
     }
 
-    console.log('🚀 [COVER ORDER] Using Static IP server for SEBI compliance');
+    console.log('🚀 [COVER ORDER] Disabled: forcing all executions to MARKET only');
+
+    return c.json({ success: false, error: 'Cover/limit orders are disabled. Only MARKET orders are allowed.' }, 400);
 
     // ✅ Use Static IP server for cover order placement
     const orderParams = {
