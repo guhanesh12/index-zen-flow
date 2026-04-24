@@ -2417,11 +2417,11 @@ app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
       exchangeSegment: exchangeSegment,
       transactionType,
       quantity: parseInt(quantity),
-      orderType: symbol.orderType || 'MARKET',
-      productType: symbol.productType || 'INTRADAY',
+      orderType: 'MARKET',
+      productType: 'INTRADAY',
       validity: symbol.validity || 'DAY',
-      price: symbol.price || 0,
-      triggerPrice: symbol.triggerPrice || 0,
+      price: 0,
+      triggerPrice: 0,
       disclosedQuantity: symbol.disclosedQuantity || 0,
       afterMarketOrder: symbol.afterMarketOrder || false
     };
