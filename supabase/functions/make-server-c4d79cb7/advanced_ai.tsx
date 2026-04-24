@@ -1190,11 +1190,10 @@ export class AdvancedAI {
     let bias: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
     
     // MUST have 6+ confirmations AND suitable market regime
-    // ✅ FIXED: Use percentage-based body size (0.08% of price)
+    // ✅ FIXED: Use fixed point-based candle body, not percentage-based
     // ADJUSTED FOR REAL TRADING: Lower volume requirement from 1.5x to 0.8x (real market conditions)
     // ⚡ NEW FIX: In very strong trends (ADX > 50), reduce volume requirement to 0.5x
-    const minimumBodyPercent = 0.08; // 0.08% of price (realistic for Indian indices)
-    const minimumBodySize = lastCandle.close * (minimumBodyPercent / 100); // Dynamic based on price
+    const minimumBodySize = 10; // Fixed minimum 10-point candle body for all indices
     const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
     const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
     const hasAcceptableVolume = volumeRatio >= minimumVolumeRatio;  // ⚡ FIX: Use >= instead of >
@@ -1203,7 +1202,7 @@ export class AdvancedAI {
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
-    console.log(`📏 Body size check: actual=${bodySize.toFixed(2)}, min=${minimumBodySize.toFixed(2)} (${minimumBodyPercent}% of ${lastCandle.close.toFixed(2)}), hasStrongPattern=${hasStrongPattern}`);
+    console.log(`📏 Body size check: actual=${bodySize.toFixed(2)}pts, min=${minimumBodySize.toFixed(2)}pts (fixed), hasStrongPattern=${hasStrongPattern}`);
     
     const strongBullish = confirmations.total >= 6 && confirmationBullish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
     const strongBearish = confirmations.total >= 6 && confirmationBearish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
