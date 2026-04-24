@@ -365,6 +365,8 @@ export async function placeOrderViaUserIP(
 
     const endpoint = `${assignment.vpsUrl}/place-order`;
 
+    const normalizedQuantity = Math.max(1, Number(orderDetails.quantity) || 0);
+
     // Format order details
     const completeOrderDetails = {
       dhanClientId: credentials.dhanClientId,
@@ -373,16 +375,29 @@ export async function placeOrderViaUserIP(
       exchangeSegment: orderDetails.exchangeSegment || 'NSE_FNO',
       productType: 'INTRADAY',
       orderType: 'MARKET',
-      validity: orderDetails.validity || 'DAY',
-      quantity: orderDetails.quantity,
+      validity: 'DAY',
+      quantity: normalizedQuantity,
       correlationId: orderDetails.correlationId || `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      disclosedQuantity: orderDetails.disclosedQuantity || 0,
+      disclosedQuantity: 0,
       price: 0,
       triggerPrice: 0,
-      afterMarketOrder: orderDetails.afterMarketOrder || false,
+      afterMarketOrder: Boolean(orderDetails.afterMarketOrder),
+      ...(orderDetails.afterMarketOrder && orderDetails.amoTime ? { amoTime: orderDetails.amoTime } : {}),
     };
 
     console.log(`📤 [USER IP ${assignment.ipAddress}] Placing order for user ${userId}`);
+    console.log(`🛡️ [USER IP ${assignment.ipAddress}] Market-only payload: ${JSON.stringify({
+      securityId: completeOrderDetails.securityId,
+      transactionType: completeOrderDetails.transactionType,
+      exchangeSegment: completeOrderDetails.exchangeSegment,
+      orderType: completeOrderDetails.orderType,
+      quantity: completeOrderDetails.quantity,
+      price: completeOrderDetails.price,
+      triggerPrice: completeOrderDetails.triggerPrice,
+      afterMarketOrder: completeOrderDetails.afterMarketOrder,
+      hasAmoTime: Boolean((completeOrderDetails as any).amoTime),
+      hasBracketFields: false,
+    })}`);
 
     // Forward to user's assigned IP server
     const response = await fetch(endpoint, {
