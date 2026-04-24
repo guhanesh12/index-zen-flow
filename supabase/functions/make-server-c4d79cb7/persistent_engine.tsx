@@ -1028,6 +1028,9 @@ class PersistentTradingEngine {
             highestPnl: dbPos.highest_pnl,
             trailingEnabled: dbPos.trailing_enabled,
             trailingStep: dbPos.trailing_step,
+            trailingActivationAmount: dbPos.raw_position?.trailingActivationAmount || 0,
+            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || 0,
+            stopLossJumpAmount: dbPos.raw_position?.stopLossJumpAmount || dbPos.trailing_step || 50,
             entryTime: new Date(dbPos.created_at).getTime(),
             status: 'ACTIVE'
           };
