@@ -9669,6 +9669,59 @@ app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
   }
 });
 
+// GET /position-monitor/list  → all active monitored positions for the user
+// Used by mobile app to render the Position Monitor UI
+app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
+  try {
+    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
+    const queryUserId = c.req.query('userId');
+    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
+    if (!userId) return c.json({ error: 'userId required' }, 401);
+
+    const { data, error } = await supabase
+      .from('position_monitor_state')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, positions: data || [] });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// POST /position-monitor/trailing  → enable/disable trailing SL on an active position
+app.post("/make-server-c4d79cb7/position-monitor/trailing", async (c) => {
+  try {
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json();
+    const orderId = String(body.orderId || '').trim();
+    const trailingEnabled = Boolean(body.trailingEnabled);
+    const trailingStep = Number(body.trailingStep);
+
+    if (!orderId) return c.json({ error: 'orderId required' }, 400);
+
+    const update: Record<string, unknown> = { trailing_enabled: trailingEnabled };
+    if (Number.isFinite(trailingStep) && trailingStep > 0) update.trailing_step = trailingStep;
+
+    const { error: updateError } = await supabase
+      .from('position_monitor_state')
+      .update(update)
+      .eq('user_id', user.id)
+      .eq('order_id', orderId)
+      .eq('is_active', true);
+
+    if (updateError) return c.json({ error: updateError.message }, 500);
+    return c.json({ success: true, orderId, trailingEnabled, trailingStep: update.trailing_step });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 app.post("/make-server-c4d79cb7/position-monitor/update", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
