@@ -41,7 +41,7 @@ const SUPABASE_API_DOMAIN = `https://${projectId}.supabase.co`;
  * Get the active API base URL based on current mode
  */
 export const getApiBaseUrl = (): string => {
-  if (API_MODE === 'custom') {
+  if ((API_MODE as string) === 'custom') {
     console.log('🌐 [API CONFIG] Using CUSTOM domain:', CUSTOM_API_DOMAIN);
     return CUSTOM_API_DOMAIN;
   } else {
