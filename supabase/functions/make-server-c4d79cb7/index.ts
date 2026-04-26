@@ -5,7 +5,7 @@ import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
-import { createClient } from "npm:@supabase/supabase-js@2.45.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { DhanService } from "./dhan_service.tsx";
 import { ChatGPTService } from "./chatgpt_service.tsx";
 import { BackendAI } from "./backend_ai.tsx";
