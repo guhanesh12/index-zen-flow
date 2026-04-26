@@ -265,10 +265,20 @@ class PersistentTradingEngine {
    */
   static async stopEngine(userId: string): Promise<{ success: boolean; message: string }> {
     const timerId = this.instances.get(userId);
-    
+
+    const writeStopLog = async (msg: string) => {
+      await this.appendSharedLog(userId, {
+        id: `engine_stop_${Date.now()}`,
+        timestamp: Date.now(),
+        type: 'ENGINE_STOP',
+        message: msg,
+      });
+    };
+
     if (!timerId) {
       // Even if no in-memory timer, mark DB as stopped
       await this.markEngineStoppedInDB(userId);
+      await writeStopLog('🛑 AI Trading Engine STOPPED | 📱 Synced across all devices');
       return {
         success: true,
         message: '✅ Engine stopped (was running via cron)'
@@ -293,7 +303,8 @@ class PersistentTradingEngine {
     await this.markEngineStoppedInDB(userId);
     
     console.log(`🛑 STOPPED PERSISTENT ENGINE for user ${userId}`);
-    
+    await writeStopLog('🛑 AI Trading Engine STOPPED | 📱 Synced across all devices');
+
     return {
       success: true,
       message: '✅ Engine stopped successfully'
