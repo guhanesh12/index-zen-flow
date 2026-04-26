@@ -245,7 +245,15 @@ class PersistentTradingEngine {
       clearInterval(staleTimer);
       this.instances.delete(userId);
     }
-    
+
+    // 📱 Write user-visible log so START is shown on website + app no matter which device started it
+    await this.appendSharedLog(userId, {
+      id: `engine_start_${Date.now()}`,
+      timestamp: Date.now(),
+      type: 'ENGINE_START',
+      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${symbols.length} symbols active | 📱 Synced across all devices`,
+    });
+
     return {
       success: true,
       message: `✅ Engine started successfully! Waiting for the next ${candleInterval}M candle close.`
