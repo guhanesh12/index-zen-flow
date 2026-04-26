@@ -245,7 +245,15 @@ class PersistentTradingEngine {
       clearInterval(staleTimer);
       this.instances.delete(userId);
     }
-    
+
+    // 📱 Write user-visible log so START is shown on website + app no matter which device started it
+    await this.appendSharedLog(userId, {
+      id: `engine_start_${Date.now()}`,
+      timestamp: Date.now(),
+      type: 'ENGINE_START',
+      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${symbols.length} symbols active | 📱 Synced across all devices`,
+    });
+
     return {
       success: true,
       message: `✅ Engine started successfully! Waiting for the next ${candleInterval}M candle close.`
@@ -257,10 +265,20 @@ class PersistentTradingEngine {
    */
   static async stopEngine(userId: string): Promise<{ success: boolean; message: string }> {
     const timerId = this.instances.get(userId);
-    
+
+    const writeStopLog = async (msg: string) => {
+      await this.appendSharedLog(userId, {
+        id: `engine_stop_${Date.now()}`,
+        timestamp: Date.now(),
+        type: 'ENGINE_STOP',
+        message: msg,
+      });
+    };
+
     if (!timerId) {
       // Even if no in-memory timer, mark DB as stopped
       await this.markEngineStoppedInDB(userId);
+      await writeStopLog('🛑 AI Trading Engine STOPPED | 📱 Synced across all devices');
       return {
         success: true,
         message: '✅ Engine stopped (was running via cron)'
@@ -285,7 +303,8 @@ class PersistentTradingEngine {
     await this.markEngineStoppedInDB(userId);
     
     console.log(`🛑 STOPPED PERSISTENT ENGINE for user ${userId}`);
-    
+    await writeStopLog('🛑 AI Trading Engine STOPPED | 📱 Synced across all devices');
+
     return {
       success: true,
       message: '✅ Engine stopped successfully'
