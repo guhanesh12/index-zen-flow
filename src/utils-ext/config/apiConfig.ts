@@ -19,7 +19,7 @@ import { projectId, publicAnonKey } from '../supabase/info';
  * 1. 'supabase' - Use default Supabase edge functions URL
  * 2. 'custom' - Use custom domain (for mobile networks where Supabase is blocked)
  */
-const API_MODE: 'supabase' | 'custom' = 'custom';
+const API_MODE: 'supabase' | 'custom' = 'supabase';
 
 /**
  * Custom Domain Configuration
@@ -54,8 +54,7 @@ export const getApiBaseUrl = (): string => {
  * Get the complete server URL with function path
  */
 export const getServerUrl = (): string => {
-  // Always use the custom API domain for Lovable deployment
-  return 'https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7';
+  return `${getApiBaseUrl()}/functions/v1/make-server-c4d79cb7`;
 };
 
 /**
