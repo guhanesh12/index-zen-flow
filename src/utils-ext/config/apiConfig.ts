@@ -19,7 +19,7 @@ import { projectId, publicAnonKey } from '../supabase/info';
  * 1. 'supabase' - Use default Supabase edge functions URL
  * 2. 'custom' - Use custom domain (for mobile networks where Supabase is blocked)
  */
-const API_MODE: 'supabase' | 'custom' = 'custom';
+const API_MODE: 'supabase' | 'custom' = 'supabase';
 
 /**
  * Custom Domain Configuration
@@ -41,7 +41,7 @@ const SUPABASE_API_DOMAIN = `https://${projectId}.supabase.co`;
  * Get the active API base URL based on current mode
  */
 export const getApiBaseUrl = (): string => {
-  if (API_MODE === 'custom') {
+  if ((API_MODE as string) === 'custom') {
     console.log('🌐 [API CONFIG] Using CUSTOM domain:', CUSTOM_API_DOMAIN);
     return CUSTOM_API_DOMAIN;
   } else {
@@ -54,8 +54,7 @@ export const getApiBaseUrl = (): string => {
  * Get the complete server URL with function path
  */
 export const getServerUrl = (): string => {
-  // Always use the custom API domain for Lovable deployment
-  return 'https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7';
+  return `${getApiBaseUrl()}/functions/v1/make-server-c4d79cb7`;
 };
 
 /**
