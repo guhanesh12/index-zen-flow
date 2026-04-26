@@ -23,7 +23,7 @@ import { DhanService } from './dhan_service.tsx';
 import { AdvancedAI } from './advanced_ai.tsx';
 import * as kv from './kv_store.tsx';
 import { placeOrderViaStaticIP } from './static_ip_helper.tsx';
-import { createClient } from "npm:@supabase/supabase-js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from './tiered_debit.tsx';
 
 const SUPPORTED_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;

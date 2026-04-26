@@ -1,5 +1,5 @@
 import * as kv from "./kv_store.tsx";
-import { createClient } from "npm:@supabase/supabase-js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // ═══════════════════════════════════════════════════════════════
 // 📢 PUSH NOTIFICATION SERVICE - Firebase Cloud Messaging Integration
