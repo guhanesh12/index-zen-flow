@@ -545,6 +545,138 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     };
   }, []);
 
+  // ⚡⚡⚡ LIVE PER-POSITION MARKET ANALYSIS LOOP (1s, UI-only) ⚡⚡⚡
+  // Fills "Trend / Momentum / Strength / Next Moment / AI Signal / AI Confidence" cards.
+  // Pre-warms 3s after mount/first position so initial market data is ready before user looks.
+  // Backend owns exits — this loop NEVER places orders.
+  useEffect(() => {
+    let inFlight = false;
+    let mounted = true;
+
+    const lastFetchByIndex: Record<string, number> = { NIFTY: 0, BANKNIFTY: 0, SENSEX: 0 };
+    const cachedAnalysisByIndex: Record<string, any> = {};
+    const ANALYSIS_INDEX_TTL_MS = 3000; // refresh underlying analysis at most every 3s per index
+
+    const computeAnalysisForIndex = async (index: 'NIFTY' | 'BANKNIFTY' | 'SENSEX') => {
+      const now = Date.now();
+      if (cachedAnalysisByIndex[index] && now - lastFetchByIndex[index] < ANALYSIS_INDEX_TTL_MS) {
+        return cachedAnalysisByIndex[index];
+      }
+      try {
+        const freshToken = await getFreshAccessToken();
+        const resp = await fetch(`${serverUrl}/advanced-ai-signal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
+          body: JSON.stringify({ index, interval: candleIntervalRef.current, accountBalance: 100000 }),
+        });
+        const data = await resp.json();
+        if (data?.signal) {
+          cachedAnalysisByIndex[index] = data.signal;
+          lastFetchByIndex[index] = now;
+          return data.signal;
+        }
+      } catch (err) {
+        console.warn(`⚠️ live analysis fetch failed for ${index}:`, err);
+      }
+      return cachedAnalysisByIndex[index] || null;
+    };
+
+    const tick = async () => {
+      if (inFlight || !mounted) return;
+      const positions = activePositionsRef.current;
+      if (!positions || positions.length === 0) return;
+      inFlight = true;
+      try {
+        // Group positions by underlying index — one analysis call per index
+        const byIndex: Record<string, any[]> = {};
+        positions.forEach((p) => {
+          const idx = (p.index || 'NIFTY') as 'NIFTY' | 'BANKNIFTY' | 'SENSEX';
+          (byIndex[idx] ||= []).push(p);
+        });
+
+        await Promise.all(Object.keys(byIndex).map(async (idx) => {
+          const signal = await computeAnalysisForIndex(idx as any);
+          if (!signal || !mounted) return;
+          const indicators = signal.indicators || {};
+          const adx = Number(indicators.adx ?? 0);
+          const ema9 = Number(indicators.ema9 ?? 0);
+          const ema21 = Number(indicators.ema21 ?? 0);
+          const trendDirection = ema9 > ema21 ? 'BULLISH' : 'BEARISH';
+          const isPriceAboveVWAP = Boolean(indicators.priceAboveVWAP);
+          const rsiBull = Number(indicators.rsi ?? 50) > 50;
+          const macdBull = Boolean(indicators.macdBullish);
+          const orderFlow = signal.volumeAnalysis?.orderFlow || signal.volume_analysis?.orderFlow;
+
+          let bull = 0, bear = 0;
+          trendDirection === 'BULLISH' ? bull++ : bear++;
+          isPriceAboveVWAP ? bull++ : bear++;
+          rsiBull ? bull++ : bear++;
+          macdBull ? bull++ : bear++;
+          if (orderFlow === 'BULLISH') bull++;
+          else if (orderFlow === 'BEARISH') bear++;
+
+          const marketMomentum = bull > bear ? 'BULLISH' : bear > bull ? 'BEARISH' : 'NEUTRAL';
+          const momentumStrength = Math.max(bull, bear);
+          const isTrending = adx > 25;
+          const isStrongTrend = adx > 40;
+
+          const marketAnalysis = {
+            trend: `${trendDirection} (ADX: ${adx.toFixed(0)})`,
+            momentum: `${marketMomentum} (${momentumStrength}/6 confirmations)`,
+            strength: isStrongTrend ? 'STRONG' : isTrending ? 'MODERATE' : 'WEAK',
+            nextMoment: marketMomentum === 'BULLISH'
+              ? '📈 Expecting upward move - Price likely to rise'
+              : marketMomentum === 'BEARISH'
+              ? '📉 Expecting downward move - Price likely to fall'
+              : '➡️ Sideways market - No clear direction',
+          };
+
+          setPositionMonitoringStatus((prev) => {
+            const next = { ...prev };
+            for (const pos of byIndex[idx]) {
+              const positionDirection = pos.optionType === 'CE' ? 'BULLISH' : 'BEARISH';
+              const aligned = positionDirection === marketMomentum;
+              const pnl = Number(pos.pnl || 0);
+              const pnlPercentage = pos.entryPrice > 0
+                ? ((pnl) / (pos.entryPrice * Math.max(1, pos.quantity || 1))) * 100
+                : 0;
+
+              const reasoning = aligned
+                ? `✅ HOLD - Market momentum ${marketMomentum} matches ${positionDirection} position (${momentumStrength}/6 confirmations). P&L: ₹${pnl.toFixed(2)}`
+                : `⏳ MONITORING - Market ${marketMomentum} vs ${positionDirection} position. AI: ${signal.action} (${signal.confidence}%). P&L: ₹${pnl.toFixed(2)}`;
+
+              next[pos.orderId] = {
+                ...(next[pos.orderId] || createInitialMonitoringStatus(pos)),
+                decision: 'HOLD',
+                reasoning,
+                marketAnalysis,
+                aiSignal: signal.action || 'WAIT',
+                confidence: Number(signal.confidence || 0),
+                currentPnL: pnl,
+                pnlPercentage,
+                timestamp: Date.now(),
+              };
+            }
+            return next;
+          });
+        }));
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    // Pre-warm: kick a first tick after 3s so card fills before user looks
+    const preWarm = setTimeout(tick, 3000);
+    // Then run every 1s
+    const intervalId = setInterval(tick, 1000);
+
+    return () => {
+      mounted = false;
+      clearTimeout(preWarm);
+      clearInterval(intervalId);
+    };
+  }, []);
+
   // ⚡⚡⚡ CRITICAL FIX: Engine Heartbeat Monitor ⚡⚡⚡
   // Detects if engine stops working even though it says it's "running"
   useEffect(() => {
