@@ -512,6 +512,17 @@ class PersistentTradingEngine {
               .eq('is_active', true);
             const trackedKeys = new Set((tracked || []).map((t: any) => `${t.symbol}|${t.symbol_id || ''}`));
 
+            // Load user-configured symbols (target/SL/trailing settings) from user_symbols
+            const userConfiguredSymbols = await loadUserSymbolsFromDB(userId);
+            const symbolConfigByKey = new Map<string, any>();
+            const symbolConfigByName = new Map<string, any>();
+            for (const s of userConfiguredSymbols) {
+              const sName = String(s.symbolName || s.symbol || '');
+              const sId = String(s.securityId || s.symbol_id || '');
+              if (sName) symbolConfigByName.set(sName, s);
+              if (sName && sId) symbolConfigByKey.set(`${sName}|${sId}`, s);
+            }
+
             for (const pos of openPositions) {
               const sym = pos.tradingSymbol || pos.symbol || '';
               const sid = String(pos.securityId || '');
@@ -525,9 +536,12 @@ class PersistentTradingEngine {
               const computedPnl = entry && ltp ? (ltp - entry) * qty : 0;
               const pnl = Number.isFinite(brokerPnl) && brokerPnl !== 0 ? brokerPnl : computedPnl;
 
-              // Best-effort defaults; user can edit Target/SL from UI later
-              const defaultTarget = 500;
-              const defaultStopLoss = 300;
+              // Use user-configured target/SL from Symbols section (no hardcoded defaults)
+              const cfg = symbolConfigByKey.get(key) || symbolConfigByName.get(sym) || {};
+              const cfgTarget = Number(cfg.targetAmount ?? 0);
+              const cfgStopLoss = Number(cfg.stopLossAmount ?? 0);
+              const cfgTrailingEnabled = !!cfg.trailingEnabled;
+              const cfgTrailingStep = Number(cfg.stopLossJumpAmount ?? cfg.trailingStep ?? 0);
 
               const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || sym}-${Date.now()}`;
 
@@ -545,15 +559,23 @@ class PersistentTradingEngine {
                   quantity: qty,
                   pnl,
                   highest_pnl: Math.max(0, pnl),
-                  target_amount: defaultTarget,
-                  stop_loss_amount: defaultStopLoss,
-                  trailing_enabled: false,
-                  trailing_step: 50,
+                  target_amount: cfgTarget,
+                  stop_loss_amount: cfgStopLoss,
+                  trailing_enabled: cfgTrailingEnabled,
+                  trailing_step: cfgTrailingStep,
                   is_active: true,
-                  raw_position: { ...pos, autoImported: true, importedAt: Date.now() },
+                  raw_position: {
+                    ...pos,
+                    autoImported: true,
+                    importedAt: Date.now(),
+                    trailingActivationAmount: Number(cfg.trailingActivationAmount ?? 0),
+                    targetJumpAmount: Number(cfg.targetJumpAmount ?? 0),
+                    stopLossJumpAmount: Number(cfg.stopLossJumpAmount ?? 0),
+                    sourceSymbolConfig: cfg ? { targetAmount: cfgTarget, stopLossAmount: cfgStopLoss } : null,
+                  },
                 }, { onConflict: 'user_id,order_id' });
 
-              console.log(`📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)})`);
+              console.log(`📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss})`);
             }
           }
         } catch (err) {
