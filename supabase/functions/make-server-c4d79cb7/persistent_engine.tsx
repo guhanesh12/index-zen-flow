@@ -1294,13 +1294,15 @@ class PersistentTradingEngine {
         let shouldExit = false;
         let exitReason = '';
         
-        // Stop Loss
-        if (pnl <= -(position.stopLossAmount || 300)) {
+        // Stop Loss (only if user configured > 0)
+        const slAmount = Number(position.stopLossAmount || 0);
+        const tgtAmount = Number(position.targetAmount || 0);
+        if (slAmount > 0 && pnl <= -slAmount) {
           shouldExit = true;
           exitReason = `Stop Loss Hit (₹${pnl.toFixed(2)})`;
         }
-        // Target
-        else if (pnl >= (position.targetAmount || 500)) {
+        // Target (only if user configured > 0)
+        else if (tgtAmount > 0 && pnl >= tgtAmount) {
           shouldExit = true;
           exitReason = `Target Achieved (₹${pnl.toFixed(2)})`;
         }
