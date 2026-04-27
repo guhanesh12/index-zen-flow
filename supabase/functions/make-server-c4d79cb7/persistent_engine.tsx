@@ -473,7 +473,22 @@ class PersistentTradingEngine {
       return { success: false, error: error.message };
     }
 
-    const userIds = Array.from(new Set((activePositions || []).map((p: any) => p.user_id).filter(Boolean)));
+    const userIdSet = new Set<string>((activePositions || []).map((p: any) => p.user_id).filter(Boolean));
+
+    // ⚡ ALSO include any user whose engine is running — so we can auto-pickup
+    // broker positions that aren't yet tracked in position_monitor_state.
+    const { data: engineRows } = await supabaseAdmin
+      .from('trading_engine_state')
+      .select('user_id')
+      .eq('is_running', true);
+    for (const row of engineRows || []) {
+      if (row?.user_id && (!targetUserId || row.user_id === targetUserId)) {
+        userIdSet.add(row.user_id);
+      }
+    }
+    if (targetUserId) userIdSet.add(targetUserId);
+
+    const userIds = Array.from(userIdSet);
 
     for (const userId of userIds) {
       if (this.monitorLoops.has(userId)) continue;
@@ -483,6 +498,68 @@ class PersistentTradingEngine {
         if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;
 
         const dhanService = new DhanService({ clientId: credentials.dhanClientId, accessToken: credentials.dhanAccessToken });
+
+        // ⚡ AUTO-IMPORT: any open broker position not yet in position_monitor_state
+        try {
+          const brokerPositions = await dhanService.getPositions();
+          const openPositions = (brokerPositions || []).filter((p: any) => Math.abs(Number(p.netQty || 0)) > 0);
+
+          if (openPositions.length > 0) {
+            const { data: tracked } = await supabaseAdmin
+              .from('position_monitor_state')
+              .select('symbol, symbol_id')
+              .eq('user_id', userId)
+              .eq('is_active', true);
+            const trackedKeys = new Set((tracked || []).map((t: any) => `${t.symbol}|${t.symbol_id || ''}`));
+
+            for (const pos of openPositions) {
+              const sym = pos.tradingSymbol || pos.symbol || '';
+              const sid = String(pos.securityId || '');
+              const key = `${sym}|${sid}`;
+              if (!sym || trackedKeys.has(key)) continue;
+
+              const qty = Math.abs(Number(pos.netQty || 1));
+              const entry = parseFloat(pos.buyAvg || pos.avgPrice || pos.costPrice || 0);
+              const ltp = parseFloat(pos.lastPrice || pos.ltp || pos.currentPrice || 0);
+              const brokerPnl = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || pos.unrealizedPnL || 0);
+              const computedPnl = entry && ltp ? (ltp - entry) * qty : 0;
+              const pnl = Number.isFinite(brokerPnl) && brokerPnl !== 0 ? brokerPnl : computedPnl;
+
+              // Best-effort defaults; user can edit Target/SL from UI later
+              const defaultTarget = 500;
+              const defaultStopLoss = 300;
+
+              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || sym}-${Date.now()}`;
+
+              await supabaseAdmin
+                .from('position_monitor_state')
+                .upsert({
+                  user_id: userId,
+                  order_id: orderId,
+                  symbol: sym,
+                  symbol_id: sid || null,
+                  exchange_segment: pos.exchangeSegment || (sym.includes('SENSEX') ? 'BSE_FNO' : 'NSE_FNO'),
+                  index_name: sym.includes('BANKNIFTY') ? 'BANKNIFTY' : sym.includes('SENSEX') ? 'SENSEX' : 'NIFTY',
+                  entry_price: entry,
+                  current_price: ltp,
+                  quantity: qty,
+                  pnl,
+                  highest_pnl: Math.max(0, pnl),
+                  target_amount: defaultTarget,
+                  stop_loss_amount: defaultStopLoss,
+                  trailing_enabled: false,
+                  trailing_step: 50,
+                  is_active: true,
+                  raw_position: { ...pos, autoImported: true, importedAt: Date.now() },
+                }, { onConflict: 'user_id,order_id' });
+
+              console.log(`📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)})`);
+            }
+          }
+        } catch (err) {
+          console.error(`❌ [AUTO-IMPORT] failed for ${userId}:`, err);
+        }
+
         const state = this.engineStates.get(userId) || {
           isRunning: false,
           userId,
