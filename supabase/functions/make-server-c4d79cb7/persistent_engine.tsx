@@ -1149,8 +1149,10 @@ class PersistentTradingEngine {
             trailingEnabled: dbPos.trailing_enabled,
             trailingStep: dbPos.trailing_step,
             trailingActivationAmount: dbPos.raw_position?.trailingActivationAmount || dbPos.raw_position?.trailing_activation_amount || dbPos.trailing_step || 0,
-            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || dbPos.raw_position?.target_jump_amount || 0,
-            stopLossJumpAmount: dbPos.raw_position?.stopLossJumpAmount || dbPos.trailing_step || 50,
+            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || dbPos.raw_position?.target_jump_amount || dbPos.trailing_step || 0,
+            stopLossJumpAmount: dbPos.raw_position?.stopLossJumpAmount || dbPos.trailing_step || 0,
+            currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
+            currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
             entryTime: new Date(dbPos.created_at).getTime(),
             status: 'ACTIVE'
           };
@@ -1247,15 +1249,58 @@ class PersistentTradingEngine {
         if (!position.highestPnl || pnl > position.highestPnl) {
           position.highestPnl = pnl;
         }
-        
-        console.log(`📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)}`);
+
+        // ⚡⚡⚡ RATCHET TRAILING (LADDER STYLE) ⚡⚡⚡
+        // Initialize "current" target/SL on first run from base values
+        if (position.currentTargetAmount === undefined || position.currentTargetAmount === null) {
+          position.currentTargetAmount = Number(position.targetAmount || 0);
+        }
+        if (position.currentStopLossAmount === undefined || position.currentStopLossAmount === null) {
+          position.currentStopLossAmount = Number(position.stopLossAmount || 0);
+        }
+
+        const _baseTarget = Number(position.targetAmount || 0);
+        const _baseSL = Number(position.stopLossAmount || 0);
+        const _activation = Number(position.trailingActivationAmount || 0);
+        const _targetJump = Number(position.targetJumpAmount || position.stopLossJumpAmount || position.trailingStep || 0);
+        const _slJump = Number(position.stopLossJumpAmount || position.trailingStep || 0);
+
+        if (position.trailingEnabled && _targetJump > 0 && _slJump > 0 && position.highestPnl >= _activation && _activation >= 0) {
+          const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
+          const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
+          if (numberOfJumps > 0) {
+            const newTarget = _baseTarget + numberOfJumps * _targetJump;
+            const newSL = _baseSL - numberOfJumps * _slJump; // can go negative => profit lock
+            if (newTarget !== position.currentTargetAmount || newSL !== position.currentStopLossAmount) {
+              const oldT = position.currentTargetAmount;
+              const oldS = position.currentStopLossAmount;
+              position.currentTargetAmount = newTarget;
+              position.currentStopLossAmount = newSL;
+              const lockMsg = newSL <= 0 ? ` 🟢 PROFIT LOCKED at ₹${Math.abs(newSL).toFixed(2)}` : '';
+              console.log(`⚡ TRAILING RATCHET ${position.symbolName}: Tgt ₹${oldT}→₹${newTarget} | SL ₹${oldS}→₹${newSL}${lockMsg}`);
+              await this.appendSharedLog(userId, {
+                type: 'TRAILING_UPDATE',
+                timestamp: Date.now(),
+                symbol: position.symbolName,
+                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${numberOfJumps})`,
+                pnl,
+                data: { peak: position.highestPnl, jumps: numberOfJumps, oldTarget: oldT, newTarget, oldStopLoss: oldS, newStopLoss: newSL, profitLocked: newSL <= 0 }
+              });
+            }
+          }
+        }
+
+        console.log(`📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)} | CurTgt ₹${position.currentTargetAmount} | CurSL ₹${position.currentStopLossAmount}`);
 
         // ⚡ Push monitor heartbeat into shared logs (visible in UI)
+        const _curTgt = Number(position.currentTargetAmount ?? position.targetAmount ?? 0);
+        const _curSL = Number(position.currentStopLossAmount ?? position.stopLossAmount ?? 0);
+        const _trailingActive = position.trailingEnabled && position.highestPnl >= Number(position.trailingActivationAmount || 0) && Number(position.trailingActivationAmount || 0) > 0;
         await this.appendSharedLog(userId, {
           type: 'POSITION_MONITOR',
           timestamp: Date.now(),
           symbol: position.symbolName,
-          message: `📊 ${position.symbolName} | LTP ₹${currentPrice.toFixed(2)} | P&L ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)} | Peak ₹${(position.highestPnl || 0).toFixed(2)} | Target ₹${position.targetAmount || 0} | SL ₹${position.stopLossAmount || 0}`,
+          message: `📊 ${position.symbolName} | LTP ₹${currentPrice.toFixed(2)} | P&L ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)} | Peak ₹${(position.highestPnl || 0).toFixed(2)} | Tgt ₹${_curTgt} | SL ₹${_curSL}${_trailingActive ? ' 🔥 TRAIL ON' : ''}${_curSL <= 0 && position.trailingEnabled ? ' 🟢 LOCKED' : ''}`,
           pnl,
           data: {
             symbol: position.symbolName,
@@ -1264,6 +1309,12 @@ class PersistentTradingEngine {
             highestPnl: position.highestPnl || 0,
             targetAmount: position.targetAmount,
             stopLossAmount: position.stopLossAmount,
+            currentTargetAmount: _curTgt,
+            currentStopLossAmount: _curSL,
+            trailingEnabled: position.trailingEnabled,
+            trailingActivationAmount: position.trailingActivationAmount,
+            trailingActive: _trailingActive,
+            profitLocked: position.trailingEnabled && _curSL <= 0,
           }
         });
         
@@ -1279,7 +1330,11 @@ class PersistentTradingEngine {
               ...dhanPos,
               trailingActivationAmount: position.trailingActivationAmount || 0,
               targetJumpAmount: position.targetJumpAmount || 0,
-              stopLossJumpAmount: position.stopLossJumpAmount || position.trailingStep || 50,
+              stopLossJumpAmount: position.stopLossJumpAmount || position.trailingStep || 0,
+              currentTargetAmount: _curTgt,
+              currentStopLossAmount: _curSL,
+              trailingActive: _trailingActive,
+              profitLocked: position.trailingEnabled && _curSL <= 0,
               lastMonitorAt: Date.now(),
             }
           })
@@ -1290,31 +1345,33 @@ class PersistentTradingEngine {
           console.error(`❌ Running wallet auto-debit failed for ${userId}:`, err);
         });
 
-        // Check exit conditions
+        // ⚡ Check exit conditions using RATCHETED current target/SL (trailing ladder)
         let shouldExit = false;
         let exitReason = '';
-        
-        // Stop Loss (only if user configured > 0)
-        const slAmount = Number(position.stopLossAmount || 0);
-        const tgtAmount = Number(position.targetAmount || 0);
-        if (slAmount > 0 && pnl <= -slAmount) {
-          shouldExit = true;
-          exitReason = `Stop Loss Hit (₹${pnl.toFixed(2)})`;
-        }
-        // Target (only if user configured > 0)
-        else if (tgtAmount > 0 && pnl >= tgtAmount) {
-          shouldExit = true;
-          exitReason = `Target Achieved (₹${pnl.toFixed(2)})`;
-        }
-        // Trailing Stop Loss - activates after configured profit, then locks profit below peak
-        else if (position.trailingEnabled && position.highestPnl > 0) {
-          const activationAmount = Number(position.trailingActivationAmount || 0);
-          const trailingStep = Number(position.stopLossJumpAmount || position.trailingStep || 50);
-          const trailTrigger = Math.max(0, position.highestPnl - trailingStep);
-          if (position.highestPnl >= activationAmount && pnl <= trailTrigger) {
+
+        // Use ratcheted values if trailing is enabled and has ratcheted, else base
+        const effectiveTarget = Number(position.currentTargetAmount ?? position.targetAmount ?? 0);
+        const effectiveSL = Number(position.currentStopLossAmount ?? position.stopLossAmount ?? 0);
+
+        // Stop Loss check:
+        //  - If effectiveSL > 0  → exit when pnl <= -effectiveSL (loss limit)
+        //  - If effectiveSL <= 0 → profit-locked: exit when pnl <= -effectiveSL (i.e. pnl drops to locked profit)
+        //    e.g. effectiveSL = -100 means lock ₹100 profit → exit when pnl <= 100
+        if (position.stopLossAmount > 0 || position.trailingEnabled) {
+          const slTriggerPnl = -effectiveSL; // exit when pnl <= this
+          if (pnl <= slTriggerPnl && (effectiveSL > 0 || position.highestPnl > 0)) {
             shouldExit = true;
-            exitReason = `Trailing SL Hit (Peak: ₹${position.highestPnl.toFixed(2)}, Trail: ₹${trailTrigger.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+            if (effectiveSL <= 0) {
+              exitReason = `Profit Lock Hit (Locked: ₹${Math.abs(effectiveSL).toFixed(2)}, Current: ₹${pnl.toFixed(2)}, Peak: ₹${position.highestPnl.toFixed(2)})`;
+            } else {
+              exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+            }
           }
+        }
+        // Target check
+        if (!shouldExit && effectiveTarget > 0 && pnl >= effectiveTarget) {
+          shouldExit = true;
+          exitReason = `Target Achieved (Target: ₹${effectiveTarget.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
         }
         
         if (shouldExit) {
