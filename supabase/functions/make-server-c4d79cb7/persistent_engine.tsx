@@ -1247,8 +1247,48 @@ class PersistentTradingEngine {
         if (!position.highestPnl || pnl > position.highestPnl) {
           position.highestPnl = pnl;
         }
-        
-        console.log(`📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)}`);
+
+        // ⚡⚡⚡ RATCHET TRAILING (LADDER STYLE) ⚡⚡⚡
+        // Initialize "current" target/SL on first run from base values
+        if (position.currentTargetAmount === undefined || position.currentTargetAmount === null) {
+          position.currentTargetAmount = Number(position.targetAmount || 0);
+        }
+        if (position.currentStopLossAmount === undefined || position.currentStopLossAmount === null) {
+          position.currentStopLossAmount = Number(position.stopLossAmount || 0);
+        }
+
+        const _baseTarget = Number(position.targetAmount || 0);
+        const _baseSL = Number(position.stopLossAmount || 0);
+        const _activation = Number(position.trailingActivationAmount || 0);
+        const _targetJump = Number(position.targetJumpAmount || position.stopLossJumpAmount || position.trailingStep || 0);
+        const _slJump = Number(position.stopLossJumpAmount || position.trailingStep || 0);
+
+        if (position.trailingEnabled && _targetJump > 0 && _slJump > 0 && position.highestPnl >= _activation && _activation >= 0) {
+          const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
+          const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
+          if (numberOfJumps > 0) {
+            const newTarget = _baseTarget + numberOfJumps * _targetJump;
+            const newSL = _baseSL - numberOfJumps * _slJump; // can go negative => profit lock
+            if (newTarget !== position.currentTargetAmount || newSL !== position.currentStopLossAmount) {
+              const oldT = position.currentTargetAmount;
+              const oldS = position.currentStopLossAmount;
+              position.currentTargetAmount = newTarget;
+              position.currentStopLossAmount = newSL;
+              const lockMsg = newSL <= 0 ? ` 🟢 PROFIT LOCKED at ₹${Math.abs(newSL).toFixed(2)}` : '';
+              console.log(`⚡ TRAILING RATCHET ${position.symbolName}: Tgt ₹${oldT}→₹${newTarget} | SL ₹${oldS}→₹${newSL}${lockMsg}`);
+              await this.appendSharedLog(userId, {
+                type: 'TRAILING_UPDATE',
+                timestamp: Date.now(),
+                symbol: position.symbolName,
+                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${numberOfJumps})`,
+                pnl,
+                data: { peak: position.highestPnl, jumps: numberOfJumps, oldTarget: oldT, newTarget, oldStopLoss: oldS, newStopLoss: newSL, profitLocked: newSL <= 0 }
+              });
+            }
+          }
+        }
+
+        console.log(`📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)} | CurTgt ₹${position.currentTargetAmount} | CurSL ₹${position.currentStopLossAmount}`);
 
         // ⚡ Push monitor heartbeat into shared logs (visible in UI)
         await this.appendSharedLog(userId, {
