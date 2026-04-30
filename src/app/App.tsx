@@ -25,28 +25,33 @@ const serverUrl = getBaseUrl();
 
 export default function App() {
   useEffect(() => {
-    startCacheRecovery().catch(() => undefined);
+    // 🚀 PERF: Defer ALL non-critical startup work until browser is idle so the landing
+    //         page paints/LCP fast for Google PageSpeed and SEO crawlers.
+    const idle = (cb: () => void) => {
+      if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(cb, { timeout: 4000 });
+      } else {
+        setTimeout(cb, 2000);
+      }
+    };
 
-    // 🔄 START AUTO-VERSION CHECK (prevents cache issues!)
-    startVersionCheck();
-    
-    // 🔒 Initialize Security System
-    initializeSecurity({
-      enableDevToolsMonitor: false, // Enable in production if needed
+    let hotkeyRefreshInterval: any;
+
+    idle(() => {
+      startCacheRecovery().catch(() => undefined);
+      startVersionCheck();
+      initializeSecurity({ enableDevToolsMonitor: false });
+
+      // Initialize hotkey system
+      window.adminHotkeys = ['GUHAN'];
+      window.adminKeySequence = '';
+      window.hotkeyDebugMode = false;
+
+      loadAdminHotkeys();
+      hotkeyRefreshInterval = setInterval(() => {
+        loadAdminHotkeys().catch(() => {});
+      }, 60000);
     });
-    
-    // Initialize hotkey system
-    window.adminHotkeys = ['GUHAN']; // Default fallback
-    window.adminKeySequence = '';
-    window.hotkeyDebugMode = false;
-
-    // Load admin hotkeys from server
-    loadAdminHotkeys();
-
-    // Auto-refresh hotkeys every 60 seconds
-    const hotkeyRefreshInterval = setInterval(() => {
-      loadAdminHotkeys().catch(() => {});
-    }, 60000);
 
     // Listen for hotkey updates
     const handleHotkeyUpdate = () => {
