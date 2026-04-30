@@ -584,7 +584,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 </div>
 
                 {/* 🔔 Notification Bell */}
-                <NotificationBell />
+                <Suspense fallback={null}><NotificationBell /></Suspense>
 
                 {/* Wallet Balance - Enhanced */}
                 <button
@@ -635,7 +635,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             {(isMobile || isTablet) && (
               <div className="flex items-center gap-2">
                 {/* 🔔 Notification Bell Mobile */}
-                <NotificationBell />
+                <Suspense fallback={null}><NotificationBell /></Suspense>
                 
                 {/* Mobile Wallet Balance - Enhanced & Clear Display */}
                 <button
