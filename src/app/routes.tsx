@@ -48,9 +48,6 @@ function PageViewTracker({ children }: { children: ReactNode }) {
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Track page view (lightweight, sync)
-    trackPageView(location.pathname);
-
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
     }
@@ -78,7 +75,10 @@ function PageViewTracker({ children }: { children: ReactNode }) {
         setTimeout(cb, 2500);
       }
     };
-    idle(sendHeartbeat);
+    idle(() => {
+      trackPageView(location.pathname);
+      sendHeartbeat();
+    });
 
     heartbeatIntervalRef.current = setInterval(sendHeartbeat, 60000);
 
