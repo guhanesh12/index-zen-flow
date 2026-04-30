@@ -46,45 +46,49 @@ const serverUrl = getBaseUrl();
 function PageViewTracker({ children }: { children: ReactNode }) {
   const location = useLocation();
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   useEffect(() => {
-    // Track page view whenever location changes
+    // Track page view (lightweight, sync)
     trackPageView(location.pathname);
-    
-    // Clear any existing heartbeat interval
+
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
     }
-    
-    // Send immediate heartbeat to mark visitor as active
+
     const sendHeartbeat = () => {
-      fetch(`${serverUrl}/analytics/heartbeat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
-        body: JSON.stringify({ page: location.pathname }),
-      }).then(() => {
-        console.log('💓 Heartbeat sent successfully');
-      }).catch((error) => {
-        console.error('❌ Heartbeat failed:', error);
-      });
+      // Use keepalive + low priority so it never blocks paint or LCP
+      try {
+        fetch(`${serverUrl}/analytics/heartbeat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({ page: location.pathname }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {}
     };
-    
-    // Send first heartbeat immediately
-    sendHeartbeat();
-    
-    // Send heartbeat every 1 minute to keep session alive and ensure real-time tracking
-    heartbeatIntervalRef.current = setInterval(sendHeartbeat, 60000); // 1 minute
-    
+
+    // 🚀 SEO/PERF: Defer first heartbeat until browser is idle so it never delays LCP
+    const idle = (cb: () => void) => {
+      if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(cb, { timeout: 4000 });
+      } else {
+        setTimeout(cb, 2500);
+      }
+    };
+    idle(sendHeartbeat);
+
+    heartbeatIntervalRef.current = setInterval(sendHeartbeat, 60000);
+
     return () => {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
       }
     };
   }, [location.pathname]);
-  
+
   return <>{children}</>;
 }
 
