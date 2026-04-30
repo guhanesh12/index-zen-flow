@@ -66,5 +66,31 @@ export default defineConfig(({ mode }) => {
       },
       dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
     },
+    build: {
+      target: 'es2020',
+      cssCodeSplit: true,
+      sourcemap: false,
+      minify: 'esbuild',
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return;
+            if (id.includes('react-dom') || id.includes('react/') || id.includes('react-router') || id.includes('scheduler')) return 'react-vendor';
+            if (id.includes('framer-motion') || id.includes('motion')) return 'motion';
+            if (id.includes('@radix-ui') || id.includes('cmdk') || id.includes('vaul') || id.includes('sonner')) return 'radix';
+            if (id.includes('@mui') || id.includes('@emotion') || id.includes('@popperjs')) return 'mui';
+            if (id.includes('firebase')) return 'firebase';
+            if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+            if (id.includes('xlsx')) return 'xlsx';
+            if (id.includes('react-slick') || id.includes('slick-carousel') || id.includes('embla-carousel')) return 'carousel';
+            if (id.includes('@supabase')) return 'supabase';
+            if (id.includes('lucide-react')) return 'icons';
+            if (id.includes('@tanstack')) return 'query';
+            return 'vendor';
+          },
+        },
+      },
+    },
   };
 });
