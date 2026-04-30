@@ -1,27 +1,37 @@
 // @ts-nocheck
 import { createBrowserRouter, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import ModernLandingPage from './components/ModernLandingPage';
-import ModernLogin from './components/ModernLogin';
-import ModernRegistration from './components/ModernRegistration';
-import TradingDashboard from './components/TradingDashboard';
-import AdminLogin from './components/AdminLogin';
-import AdminDashboard from './components/AdminDashboard';
-import DynamicPage from './components/DynamicPage';
-import LandingAdminComplete from './components/LandingAdminComplete';
-import { PWASetupPage } from './components/PWASetupPage';
-import IconGeneratorPage from './components/IconGeneratorPage';
-import Sitemap from './components/Sitemap';
-import ManualIndexPage from './components/ManualIndexPage';
 import NotFoundPage from './components/NotFoundPage';
-import HTMLFileServer from './components/HTMLFileServer';
-import { TermsAndConditions } from './components/TermsAndConditions';
-import { PrivacyPolicy } from './components/PrivacyPolicy';
-import { RefundPolicy } from './components/RefundPolicy';
-import { Disclaimer } from './components/Disclaimer';
-import { AboutUs } from './components/AboutUs';
-import { ContactUs } from './components/ContactUs';
+
+// 🚀 Lazy-load heavy/infrequent routes — keeps the landing-page initial JS tiny for fast Google PageSpeed
+const ModernLogin = lazy(() => import('./components/ModernLogin'));
+const ModernRegistration = lazy(() => import('./components/ModernRegistration'));
+const TradingDashboard = lazy(() => import('./components/TradingDashboard'));
+const AdminLogin = lazy(() => import('./components/AdminLogin'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const DynamicPage = lazy(() => import('./components/DynamicPage'));
+const LandingAdminComplete = lazy(() => import('./components/LandingAdminComplete'));
+const PWASetupPage = lazy(() => import('./components/PWASetupPage').then(m => ({ default: m.PWASetupPage })));
+const IconGeneratorPage = lazy(() => import('./components/IconGeneratorPage'));
+const Sitemap = lazy(() => import('./components/Sitemap'));
+const ManualIndexPage = lazy(() => import('./components/ManualIndexPage'));
+const HTMLFileServer = lazy(() => import('./components/HTMLFileServer'));
+const TermsAndConditions = lazy(() => import('./components/TermsAndConditions').then(m => ({ default: m.TermsAndConditions })));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
+const RefundPolicy = lazy(() => import('./components/RefundPolicy').then(m => ({ default: m.RefundPolicy })));
+const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
+const AboutUs = lazy(() => import('./components/AboutUs').then(m => ({ default: m.AboutUs })));
+const ContactUs = lazy(() => import('./components/ContactUs').then(m => ({ default: m.ContactUs })));
+
+const RouteSuspense = ({ children }: { children: ReactNode }) => (
+  <Suspense fallback={
+    <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="text-white text-lg">Loading…</div>
+    </div>
+  }>{children}</Suspense>
+);
 import { publicAnonKey } from '@/utils-ext/supabase/info';
 import { supabase } from '@/utils-ext/supabase/client';
 import { trackPageView } from './hooks/useAnalyticsTracking';
