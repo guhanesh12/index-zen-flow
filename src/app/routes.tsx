@@ -117,13 +117,21 @@ function LandingPageWrapper() {
 // Protected Route wrapper for user dashboard - SINGLE SOURCE OF TRUTH
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [accessToken, setAccessToken] = useState<string>('');
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [accessToken, setAccessToken] = useState<string>(() => history.state?.usr?.accessToken || '');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(() => !history.state?.usr?.accessToken);
   const navigate = useNavigate();
+  const location = useLocation();
   
   useEffect(() => {
     let mounted = true;
     let refreshInterval: NodeJS.Timeout;
+    const routeToken = location.state?.accessToken || history.state?.usr?.accessToken;
+    if (routeToken) {
+      setAccessToken(routeToken);
+      setIsAuthenticated(true);
+      setIsCheckingAuth(false);
+      loadTradingDashboard().catch(() => {});
+    }
     
     // Check Supabase session and refresh token periodically
     const checkAuth = async () => {
@@ -188,8 +196,12 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
       }
     };
     
-    // Initial check
-    checkAuth();
+    // Initial check: defer if the fresh login/register route already provided a token.
+    if (routeToken) {
+      setTimeout(checkAuth, 1000);
+    } else {
+      checkAuth();
+    }
     
     // Refresh token every 45 minutes to prevent expiration
     refreshInterval = setInterval(() => {
