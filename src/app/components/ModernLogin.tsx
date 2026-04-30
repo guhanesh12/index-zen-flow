@@ -23,6 +23,7 @@ interface ModernLoginProps {
   onLoginSuccess: (token: string) => void;
   onSwitchToSignup: () => void;
   onBackToHome: () => void;
+  onReadyForDashboard?: () => void;
   serverUrl: string;
   publicAnonKey: string;
 }
@@ -35,7 +36,7 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackToHome, serverUrl, publicAnonKey }: ModernLoginProps) {
+export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackToHome, onReadyForDashboard, serverUrl, publicAnonKey }: ModernLoginProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -128,18 +129,7 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
       // Set redirecting flag to prevent multiple redirects
       setRedirecting(true);
       
-      // CRITICAL: Wait for Supabase to persist session to localStorage
-      // This ensures ProtectedRoute can read the session immediately
-      console.log('⏳ Waiting for session to persist...');
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Verify session is actually stored before navigating
-      const { data: { session: verifySession } } = await supabase.auth.getSession();
-      if (!verifySession) {
-        throw new Error('Session was not persisted properly. Please try again.');
-      }
-      
-      console.log('✅ Session verified in storage');
+      onReadyForDashboard?.();
       console.log('🚀 Calling onLoginSuccess callback...');
       
       // 📊 Track successful login
