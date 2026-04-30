@@ -412,12 +412,13 @@ function DynamicPageWrapper() {
 // Wrapper for Login page - SIMPLIFIED - No session check to allow back button
 function LoginPageWrapper() {
   const navigate = useNavigate();
+  const prefetchDashboard = () => loadTradingDashboard().catch(() => {});
   
   return (
     <ModernLogin 
       onLoginSuccess={(token) => {
         console.log('🎉 Login successful - navigating to dashboard (SPA mode)');
-        navigate('/dashboard', { replace: true });
+        navigate('/dashboard', { replace: true, state: { accessToken: token } });
       }}
       onSwitchToSignup={() => {
         console.log('🔄 Switching to signup (SPA)');
@@ -427,6 +428,7 @@ function LoginPageWrapper() {
         console.log('🏠 Back to home (SPA)');
         navigate('/');
       }}
+      onReadyForDashboard={prefetchDashboard}
       serverUrl={serverUrl}
       publicAnonKey={publicAnonKey}
     />
@@ -436,12 +438,13 @@ function LoginPageWrapper() {
 // Wrapper for Registration page - SIMPLIFIED - No session check to allow back button
 function RegistrationPageWrapper() {
   const navigate = useNavigate();
+  const prefetchDashboard = () => loadTradingDashboard().catch(() => {});
   
   return (
     <ModernRegistration 
       onRegistrationSuccess={(token) => {
         console.log('🎉 Registration successful - navigating to dashboard (SPA mode)');
-        navigate('/dashboard', { replace: true });
+        navigate('/dashboard', { replace: true, state: { accessToken: token } });
       }}
       onSwitchToSignin={() => {
         console.log('🔄 Switching to login (SPA)');
@@ -451,6 +454,7 @@ function RegistrationPageWrapper() {
         console.log('🏠 Back to home (SPA)');
         navigate('/');
       }}
+      onReadyForDashboard={prefetchDashboard}
       serverUrl={serverUrl}
       publicAnonKey={publicAnonKey}
     />
