@@ -1,27 +1,37 @@
 // @ts-nocheck
 import { createBrowserRouter, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import ModernLandingPage from './components/ModernLandingPage';
-import ModernLogin from './components/ModernLogin';
-import ModernRegistration from './components/ModernRegistration';
-import TradingDashboard from './components/TradingDashboard';
-import AdminLogin from './components/AdminLogin';
-import AdminDashboard from './components/AdminDashboard';
-import DynamicPage from './components/DynamicPage';
-import LandingAdminComplete from './components/LandingAdminComplete';
-import { PWASetupPage } from './components/PWASetupPage';
-import IconGeneratorPage from './components/IconGeneratorPage';
-import Sitemap from './components/Sitemap';
-import ManualIndexPage from './components/ManualIndexPage';
 import NotFoundPage from './components/NotFoundPage';
-import HTMLFileServer from './components/HTMLFileServer';
-import { TermsAndConditions } from './components/TermsAndConditions';
-import { PrivacyPolicy } from './components/PrivacyPolicy';
-import { RefundPolicy } from './components/RefundPolicy';
-import { Disclaimer } from './components/Disclaimer';
-import { AboutUs } from './components/AboutUs';
-import { ContactUs } from './components/ContactUs';
+
+// 🚀 Lazy-load heavy/infrequent routes — keeps the landing-page initial JS tiny for fast Google PageSpeed
+const ModernLogin = lazy(() => import('./components/ModernLogin'));
+const ModernRegistration = lazy(() => import('./components/ModernRegistration'));
+const TradingDashboard = lazy(() => import('./components/TradingDashboard'));
+const AdminLogin = lazy(() => import('./components/AdminLogin'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const DynamicPage = lazy(() => import('./components/DynamicPage'));
+const LandingAdminComplete = lazy(() => import('./components/LandingAdminComplete'));
+const PWASetupPage = lazy(() => import('./components/PWASetupPage').then(m => ({ default: m.PWASetupPage })));
+const IconGeneratorPage = lazy(() => import('./components/IconGeneratorPage'));
+const Sitemap = lazy(() => import('./components/Sitemap'));
+const ManualIndexPage = lazy(() => import('./components/ManualIndexPage'));
+const HTMLFileServer = lazy(() => import('./components/HTMLFileServer'));
+const TermsAndConditions = lazy(() => import('./components/TermsAndConditions').then(m => ({ default: m.TermsAndConditions })));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
+const RefundPolicy = lazy(() => import('./components/RefundPolicy').then(m => ({ default: m.RefundPolicy })));
+const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
+const AboutUs = lazy(() => import('./components/AboutUs').then(m => ({ default: m.AboutUs })));
+const ContactUs = lazy(() => import('./components/ContactUs').then(m => ({ default: m.ContactUs })));
+
+const RouteSuspense = ({ children }: { children: ReactNode }) => (
+  <Suspense fallback={
+    <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="text-white text-lg">Loading…</div>
+    </div>
+  }>{children}</Suspense>
+);
 import { publicAnonKey } from '@/utils-ext/supabase/info';
 import { supabase } from '@/utils-ext/supabase/client';
 import { trackPageView } from './hooks/useAnalyticsTracking';
@@ -36,45 +46,49 @@ const serverUrl = getBaseUrl();
 function PageViewTracker({ children }: { children: ReactNode }) {
   const location = useLocation();
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   useEffect(() => {
-    // Track page view whenever location changes
+    // Track page view (lightweight, sync)
     trackPageView(location.pathname);
-    
-    // Clear any existing heartbeat interval
+
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
     }
-    
-    // Send immediate heartbeat to mark visitor as active
+
     const sendHeartbeat = () => {
-      fetch(`${serverUrl}/analytics/heartbeat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
-        body: JSON.stringify({ page: location.pathname }),
-      }).then(() => {
-        console.log('💓 Heartbeat sent successfully');
-      }).catch((error) => {
-        console.error('❌ Heartbeat failed:', error);
-      });
+      // Use keepalive + low priority so it never blocks paint or LCP
+      try {
+        fetch(`${serverUrl}/analytics/heartbeat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({ page: location.pathname }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {}
     };
-    
-    // Send first heartbeat immediately
-    sendHeartbeat();
-    
-    // Send heartbeat every 1 minute to keep session alive and ensure real-time tracking
-    heartbeatIntervalRef.current = setInterval(sendHeartbeat, 60000); // 1 minute
-    
+
+    // 🚀 SEO/PERF: Defer first heartbeat until browser is idle so it never delays LCP
+    const idle = (cb: () => void) => {
+      if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(cb, { timeout: 4000 });
+      } else {
+        setTimeout(cb, 2500);
+      }
+    };
+    idle(sendHeartbeat);
+
+    heartbeatIntervalRef.current = setInterval(sendHeartbeat, 60000);
+
     return () => {
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
       }
     };
   }, [location.pathname]);
-  
+
   return <>{children}</>;
 }
 
@@ -438,78 +452,75 @@ export const router = createBrowserRouter([
   },
   {
     path: '/login',
-    element: <PageViewTracker><LoginPageWrapper /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><LoginPageWrapper /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/register',
-    element: <PageViewTracker><RegistrationPageWrapper /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><RegistrationPageWrapper /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/dashboard',
-    element: <PageViewTracker><ProtectedRoute><div /></ProtectedRoute></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><ProtectedRoute><div /></ProtectedRoute></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/admin/hotkey/:uniqueCode/login',
-    element: <PageViewTracker><AdminLoginPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AdminLoginPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/admin/hotkey/:uniqueCode/dashboard',
-    element: <PageViewTracker><AdminDashboardPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AdminDashboardPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/admin/hotkey/:uniqueCode/landing',
-    element: <PageViewTracker><AdminLandingPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AdminLandingPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/page/:slug',
-    element: <PageViewTracker><DynamicPageWrapper /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><DynamicPageWrapper /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/pwa-setup',
-    element: <PageViewTracker><PWASetupPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><PWASetupPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/icon-generator',
-    element: <PageViewTracker><IconGeneratorPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><IconGeneratorPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/sitemap',
-    element: <PageViewTracker><Sitemap /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><Sitemap /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/manual-index',
-    element: <PageViewTracker><ManualIndexPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><ManualIndexPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/terms',
-    element: <PageViewTracker><TermsAndConditions /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><TermsAndConditions /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/privacy',
-    element: <PageViewTracker><PrivacyPolicy /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><PrivacyPolicy /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/refund',
-    element: <PageViewTracker><RefundPolicy /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><RefundPolicy /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/disclaimer',
-    element: <PageViewTracker><Disclaimer /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><Disclaimer /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/about-us',
-    element: <PageViewTracker><AboutUs /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AboutUs /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/contact-us',
-    element: <PageViewTracker><ContactUs /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><ContactUs /></RouteSuspense></PageViewTracker>,
   },
-  // ❌ REMOVED: React Router routes for sitemap.xml and robots.txt
-  // These files exist in /public and should be served as static files
-  // React Router should NOT intercept these requests
   {
     path: '/sitemap-diagnostic.html',
-    element: <PageViewTracker><HTMLFileServer filePath="/sitemap-diagnostic.html" /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><HTMLFileServer filePath="/sitemap-diagnostic.html" /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '*',
