@@ -1013,17 +1013,21 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
           <TabsContent value="symbols">
             <div className="animate-in fade-in-50 duration-500">
-              <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
+              <Suspense fallback={<SectionLoader />}>
+                <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
+              </Suspense>
             </div>
           </TabsContent>
 
           <TabsContent value="journal">
             <div className="animate-in fade-in-50 duration-500">
-              <TradingJournal 
-                serverUrl={serverUrl}
-                accessToken={accessToken}
-                userId={userId}
-              />
+              <Suspense fallback={<SectionLoader />}>
+                <TradingJournal 
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                  userId={userId}
+                />
+              </Suspense>
             </div>
           </TabsContent>
 
@@ -1069,14 +1073,16 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               {/* Tab 1: Connect (Dhan credentials + connect) */}
               {brokerTab === 'broker-connect' && (
                 <div className="animate-in fade-in-50 duration-300">
-                  <SettingsPanel 
-                    serverUrl={serverUrl} 
-                    accessToken={accessToken}
-                    onSettingsSaved={() => {
-                      checkCredentials();
-                    }}
-                    onGoToStaticIp={() => setBrokerTab('static-ip')}
-                  />
+                  <Suspense fallback={<SectionLoader />}>
+                    <SettingsPanel 
+                      serverUrl={serverUrl} 
+                      accessToken={accessToken}
+                      onSettingsSaved={() => {
+                        checkCredentials();
+                      }}
+                      onGoToStaticIp={() => setBrokerTab('static-ip')}
+                    />
+                  </Suspense>
                 </div>
               )}
 
