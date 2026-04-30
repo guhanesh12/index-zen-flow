@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
@@ -7,24 +7,27 @@ import { Badge } from "./ui/badge";
 import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, MoreVertical } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "./ui/sheet";
 const logoWhite = "/logo-white.png";
-import { SettingsPanel } from "./SettingsPanel";
-import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
-import { SymbolManager } from "./SymbolManager";
-import { AdvancedDashboard } from "./AdvancedDashboard";
-import { EnhancedTradingEngine } from "./EnhancedTradingEngine";
-import { TradingJournal } from "./TradingJournal";
-import WalletManagement from "./WalletManagement";
-import { ProfitDashboard } from "./ProfitDashboard";
-import { UserSupport } from "./UserSupport";
-import { StrategyManager } from "./StrategyManager";
-import { BrokerRequest } from "./BrokerRequest";
 import { projectId } from "@/utils-ext/supabase/info";
 import { getServerUrl } from "@/utils-ext/config/apiConfig";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { useResponsive } from "../hooks/useResponsive";
-import { NotificationBell } from "./NotificationBell";
-import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
+
+const SettingsPanel = lazy(() => import("./SettingsPanel").then(m => ({ default: m.SettingsPanel })));
+const UserDedicatedIPManager = lazy(() => import("./UserDedicatedIPManager").then(m => ({ default: m.UserDedicatedIPManager })));
+const SymbolManager = lazy(() => import("./SymbolManager").then(m => ({ default: m.SymbolManager })));
+const AdvancedDashboard = lazy(() => import("./AdvancedDashboard").then(m => ({ default: m.AdvancedDashboard })));
+const EnhancedTradingEngine = lazy(() => import("./EnhancedTradingEngine").then(m => ({ default: m.EnhancedTradingEngine })));
+const TradingJournal = lazy(() => import("./TradingJournal").then(m => ({ default: m.TradingJournal })));
+const WalletManagement = lazy(() => import("./WalletManagement"));
+const ProfitDashboard = lazy(() => import("./ProfitDashboard").then(m => ({ default: m.ProfitDashboard })));
+const UserSupport = lazy(() => import("./UserSupport").then(m => ({ default: m.UserSupport })));
+const StrategyManager = lazy(() => import("./StrategyManager").then(m => ({ default: m.StrategyManager })));
+const BrokerRequest = lazy(() => import("./BrokerRequest").then(m => ({ default: m.BrokerRequest })));
+const NotificationBell = lazy(() => import("./NotificationBell").then(m => ({ default: m.NotificationBell })));
+const NotificationContainer = lazy(() => import("./NotificationContainer").then(m => ({ default: m.NotificationContainer })));
+
+const SectionLoader = () => <div className="py-8 text-center text-zinc-500">Loading...</div>;
 
 interface TradingDashboardProps {
   accessToken: string;
