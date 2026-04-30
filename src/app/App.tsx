@@ -4,12 +4,12 @@ import { RouterProvider } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { router } from './routes';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
-import { InstallApp } from './components/InstallApp';
 import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity } from '@/utils-ext/security/SecurityHardening';
 
+const InstallApp = lazy(() => import('./components/InstallApp').then(m => ({ default: m.InstallApp })));
 const PWADebugger = lazy(() => import('./components/PWADebugger').then(m => ({ default: m.PWADebugger })));
 
 // Extend Window interface for hotkey system
@@ -202,7 +202,11 @@ export default function App() {
     <HelmetProvider>
       <div className="app-container">
         <RouterProvider router={router} />
-        {showInstallApp && <InstallApp />}
+        {showInstallApp && (
+          <Suspense fallback={null}>
+            <InstallApp />
+          </Suspense>
+        )}
         {showPwaDebugger && (
           <Suspense fallback={null}>
             <PWADebugger />
