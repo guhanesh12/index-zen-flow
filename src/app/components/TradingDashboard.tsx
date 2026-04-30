@@ -910,11 +910,13 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <div 
               className={activeTab === "dashboard" ? "block space-y-6" : "hidden"}
             >
-              <EnhancedTradingEngine
-                serverUrl={serverUrl}
-                accessToken={accessToken}
-                onLog={addLog}
-              />
+              <Suspense fallback={<SectionLoader />}>
+                <EnhancedTradingEngine
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                  onLog={addLog}
+                />
+              </Suspense>
             </div>
           )}
 
@@ -924,14 +926,18 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             {walletBalance >= 89 ? (
               <>
                 {/* 💰 PROFIT DASHBOARD - Tiered Pricing & Daily Stats */}
-                <ProfitDashboard accessToken={accessToken} />
+                <Suspense fallback={null}>
+                  <ProfitDashboard accessToken={accessToken} />
+                </Suspense>
                 
                 {/* 📊 POSITIONS & ANALYTICS - Shows current positions and P&L */}
-                <AdvancedDashboard 
-                  serverUrl={serverUrl}
-                  accessToken={accessToken}
-                  credentialsConfigured={credentialsConfigured}
-                />
+                <Suspense fallback={<SectionLoader />}>
+                  <AdvancedDashboard 
+                    serverUrl={serverUrl}
+                    accessToken={accessToken}
+                    credentialsConfigured={credentialsConfigured}
+                  />
+                </Suspense>
               </>
             ) : (
               /* 💳 INSUFFICIENT WALLET BALANCE WARNING */
