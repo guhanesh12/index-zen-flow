@@ -1,15 +1,16 @@
 // @ts-nocheck
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense, useState } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { router } from './routes';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
-import { InstallApp } from './components/InstallApp';
-import { PWADebugger } from './components/PWADebugger';
 import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity } from '@/utils-ext/security/SecurityHardening';
+
+const InstallApp = lazy(() => import('./components/InstallApp').then(m => ({ default: m.InstallApp })));
+const PWADebugger = lazy(() => import('./components/PWADebugger').then(m => ({ default: m.PWADebugger })));
 
 // Extend Window interface for hotkey system
 declare global {
@@ -24,6 +25,9 @@ declare global {
 const serverUrl = getBaseUrl();
 
 export default function App() {
+  const [showInstallApp, setShowInstallApp] = useState(false);
+  const showPwaDebugger = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === 'pwa';
+
   useEffect(() => {
     // 🚀 PERF: Defer ALL non-critical startup work until browser is idle so the landing
     //         page paints/LCP fast for Google PageSpeed and SEO crawlers.
@@ -38,6 +42,7 @@ export default function App() {
     let hotkeyRefreshInterval: any;
 
     idle(() => {
+      setShowInstallApp(true);
       startCacheRecovery().catch(() => undefined);
       startVersionCheck();
       initializeSecurity({ enableDevToolsMonitor: false });
@@ -197,8 +202,16 @@ export default function App() {
     <HelmetProvider>
       <div className="app-container">
         <RouterProvider router={router} />
-        <InstallApp />
-        <PWADebugger />
+        {showInstallApp && (
+          <Suspense fallback={null}>
+            <InstallApp />
+          </Suspense>
+        )}
+        {showPwaDebugger && (
+          <Suspense fallback={null}>
+            <PWADebugger />
+          </Suspense>
+        )}
       </div>
     </HelmetProvider>
   );

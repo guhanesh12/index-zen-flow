@@ -4,10 +4,16 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import ModernLandingPage from './components/ModernLandingPage';
 import NotFoundPage from './components/NotFoundPage';
+import ModernLogin from './components/ModernLogin';
+import ModernRegistration from './components/ModernRegistration';
+import { TermsAndConditions } from './components/TermsAndConditions';
+import { PrivacyPolicy } from './components/PrivacyPolicy';
+import { RefundPolicy } from './components/RefundPolicy';
+import { Disclaimer } from './components/Disclaimer';
+import { AboutUs } from './components/AboutUs';
+import { ContactUs } from './components/ContactUs';
 
-// 🚀 Lazy-load heavy/infrequent routes — keeps the landing-page initial JS tiny for fast Google PageSpeed
-const ModernLogin = lazy(() => import('./components/ModernLogin'));
-const ModernRegistration = lazy(() => import('./components/ModernRegistration'));
+const loadTradingDashboard = () => import('./components/TradingDashboard');
 const TradingDashboard = lazy(() => import('./components/TradingDashboard'));
 const AdminLogin = lazy(() => import('./components/AdminLogin'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
@@ -18,12 +24,6 @@ const IconGeneratorPage = lazy(() => import('./components/IconGeneratorPage'));
 const Sitemap = lazy(() => import('./components/Sitemap'));
 const ManualIndexPage = lazy(() => import('./components/ManualIndexPage'));
 const HTMLFileServer = lazy(() => import('./components/HTMLFileServer'));
-const TermsAndConditions = lazy(() => import('./components/TermsAndConditions').then(m => ({ default: m.TermsAndConditions })));
-const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
-const RefundPolicy = lazy(() => import('./components/RefundPolicy').then(m => ({ default: m.RefundPolicy })));
-const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ default: m.Disclaimer })));
-const AboutUs = lazy(() => import('./components/AboutUs').then(m => ({ default: m.AboutUs })));
-const ContactUs = lazy(() => import('./components/ContactUs').then(m => ({ default: m.ContactUs })));
 
 const RouteSuspense = ({ children }: { children: ReactNode }) => (
   <Suspense fallback={
@@ -48,9 +48,6 @@ function PageViewTracker({ children }: { children: ReactNode }) {
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Track page view (lightweight, sync)
-    trackPageView(location.pathname);
-
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
     }
@@ -78,7 +75,10 @@ function PageViewTracker({ children }: { children: ReactNode }) {
         setTimeout(cb, 2500);
       }
     };
-    idle(sendHeartbeat);
+    idle(() => {
+      trackPageView(location.pathname);
+      sendHeartbeat();
+    });
 
     heartbeatIntervalRef.current = setInterval(sendHeartbeat, 60000);
 
@@ -117,13 +117,21 @@ function LandingPageWrapper() {
 // Protected Route wrapper for user dashboard - SINGLE SOURCE OF TRUTH
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [accessToken, setAccessToken] = useState<string>('');
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [accessToken, setAccessToken] = useState<string>(() => history.state?.usr?.accessToken || '');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(() => !history.state?.usr?.accessToken);
   const navigate = useNavigate();
+  const location = useLocation();
   
   useEffect(() => {
     let mounted = true;
     let refreshInterval: NodeJS.Timeout;
+    const routeToken = location.state?.accessToken || history.state?.usr?.accessToken;
+    if (routeToken) {
+      setAccessToken(routeToken);
+      setIsAuthenticated(true);
+      setIsCheckingAuth(false);
+      loadTradingDashboard().catch(() => {});
+    }
     
     // Check Supabase session and refresh token periodically
     const checkAuth = async () => {
@@ -188,8 +196,12 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
       }
     };
     
-    // Initial check
-    checkAuth();
+    // Initial check: defer if the fresh login/register route already provided a token.
+    if (routeToken) {
+      setTimeout(checkAuth, 1000);
+    } else {
+      checkAuth();
+    }
     
     // Refresh token every 45 minutes to prevent expiration
     refreshInterval = setInterval(() => {
@@ -400,12 +412,13 @@ function DynamicPageWrapper() {
 // Wrapper for Login page - SIMPLIFIED - No session check to allow back button
 function LoginPageWrapper() {
   const navigate = useNavigate();
+  const prefetchDashboard = () => loadTradingDashboard().catch(() => {});
   
   return (
     <ModernLogin 
       onLoginSuccess={(token) => {
         console.log('🎉 Login successful - navigating to dashboard (SPA mode)');
-        navigate('/dashboard', { replace: true });
+        navigate('/dashboard', { replace: true, state: { accessToken: token } });
       }}
       onSwitchToSignup={() => {
         console.log('🔄 Switching to signup (SPA)');
@@ -415,6 +428,7 @@ function LoginPageWrapper() {
         console.log('🏠 Back to home (SPA)');
         navigate('/');
       }}
+      onReadyForDashboard={prefetchDashboard}
       serverUrl={serverUrl}
       publicAnonKey={publicAnonKey}
     />
@@ -424,12 +438,13 @@ function LoginPageWrapper() {
 // Wrapper for Registration page - SIMPLIFIED - No session check to allow back button
 function RegistrationPageWrapper() {
   const navigate = useNavigate();
+  const prefetchDashboard = () => loadTradingDashboard().catch(() => {});
   
   return (
     <ModernRegistration 
       onRegistrationSuccess={(token) => {
         console.log('🎉 Registration successful - navigating to dashboard (SPA mode)');
-        navigate('/dashboard', { replace: true });
+        navigate('/dashboard', { replace: true, state: { accessToken: token } });
       }}
       onSwitchToSignin={() => {
         console.log('🔄 Switching to login (SPA)');
@@ -439,6 +454,7 @@ function RegistrationPageWrapper() {
         console.log('🏠 Back to home (SPA)');
         navigate('/');
       }}
+      onReadyForDashboard={prefetchDashboard}
       serverUrl={serverUrl}
       publicAnonKey={publicAnonKey}
     />
