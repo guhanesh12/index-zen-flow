@@ -1,8 +1,15 @@
+# https://www.indexpilotai.com/robots.txt
 User-agent: *
 Allow: /
-Allow: /$
 Allow: /login
 Allow: /register
+Allow: /about-us
+Allow: /contact-us
+Allow: /terms
+Allow: /privacy
+Allow: /refund
+Allow: /disclaimer
+Allow: /page/
 
 Disallow: /admin
 Disallow: /admin/
@@ -15,7 +22,24 @@ Disallow: /journal
 Disallow: /settings
 Disallow: /profile
 Disallow: /pwa-setup
+Disallow: /icon-generator
+Disallow: /manual-index
 
-Crawl-delay: 1
+# Allow major search engines explicitly
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+# Block known bad bots
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
 
 Sitemap: https://www.indexpilotai.com/sitemap.xml
