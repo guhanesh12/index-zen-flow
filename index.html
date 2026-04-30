@@ -128,10 +128,18 @@
   <body>
     <!-- ═══════════════════════════════════════════════════════════
          SEO PRERENDERED CONTENT — visible to Google/Bing crawlers
-         BEFORE React hydrates. Replaced by React on mount.
+         and no-JS users. Hidden instantly from JS-enabled browsers
+         BEFORE first paint to avoid any flash.
     ═══════════════════════════════════════════════════════════ -->
+    <script>
+      // Hide SEO fallback the moment JS runs — crawlers without JS still see it.
+      document.documentElement.classList.add('js');
+    </script>
+    <style>
+      html.js #seo-fallback { display: none !important; }
+    </style>
     <div id="root">
-      <div style="font-family: system-ui, -apple-system, sans-serif; padding: 32px; max-width: 960px; margin: 0 auto; color: #e2e8f0; background: #0f172a; min-height: 100vh;">
+      <div id="seo-fallback" style="font-family: system-ui, -apple-system, sans-serif; padding: 32px; max-width: 960px; margin: 0 auto; color: #e2e8f0; background: #0f172a; min-height: 100vh;">
         <header>
           <h1 style="font-size: 2rem; margin: 0 0 8px;">IndexpilotAI – AI-Powered NIFTY Options Trading Platform</h1>
           <p style="color: #94a3b8; margin: 0 0 24px;">India's #1 automated NIFTY &amp; BANK NIFTY options trading platform with Dhan broker integration.</p>
