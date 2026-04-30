@@ -448,78 +448,75 @@ export const router = createBrowserRouter([
   },
   {
     path: '/login',
-    element: <PageViewTracker><LoginPageWrapper /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><LoginPageWrapper /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/register',
-    element: <PageViewTracker><RegistrationPageWrapper /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><RegistrationPageWrapper /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/dashboard',
-    element: <PageViewTracker><ProtectedRoute><div /></ProtectedRoute></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><ProtectedRoute><div /></ProtectedRoute></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/admin/hotkey/:uniqueCode/login',
-    element: <PageViewTracker><AdminLoginPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AdminLoginPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/admin/hotkey/:uniqueCode/dashboard',
-    element: <PageViewTracker><AdminDashboardPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AdminDashboardPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/admin/hotkey/:uniqueCode/landing',
-    element: <PageViewTracker><AdminLandingPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AdminLandingPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/page/:slug',
-    element: <PageViewTracker><DynamicPageWrapper /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><DynamicPageWrapper /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/pwa-setup',
-    element: <PageViewTracker><PWASetupPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><PWASetupPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/icon-generator',
-    element: <PageViewTracker><IconGeneratorPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><IconGeneratorPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/sitemap',
-    element: <PageViewTracker><Sitemap /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><Sitemap /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/manual-index',
-    element: <PageViewTracker><ManualIndexPage /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><ManualIndexPage /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/terms',
-    element: <PageViewTracker><TermsAndConditions /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><TermsAndConditions /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/privacy',
-    element: <PageViewTracker><PrivacyPolicy /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><PrivacyPolicy /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/refund',
-    element: <PageViewTracker><RefundPolicy /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><RefundPolicy /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/disclaimer',
-    element: <PageViewTracker><Disclaimer /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><Disclaimer /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/about-us',
-    element: <PageViewTracker><AboutUs /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><AboutUs /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '/contact-us',
-    element: <PageViewTracker><ContactUs /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><ContactUs /></RouteSuspense></PageViewTracker>,
   },
-  // ❌ REMOVED: React Router routes for sitemap.xml and robots.txt
-  // These files exist in /public and should be served as static files
-  // React Router should NOT intercept these requests
   {
     path: '/sitemap-diagnostic.html',
-    element: <PageViewTracker><HTMLFileServer filePath="/sitemap-diagnostic.html" /></PageViewTracker>,
+    element: <PageViewTracker><RouteSuspense><HTMLFileServer filePath="/sitemap-diagnostic.html" /></RouteSuspense></PageViewTracker>,
   },
   {
     path: '*',
