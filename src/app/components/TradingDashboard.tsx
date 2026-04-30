@@ -1089,21 +1089,25 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               {/* Tab 2: Static IP */}
               {brokerTab === 'static-ip' && (
                 <div className="animate-in fade-in-50 duration-300">
-                  <UserDedicatedIPManager 
-                    serverUrl={serverUrl}
-                    accessToken={accessToken}
-                    walletBalance={walletBalance}
-                  />
+                  <Suspense fallback={<SectionLoader />}>
+                    <UserDedicatedIPManager 
+                      serverUrl={serverUrl}
+                      accessToken={accessToken}
+                      walletBalance={walletBalance}
+                    />
+                  </Suspense>
                 </div>
               )}
 
               {/* Tab 3: Broker Request */}
               {brokerTab === 'broker-request' && (
                 <div className="animate-in fade-in-50 duration-300">
-                  <BrokerRequest 
-                    serverUrl={serverUrl}
-                    accessToken={accessToken}
-                  />
+                  <Suspense fallback={<SectionLoader />}>
+                    <BrokerRequest 
+                      serverUrl={serverUrl}
+                      accessToken={accessToken}
+                    />
+                  </Suspense>
                 </div>
               )}
             </div>
@@ -1111,19 +1115,23 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
           <TabsContent value="support">
             <div className="animate-in fade-in-50 duration-500">
-              <UserSupport 
-                serverUrl={serverUrl}
-                accessToken={accessToken}
-              />
+              <Suspense fallback={<SectionLoader />}>
+                <UserSupport 
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                />
+              </Suspense>
             </div>
           </TabsContent>
 
           <TabsContent value="strategies">
             <div className="animate-in fade-in-50 duration-500">
-              <StrategyManager 
-                serverUrl={serverUrl}
-                accessToken={accessToken}
-              />
+              <Suspense fallback={<SectionLoader />}>
+                <StrategyManager 
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                />
+              </Suspense>
             </div>
           </TabsContent>
 
@@ -1312,11 +1320,13 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
       {/* Wallet Management Modal */}
       {showWallet && (
-        <WalletManagement onClose={() => { setShowWallet(false); fetchWalletBalance(); }} />
+        <Suspense fallback={null}>
+          <WalletManagement onClose={() => { setShowWallet(false); fetchWalletBalance(); }} />
+        </Suspense>
       )}
       
       {/* 🔔 Notification Toast Container - Shows all notifications */}
-      <NotificationContainer />
+      <Suspense fallback={null}><NotificationContainer /></Suspense>
     </div>
   );
 }
