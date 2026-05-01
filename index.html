@@ -40,7 +40,15 @@
     <meta name="twitter:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/c62e0146-561a-4dfb-bc06-d0bafb152caa" />
 
     <link rel="icon" href="/favicon.ico" />
-    <link rel="manifest" href="/manifest.json" />
+    <script>
+      (function () {
+        var token = new URLSearchParams(window.location.search).get('__lovable_token');
+        var manifest = document.createElement('link');
+        manifest.rel = 'manifest';
+        manifest.href = '/manifest.json' + (token ? '?__lovable_token=' + encodeURIComponent(token) : '');
+        document.head.appendChild(manifest);
+      })();
+    </script>
 
     <!-- ═══════════════════════════════════════════════════════════
          JSON-LD STRUCTURED DATA (Google rich results)
@@ -131,13 +139,6 @@
          and no-JS users. Hidden instantly from JS-enabled browsers
          BEFORE first paint to avoid any flash.
     ═══════════════════════════════════════════════════════════ -->
-    <script>
-      // Hide SEO fallback the moment JS runs — crawlers without JS still see it.
-      document.documentElement.classList.add('js');
-    </script>
-    <style>
-      html.js #seo-fallback { display: none !important; }
-    </style>
     <div id="root">
       <div id="seo-fallback" style="font-family: system-ui, -apple-system, sans-serif; padding: 32px; max-width: 960px; margin: 0 auto; color: #e2e8f0; background: #0f172a; min-height: 100vh;">
         <header>
