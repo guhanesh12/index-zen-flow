@@ -8307,17 +8307,27 @@ app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
   }
 });
 
-// Admin login - returns JWT token for hardcoded admin credentials
+// Admin login - validates credentials from env secrets and returns a real Supabase JWT
 app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
     const { email, password } = await c.req.json();
-    
-    // Hardcoded admin credentials
-    const DEFAULT_ADMIN_EMAIL = 'airoboengin@smilykat.com';
-    const DEFAULT_ADMIN_PASSWORD = '9600727185Aa@';
-    
-    // Validate credentials
-    if (email !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
+
+    // SECURITY: Credentials sourced from secrets, never hardcoded.
+    const DEFAULT_ADMIN_EMAIL = Deno.env.get('PLATFORM_OWNER_EMAIL')?.trim();
+    const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD');
+
+    if (!DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
+      console.error('❌ Admin credentials not configured (PLATFORM_OWNER_EMAIL / DEFAULT_ADMIN_PASSWORD)');
+      return c.json({ success: false, message: 'Admin login not configured' }, 500);
+    }
+
+    // Validate credentials (case-insensitive email)
+    if (
+      typeof email !== 'string' ||
+      typeof password !== 'string' ||
+      email.trim().toLowerCase() !== DEFAULT_ADMIN_EMAIL.toLowerCase() ||
+      password !== DEFAULT_ADMIN_PASSWORD
+    ) {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
     
