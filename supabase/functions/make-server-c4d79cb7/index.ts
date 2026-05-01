@@ -165,86 +165,38 @@ function deriveLatestSignals(signals: any[] = [], storedLatestSignals: any = nul
   return mergedLatestSignals;
 }
 
-// ⚡ ADMIN AUTH HELPER: Validate admin access (accepts anon key or user session)
+// ⚡ ADMIN AUTH HELPER: Strict admin authentication.
+// SECURITY: Only accepts an authenticated user session JWT belonging to the platform owner.
+// The previous anon-key / "looks like Supabase key" fallthrough has been removed because it
+// allowed ANY caller presenting the public anon key (or any long JWT-shaped string) to
+// invoke admin endpoints. Service-role key is also NOT accepted here — service-role
+// callers should bypass this check by using the service-role client directly server-side.
 async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?: any }> {
   const authHeader = c.req.header('Authorization');
   const token = authHeader?.split(' ')[1];
-  
-  console.log('🔐 [ADMIN AUTH] Validating admin access...');
-  console.log('🔐 [ADMIN AUTH] Token present:', !!token);
-  console.log('🔐 [ADMIN AUTH] Token length:', token?.length || 0);
-  
+
   if (!token) {
-    console.log('❌ [ADMIN AUTH] No token provided');
     return { authorized: false, error: { message: 'No authorization token', code: 401 } };
   }
-  
-  const tokenTrimmed = token.trim();
-  
-  // Check if this looks like a Supabase anon/service key (long JWT starting with eyJ and containing "role":"anon" or "role":"service_role")
-  const looksLikeSupabaseKey = tokenTrimmed.startsWith('eyJ') && tokenTrimmed.length > 200;
-  
-  if (looksLikeSupabaseKey) {
-    console.log('🔐 [ADMIN AUTH] Token looks like Supabase anon/service key, checking against env vars...');
-    
-    // Get environment keys
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')?.trim();
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
-    
-    console.log('🔐 [ADMIN AUTH] Environment check:', {
-      hasAnonKey: !!anonKey,
-      hasServiceRole: !!serviceRoleKey,
-      anonKeyLength: anonKey?.length || 0,
-      serviceRoleLength: serviceRoleKey?.length || 0
-    });
-    
-    // If env var not set, allow it (admin panel operates with anon key by default)
-    if (!anonKey && !serviceRoleKey) {
-      console.log('⚠️ [ADMIN AUTH] No Supabase keys in env, allowing token (admin hotkey auth applies)');
-      return { authorized: true };
-    }
-    
-    const isAnonKey = anonKey && tokenTrimmed === anonKey;
-    const isServiceRole = serviceRoleKey && tokenTrimmed === serviceRoleKey;
-    
-    console.log('🔐 [ADMIN AUTH] Key comparison:', {
-      tokenMatchesAnonKey: isAnonKey,
-      tokenMatchesServiceRole: isServiceRole,
-      tokenFirst50: tokenTrimmed.substring(0, 50) + '...',
-      tokenLast20: '...' + tokenTrimmed.substring(tokenTrimmed.length - 20),
-      anonKeyFirst50: anonKey?.substring(0, 50) + '...',
-      anonKeyLast20: anonKey ? '...' + anonKey.substring(anonKey.length - 20) : 'N/A'
-    });
-    
-    // Allow anon key or service role for admin operations
-    if (isAnonKey || isServiceRole) {
-      console.log(`✅ [ADMIN AUTH] Admin operation authorized via ${isServiceRole ? 'service role' : 'anon key'}`);
-      return { authorized: true };
-    }
-    
-    // If token looks like a Supabase key but doesn't match, still allow it for admin operations
-    // (admin authentication is via hotkey, not token)
-    console.log('⚠️ [ADMIN AUTH] Token looks like Supabase key but no exact match, allowing for admin ops');
-    return { authorized: true };
+
+  const platformOwnerEmail = Deno.env.get('PLATFORM_OWNER_EMAIL')?.trim().toLowerCase();
+  if (!platformOwnerEmail) {
+    console.error('❌ [ADMIN AUTH] PLATFORM_OWNER_EMAIL secret not configured');
+    return { authorized: false, error: { message: 'Admin not configured', code: 500 } };
   }
-  
-  console.log('🔐 [ADMIN AUTH] Token looks like user session JWT, validating with Supabase auth...');
-  
-  // Token looks like a user session JWT, validate it
+
+  // Validate as an authenticated user session JWT via Supabase.
   const { user, error } = await validateAuth(c);
   if (error || !user) {
-    console.log('❌ [ADMIN AUTH] User session validation failed:', error?.message);
     return { authorized: false, error: { message: error?.message || 'Invalid token', code: 401 } };
   }
-  
-  // Check if user is platform owner (admin)
-  const isAdmin = user.email === Deno.env.get('PLATFORM_OWNER_EMAIL');
-  if (!isAdmin) {
-    console.log(`❌ [ADMIN AUTH] User ${user.email} is not admin`);
+
+  const userEmail = (user.email || '').trim().toLowerCase();
+  if (userEmail !== platformOwnerEmail) {
+    console.log(`❌ [ADMIN AUTH] User ${userEmail} is not the platform owner`);
     return { authorized: false, error: { message: 'Admin access required', code: 403 } };
   }
-  
-  console.log(`✅ [ADMIN AUTH] Admin operation authorized via user session: ${user.email}`);
+
   return { authorized: true };
 }
 
