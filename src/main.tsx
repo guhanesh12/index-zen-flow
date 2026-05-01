@@ -6,6 +6,7 @@ import App from './app/App';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Root element not found');
+rootElement.replaceChildren();
 
 createRoot(rootElement).render(
   <StrictMode>
