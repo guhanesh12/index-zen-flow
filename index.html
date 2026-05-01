@@ -42,6 +42,7 @@
     <link rel="icon" href="/favicon.ico" />
     <script>
       (function () {
+        if (location.hostname.includes('lovableproject.com') || location.hostname.includes('lovable.app')) return;
         var token = new URLSearchParams(window.location.search).get('__lovable_token');
         var manifest = document.createElement('link');
         manifest.rel = 'manifest';
