@@ -26,7 +26,7 @@ export function AnimatedIndexTitle() {
       <AnimatePresence mode="wait">
         <motion.span
           key={currentIndex}
-          initial={{ opacity: 0, y: 50, rotateX: 90 }}
+          initial={currentIndex === 0 ? false : { opacity: 0, y: 50, rotateX: 90 }}
           animate={{ 
             opacity: 1, 
             y: 0, 
