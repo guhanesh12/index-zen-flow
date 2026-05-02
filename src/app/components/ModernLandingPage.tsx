@@ -352,6 +352,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
         setShowLiveLanding(true);
         setTimeout(() => instantLanding.remove(), 80);
       });
+    } else {
+      setShowLiveLanding(true);
     }
 
     const idle = (cb: () => void) => {
