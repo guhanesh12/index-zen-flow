@@ -146,9 +146,9 @@
         color: hsl(210 40% 98%);
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at 22% 30%, hsl(190 95% 42% / 0.14), transparent 28rem),
-          radial-gradient(circle at 72% 18%, hsl(262 88% 58% / 0.12), transparent 24rem),
-          linear-gradient(135deg, hsl(224 65% 5%), hsl(222 47% 4%) 55%, hsl(220 60% 3%));
+          radial-gradient(circle at 18% 24%, hsl(188 94% 43% / 0.12), transparent 28rem),
+          radial-gradient(circle at 76% 18%, hsl(270 95% 65% / 0.12), transparent 28rem),
+          linear-gradient(135deg, hsl(224 64% 5%), hsl(222 47% 4%) 55%, hsl(220 62% 3%));
       }
 
       .instant-nav {
@@ -156,6 +156,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 1.5rem;
         padding: 0 1.5rem;
         border-bottom: 1px solid hsl(217 33% 17% / 0.85);
         background: hsl(222 47% 4% / 0.82);
@@ -166,8 +167,7 @@
         display: flex;
         align-items: center;
         gap: 0.75rem;
-        font-weight: 800;
-        font-size: 1.25rem;
+        min-width: max-content;
       }
 
       .instant-brand img {
@@ -175,17 +175,52 @@
         width: auto;
       }
 
-      .instant-brand span {
+      .instant-brand strong,
+      .instant-gradient-text {
         background: linear-gradient(90deg, hsl(188 94% 43%), hsl(217 91% 60%), hsl(270 95% 75%));
         -webkit-background-clip: text;
         background-clip: text;
         color: transparent;
       }
 
-      .instant-hero {
-        max-width: 76rem;
+      .instant-brand strong {
+        display: block;
+        font-size: 1.25rem;
+        line-height: 1.1;
+        font-weight: 800;
+      }
+
+      .instant-brand small {
+        display: block;
+        margin-top: 0.15rem;
+        color: hsl(215 20% 65%);
+        font-size: 0.75rem;
+      }
+
+      .instant-links,
+      .instant-nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 1.65rem;
+      }
+
+      .instant-links a {
+        color: hsl(215 20% 78%);
+        text-decoration: none;
+        font-size: 1rem;
+      }
+
+      .instant-shell {
+        max-width: 80rem;
         margin: 0 auto;
-        padding: 5rem 1.5rem 4rem;
+        padding: 4rem 1.5rem 5rem;
+      }
+
+      .instant-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.08fr) minmax(22rem, 0.74fr);
+        gap: 3rem;
+        align-items: center;
       }
 
       .instant-badge {
@@ -196,34 +231,29 @@
         color: hsl(186 100% 69%);
         border-radius: 999px;
         padding: 0.65rem 1rem;
-        font-weight: 700;
+        font-weight: 800;
       }
 
       .instant-hero h1 {
-        margin: 1.5rem 0 1.25rem;
-        max-width: 48rem;
-        font-size: clamp(3.1rem, 7vw, 6.4rem);
-        line-height: 0.95;
+        margin: 1.55rem 0 1.5rem;
+        max-width: 52rem;
+        font-size: clamp(3.4rem, 6.1vw, 6.8rem);
+        line-height: 0.96;
         letter-spacing: 0;
-      }
-
-      .instant-gradient-text {
-        background: linear-gradient(90deg, hsl(270 95% 75%), hsl(217 91% 60%), hsl(188 94% 43%));
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
       }
 
       .instant-hero p {
         max-width: 50rem;
         margin: 0 0 2rem;
-        color: hsl(215 20% 72%);
-        font-size: clamp(1.05rem, 2vw, 1.35rem);
+        color: hsl(215 20% 74%);
+        font-size: clamp(1.08rem, 1.75vw, 1.25rem);
         line-height: 1.65;
       }
 
-      .instant-actions {
+      .instant-actions,
+      .instant-proof {
         display: flex;
+        align-items: center;
         flex-wrap: wrap;
         gap: 1rem;
       }
@@ -232,13 +262,14 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 3.25rem;
+        min-height: 3rem;
         padding: 0 1.35rem;
-        border-radius: 0.5rem;
-        font-weight: 700;
+        border-radius: 0.45rem;
+        font-weight: 800;
         text-decoration: none;
         color: hsl(210 40% 98%);
-        border: 1px solid hsl(217 33% 17%);
+        border: 1px solid hsl(217 33% 23%);
+        background: transparent;
       }
 
       .instant-button.primary {
@@ -246,15 +277,149 @@
         background: linear-gradient(90deg, hsl(188 94% 43%), hsl(217 91% 60%));
       }
 
-      .instant-card {
-        margin-top: 2rem;
-        max-width: 42rem;
-        border: 1px solid hsl(31 95% 44% / 0.55);
+      .instant-dhan {
+        margin-top: 1.6rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        max-width: 48rem;
+        border: 1px solid hsl(31 95% 44% / 0.62);
         border-radius: 0.75rem;
         padding: 1rem;
-        background: linear-gradient(90deg, hsl(31 95% 44% / 0.13), hsl(43 96% 56% / 0.08));
-        color: hsl(31 100% 72%);
+        background: linear-gradient(90deg, hsl(31 95% 44% / 0.14), hsl(43 96% 56% / 0.08));
+      }
+
+      .instant-dhan strong {
+        display: block;
+        color: hsl(31 100% 61%);
+        font-size: 0.95rem;
+      }
+
+      .instant-dhan span,
+      .instant-proof span {
+        display: block;
+        margin-top: 0.35rem;
+        color: hsl(215 20% 65%);
+        font-size: 0.82rem;
+      }
+
+      .instant-dhan a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.55rem;
+        min-width: 12rem;
+        border-radius: 0.45rem;
+        color: hsl(210 40% 98%);
+        background: linear-gradient(90deg, hsl(25 95% 53%), hsl(38 92% 50%));
+        text-decoration: none;
         font-weight: 800;
+      }
+
+      .instant-proof {
+        margin-top: 2rem;
+      }
+
+      .instant-avatars {
+        display: flex;
+      }
+
+      .instant-avatars i {
+        width: 2.35rem;
+        height: 2.35rem;
+        margin-right: -0.35rem;
+        border-radius: 999px;
+        border: 2px solid hsl(222 47% 4%);
+        background: linear-gradient(135deg, hsl(188 94% 43%), hsl(217 91% 60%));
+      }
+
+      .instant-stars {
+        color: hsl(48 96% 53%);
+        letter-spacing: 0.1rem;
+        font-size: 1.05rem;
+      }
+
+      .instant-market {
+        border: 1px solid hsl(217 33% 22%);
+        border-radius: 1.5rem;
+        padding: 2rem;
+        background: hsl(217 33% 14% / 0.74);
+        box-shadow: 0 1.75rem 5rem hsl(188 94% 43% / 0.12);
+      }
+
+      .instant-market-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
+      }
+
+      .instant-pill {
+        border-radius: 0.55rem;
+        padding: 0.65rem 1rem;
+        background: linear-gradient(90deg, hsl(188 94% 43%), hsl(217 91% 60%));
+        font-weight: 800;
+      }
+
+      .instant-profit {
+        color: hsl(160 84% 45%);
+        font-size: 1.45rem;
+        font-weight: 800;
+      }
+
+      .instant-chart {
+        height: 11rem;
+        display: flex;
+        align-items: end;
+        gap: 0.75rem;
+        padding: 1.5rem;
+        border-radius: 0.85rem;
+        background: hsl(217 33% 18% / 0.78);
+      }
+
+      .instant-chart i {
+        flex: 1;
+        min-width: 1.7rem;
+        border-radius: 0.45rem;
+        background: linear-gradient(180deg, hsl(217 91% 60%), hsl(188 94% 43%));
+      }
+
+      .instant-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .instant-metric {
+        border-radius: 0.65rem;
+        padding: 1rem;
+        background: hsl(217 33% 18% / 0.8);
+      }
+
+      .instant-metric span {
+        color: hsl(215 20% 65%);
+        font-size: 0.9rem;
+      }
+
+      .instant-metric strong {
+        display: block;
+        margin-top: 0.5rem;
+        color: hsl(180 96% 50%);
+        font-size: 1.75rem;
+      }
+
+      @media (max-width: 900px) {
+        .instant-links,
+        .instant-nav-actions,
+        .instant-market {
+          display: none;
+        }
+
+        .instant-grid {
+          display: block;
+        }
       }
 
       @media (max-width: 640px) {
@@ -262,8 +427,17 @@
           padding: 0 1rem;
         }
 
-        .instant-hero {
-          padding-top: 4rem;
+        .instant-shell {
+          padding: 4rem 1rem 3rem;
+        }
+
+        .instant-dhan {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .instant-dhan a {
+          width: 100%;
         }
       }
     </style>
