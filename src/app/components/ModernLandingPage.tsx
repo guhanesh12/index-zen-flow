@@ -312,10 +312,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
   const [activeTab, setActiveTab] = useState<'features' | 'pricing' | 'how-it-works'>('features');
   const [content, setContent] = useState<any>(DEFAULT_CONTENT);
   const [pages, setPages] = useState<any[]>([]);
-  const [showLiveLanding, setShowLiveLanding] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return !document.getElementById('instant-landing');
-  });
+  const [showLiveLanding] = useState(true);
   
   const { scrollYProgress } = useScroll();
   const heroOpacity = useTransform(scrollYProgress, [0, 0.2], [1, 0]);
@@ -346,16 +343,6 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
 
   // Load content from backend in the background (no loading state blocking UI)
   useEffect(() => {
-    const instantLanding = document.getElementById('instant-landing');
-    if (instantLanding) {
-      requestAnimationFrame(() => {
-        setShowLiveLanding(true);
-        setTimeout(() => instantLanding.remove(), 80);
-      });
-    } else {
-      setShowLiveLanding(true);
-    }
-
     const idle = (cb: () => void) => {
       if ('requestIdleCallback' in window) {
         (window as any).requestIdleCallback(cb, { timeout: 3500 });
