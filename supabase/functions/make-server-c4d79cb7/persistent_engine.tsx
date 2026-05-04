@@ -1182,14 +1182,21 @@ class PersistentTradingEngine {
       for (const position of state.activePositions) {
         if (position.status !== 'ACTIVE') continue;
         
-        // Find matching Dhan position
-        const dhanPos = dhanPositions.find((dp: any) => 
-          dp.tradingSymbol === position.symbolName || 
-          dp.securityId === position.securityId?.toString()
-        );
-        
-        // Check if position is closed
-        if (!dhanPos || dhanPos.netQty === 0) {
+        // Find matching Dhan position — prefer OPEN (netQty != 0) over CLOSED rows
+        // Dhan often returns BOTH a CLOSED (netQty=0) and a LONG/SHORT row for the same securityId
+        const matchesPosition = (dp: any) =>
+          dp.tradingSymbol === position.symbolName ||
+          dp.securityId === position.securityId?.toString();
+
+        const matchingDhanRows = dhanPositions.filter(matchesPosition);
+        const dhanPos =
+          matchingDhanRows.find((dp: any) => Number(dp.netQty) !== 0) ||
+          matchingDhanRows.find((dp: any) => String(dp.positionType || '').toUpperCase() !== 'CLOSED') ||
+          matchingDhanRows[0];
+
+        // Check if position is closed — only when NO matching row OR all matching rows have netQty=0
+        const allClosed = matchingDhanRows.length > 0 && matchingDhanRows.every((dp: any) => Number(dp.netQty) === 0);
+        if (!dhanPos || matchingDhanRows.length === 0 || allClosed) {
           // Try to read realized P&L from Dhan so we can record it
           const realizedPnl = parseFloat(
             dhanPos?.realizedProfit ||
