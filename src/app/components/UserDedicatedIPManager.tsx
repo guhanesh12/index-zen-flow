@@ -19,6 +19,7 @@ interface UserDedicatedIPManagerProps {
   serverUrl: string;
   accessToken: string;
   walletBalance?: number;
+  onWalletBalanceChanged?: () => void;
 }
 
 interface SubscriptionInfo {
@@ -121,7 +122,7 @@ function formatExpiry(dateStr: string): string {
 
 // ─── Main Component ────────────────────────────────
 
-export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }: UserDedicatedIPManagerProps) {
+export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance, onWalletBalanceChanged }: UserDedicatedIPManagerProps) {
   const [loading, setLoading] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [vps, setVps] = useState<VpsRecord | null>(null);
@@ -344,6 +345,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       if (!res.ok || !data.success) throw new Error(data.error || 'Payment processing failed');
 
       setShowPaymentOptions(false);
+      onWalletBalanceChanged?.();
 
       if (data.isRenewal) {
         toast.success(data.message || 'Subscription renewed successfully!');
