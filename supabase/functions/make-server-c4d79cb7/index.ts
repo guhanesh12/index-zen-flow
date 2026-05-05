@@ -5308,6 +5308,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
+    const isRenewal = Boolean(existingIP && existingIP.subscriptionStatus !== 'cancelled');
 
     // Check wallet balance
     const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
@@ -5580,9 +5581,9 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       receipt: receipt,
       notes: {
         userId: user.id,
-        type: existingIP ? 'dedicated_ip_renewal' : 'dedicated_ip_subscription',
-        isRenewal: Boolean(existingIP),
-        ipAddress: existingIP?.ipAddress,
+        type: isRenewal ? 'dedicated_ip_renewal' : 'dedicated_ip_subscription',
+        isRenewal,
+        ipAddress: isRenewal ? existingIP?.ipAddress : undefined,
         email: user.email
       },
     };
@@ -5612,8 +5613,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       orderId: order.id,
       amount: DEDICATED_IP_FEE,
       receipt: receipt,
-      isRenewal: Boolean(existingIP),
-      ipAddress: existingIP?.ipAddress,
+      isRenewal,
+      ipAddress: isRenewal ? existingIP?.ipAddress : undefined,
       status: 'created',
       createdAt: new Date().toISOString()
     });
@@ -5622,7 +5623,7 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
 
     return c.json({
       success: true,
-      isRenewal: Boolean(existingIP),
+      isRenewal,
       orderId: order.id,
       amount: DEDICATED_IP_FEE,
       currency: 'INR',
