@@ -5667,6 +5667,48 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
     pendingOrder.paidAt = new Date().toISOString();
     await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
 
+    if (pendingOrder.isRenewal) {
+      const renewResult = await IPPoolManager.renewUserIPAssignment(user.id, pendingOrder.amount || 599);
+
+      if (!renewResult.success) {
+        console.error(`❌ Renewal failed after payment for user ${user.id}:`, renewResult.error);
+        await kv.set(`failed_ip_renewal:${user.id}:${razorpay_payment_id}`, {
+          userId: user.id,
+          orderId: razorpay_order_id,
+          paymentId: razorpay_payment_id,
+          amount: pendingOrder.amount,
+          error: renewResult.error,
+          timestamp: new Date().toISOString()
+        });
+
+        return c.json({
+          success: false,
+          error: 'Payment successful but IP renewal failed. Support team notified.',
+          paymentId: razorpay_payment_id
+        }, 500);
+      }
+
+      await kv.set(`transaction:${Date.now()}_${user.id}`, {
+        userId: user.id,
+        type: 'payment',
+        method: 'razorpay',
+        amount: pendingOrder.amount,
+        description: 'Dedicated IP renewal (direct payment)',
+        ipAddress: renewResult.assignment?.ipAddress,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        timestamp: new Date().toISOString()
+      });
+
+      return c.json({
+        success: true,
+        isRenewal: true,
+        message: `Renewed successfully! Your IP ${renewResult.assignment?.ipAddress} is active for 30 more days.`,
+        assignment: renewResult.assignment,
+        paymentId: razorpay_payment_id
+      });
+    }
+
     // ⚡ PROVISION VPS NOW!
     console.log(`🤖 Auto-provisioning VPS for user ${user.id} after payment...`);
     const provisionResult = await VPSProvisioning.provisionDedicatedIP(user.id);
