@@ -1094,6 +1094,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                       serverUrl={serverUrl}
                       accessToken={accessToken}
                       walletBalance={walletBalance}
+                      onWalletBalanceChanged={fetchWalletBalance}
                     />
                   </Suspense>
                 </div>

@@ -5307,6 +5307,8 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
     const { autoProvision } = body; // true = auto-provision new VPS, false = use existing pool
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
+    const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
+    const isRenewal = Boolean(existingIP && existingIP.subscriptionStatus !== 'cancelled');
 
     // Check wallet balance
     const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
@@ -5315,6 +5317,48 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
         success: false,
         error: `Insufficient balance. Need ₹${DEDICATED_IP_FEE}, you have ₹${wallet.balance}`
       }, 400);
+    }
+
+    if (existingIP && existingIP.subscriptionStatus !== 'cancelled') {
+      const renewResult = await IPPoolManager.renewUserIPAssignment(user.id, DEDICATED_IP_FEE);
+
+      if (!renewResult.success) {
+        return c.json({ success: false, error: renewResult.error }, 400);
+      }
+
+      wallet.balance -= DEDICATED_IP_FEE;
+      wallet.totalDeducted = (wallet.totalDeducted || 0) + DEDICATED_IP_FEE;
+      await kv.set(`wallet:${user.id}`, wallet);
+
+      await kv.set(`transaction:${Date.now()}_${user.id}`, {
+        userId: user.id,
+        type: 'debit',
+        amount: DEDICATED_IP_FEE,
+        description: 'Dedicated IP renewal (30 days)',
+        ipAddress: renewResult.assignment?.ipAddress,
+        timestamp: new Date().toISOString(),
+        balanceAfter: wallet.balance
+      });
+      const walletTransactions = await kv.get(`wallet_transactions:${user.id}`) || [];
+      walletTransactions.push({
+        id: `txn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        userId: user.id,
+        type: 'debit',
+        amount: DEDICATED_IP_FEE,
+        balance: wallet.balance,
+        timestamp: new Date().toISOString(),
+        description: 'Dedicated IP renewal (30 days)',
+        source: 'wallet'
+      });
+      await kv.set(`wallet_transactions:${user.id}`, walletTransactions);
+
+      return c.json({
+        success: true,
+        isRenewal: true,
+        message: `Renewed successfully! Your IP ${renewResult.assignment?.ipAddress} is active for 30 more days.`,
+        assignment: renewResult.assignment,
+        wallet: { balance: wallet.balance, deducted: DEDICATED_IP_FEE }
+      });
     }
 
     // ⚡ AUTO-PROVISIONING: Create new VPS for this user
@@ -5516,14 +5560,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month
 
-    // Check if user already has IP
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
-    if (existingIP) {
-      return c.json({ 
-        success: false,
-        error: 'You already have a dedicated IP. Cancel existing subscription first.' 
-      }, 400);
-    }
+    const isRenewal = Boolean(existingIP && existingIP.subscriptionStatus !== 'cancelled');
 
     // Create Razorpay order
     const razorpayKeyId = Deno.env.get('RAZORPAY_KEY_ID');
@@ -5544,7 +5582,9 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       receipt: receipt,
       notes: {
         userId: user.id,
-        type: 'dedicated_ip_subscription',
+        type: isRenewal ? 'dedicated_ip_renewal' : 'dedicated_ip_subscription',
+        isRenewal,
+        ipAddress: isRenewal ? existingIP?.ipAddress : undefined,
         email: user.email
       },
     };
@@ -5574,6 +5614,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       orderId: order.id,
       amount: DEDICATED_IP_FEE,
       receipt: receipt,
+      isRenewal,
+      ipAddress: isRenewal ? existingIP?.ipAddress : undefined,
       status: 'created',
       createdAt: new Date().toISOString()
     });
@@ -5582,6 +5624,7 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
 
     return c.json({
       success: true,
+      isRenewal,
       orderId: order.id,
       amount: DEDICATED_IP_FEE,
       currency: 'INR',
@@ -5637,6 +5680,48 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
     pendingOrder.paymentId = razorpay_payment_id;
     pendingOrder.paidAt = new Date().toISOString();
     await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
+
+    if (pendingOrder.isRenewal) {
+      const renewResult = await IPPoolManager.renewUserIPAssignment(user.id, pendingOrder.amount || 599);
+
+      if (!renewResult.success) {
+        console.error(`❌ Renewal failed after payment for user ${user.id}:`, renewResult.error);
+        await kv.set(`failed_ip_renewal:${user.id}:${razorpay_payment_id}`, {
+          userId: user.id,
+          orderId: razorpay_order_id,
+          paymentId: razorpay_payment_id,
+          amount: pendingOrder.amount,
+          error: renewResult.error,
+          timestamp: new Date().toISOString()
+        });
+
+        return c.json({
+          success: false,
+          error: 'Payment successful but IP renewal failed. Support team notified.',
+          paymentId: razorpay_payment_id
+        }, 500);
+      }
+
+      await kv.set(`transaction:${Date.now()}_${user.id}`, {
+        userId: user.id,
+        type: 'payment',
+        method: 'razorpay',
+        amount: pendingOrder.amount,
+        description: 'Dedicated IP renewal (direct payment)',
+        ipAddress: renewResult.assignment?.ipAddress,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        timestamp: new Date().toISOString()
+      });
+
+      return c.json({
+        success: true,
+        isRenewal: true,
+        message: `Renewed successfully! Your IP ${renewResult.assignment?.ipAddress} is active for 30 more days.`,
+        assignment: renewResult.assignment,
+        paymentId: razorpay_payment_id
+      });
+    }
 
     // ⚡ PROVISION VPS NOW!
     console.log(`🤖 Auto-provisioning VPS for user ${user.id} after payment...`);
