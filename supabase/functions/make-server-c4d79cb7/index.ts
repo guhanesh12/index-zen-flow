@@ -5338,6 +5338,18 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
         timestamp: new Date().toISOString(),
         balanceAfter: wallet.balance
       });
+      const walletTransactions = await kv.get(`wallet_transactions:${user.id}`) || [];
+      walletTransactions.push({
+        id: `txn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        userId: user.id,
+        type: 'debit',
+        amount: DEDICATED_IP_FEE,
+        balance: wallet.balance,
+        timestamp: new Date().toISOString(),
+        description: 'Dedicated IP renewal (30 days)',
+        source: 'wallet'
+      });
+      await kv.set(`wallet_transactions:${user.id}`, walletTransactions);
 
       return c.json({
         success: true,
