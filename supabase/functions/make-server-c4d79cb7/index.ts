@@ -5561,6 +5561,7 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
     const DEDICATED_IP_FEE = 599; // ₹599/month
 
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
+    const isRenewal = Boolean(existingIP && existingIP.subscriptionStatus !== 'cancelled');
 
     // Create Razorpay order
     const razorpayKeyId = Deno.env.get('RAZORPAY_KEY_ID');
