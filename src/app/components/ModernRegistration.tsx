@@ -24,7 +24,6 @@ interface ModernRegistrationProps {
   onRegistrationSuccess: (token: string) => void;
   onSwitchToSignin: () => void;
   onBackToHome: () => void;
-  onReadyForDashboard?: () => void;
   serverUrl: string;
   publicAnonKey: string;
 }
@@ -54,7 +53,7 @@ const registrationSchema = z.object({
 
 type RegistrationFormData = z.infer<typeof registrationSchema>;
 
-export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSignin, onBackToHome, onReadyForDashboard, serverUrl, publicAnonKey }: ModernRegistrationProps) {
+export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSignin, onBackToHome, serverUrl, publicAnonKey }: ModernRegistrationProps) {
   const [step, setStep] = useState<'form' | 'otp' | 'verifying'>('form');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -260,8 +259,18 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
       if (signUpData.session?.access_token) {
         // Set redirecting flag
         setRedirecting(true);
-
-        onReadyForDashboard?.();
+        
+        // CRITICAL: Wait for Supabase to persist session to localStorage
+        console.log('⏳ Waiting for session to persist...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Verify session is actually stored before navigating
+        const { data: { session: verifySession } } = await supabase.auth.getSession();
+        if (!verifySession) {
+          throw new Error('Session was not persisted properly. Please try logging in.');
+        }
+        
+        console.log('✅ Session verified in storage');
         console.log('🚀 Calling onRegistrationSuccess callback...');
         onRegistrationSuccess(signUpData.session.access_token);
       } else {

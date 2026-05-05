@@ -312,7 +312,6 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
   const [activeTab, setActiveTab] = useState<'features' | 'pricing' | 'how-it-works'>('features');
   const [content, setContent] = useState<any>(DEFAULT_CONTENT);
   const [pages, setPages] = useState<any[]>([]);
-  const [showLiveLanding] = useState(true);
   
   const { scrollYProgress } = useScroll();
   const heroOpacity = useTransform(scrollYProgress, [0, 0.2], [1, 0]);
@@ -343,18 +342,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
 
   // Load content from backend in the background (no loading state blocking UI)
   useEffect(() => {
-    const idle = (cb: () => void) => {
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(cb, { timeout: 3500 });
-      } else {
-        setTimeout(cb, 1500);
-      }
-    };
-
-    idle(() => {
-      loadContent();
-      loadPages();
-    });
+    loadContent();
+    loadPages();
   }, []);
 
   const loadContent = async () => {
@@ -416,7 +405,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
   };
 
   return (
-    <div className={`min-h-screen bg-black text-white overflow-x-hidden transition-opacity duration-150 ${showLiveLanding ? 'opacity-100' : 'opacity-0'}`}>
+    <div className="min-h-screen bg-black text-white overflow-x-hidden">
       <SEO {...SEO_CONFIGS.home} />
       {/* Navigation */}
       <motion.nav 

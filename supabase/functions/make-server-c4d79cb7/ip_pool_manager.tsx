@@ -225,48 +225,6 @@ export async function assignIPToUser(
 }
 
 /**
- * Renew an existing dedicated IP without creating a new VPS.
- * Keeps the same IP and extends expiry by 30 days from current expiry if still active,
- * otherwise from today.
- */
-export async function renewUserIPAssignment(
-  userId: string,
-  monthlyFee: number = DEFAULT_DEDICATED_IP_FEE
-): Promise<{ success: boolean; assignment?: UserIPAssignment; error?: string }> {
-  try {
-    const assignment = await getUserIPAssignment(userId);
-    if (!assignment) {
-      return { success: false, error: 'No existing IP assignment found to renew' };
-    }
-
-    if (assignment.subscriptionStatus === 'cancelled') {
-      return { success: false, error: 'Cancelled IP cannot be renewed. Please subscribe again.' };
-    }
-
-    const currentExpiryMs = new Date(assignment.expiresAt || '').getTime();
-    const renewalBaseMs = Number.isFinite(currentExpiryMs) && currentExpiryMs > Date.now()
-      ? currentExpiryMs
-      : Date.now();
-
-    const renewedAssignment: UserIPAssignment = {
-      ...assignment,
-      subscriptionStatus: 'active',
-      monthlyFee,
-      expiresAt: new Date(renewalBaseMs + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      lastUsedAt: new Date().toISOString(),
-    };
-
-    await persistUserAssignment(renewedAssignment);
-    console.log(`✅ IP ${renewedAssignment.ipAddress} renewed for user ${userId} until ${renewedAssignment.expiresAt}`);
-
-    return { success: true, assignment: renewedAssignment };
-  } catch (error: any) {
-    console.error('❌ Failed to renew user IP assignment:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-/**
  * Get user's IP assignment
  */
 export async function getUserIPAssignment(userId: string): Promise<UserIPAssignment | null> {

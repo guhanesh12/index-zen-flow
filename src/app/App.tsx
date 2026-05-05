@@ -1,16 +1,15 @@
 // @ts-nocheck
-import { useEffect, lazy, Suspense, useState } from 'react';
+import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { router } from './routes';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
+import { InstallApp } from './components/InstallApp';
+import { PWADebugger } from './components/PWADebugger';
 import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity } from '@/utils-ext/security/SecurityHardening';
-
-const InstallApp = lazy(() => import('./components/InstallApp').then(m => ({ default: m.InstallApp })));
-const PWADebugger = lazy(() => import('./components/PWADebugger').then(m => ({ default: m.PWADebugger })));
 
 // Extend Window interface for hotkey system
 declare global {
@@ -25,38 +24,29 @@ declare global {
 const serverUrl = getBaseUrl();
 
 export default function App() {
-  const [showInstallApp, setShowInstallApp] = useState(false);
-  const showPwaDebugger = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === 'pwa';
-
   useEffect(() => {
-    // 🚀 PERF: Defer ALL non-critical startup work until browser is idle so the landing
-    //         page paints/LCP fast for Google PageSpeed and SEO crawlers.
-    const idle = (cb: () => void) => {
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(cb, { timeout: 4000 });
-      } else {
-        setTimeout(cb, 2000);
-      }
-    };
+    startCacheRecovery().catch(() => undefined);
 
-    let hotkeyRefreshInterval: any;
-
-    idle(() => {
-      setShowInstallApp(true);
-      startCacheRecovery().catch(() => undefined);
-      startVersionCheck();
-      initializeSecurity({ enableDevToolsMonitor: false });
-
-      // Initialize hotkey system
-      window.adminHotkeys = ['GUHAN'];
-      window.adminKeySequence = '';
-      window.hotkeyDebugMode = false;
-
-      loadAdminHotkeys();
-      hotkeyRefreshInterval = setInterval(() => {
-        loadAdminHotkeys().catch(() => {});
-      }, 60000);
+    // 🔄 START AUTO-VERSION CHECK (prevents cache issues!)
+    startVersionCheck();
+    
+    // 🔒 Initialize Security System
+    initializeSecurity({
+      enableDevToolsMonitor: false, // Enable in production if needed
     });
+    
+    // Initialize hotkey system
+    window.adminHotkeys = ['GUHAN']; // Default fallback
+    window.adminKeySequence = '';
+    window.hotkeyDebugMode = false;
+
+    // Load admin hotkeys from server
+    loadAdminHotkeys();
+
+    // Auto-refresh hotkeys every 60 seconds
+    const hotkeyRefreshInterval = setInterval(() => {
+      loadAdminHotkeys().catch(() => {});
+    }, 60000);
 
     // Listen for hotkey updates
     const handleHotkeyUpdate = () => {
@@ -202,16 +192,8 @@ export default function App() {
     <HelmetProvider>
       <div className="app-container">
         <RouterProvider router={router} />
-        {showInstallApp && (
-          <Suspense fallback={null}>
-            <InstallApp />
-          </Suspense>
-        )}
-        {showPwaDebugger && (
-          <Suspense fallback={null}>
-            <PWADebugger />
-          </Suspense>
-        )}
+        <InstallApp />
+        <PWADebugger />
       </div>
     </HelmetProvider>
   );
