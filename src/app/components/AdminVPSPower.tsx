@@ -49,8 +49,9 @@ export function AdminVPSPower({ serverUrl, accessToken }: Props) {
     try {
       setLoading(true);
       const r = await fetch(`${serverUrl}/admin/vps-power/status`, { headers });
-      const d = await r.json();
-      if (d.success) setSnap(d);
+      if (!r.ok) { await r.text().catch(() => {}); return; }
+      const d = await r.json().catch(() => null);
+      if (d?.success) setSnap(d);
     } catch (e: any) {
       console.error(e);
     } finally {
@@ -68,9 +69,14 @@ export function AdminVPSPower({ serverUrl, accessToken }: Props) {
     setActing(true);
     try {
       const r = await fetch(`${serverUrl}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
-      const d = await r.json();
-      if (d.success) toast.success(label + ' OK');
-      else toast.error(d.error || 'Action failed');
+      if (!r.ok) {
+        const txt = await r.text().catch(() => '');
+        toast.error(`Action failed (${r.status})${txt ? ': ' + txt.slice(0, 120) : ''}`);
+        return;
+      }
+      const d = await r.json().catch(() => null);
+      if (d?.success) toast.success(label + ' OK');
+      else toast.error(d?.error || 'Action failed');
       await load();
     } catch (e: any) {
       toast.error(e.message);
