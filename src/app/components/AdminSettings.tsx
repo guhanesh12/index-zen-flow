@@ -402,6 +402,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             <Mail className="size-4 mr-2" />
             Brevo Communications
           </TabsTrigger>
+          <TabsTrigger value="vps-power">
+            <Server className="size-4 mr-2" />
+            VPS Power
+          </TabsTrigger>
         </TabsList>
 
         {/* API Keys Tab */}
