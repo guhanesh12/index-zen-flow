@@ -5621,6 +5621,43 @@ app.get("/make-server-c4d79cb7/ip-pool/provisioning-status", async (c) => {
   }
 });
 
+// 🧹 Cancel/reset stuck VPS provisioning so user can create a fresh server with the current DigitalOcean token
+app.post("/make-server-c4d79cb7/ip-pool/provisioning-cancel", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ code: error.code, message: error.message }, error.code);
+    }
+
+    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (assignment?.ipAddress && assignment.subscriptionStatus === 'active') {
+      return c.json({
+        success: false,
+        error: 'Active VPS already assigned. Use Cancel subscription only if you want to release this IP.'
+      }, 400);
+    }
+
+    const result = await VPSProvisioning.cancelUserProvisioningJob(user.id);
+    if (!result.success) {
+      return c.json({ success: false, error: result.error || 'Failed to reset provisioning' }, 500);
+    }
+
+    return c.json({
+      success: true,
+      message: result.cancelled
+        ? 'Provisioning cancelled. You can create a new VPS now.'
+        : 'No provisioning job found. You can create a new VPS now.',
+      cancelled: result.cancelled,
+      deletionAttempted: result.deletionAttempted,
+      deletionSucceeded: result.deletionSucceeded,
+      deletionError: result.deletionError
+    });
+  } catch (error: any) {
+    console.error('❌ Cancel provisioning error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // 💳 Create Razorpay order for DIRECT IP purchase (no wallet needed!)
 app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
   try {
