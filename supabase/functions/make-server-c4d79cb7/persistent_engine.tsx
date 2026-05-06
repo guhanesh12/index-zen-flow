@@ -805,7 +805,6 @@ class PersistentTradingEngine {
           );
           
           analyzedIndices.add(indexName);
-          state.stats.totalSignals++;
           
           if (!aiSignal || !aiSignal.signal) {
             console.log(`⚠️ No signal generated for ${indexName} (analyzeMarket returned null)`);
@@ -815,15 +814,19 @@ class PersistentTradingEngine {
             continue;
           }
 
-          // ⚡ Save signal to database AFTER validation (not before!)
-          const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
-          await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
-          await this.incrementSignalStats(userId, 'signal');
-
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
           const reason = aiSignal.signal.reason || '';
           const signalTimestamp = Date.now();
+
+          // Store latest UI snapshot for every index, but only persist trade signals to DB.
+          // WAIT is UI/log only to avoid DB bloat and false “signal count” after refresh.
+          const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
+          if (action !== 'WAIT') {
+            state.stats.totalSignals++;
+            await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
+            await this.incrementSignalStats(userId, 'signal');
+          }
 
           latestSignalsSnapshot[indexName] = {
             ...aiSignal.signal,
@@ -834,7 +837,7 @@ class PersistentTradingEngine {
 
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
 
-          await this.saveUserNotification(userId, {
+          if (action !== 'WAIT') await this.saveUserNotification(userId, {
             id: `signal_${userId}_${indexName}_${currentCandleTimestamp}_${action}`,
             type: 'SIGNAL_DETECTED',
             title: action === 'WAIT'
@@ -1582,18 +1585,24 @@ class PersistentTradingEngine {
     try {
       const normalizedIndex = normalizeIndexName(symbol);
       const normalizedSymbolName = getSymbolDisplayName(symbol);
-      const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
+      const action = aiSignal?.signal?.action || 'WAIT';
+      if (action === 'WAIT') return;
+
+      const targetOptionType = action === 'BUY_CALL' ? 'CE' : action === 'BUY_PUT' ? 'PE' : normalizeOptionType(symbol.optionType || symbol.option_type);
+      const currentPrice = Number(aiSignal?.signal?.riskManagement?.suggestedEntry || aiSignal?.signal?.price || aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close || 0);
+      const strikeStep = normalizedIndex === 'BANKNIFTY' ? 100 : 50;
+      const derivedStrike = currentPrice > 0 ? Math.round(currentPrice / strikeStep) * strikeStep : null;
 
       await supabaseAdmin
         .from('trading_signals')
         .insert({
           user_id: userId,
           symbol: normalizedSymbolName,
-          signal_type: aiSignal?.signal?.action || 'WAIT',
+          signal_type: action,
           index_name: normalizedIndex,
-          price: aiSignal?.signal?.price || null,
-          strike_price: symbol.strikePrice || symbol.strike_price || null,
-          option_type: normalizedOptionType || null,
+          price: currentPrice || null,
+          strike_price: symbol.strikePrice || symbol.strike_price || derivedStrike,
+          option_type: targetOptionType || null,
           expiry: symbol.expiry || null,
           confidence: aiSignal?.signal?.confidence || 0,
           raw_data: aiSignal || {},

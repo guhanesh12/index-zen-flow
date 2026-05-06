@@ -170,7 +170,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
   
   // ============ ENGINE STATE ============
-  const [isRunning, setIsRunning] = useState(false);
+  const [isRunning, setIsRunning] = useState(() => localStorage.getItem('engine_running') === 'true');
   const [isPositionMonitorActive, setIsPositionMonitorActive] = useState(true); // ⚡ NEW: Control position monitoring separately
   const [marketStatus, setMarketStatus] = useState<'OPEN' | 'CLOSED' | 'WEEKEND'>('CLOSED');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -196,10 +196,13 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     NIFTY: any | null;
     BANKNIFTY: any | null;
     SENSEX: any | null;
-  }>({
-    NIFTY: null,
-    BANKNIFTY: null,
-    SENSEX: null
+  }>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('engine_signals') || '{}');
+      return { NIFTY: saved.NIFTY || null, BANKNIFTY: saved.BANKNIFTY || null, SENSEX: saved.SENSEX || null, __timestamp: saved.__timestamp || 0 };
+    } catch {
+      return { NIFTY: null, BANKNIFTY: null, SENSEX: null };
+    }
   });
   const [selectedAnalysisIndex, setSelectedAnalysisIndex] = useState<'NIFTY' | 'BANKNIFTY' | 'SENSEX'>('NIFTY');
   
@@ -302,7 +305,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const engineTimerRef = useRef<NodeJS.Timeout | null>(null);
   const positionMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const isProcessingRef = useRef(false);
-  const isRunningRef = useRef(false); // ⚡ USE REF TO AVOID CLOSURE ISSUES
+  const isRunningRef = useRef(localStorage.getItem('engine_running') === 'true'); // ⚡ USE REF TO AVOID CLOSURE ISSUES
   const isPositionMonitorActiveRef = useRef(true); // ⚡ USE REF TO AVOID CLOSURE ISSUES
   const processedCandlesRef = useRef<Set<string>>(new Set()); // 🔒 PREVENT DUPLICATES
   const hasAutoRestartedRef = useRef(false); // 🔒 PREVENT MULTIPLE AUTO-RESTARTS
@@ -894,20 +897,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       
       // ⚡ SYNC ENGINE RUNNING STATE FROM BACKEND
       const backendRunning = data.engine?.isRunning || false;
+      const wasLocallyRunning = isRunningRef.current;
+      setIsRunning(backendRunning);
+      isRunningRef.current = backendRunning;
+      localStorage.setItem('engine_running', backendRunning ? 'true' : 'false');
       
       // If backend says engine is running on another device, show it running here too
-      if (backendRunning && !isRunning && !isRunningRef.current) {
+      if (backendRunning && !wasLocallyRunning) {
         console.log('☁️ Backend engine is RUNNING (started from another device)');
-        setIsRunning(true);
-        isRunningRef.current = true;
-        localStorage.setItem('engine_running', 'true');
         localStorage.removeItem('engine_manual_stop');
       }
       
       // If backend says engine stopped but frontend shows running, auto-stop
-      if (!backendRunning && isRunning && isRunningRef.current) {
+      if (!backendRunning && wasLocallyRunning) {
         console.log('🛑 Backend engine STOPPED (from another device)');
-        stopEngine(false);
       }
       
       // ⚡ SYNC POSITIONS FROM BACKEND (replace local with backend source of truth)

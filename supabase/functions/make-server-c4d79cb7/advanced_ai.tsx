@@ -812,8 +812,9 @@ export class AdvancedAI {
     
     // Bollinger Bands
     const bollinger = this.calculateBollingerBands(ohlcData);
-    const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
-    const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
+    const bollingerRange = Math.max(bollinger.upper - bollinger.lower, lastCandle.close * 0.001);
+    const priceNearUpperBand = lastCandle.close >= (bollinger.upper - bollingerRange * 0.15);
+    const priceNearLowerBand = lastCandle.close <= (bollinger.lower + bollingerRange * 0.15);
     const bollingerSqueeze = bollinger.width < 2;
     calculationsPerformed += 1;
     
@@ -849,8 +850,9 @@ export class AdvancedAI {
     const support2 = lows[Math.floor(lows.length * 0.2)];
     const support3 = lows[Math.floor(lows.length * 0.4)];
     
-    const nearResistance = lastCandle.close > resistance1 * 0.98;
-    const nearSupport = lastCandle.close < support1 * 1.02;
+    const srTolerance = Math.max(atr14 * 0.5, lastCandle.close * 0.0015);
+    const nearResistance = lastCandle.close >= resistance1 || Math.abs(resistance1 - lastCandle.close) <= srTolerance;
+    const nearSupport = lastCandle.close <= support1 || Math.abs(lastCandle.close - support1) <= srTolerance;
     calculationsPerformed += 1;
     
     // Fibonacci
@@ -931,16 +933,20 @@ export class AdvancedAI {
     const isBullish = lastCandle.close > lastCandle.open;
     const isBearish = lastCandle.close < lastCandle.open;
     
-    // ⚡ FIX BUG #8: Use Market Regime for trend bias (not just current candle!)
-    // In strong trends (ADX > 25), small counter-trend candles don't change the bias
-    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' : 
-                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' : 
+    const recentClosedCandles = ohlcData.slice(-4);
+    const bullishMomentum = lastCandle.close > prevCandle.close && lastCandle.high >= prevCandle.high;
+    const bearishMomentum = lastCandle.close < prevCandle.close && lastCandle.low <= prevCandle.low;
+    const bullishCandleCount = recentClosedCandles.filter(c => c.close > c.open).length;
+    const bearishCandleCount = recentClosedCandles.filter(c => c.close < c.open).length;
+    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' :
+                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' :
                       isBullish ? 'bullish' : isBearish ? 'bearish' : 'neutral';
     
-    // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
-    const useTrendBias = adx > 25;  // Changed from 40 to 25!
-    const confirmationBullish = useTrendBias ? (trendBias === 'bullish') : isBullish;
-    const confirmationBearish = useTrendBias ? (trendBias === 'bearish') : isBearish;
+    const useTrendBias = adx > 25;
+    const trendBullishAllowed = trendBias === 'bullish' && (isBullish || bullishMomentum || bullishCandleCount > bearishCandleCount);
+    const trendBearishAllowed = trendBias === 'bearish' && (isBearish || bearishMomentum || bearishCandleCount > bullishCandleCount);
+    const confirmationBullish = useTrendBias ? trendBullishAllowed : isBullish;
+    const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
@@ -1131,14 +1137,14 @@ export class AdvancedAI {
     // In strong trends, minor pullbacks don't invalidate the trend!
     const trendingMarket = adx > 25;
     
-    if (trendingMarket && confirmationBullish) {
+    if (trendingMarket && confirmationBullish && bullishMomentum) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong uptrend (ADX ${adx.toFixed(1)})`);
-    } else if (trendingMarket && confirmationBearish) {
+      confirmationDetails.push(`✅ Price Action: Uptrend continuation (higher close/high, ADX ${adx.toFixed(1)})`);
+    } else if (trendingMarket && confirmationBearish && bearishMomentum) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong downtrend (ADX ${adx.toFixed(1)})`);
+      confirmationDetails.push(`✅ Price Action: Downtrend continuation (lower close/low, ADX ${adx.toFixed(1)})`);
     } else if (confirmationBullish && higherHighs) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
@@ -1203,10 +1209,12 @@ export class AdvancedAI {
     
     console.log(`📏 Candle move check: body=${bodySize.toFixed(2)}pts, range=${(lastCandle.high - lastCandle.low).toFixed(2)}pts, move=${candleMovePoints.toFixed(2)}pts, min=${minimumBodySize.toFixed(2)}pts`);
     
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && (candleMovePoints >= minimumBodySize || hasStrongPattern);
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const decisiveBullishMove = isBullish && (lastCandle.close > prevCandle.close || bullishMomentum);
+    const decisiveBearishMove = isBearish && (lastCandle.close < prevCandle.close || bearishMomentum);
+    const strongBullish = confirmations.total >= 6 && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const strongBearish = confirmations.total >= 6 && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
     
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
