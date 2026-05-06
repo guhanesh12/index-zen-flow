@@ -632,6 +632,28 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 You can leave this page. We'll continue provisioning in the background. Your IP will appear here once ready.
               </AlertDescription>
             </Alert>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                onClick={() => { setCheckingStatus(true); loadStatus(); }}
+                disabled={resettingProvisioning}
+                size="sm"
+                variant="outline"
+                className="flex-1 border-cyan-700 text-cyan-300 hover:bg-cyan-900/30 text-xs"
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Refresh Status
+              </Button>
+              <Button
+                onClick={resetProvisioning}
+                disabled={resettingProvisioning}
+                size="sm"
+                variant="outline"
+                className="flex-1 border-red-900 text-red-300 hover:bg-red-900/20 text-xs"
+              >
+                {resettingProvisioning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Cancelling...</> : <><XCircle className="w-3 h-3 mr-1" />Cancel & Create New VPS</>}
+              </Button>
+            </div>
           </div>
         )}
 
@@ -1010,11 +1032,11 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         {/* ══ FAILED STATE — Show subscribe button ══ */}
         {vps?.status === 'failed' && !showPaymentOptions && (
           <Button
-            onClick={() => setShowPaymentOptions(true)}
+            onClick={resetProvisioning}
+            disabled={resettingProvisioning}
             className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white text-sm"
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Try Again — Subscribe Now
+            {resettingProvisioning ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Clearing Old Server...</> : <><RefreshCw className="w-4 h-4 mr-2" />Clear Old Server & Create New</>}
           </Button>
         )}
 
