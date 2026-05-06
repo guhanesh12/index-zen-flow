@@ -839,8 +839,9 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Support/Resistance
-    const highs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
-    const lows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
+    const srCandles = ohlcData.length > 20 ? ohlcData.slice(-51, -1) : ohlcData.slice(0, -1);
+    const highs = (srCandles.length ? srCandles : ohlcData).map(c => c.high).sort((a, b) => b - a);
+    const lows = (srCandles.length ? srCandles : ohlcData).map(c => c.low).sort((a, b) => a - b);
     
     const resistance1 = highs[0];
     const resistance2 = highs[Math.floor(highs.length * 0.2)];
@@ -850,9 +851,9 @@ export class AdvancedAI {
     const support2 = lows[Math.floor(lows.length * 0.2)];
     const support3 = lows[Math.floor(lows.length * 0.4)];
     
-    const srTolerance = Math.max(atr14 * 0.5, lastCandle.close * 0.0015);
-    const nearResistance = lastCandle.close >= resistance1 || Math.abs(resistance1 - lastCandle.close) <= srTolerance;
-    const nearSupport = lastCandle.close <= support1 || Math.abs(lastCandle.close - support1) <= srTolerance;
+    const srTolerance = Math.max(atr14 * 0.35, lastCandle.close * 0.001);
+    const nearResistance = lastCandle.close <= resistance1 && (resistance1 - lastCandle.close) <= srTolerance;
+    const nearSupport = lastCandle.close >= support1 && (lastCandle.close - support1) <= srTolerance;
     calculationsPerformed += 1;
     
     // Fibonacci
@@ -916,7 +917,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 6,
+      required: 7,
       details: [] as string[],
       vwap: false,
       ema: false,
@@ -1197,7 +1198,7 @@ export class AdvancedAI {
     
     // MUST have 6+ confirmations AND suitable market regime
     // ✅ FIXED: Use fixed point-based candle body, not percentage-based
-    const minimumBodySize = 10; // Fixed minimum 10-point candle body for all indices
+    const minimumBodySize = Math.max(10, atr14 * 0.25); // Dynamic by index volatility
     const candleMovePoints = Math.max(
       Math.abs(lastCandle.close - lastCandle.open),
       Math.abs(lastCandle.high - lastCandle.low)
@@ -1209,10 +1210,10 @@ export class AdvancedAI {
     
     console.log(`📏 Candle move check: body=${bodySize.toFixed(2)}pts, range=${(lastCandle.high - lastCandle.low).toFixed(2)}pts, move=${candleMovePoints.toFixed(2)}pts, min=${minimumBodySize.toFixed(2)}pts`);
     
-    const decisiveBullishMove = isBullish && (lastCandle.close > prevCandle.close || bullishMomentum);
-    const decisiveBearishMove = isBearish && (lastCandle.close < prevCandle.close || bearishMomentum);
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const decisiveBullishMove = isBullish && bullishMomentum;
+    const decisiveBearishMove = isBearish && bearishMomentum;
+    const strongBullish = confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const strongBearish = confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
     
     console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
@@ -1236,12 +1237,12 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
       
-    } else if (confirmations.total < 6) {
+    } else if (confirmations.total < confirmations.required) {
       action = 'WAIT';
       confidence = 40;
       // ⚡ FIX BUG #8: Use trend bias in strong trends, not current candle color
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
+      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`;
       
     } else if (candleMovePoints < minimumBodySize) {
       // ⚡ FIX: Only block if no strong pattern exists

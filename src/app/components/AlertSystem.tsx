@@ -676,8 +676,12 @@ export function AlertSystem({ signal, previousSignal, timeframe = '5M' }: AlertS
     
     if (filteredAlerts.length > 0) {
       setAlerts(prev => {
+        const uniqueAlerts = filteredAlerts.map((alert, index) => ({
+          ...alert,
+          id: `${alert.id}-${signal?.index || 'IDX'}-${index}`,
+        }));
         // Keep only last 10 alerts
-        const updated = [...filteredAlerts, ...prev].slice(0, 10);
+        const updated = [...uniqueAlerts, ...prev].slice(0, 10);
         return updated;
       });
     }
