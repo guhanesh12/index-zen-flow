@@ -5616,14 +5616,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month
 
-    // Check if user already has IP
+    // Existing users can pay this same order as a renewal. Renewal never creates a new VPS.
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
-    if (existingIP) {
-      return c.json({ 
-        success: false,
-        error: 'You already have a dedicated IP. Cancel existing subscription first.' 
-      }, 400);
-    }
 
     // Create Razorpay order
     const razorpayKeyId = Deno.env.get('RAZORPAY_KEY_ID');
@@ -5644,7 +5638,7 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       receipt: receipt,
       notes: {
         userId: user.id,
-        type: 'dedicated_ip_subscription',
+        type: existingIP ? 'dedicated_ip_renewal' : 'dedicated_ip_subscription',
         email: user.email
       },
     };
@@ -5674,6 +5668,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       orderId: order.id,
       amount: DEDICATED_IP_FEE,
       receipt: receipt,
+      isRenewal: Boolean(existingIP),
+      existingIpAddress: existingIP?.ipAddress,
       status: 'created',
       createdAt: new Date().toISOString()
     });
@@ -5686,6 +5682,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       amount: DEDICATED_IP_FEE,
       currency: 'INR',
       keyId: razorpayKeyId,
+      isRenewal: Boolean(existingIP),
+      existingIpAddress: existingIP?.ipAddress,
       notes: orderData.notes
     });
 
