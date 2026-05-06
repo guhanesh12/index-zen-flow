@@ -444,22 +444,22 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     if (!confirm('Cancel this stuck VPS creation and start fresh with the new DigitalOcean account?')) return;
     setResettingProvisioning(true);
     try {
-      const res = await fetch(`${serverUrl}/ip-pool/provisioning-cancel`, {
+      const res = await fetch(`${serverUrl}/ip-pool/provisioning-restart`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to cancel provisioning');
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to restart provisioning');
 
-      stopPolling();
       prevStatusRef.current = null;
-      setVps(null);
-      setProgress(0);
+      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
+      setProgress(2);
       setShowPaymentOptions(false);
-      toast.success(data.message || 'Old provisioning cleared. Create a new VPS now.');
+      toast.success(data.message || 'New VPS creation started.');
       await loadStatus();
+      startPolling();
     } catch (err: any) {
-      toast.error(err.message || 'Could not cancel provisioning');
+      toast.error(err.message || 'Could not restart provisioning');
     } finally {
       setResettingProvisioning(false);
     }
