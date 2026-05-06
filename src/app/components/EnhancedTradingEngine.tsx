@@ -769,10 +769,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       updateNextCandleTime();
     }, 1000);
 
-    // ⚡ NEW: Poll backend every 5 seconds for engine state changes from other devices
+    // ⚡ Poll backend quickly so signals/status from another device appear fast
     const syncInterval = setInterval(() => {
       syncEngineState();
-    }, 5000);
+    }, 1500);
 
     return () => {
       clearInterval(clockInterval);
@@ -871,6 +871,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   // ⚡⚡⚡ BACKEND SYNC (MULTI-DEVICE SUPPORT) ⚡⚡⚡
   // Polls /engine/db-status every 5 seconds — same user on ANY device sees same data
   const syncEngineState = async () => {
+    if (syncEngineStateInFlightRef.current) return;
+    syncEngineStateInFlightRef.current = true;
     try {
       const freshToken = await getFreshAccessToken();
       const response = await fetch(`${serverUrl}/engine/db-status`, {
@@ -1021,6 +1023,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       
     } catch (error) {
       // Silent - sync is best-effort
+    } finally {
+      syncEngineStateInFlightRef.current = false;
     }
   };
 
