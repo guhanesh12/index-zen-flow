@@ -1,0 +1,324 @@
+/**
+ * 💡 VPS Power Scheduler
+ *
+ * Cost-saver: powers DigitalOcean droplets OFF outside Indian market hours
+ * and back ON before market open. Admins can override via /vps-power/all-on
+ * or /vps-power/all-off, and toggle the auto-schedule entirely.
+ *
+ * Times (IST, Asia/Kolkata):
+ *   • Market days (Mon-Fri): 08:55 IST -> startup
+ *                            15:31 IST -> shutdown (also stops trading engine)
+ *   • Sat/Sun: stay OFF until Monday 08:55 IST
+ *   • Special trading sessions: admin uses /vps-power/all-on to keep ON
+ */
+
+import * as kv from './kv_store.tsx';
+import * as IPPoolManager from './ip_pool_manager.tsx';
+
+const POWER_PREFIX = 'vps_power:';                  // vps_power:{userId}
+const SCHEDULE_FLAG_KEY = 'vps_power:schedule_enabled';
+const SPECIAL_SESSION_KEY = 'vps_power:special_session_date'; // YYYY-MM-DD when admin keeps ON
+
+export interface VpsPowerState {
+  userId: string;
+  dropletId?: string;
+  ipAddress?: string;
+  state: 'on' | 'off' | 'unknown';
+  source: 'cron' | 'admin' | 'user' | 'system';
+  at: string;
+  lastError?: string;
+}
+
+const DO_BASE = 'https://api.digitalocean.com/v2';
+
+function getToken(): string | null {
+  return Deno.env.get('DIGITALOCEAN_API_TOKEN') || null;
+}
+
+async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'power_off'): Promise<{ ok: boolean; error?: string }> {
+  const token = getToken();
+  if (!token) return { ok: false, error: 'No DIGITALOCEAN_API_TOKEN' };
+  try {
+    const r = await fetch(`${DO_BASE}/droplets/${dropletId}/actions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type }),
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      return { ok: false, error: `DO ${r.status}: ${text.slice(0, 200)}` };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+async function getDropletStatus(dropletId: string): Promise<'active' | 'off' | 'unknown'> {
+  const token = getToken();
+  if (!token) return 'unknown';
+  try {
+    const r = await fetch(`${DO_BASE}/droplets/${dropletId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!r.ok) return 'unknown';
+    const data = await r.json();
+    const s = data?.droplet?.status;
+    if (s === 'active') return 'active';
+    if (s === 'off') return 'off';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function setPowerState(state: VpsPowerState) {
+  await kv.set(`${POWER_PREFIX}${state.userId}`, state);
+}
+
+export async function getPowerState(userId: string): Promise<VpsPowerState | null> {
+  return await kv.get(`${POWER_PREFIX}${userId}`) as VpsPowerState | null;
+}
+
+export async function isScheduleEnabled(): Promise<boolean> {
+  const v = await kv.get(SCHEDULE_FLAG_KEY);
+  return v === null || v === undefined ? true : Boolean(v);
+}
+
+export async function setScheduleEnabled(enabled: boolean) {
+  await kv.set(SCHEDULE_FLAG_KEY, enabled);
+}
+
+export async function getSpecialSessionDate(): Promise<string | null> {
+  return (await kv.get(SPECIAL_SESSION_KEY)) as string | null;
+}
+
+export async function setSpecialSessionDate(dateIso: string | null) {
+  if (dateIso) await kv.set(SPECIAL_SESSION_KEY, dateIso);
+  else await kv.del(SPECIAL_SESSION_KEY);
+}
+
+/** Returns IST day-of-week 0=Sun..6=Sat */
+function istDayOfWeek(d = new Date()): number {
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(d.getTime() + istOffsetMs);
+  return ist.getUTCDay();
+}
+
+function istDateString(d = new Date()): string {
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(d.getTime() + istOffsetMs);
+  return ist.toISOString().slice(0, 10);
+}
+
+/** Returns all assigned active VPS users */
+async function listAssignedVps(): Promise<Array<{ userId: string; ipAddress: string; dropletId?: string }>> {
+  const entries = await kv.getByPrefix('user_ip_assignment:');
+  const out: Array<{ userId: string; ipAddress: string; dropletId?: string }> = [];
+  for (const e of entries) {
+    const v: any = e.value;
+    if (!v?.userId || !v?.ipAddress) continue;
+    if (v.subscriptionStatus && v.subscriptionStatus !== 'active') continue;
+    let dropletId: string | undefined;
+    try {
+      const ip = await kv.get(`ip_pool:${v.ipAddress}`) as any;
+      dropletId = ip?.metadata?.dropletId;
+    } catch {}
+    out.push({ userId: v.userId, ipAddress: v.ipAddress, dropletId });
+  }
+  return out;
+}
+
+async function applyToAll(action: 'shutdown' | 'power_on', source: VpsPowerState['source']) {
+  const list = await listAssignedVps();
+  const results: Array<{ userId: string; ok: boolean; error?: string; skipped?: boolean }> = [];
+  for (const v of list) {
+    if (!v.dropletId) {
+      results.push({ userId: v.userId, ok: false, error: 'No dropletId', skipped: true });
+      continue;
+    }
+    // skip no-op
+    const cur = await getDropletStatus(v.dropletId);
+    if (action === 'shutdown' && cur === 'off') {
+      await setPowerState({ userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'off', source, at: new Date().toISOString() });
+      results.push({ userId: v.userId, ok: true, skipped: true });
+      continue;
+    }
+    if (action === 'power_on' && cur === 'active') {
+      await setPowerState({ userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'on', source, at: new Date().toISOString() });
+      results.push({ userId: v.userId, ok: true, skipped: true });
+      continue;
+    }
+    const r = await doAction(v.dropletId, action);
+    await setPowerState({
+      userId: v.userId,
+      dropletId: v.dropletId,
+      ipAddress: v.ipAddress,
+      state: r.ok ? (action === 'shutdown' ? 'off' : 'on') : 'unknown',
+      source,
+      at: new Date().toISOString(),
+      lastError: r.ok ? undefined : r.error,
+    });
+    results.push({ userId: v.userId, ok: r.ok, error: r.error });
+  }
+  return results;
+}
+
+export async function autoShutdownAll() {
+  if (!(await isScheduleEnabled())) return { skipped: 'schedule_disabled' };
+  const special = await getSpecialSessionDate();
+  if (special && special === istDateString()) {
+    return { skipped: 'special_session' };
+  }
+  const dow = istDayOfWeek();
+  if (dow === 0 || dow === 6) return { skipped: 'weekend' };
+  const results = await applyToAll('shutdown', 'cron');
+  // also stop trading engines for the day
+  await stopAllEngines();
+  return { ok: true, results };
+}
+
+export async function autoStartupAll() {
+  if (!(await isScheduleEnabled())) return { skipped: 'schedule_disabled' };
+  const dow = istDayOfWeek();
+  if (dow === 0 || dow === 6) return { skipped: 'weekend' };
+  const results = await applyToAll('power_on', 'cron');
+  return { ok: true, results };
+}
+
+export async function adminAllOn(markSpecial = false) {
+  const results = await applyToAll('power_on', 'admin');
+  if (markSpecial) await setSpecialSessionDate(istDateString());
+  return { ok: true, results, special: markSpecial };
+}
+
+export async function adminAllOff() {
+  const results = await applyToAll('shutdown', 'admin');
+  await stopAllEngines();
+  return { ok: true, results };
+}
+
+export async function adminTogglePower(userId: string, target: 'on' | 'off') {
+  const list = await listAssignedVps();
+  const v = list.find(x => x.userId === userId);
+  if (!v || !v.dropletId) return { ok: false, error: 'User has no provisioned VPS' };
+  const r = await doAction(v.dropletId, target === 'on' ? 'power_on' : 'shutdown');
+  await setPowerState({
+    userId,
+    dropletId: v.dropletId,
+    ipAddress: v.ipAddress,
+    state: r.ok ? target : 'unknown',
+    source: 'admin',
+    at: new Date().toISOString(),
+    lastError: r.ok ? undefined : r.error,
+  });
+  return r;
+}
+
+/** Stop all running trading engines (used at 15:31 IST and admin all-off). */
+async function stopAllEngines() {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !serviceKey) return;
+    const r = await fetch(`${supabaseUrl}/rest/v1/trading_engine_state?is_running=eq.true`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        is_running: false,
+        stopped_at: new Date().toISOString(),
+        last_heartbeat: new Date().toISOString(),
+      }),
+    });
+    if (!r.ok) console.error('stopAllEngines DB error', r.status, await r.text());
+    // also clear KV state
+    const all = await kv.getByPrefix('engine_state:');
+    for (const e of all) {
+      const v: any = e.value;
+      if (v?.isRunning) {
+        v.isRunning = false;
+        v.lastUpdated = Date.now();
+        v.stoppedBy = 'auto_market_close';
+        await kv.set(e.key, v);
+      }
+    }
+  } catch (e) {
+    console.error('stopAllEngines error', e);
+  }
+}
+
+/** Status snapshot for admin dashboard */
+export async function getStatusSnapshot() {
+  const list = await listAssignedVps();
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+  // Bulk fetch engine states
+  const engineMap = new Map<string, any>();
+  if (supabaseUrl && serviceKey) {
+    try {
+      const r = await fetch(`${supabaseUrl}/rest/v1/trading_engine_state?select=user_id,is_running,last_heartbeat,started_at,stopped_at`, {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      });
+      if (r.ok) {
+        const rows = await r.json();
+        for (const row of rows) engineMap.set(row.user_id, row);
+      }
+    } catch {}
+  }
+
+  const out = [];
+  for (const v of list) {
+    const power = await getPowerState(v.userId);
+    let email: string | undefined;
+    try {
+      const profile = await kv.get(`user_profile:${v.userId}`) as any;
+      email = profile?.email;
+    } catch {}
+    const engine = engineMap.get(v.userId);
+    out.push({
+      userId: v.userId,
+      email,
+      ipAddress: v.ipAddress,
+      dropletId: v.dropletId,
+      powerState: power?.state || 'unknown',
+      powerSource: power?.source,
+      powerAt: power?.at,
+      powerError: power?.lastError,
+      engineRunning: Boolean(engine?.is_running),
+      engineHeartbeat: engine?.last_heartbeat,
+      engineStartedAt: engine?.started_at,
+      engineStoppedAt: engine?.stopped_at,
+    });
+  }
+  return {
+    scheduleEnabled: await isScheduleEnabled(),
+    specialSessionDate: await getSpecialSessionDate(),
+    istDate: istDateString(),
+    istDow: istDayOfWeek(),
+    vps: out,
+  };
+}
+
+/** User-facing status (their own VPS only) */
+export async function getUserPowerStatus(userId: string) {
+  const power = await getPowerState(userId);
+  const scheduleEnabled = await isScheduleEnabled();
+  const special = await getSpecialSessionDate();
+  const isSpecialToday = special === istDateString();
+  return {
+    state: power?.state || 'unknown',
+    source: power?.source,
+    at: power?.at,
+    scheduleEnabled,
+    specialSessionToday: isSpecialToday,
+  };
+}
