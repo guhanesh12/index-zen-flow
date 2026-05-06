@@ -805,7 +805,6 @@ class PersistentTradingEngine {
           );
           
           analyzedIndices.add(indexName);
-          state.stats.totalSignals++;
           
           if (!aiSignal || !aiSignal.signal) {
             console.log(`⚠️ No signal generated for ${indexName} (analyzeMarket returned null)`);
@@ -824,6 +823,7 @@ class PersistentTradingEngine {
           // WAIT is UI/log only to avoid DB bloat and false “signal count” after refresh.
           const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
           if (action !== 'WAIT') {
+            state.stats.totalSignals++;
             await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
             await this.incrementSignalStats(userId, 'signal');
           }
