@@ -815,15 +815,18 @@ class PersistentTradingEngine {
             continue;
           }
 
-          // ⚡ Save signal to database AFTER validation (not before!)
-          const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
-          await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
-          await this.incrementSignalStats(userId, 'signal');
-
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
           const reason = aiSignal.signal.reason || '';
           const signalTimestamp = Date.now();
+
+          // Store latest UI snapshot for every index, but only persist trade signals to DB.
+          // WAIT is UI/log only to avoid DB bloat and false “signal count” after refresh.
+          const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
+          if (action !== 'WAIT') {
+            await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
+            await this.incrementSignalStats(userId, 'signal');
+          }
 
           latestSignalsSnapshot[indexName] = {
             ...aiSignal.signal,
@@ -834,7 +837,7 @@ class PersistentTradingEngine {
 
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
 
-          await this.saveUserNotification(userId, {
+          if (action !== 'WAIT') await this.saveUserNotification(userId, {
             id: `signal_${userId}_${indexName}_${currentCandleTimestamp}_${action}`,
             type: 'SIGNAL_DETECTED',
             title: action === 'WAIT'
