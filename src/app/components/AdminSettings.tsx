@@ -7,6 +7,7 @@ import { AdminPushNotifications } from './AdminPushNotifications';
 import { SystemHealth } from './SystemHealth';
 import { BrevoIntegration } from './BrevoIntegration';
 import { BackendConfiguration } from './BackendConfiguration';
+import { AdminVPSPower } from './AdminVPSPower';
 import { toast } from 'sonner';
 import type { AdminUser } from './AdminTypes';
 import QRCode from 'qrcode';
@@ -402,6 +403,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             <Mail className="size-4 mr-2" />
             Brevo Communications
           </TabsTrigger>
+          <TabsTrigger value="vps-power">
+            <Server className="size-4 mr-2" />
+            VPS Power
+          </TabsTrigger>
         </TabsList>
 
         {/* API Keys Tab */}
@@ -766,6 +771,11 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
         {/* Brevo Communications Tab */}
         <TabsContent value="brevo" className="space-y-4">
           <BrevoIntegration serverUrl={serverUrl} accessToken={accessToken} />
+        </TabsContent>
+
+        {/* VPS Power Tab */}
+        <TabsContent value="vps-power" className="space-y-4">
+          <AdminVPSPower serverUrl={serverUrl} accessToken={accessToken} />
         </TabsContent>
       </Tabs>
 

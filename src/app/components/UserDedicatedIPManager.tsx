@@ -277,6 +277,24 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     loadStatus();
   }, [loadStatus]);
 
+  // VPS power status banner (auto on/off schedule)
+  const [powerStatus, setPowerStatus] = useState<{ state: string; specialSessionToday?: boolean; scheduleEnabled?: boolean; at?: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchPower = async () => {
+      try {
+        const r = await fetch(`${serverUrl}/vps-power/my-status`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const d = await r.json();
+        if (!cancelled && d.success) setPowerStatus(d);
+      } catch {}
+    };
+    fetchPower();
+    const t = setInterval(fetchPower, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [serverUrl, accessToken]);
+
   useEffect(() => {
     if (isProvisioning) startPolling();
     else stopPolling();
@@ -756,7 +774,28 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 </Button>
               </div>
 
-              {/* VPS Order Server Connectivity Check */}
+              {/* Server Power Status Banner (auto on/off cost saver) */}
+              {powerStatus && (
+                <div className={`mt-3 rounded-md border p-3 text-sm ${
+                  powerStatus.specialSessionToday
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                    : powerStatus.state === 'on'
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                      : 'border-slate-500/40 bg-slate-500/10 text-slate-300'
+                }`}>
+                  {powerStatus.specialSessionToday
+                    ? <>⚡ Special trading session — server kept ONLINE by admin today.</>
+                    : powerStatus.state === 'on'
+                      ? <>🟢 Server is <b>ONLINE</b> — ready for trading.</>
+                      : powerStatus.state === 'off'
+                        ? <>🌙 Server is <b>OFF</b> — auto-restarts at <b>08:55 IST</b> on the next trading day (cost saver). Weekends stay off.</>
+                        : <>⏳ Checking server power status…</>}
+                  {!powerStatus.scheduleEnabled && (
+                    <div className="text-xs mt-1 opacity-75">Auto-schedule is currently disabled by admin.</div>
+                  )}
+                </div>
+              )}
+
               <div className="mt-3 pt-3 border-t border-zinc-700">
                 <div className="flex items-center gap-2">
                   <Button
