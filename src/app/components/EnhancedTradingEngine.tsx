@@ -196,10 +196,13 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     NIFTY: any | null;
     BANKNIFTY: any | null;
     SENSEX: any | null;
-  }>({
-    NIFTY: null,
-    BANKNIFTY: null,
-    SENSEX: null
+  }>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('engine_signals') || '{}');
+      return { NIFTY: saved.NIFTY || null, BANKNIFTY: saved.BANKNIFTY || null, SENSEX: saved.SENSEX || null, __timestamp: saved.__timestamp || 0 };
+    } catch {
+      return { NIFTY: null, BANKNIFTY: null, SENSEX: null };
+    }
   });
   const [selectedAnalysisIndex, setSelectedAnalysisIndex] = useState<'NIFTY' | 'BANKNIFTY' | 'SENSEX'>('NIFTY');
   
