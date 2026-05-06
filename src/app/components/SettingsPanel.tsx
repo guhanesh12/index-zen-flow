@@ -578,14 +578,36 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
               }
             })()}
 
-            <Input
-              id="dhan-access-token"
-              type="password"
-              placeholder="Paste new Dhan Access Token here"
-              value={credentials.dhanAccessToken}
-              onChange={(e) => setCredentials({ ...credentials, dhanAccessToken: e.target.value })}
-              className="bg-zinc-800 border-zinc-700 text-zinc-100"
-            />
+            <div className="flex gap-2">
+              <Input
+                id="dhan-access-token"
+                type="password"
+                placeholder="Paste new Dhan Access Token here"
+                value={credentials.dhanAccessToken}
+                onChange={(e) => setCredentials({ ...credentials, dhanAccessToken: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-zinc-100 flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text && text.trim()) {
+                      setCredentials({ ...credentials, dhanAccessToken: text.trim() });
+                      setStatus({ type: 'success', message: '✅ Access token pasted from clipboard' });
+                    } else {
+                      setStatus({ type: 'error', message: 'Clipboard is empty. Copy the token from Dhan portal first.' });
+                    }
+                  } catch (err) {
+                    setStatus({ type: 'error', message: 'Clipboard access denied. Please paste manually (long-press → Paste).' });
+                  }
+                }}
+                className="shrink-0 bg-blue-500/20 border-blue-400 text-blue-300 hover:bg-blue-500/30"
+              >
+                📋 Paste
+              </Button>
+            </div>
             <p className="text-xs text-zinc-500">
               Get a fresh token every morning from{' '}
               <a 
