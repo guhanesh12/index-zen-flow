@@ -933,16 +933,20 @@ export class AdvancedAI {
     const isBullish = lastCandle.close > lastCandle.open;
     const isBearish = lastCandle.close < lastCandle.open;
     
-    // ⚡ FIX BUG #8: Use Market Regime for trend bias (not just current candle!)
-    // In strong trends (ADX > 25), small counter-trend candles don't change the bias
-    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' : 
-                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' : 
+    const recentClosedCandles = ohlcData.slice(-4);
+    const bullishMomentum = lastCandle.close > prevCandle.close && lastCandle.high >= prevCandle.high;
+    const bearishMomentum = lastCandle.close < prevCandle.close && lastCandle.low <= prevCandle.low;
+    const bullishCandleCount = recentClosedCandles.filter(c => c.close > c.open).length;
+    const bearishCandleCount = recentClosedCandles.filter(c => c.close < c.open).length;
+    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' :
+                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' :
                       isBullish ? 'bullish' : isBearish ? 'bearish' : 'neutral';
     
-    // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
-    const useTrendBias = adx > 25;  // Changed from 40 to 25!
-    const confirmationBullish = useTrendBias ? (trendBias === 'bullish') : isBullish;
-    const confirmationBearish = useTrendBias ? (trendBias === 'bearish') : isBearish;
+    const useTrendBias = adx > 25;
+    const trendBullishAllowed = trendBias === 'bullish' && (isBullish || bullishMomentum || bullishCandleCount > bearishCandleCount);
+    const trendBearishAllowed = trendBias === 'bearish' && (isBearish || bearishMomentum || bearishCandleCount > bullishCandleCount);
+    const confirmationBullish = useTrendBias ? trendBullishAllowed : isBullish;
+    const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
