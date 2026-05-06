@@ -5771,6 +5771,19 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
     pendingOrder.paidAt = new Date().toISOString();
     await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
 
+    const existingJob = await VPSProvisioning.getUserProvisioningJob(user.id);
+    if (existingJob && ['pending', 'creating', 'deploying'].includes(existingJob.status)) {
+      return c.json({
+        success: true,
+        provisioning: true,
+        alreadyProvisioning: true,
+        message: `Payment successful. VPS provisioning is already in progress. Status: ${existingJob.status}`,
+        jobId: existingJob.id,
+        estimatedMinutes: existingJob.estimatedMinutes || 8,
+        paymentId: razorpay_payment_id
+      });
+    }
+
     // ⚡ PROVISION VPS NOW!
     console.log(`🤖 Auto-provisioning VPS for user ${user.id} after payment...`);
     const provisionResult = await VPSProvisioning.provisionDedicatedIP(user.id);
