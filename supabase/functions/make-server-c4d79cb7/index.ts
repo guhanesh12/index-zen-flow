@@ -10547,9 +10547,18 @@ app.post("/make-server-c4d79cb7/symbols/save", async (c) => {
     }
 
     if (rows.length > 0) {
+      // Dedupe by symbol_id to avoid hitting unique constraint (user_id, symbol_id)
+      const seen = new Set<string>();
+      const uniqueRows = rows.filter((r: any) => {
+        const sid = String(r.symbol_id || '');
+        if (!sid || seen.has(sid)) return false;
+        seen.add(sid);
+        return true;
+      });
+
       const { error: insertError } = await supabase
         .from('user_symbols')
-        .insert(rows);
+        .upsert(uniqueRows, { onConflict: 'user_id,symbol_id' });
 
       if (insertError) {
         return c.json({ error: insertError.message }, 500);
