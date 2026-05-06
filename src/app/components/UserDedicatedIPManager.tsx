@@ -132,6 +132,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const [copied, setCopied] = useState(false);
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
   const [linkingExisting, setLinkingExisting] = useState(false);
+  const [resettingProvisioning, setResettingProvisioning] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [vpsConnCheck, setVpsConnCheck] = useState<{
@@ -265,7 +266,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
 
   function startPolling() {
     stopPolling();
-    pollRef.current = setInterval(loadStatus, 10000);
+    pollRef.current = setInterval(loadStatus, 3000);
   }
 
   function stopPolling() {
@@ -436,6 +437,31 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       toast.error(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function resetProvisioning() {
+    if (!confirm('Cancel this stuck VPS creation and start fresh with the new DigitalOcean account?')) return;
+    setResettingProvisioning(true);
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/provisioning-cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to cancel provisioning');
+
+      stopPolling();
+      prevStatusRef.current = null;
+      setVps(null);
+      setProgress(0);
+      setShowPaymentOptions(false);
+      toast.success(data.message || 'Old provisioning cleared. Create a new VPS now.');
+      await loadStatus();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not cancel provisioning');
+    } finally {
+      setResettingProvisioning(false);
     }
   }
 
