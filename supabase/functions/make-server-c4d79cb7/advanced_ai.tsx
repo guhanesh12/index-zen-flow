@@ -812,8 +812,9 @@ export class AdvancedAI {
     
     // Bollinger Bands
     const bollinger = this.calculateBollingerBands(ohlcData);
-    const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
-    const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
+    const bollingerRange = Math.max(bollinger.upper - bollinger.lower, lastCandle.close * 0.001);
+    const priceNearUpperBand = lastCandle.close >= (bollinger.upper - bollingerRange * 0.15);
+    const priceNearLowerBand = lastCandle.close <= (bollinger.lower + bollingerRange * 0.15);
     const bollingerSqueeze = bollinger.width < 2;
     calculationsPerformed += 1;
     
@@ -849,8 +850,9 @@ export class AdvancedAI {
     const support2 = lows[Math.floor(lows.length * 0.2)];
     const support3 = lows[Math.floor(lows.length * 0.4)];
     
-    const nearResistance = lastCandle.close > resistance1 * 0.98;
-    const nearSupport = lastCandle.close < support1 * 1.02;
+    const srTolerance = Math.max(atr14 * 0.5, lastCandle.close * 0.0015);
+    const nearResistance = lastCandle.close >= resistance1 || Math.abs(resistance1 - lastCandle.close) <= srTolerance;
+    const nearSupport = lastCandle.close <= support1 || Math.abs(lastCandle.close - support1) <= srTolerance;
     calculationsPerformed += 1;
     
     // Fibonacci
