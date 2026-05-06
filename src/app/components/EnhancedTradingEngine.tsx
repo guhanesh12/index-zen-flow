@@ -170,7 +170,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
   
   // ============ ENGINE STATE ============
-  const [isRunning, setIsRunning] = useState(false);
+  const [isRunning, setIsRunning] = useState(() => localStorage.getItem('engine_running') === 'true');
   const [isPositionMonitorActive, setIsPositionMonitorActive] = useState(true); // ⚡ NEW: Control position monitoring separately
   const [marketStatus, setMarketStatus] = useState<'OPEN' | 'CLOSED' | 'WEEKEND'>('CLOSED');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -302,7 +302,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const engineTimerRef = useRef<NodeJS.Timeout | null>(null);
   const positionMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const isProcessingRef = useRef(false);
-  const isRunningRef = useRef(false); // ⚡ USE REF TO AVOID CLOSURE ISSUES
+  const isRunningRef = useRef(localStorage.getItem('engine_running') === 'true'); // ⚡ USE REF TO AVOID CLOSURE ISSUES
   const isPositionMonitorActiveRef = useRef(true); // ⚡ USE REF TO AVOID CLOSURE ISSUES
   const processedCandlesRef = useRef<Set<string>>(new Set()); // 🔒 PREVENT DUPLICATES
   const hasAutoRestartedRef = useRef(false); // 🔒 PREVENT MULTIPLE AUTO-RESTARTS
