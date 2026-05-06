@@ -5421,13 +5421,26 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
     if (autoProvision) {
       console.log(`🤖 Auto-provisioning VPS for user ${user.id}...`);
       
-      const provisionResult = await VPSProvisioning.provisionDedicatedIP(user.id);
+      const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(user.id);
       
       if (!provisionResult.success) {
         return c.json({
           success: false,
           error: provisionResult.error
         }, 400);
+      }
+
+      // If a job was already running, don't double-debit — just return current job status
+      if (provisionResult.alreadyProvisioning) {
+        return c.json({
+          success: true,
+          provisioning: true,
+          alreadyProvisioning: true,
+          message: provisionResult.message || 'VPS provisioning already in progress',
+          jobId: provisionResult.jobId,
+          estimatedMinutes: provisionResult.estimatedMinutes || 8,
+          wallet: { balance: wallet.balance, deducted: 0 }
+        });
       }
 
       // Deduct from wallet immediately (VPS will be ready in 15 minutes)
@@ -5786,7 +5799,19 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
 
     // ⚡ PROVISION VPS NOW!
     console.log(`🤖 Auto-provisioning VPS for user ${user.id} after payment...`);
-    const provisionResult = await VPSProvisioning.provisionDedicatedIP(user.id);
+    const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(user.id);
+
+    if (provisionResult.success && provisionResult.alreadyProvisioning) {
+      return c.json({
+        success: true,
+        provisioning: true,
+        alreadyProvisioning: true,
+        message: provisionResult.message || 'Payment successful. VPS provisioning is already in progress.',
+        jobId: provisionResult.jobId,
+        estimatedMinutes: provisionResult.estimatedMinutes || 8,
+        paymentId: razorpay_payment_id
+      });
+    }
 
     if (!provisionResult.success) {
       // Payment succeeded but provisioning failed - need manual intervention
