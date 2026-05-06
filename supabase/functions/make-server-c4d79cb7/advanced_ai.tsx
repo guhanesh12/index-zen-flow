@@ -1137,14 +1137,14 @@ export class AdvancedAI {
     // In strong trends, minor pullbacks don't invalidate the trend!
     const trendingMarket = adx > 25;
     
-    if (trendingMarket && confirmationBullish) {
+    if (trendingMarket && confirmationBullish && bullishMomentum) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong uptrend (ADX ${adx.toFixed(1)})`);
-    } else if (trendingMarket && confirmationBearish) {
+      confirmationDetails.push(`✅ Price Action: Uptrend continuation (higher close/high, ADX ${adx.toFixed(1)})`);
+    } else if (trendingMarket && confirmationBearish && bearishMomentum) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong downtrend (ADX ${adx.toFixed(1)})`);
+      confirmationDetails.push(`✅ Price Action: Downtrend continuation (lower close/low, ADX ${adx.toFixed(1)})`);
     } else if (confirmationBullish && higherHighs) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
@@ -1209,10 +1209,12 @@ export class AdvancedAI {
     
     console.log(`📏 Candle move check: body=${bodySize.toFixed(2)}pts, range=${(lastCandle.high - lastCandle.low).toFixed(2)}pts, move=${candleMovePoints.toFixed(2)}pts, min=${minimumBodySize.toFixed(2)}pts`);
     
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && (candleMovePoints >= minimumBodySize || hasStrongPattern);
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const decisiveBullishMove = isBullish && (lastCandle.close > prevCandle.close || bullishMomentum);
+    const decisiveBearishMove = isBearish && (lastCandle.close < prevCandle.close || bearishMomentum);
+    const strongBullish = confirmations.total >= 6 && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const strongBearish = confirmations.total >= 6 && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
     
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
