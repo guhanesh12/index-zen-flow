@@ -322,6 +322,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const exitFailureCountRef = useRef<Map<string, { count: number; lastAttempt: number }>>(new Map()); // ⚡⚡⚡ NEW: Track exit failures per position (PREVENT INFINITE RETRY LOOP)
   const autoPositionCheckRef = useRef<NodeJS.Timeout | null>(null); // ⚡ AUTO-CHECK positions every 60s
   const activePositionsRef = useRef<ActivePosition[]>([]); // ⚡ REF to avoid stale closures in intervals
+  const syncEngineStateInFlightRef = useRef(false); // ⚡ Prevent overlapping dashboard refresh calls
 
   const getDetectedPositionOrderId = (position: any) => {
     return String(
@@ -519,6 +520,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
     positionMonitorRef.current = setInterval(async () => {
       if (!isPositionMonitorActiveRef.current) return;
+      if (!activePositionsRef.current || activePositionsRef.current.length === 0) return;
       try {
         const freshToken = await getFreshAccessToken();
         await fetch(`${serverUrl}/position-monitor/tick`, {
@@ -529,7 +531,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       } catch (error) {
         console.warn('⚠️ Position monitor tick failed:', error);
       }
-    }, 1000);
+    }, 5000);
   };
 
   const clearPositionMonitorLoop = () => {
@@ -558,7 +560,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
     const lastFetchByIndex: Record<string, number> = { NIFTY: 0, BANKNIFTY: 0, SENSEX: 0 };
     const cachedAnalysisByIndex: Record<string, any> = {};
-    const ANALYSIS_INDEX_TTL_MS = 3000; // refresh underlying analysis at most every 3s per index
+    const ANALYSIS_INDEX_TTL_MS = 15000; // low-credit: reuse analysis and avoid Dhan overload
 
     const computeAnalysisForIndex = async (index: 'NIFTY' | 'BANKNIFTY' | 'SENSEX') => {
       const now = Date.now();
@@ -670,8 +672,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
     // Pre-warm: kick a first tick after 3s so card fills before user looks
     const preWarm = setTimeout(tick, 3000);
-    // Then run every 1s
-    const intervalId = setInterval(tick, 1000);
+    // Then run every 5s; backend remains source of truth for exits
+    const intervalId = setInterval(tick, 5000);
 
     return () => {
       mounted = false;
