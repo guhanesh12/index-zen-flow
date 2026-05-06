@@ -503,14 +503,14 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                 <AnimatePresence>
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                         <RefreshCw className="size-6 animate-spin mx-auto mb-2" />
                         Loading users...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                         <Users className="size-12 mx-auto mb-3 opacity-50" />
                         <p>No users found</p>
                         <p className="text-sm mt-1">Try adjusting your filters or add a new user</p>
