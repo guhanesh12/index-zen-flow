@@ -894,6 +894,9 @@ export async function provisionDedicatedIP(userId: string): Promise<{
   jobId?: string; 
   estimatedMinutes?: number;
   error?: string;
+  alreadyProvisioning?: boolean;
+  message?: string;
+  status?: ProvisioningJob['status'];
 }> {
   try {
     // Check if user already has a provisioning job in progress
@@ -905,8 +908,9 @@ export async function provisionDedicatedIP(userId: string): Promise<{
         jobId: existingJob.id,
         estimatedMinutes: existingJob.estimatedMinutes || 8,
         alreadyProvisioning: true,
+        status: existingJob.status,
         message: `Provisioning already in progress. Status: ${existingJob.status}`,
-      } as any;
+      };
     }
 
     // Get order server API key from environment
