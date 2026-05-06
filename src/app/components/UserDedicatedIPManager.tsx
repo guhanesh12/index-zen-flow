@@ -286,9 +286,12 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         const r = await fetch(`${serverUrl}/vps-power/my-status`, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
-        const d = await r.json();
-        if (!cancelled && d.success) setPowerStatus(d);
-      } catch {}
+        if (!r.ok) { await r.text().catch(() => {}); return; }
+        const d = await r.json().catch(() => null);
+        if (!cancelled && d?.success) setPowerStatus(d);
+      } catch {
+        // silent — banner is optional
+      }
     };
     fetchPower();
     const t = setInterval(fetchPower, 30_000);
