@@ -771,6 +771,11 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
         <TabsContent value="brevo" className="space-y-4">
           <BrevoIntegration serverUrl={serverUrl} accessToken={accessToken} />
         </TabsContent>
+
+        {/* VPS Power Tab */}
+        <TabsContent value="vps-power" className="space-y-4">
+          <AdminVPSPower serverUrl={serverUrl} accessToken={accessToken} />
+        </TabsContent>
       </Tabs>
 
       {/* Add Admin Dialog */}
