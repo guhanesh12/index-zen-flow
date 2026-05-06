@@ -605,22 +605,38 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                           </div>
                         </td>
 
-                        {/* Engine Toggle */}
+                        {/* Engine Status (read-only) */}
                         <td className="px-4 py-4">
                           <div className="flex justify-center">
-                            <button
-                              onClick={() => handleToggleEngine(user)}
-                              disabled={!user.isActive}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                user.engineRunning ? 'bg-green-500' : 'bg-slate-700'
-                              } ${!user.isActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  user.engineRunning ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                              />
-                            </button>
+                            <Badge className={user.engineRunning
+                              ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                              : 'bg-slate-700/50 text-slate-400 border-slate-600/30'
+                            }>
+                              <span className={`size-2 rounded-full mr-1.5 ${user.engineRunning ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+                              {user.engineRunning ? 'Running' : 'Stopped'}
+                            </Badge>
+                          </div>
+                        </td>
+
+                        {/* Static IP / VPS Power */}
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col items-center gap-1">
+                            {user.staticIp ? (
+                              <span className="font-mono text-xs text-slate-200">{user.staticIp}</span>
+                            ) : (
+                              <span className="text-xs text-slate-500">No VPS</span>
+                            )}
+                            {user.staticIp && (
+                              <Badge className={
+                                user.vpsPowerState === 'on'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]'
+                                  : user.vpsPowerState === 'off'
+                                    ? 'bg-slate-700/50 text-slate-400 border-slate-600/30 text-[10px]'
+                                    : 'bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px]'
+                              }>
+                                VPS {user.vpsPowerState === 'on' ? 'ON' : user.vpsPowerState === 'off' ? 'OFF' : '—'}
+                              </Badge>
+                            )}
                           </div>
                         </td>
 
