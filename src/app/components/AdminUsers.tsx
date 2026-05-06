@@ -145,29 +145,40 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
   const loadUsers = async () => {
     console.log('🔄 [ADMIN USERS] Loading users...');
     try {
-      const response = await fetch(`${serverUrl}/admin/users`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
+      const [usersRes, vpsRes] = await Promise.all([
+        fetch(`${serverUrl}/admin/users`, { headers: { 'Authorization': `Bearer ${accessToken}` } }),
+        fetch(`${serverUrl}/admin/vps-power/status`, { headers: { 'Authorization': `Bearer ${accessToken}` } }).catch(() => null),
+      ]);
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ [ADMIN USERS] Loaded users:', data.users?.length || 0);
-        console.log('📊 [ADMIN USERS] Sample user data:', data.users?.[0]);
-        
-        // 🔒 FRONTEND FILTER: Exclude platform admin from client user list
-        // Platform admin should ONLY appear in Admin Management tab, NOT in Users section
+      // Build VPS map: userId -> { ipAddress, powerState, engineRunning }
+      const vpsMap: Record<string, { ipAddress?: string; powerState?: string; engineRunning?: boolean }> = {};
+      if (vpsRes && vpsRes.ok) {
+        const vd = await vpsRes.json().catch(() => null);
+        if (vd?.success && Array.isArray(vd.vps)) {
+          for (const v of vd.vps) {
+            vpsMap[v.userId] = { ipAddress: v.ipAddress, powerState: v.powerState, engineRunning: v.engineRunning };
+          }
+        }
+      }
+
+      if (usersRes.ok) {
+        const data = await usersRes.json();
         const platformAdminEmail = 'airoboengin@smilykat.com';
         const allUsers = data.users || [];
-        const clientUsers = allUsers.filter((user: User) => user.email !== platformAdminEmail);
-        
-        console.log(`🔒 [ADMIN USERS] Filtering out platform admin (${platformAdminEmail})`);
-        console.log(`📊 [ADMIN USERS] Before filter: ${allUsers.length} users`);
-        console.log(`📊 [ADMIN USERS] After filter: ${clientUsers.length} client users`);
-        console.log(`🚫 [ADMIN USERS] Excluded ${allUsers.length - clientUsers.length} admin user(s)`);
-        
+        const clientUsers = allUsers
+          .filter((user: User) => user.email !== platformAdminEmail)
+          .map((u: User) => {
+            const v = vpsMap[u.id];
+            return {
+              ...u,
+              staticIp: v?.ipAddress,
+              vpsPowerState: (v?.powerState as any) || 'unknown',
+              engineRunning: v?.engineRunning ?? u.engineRunning,
+            };
+          });
         setUsers(clientUsers);
       } else {
-        console.error('❌ Failed to load users:', response.status);
+        console.error('❌ Failed to load users:', usersRes.status);
       }
     } catch (error) {
       console.error('❌ Error loading users:', error);
