@@ -897,6 +897,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       
       // ⚡ SYNC ENGINE RUNNING STATE FROM BACKEND
       const backendRunning = data.engine?.isRunning || false;
+      setIsRunning(backendRunning);
+      isRunningRef.current = backendRunning;
+      localStorage.setItem('engine_running', backendRunning ? 'true' : 'false');
       
       // If backend says engine is running on another device, show it running here too
       if (backendRunning && !isRunning && !isRunningRef.current) {
