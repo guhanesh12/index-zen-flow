@@ -545,6 +545,7 @@ export function InstrumentSelector({ onSymbolAdd }: InstrumentSelectorProps) {
                         <span className="text-yellow-300">⚡</span> Trailing Stop Loss
                       </Label>
                       <label
+                        onClick={(e) => e.stopPropagation()}
                         className={`flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-md border-2 transition-all shadow-md ${
                           config.trailingEnabled
                             ? 'bg-emerald-500/25 border-emerald-400 ring-2 ring-emerald-400/50 shadow-emerald-500/40 animate-pulse'
