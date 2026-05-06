@@ -5732,6 +5732,41 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
       return c.json({ error: 'Invalid order' }, 400);
     }
 
+    const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (existingAssignment) {
+      const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, pendingOrder.amount, razorpay_payment_id);
+      if (!renewalResult.success) {
+        return c.json({ success: false, error: renewalResult.error, paymentId: razorpay_payment_id }, 500);
+      }
+
+      pendingOrder.status = 'paid';
+      pendingOrder.paymentId = razorpay_payment_id;
+      pendingOrder.paidAt = new Date().toISOString();
+      pendingOrder.isRenewal = true;
+      await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
+
+      await kv.set(`transaction:${Date.now()}_${user.id}`, {
+        userId: user.id,
+        type: 'payment',
+        method: 'razorpay',
+        amount: pendingOrder.amount,
+        description: 'Dedicated IP subscription renewal',
+        ipAddress: renewalResult.assignment?.ipAddress,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        timestamp: new Date().toISOString()
+      });
+
+      return c.json({
+        success: true,
+        isRenewal: true,
+        provisioning: false,
+        message: `Payment successful! Subscription renewed and existing IP ${renewalResult.assignment?.ipAddress} is preserved.`,
+        assignment: renewalResult.assignment,
+        paymentId: razorpay_payment_id
+      });
+    }
+
     // Mark order as paid
     pendingOrder.status = 'paid';
     pendingOrder.paymentId = razorpay_payment_id;
