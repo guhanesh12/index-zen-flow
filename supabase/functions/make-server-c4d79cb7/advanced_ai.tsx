@@ -1198,7 +1198,7 @@ export class AdvancedAI {
     
     // MUST have 6+ confirmations AND suitable market regime
     // ✅ FIXED: Use fixed point-based candle body, not percentage-based
-    const minimumBodySize = 10; // Fixed minimum 10-point candle body for all indices
+    const minimumBodySize = Math.max(10, atr14 * 0.25); // Dynamic by index volatility
     const candleMovePoints = Math.max(
       Math.abs(lastCandle.close - lastCandle.open),
       Math.abs(lastCandle.high - lastCandle.low)
@@ -1210,10 +1210,10 @@ export class AdvancedAI {
     
     console.log(`📏 Candle move check: body=${bodySize.toFixed(2)}pts, range=${(lastCandle.high - lastCandle.low).toFixed(2)}pts, move=${candleMovePoints.toFixed(2)}pts, min=${minimumBodySize.toFixed(2)}pts`);
     
-    const decisiveBullishMove = isBullish && (lastCandle.close > prevCandle.close || bullishMomentum);
-    const decisiveBearishMove = isBearish && (lastCandle.close < prevCandle.close || bearishMomentum);
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const decisiveBullishMove = isBullish && bullishMomentum;
+    const decisiveBearishMove = isBearish && bearishMomentum;
+    const strongBullish = confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const strongBearish = confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
     
     console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
@@ -1237,12 +1237,12 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
       
-    } else if (confirmations.total < 6) {
+    } else if (confirmations.total < confirmations.required) {
       action = 'WAIT';
       confidence = 40;
       // ⚡ FIX BUG #8: Use trend bias in strong trends, not current candle color
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
+      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`;
       
     } else if (candleMovePoints < minimumBodySize) {
       // ⚡ FIX: Only block if no strong pattern exists
