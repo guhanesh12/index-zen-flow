@@ -5356,6 +5356,15 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
 
+    // Check wallet balance
+    const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
+    if (wallet.balance < DEDICATED_IP_FEE) {
+      return c.json({
+        success: false,
+        error: `Insufficient balance. Need ₹${DEDICATED_IP_FEE}, you have ₹${wallet.balance}`
+      }, 400);
+    }
+
     const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
     if (existingAssignment) {
       const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, DEDICATED_IP_FEE, body.paymentId);
@@ -5386,15 +5395,6 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
         assignment: renewalResult.assignment,
         wallet: { balance: wallet.balance, deducted: DEDICATED_IP_FEE }
       });
-    }
-
-    // Check wallet balance
-    const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
-    if (wallet.balance < DEDICATED_IP_FEE) {
-      return c.json({
-        success: false,
-        error: `Insufficient balance. Need ₹${DEDICATED_IP_FEE}, you have ₹${wallet.balance}`
-      }, 400);
     }
 
     // ⚡ AUTO-PROVISIONING: Create new VPS for this user
