@@ -494,6 +494,7 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Broker</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Daily P&L</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Engine</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Static IP / VPS</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Status</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Actions</th>
                 </tr>
