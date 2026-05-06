@@ -65,6 +65,8 @@ interface User {
   dhanClientId: string;
   createdAt: string;
   lastActive?: string;
+  staticIp?: string;
+  vpsPowerState?: 'on' | 'off' | 'unknown';
 }
 
 interface AdminUsersProps {
@@ -143,29 +145,40 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
   const loadUsers = async () => {
     console.log('🔄 [ADMIN USERS] Loading users...');
     try {
-      const response = await fetch(`${serverUrl}/admin/users`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
+      const [usersRes, vpsRes] = await Promise.all([
+        fetch(`${serverUrl}/admin/users`, { headers: { 'Authorization': `Bearer ${accessToken}` } }),
+        fetch(`${serverUrl}/admin/vps-power/status`, { headers: { 'Authorization': `Bearer ${accessToken}` } }).catch(() => null),
+      ]);
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ [ADMIN USERS] Loaded users:', data.users?.length || 0);
-        console.log('📊 [ADMIN USERS] Sample user data:', data.users?.[0]);
-        
-        // 🔒 FRONTEND FILTER: Exclude platform admin from client user list
-        // Platform admin should ONLY appear in Admin Management tab, NOT in Users section
+      // Build VPS map: userId -> { ipAddress, powerState, engineRunning }
+      const vpsMap: Record<string, { ipAddress?: string; powerState?: string; engineRunning?: boolean }> = {};
+      if (vpsRes && vpsRes.ok) {
+        const vd = await vpsRes.json().catch(() => null);
+        if (vd?.success && Array.isArray(vd.vps)) {
+          for (const v of vd.vps) {
+            vpsMap[v.userId] = { ipAddress: v.ipAddress, powerState: v.powerState, engineRunning: v.engineRunning };
+          }
+        }
+      }
+
+      if (usersRes.ok) {
+        const data = await usersRes.json();
         const platformAdminEmail = 'airoboengin@smilykat.com';
         const allUsers = data.users || [];
-        const clientUsers = allUsers.filter((user: User) => user.email !== platformAdminEmail);
-        
-        console.log(`🔒 [ADMIN USERS] Filtering out platform admin (${platformAdminEmail})`);
-        console.log(`📊 [ADMIN USERS] Before filter: ${allUsers.length} users`);
-        console.log(`📊 [ADMIN USERS] After filter: ${clientUsers.length} client users`);
-        console.log(`🚫 [ADMIN USERS] Excluded ${allUsers.length - clientUsers.length} admin user(s)`);
-        
+        const clientUsers = allUsers
+          .filter((user: User) => user.email !== platformAdminEmail)
+          .map((u: User) => {
+            const v = vpsMap[u.id];
+            return {
+              ...u,
+              staticIp: v?.ipAddress,
+              vpsPowerState: (v?.powerState as any) || 'unknown',
+              engineRunning: v?.engineRunning ?? u.engineRunning,
+            };
+          });
         setUsers(clientUsers);
       } else {
-        console.error('❌ Failed to load users:', response.status);
+        console.error('❌ Failed to load users:', usersRes.status);
       }
     } catch (error) {
       console.error('❌ Error loading users:', error);
@@ -481,6 +494,7 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Broker</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Daily P&L</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Engine</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Static IP / VPS</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Status</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Actions</th>
                 </tr>
@@ -489,14 +503,14 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                 <AnimatePresence>
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                         <RefreshCw className="size-6 animate-spin mx-auto mb-2" />
                         Loading users...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
                         <Users className="size-12 mx-auto mb-3 opacity-50" />
                         <p>No users found</p>
                         <p className="text-sm mt-1">Try adjusting your filters or add a new user</p>
@@ -591,22 +605,38 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                           </div>
                         </td>
 
-                        {/* Engine Toggle */}
+                        {/* Engine Status (read-only) */}
                         <td className="px-4 py-4">
                           <div className="flex justify-center">
-                            <button
-                              onClick={() => handleToggleEngine(user)}
-                              disabled={!user.isActive}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                user.engineRunning ? 'bg-green-500' : 'bg-slate-700'
-                              } ${!user.isActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  user.engineRunning ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                              />
-                            </button>
+                            <Badge className={user.engineRunning
+                              ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                              : 'bg-slate-700/50 text-slate-400 border-slate-600/30'
+                            }>
+                              <span className={`size-2 rounded-full mr-1.5 ${user.engineRunning ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+                              {user.engineRunning ? 'Running' : 'Stopped'}
+                            </Badge>
+                          </div>
+                        </td>
+
+                        {/* Static IP / VPS Power */}
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col items-center gap-1">
+                            {user.staticIp ? (
+                              <span className="font-mono text-xs text-slate-200">{user.staticIp}</span>
+                            ) : (
+                              <span className="text-xs text-slate-500">No VPS</span>
+                            )}
+                            {user.staticIp && (
+                              <Badge className={
+                                user.vpsPowerState === 'on'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]'
+                                  : user.vpsPowerState === 'off'
+                                    ? 'bg-slate-700/50 text-slate-400 border-slate-600/30 text-[10px]'
+                                    : 'bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px]'
+                              }>
+                                VPS {user.vpsPowerState === 'on' ? 'ON' : user.vpsPowerState === 'off' ? 'OFF' : '—'}
+                              </Badge>
+                            )}
                           </div>
                         </td>
 
