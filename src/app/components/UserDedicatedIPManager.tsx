@@ -277,6 +277,24 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     loadStatus();
   }, [loadStatus]);
 
+  // VPS power status banner (auto on/off schedule)
+  const [powerStatus, setPowerStatus] = useState<{ state: string; specialSessionToday?: boolean; scheduleEnabled?: boolean; at?: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchPower = async () => {
+      try {
+        const r = await fetch(`${serverUrl}/vps-power/my-status`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const d = await r.json();
+        if (!cancelled && d.success) setPowerStatus(d);
+      } catch {}
+    };
+    fetchPower();
+    const t = setInterval(fetchPower, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [serverUrl, accessToken]);
+
   useEffect(() => {
     if (isProvisioning) startPolling();
     else stopPolling();
