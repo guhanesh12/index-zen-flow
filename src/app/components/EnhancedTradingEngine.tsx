@@ -897,23 +897,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       
       // ⚡ SYNC ENGINE RUNNING STATE FROM BACKEND
       const backendRunning = data.engine?.isRunning || false;
+      const wasLocallyRunning = isRunningRef.current;
       setIsRunning(backendRunning);
       isRunningRef.current = backendRunning;
       localStorage.setItem('engine_running', backendRunning ? 'true' : 'false');
       
       // If backend says engine is running on another device, show it running here too
-      if (backendRunning && !isRunning && !isRunningRef.current) {
+      if (backendRunning && !wasLocallyRunning) {
         console.log('☁️ Backend engine is RUNNING (started from another device)');
-        setIsRunning(true);
-        isRunningRef.current = true;
-        localStorage.setItem('engine_running', 'true');
         localStorage.removeItem('engine_manual_stop');
       }
       
       // If backend says engine stopped but frontend shows running, auto-stop
-      if (!backendRunning && isRunning && isRunningRef.current) {
+      if (!backendRunning && wasLocallyRunning) {
         console.log('🛑 Backend engine STOPPED (from another device)');
-        stopEngine(false);
       }
       
       // ⚡ SYNC POSITIONS FROM BACKEND (replace local with backend source of truth)
