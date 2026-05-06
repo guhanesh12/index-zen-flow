@@ -5356,6 +5356,38 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
 
+    const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (existingAssignment) {
+      const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, DEDICATED_IP_FEE, body.paymentId);
+      if (!renewalResult.success) {
+        return c.json({ success: false, error: renewalResult.error }, 400);
+      }
+
+      wallet.balance -= DEDICATED_IP_FEE;
+      wallet.totalDeducted = (wallet.totalDeducted || 0) + DEDICATED_IP_FEE;
+      await kv.set(`wallet:${user.id}`, wallet);
+
+      await kv.set(`transaction:${Date.now()}_${user.id}`, {
+        userId: user.id,
+        type: 'debit',
+        amount: DEDICATED_IP_FEE,
+        description: 'Dedicated IP subscription renewal',
+        ipAddress: renewalResult.assignment?.ipAddress,
+        paymentId: body.paymentId,
+        timestamp: new Date().toISOString(),
+        balanceAfter: wallet.balance
+      });
+
+      return c.json({
+        success: true,
+        isRenewal: true,
+        provisioning: false,
+        message: `Subscription renewed successfully. Your existing IP ${renewalResult.assignment?.ipAddress} is preserved.`,
+        assignment: renewalResult.assignment,
+        wallet: { balance: wallet.balance, deducted: DEDICATED_IP_FEE }
+      });
+    }
+
     // Check wallet balance
     const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
     if (wallet.balance < DEDICATED_IP_FEE) {
