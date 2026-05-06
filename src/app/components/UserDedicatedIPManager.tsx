@@ -651,7 +651,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 variant="outline"
                 className="flex-1 border-red-900 text-red-300 hover:bg-red-900/20 text-xs"
               >
-                {resettingProvisioning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Cancelling...</> : <><XCircle className="w-3 h-3 mr-1" />Cancel & Create New VPS</>}
+                {resettingProvisioning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Starting New...</> : <><XCircle className="w-3 h-3 mr-1" />Cancel & Create New VPS</>}
               </Button>
             </div>
           </div>
@@ -1036,7 +1036,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
             disabled={resettingProvisioning}
             className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white text-sm"
           >
-            {resettingProvisioning ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Clearing Old Server...</> : <><RefreshCw className="w-4 h-4 mr-2" />Clear Old Server & Create New</>}
+            {resettingProvisioning ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting New Server...</> : <><RefreshCw className="w-4 h-4 mr-2" />Clear Old Server & Create New</>}
           </Button>
         )}
 
