@@ -1513,14 +1513,22 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
                   <Zap className="w-4 h-4" />
                   Trailing Stop Loss (Advanced)
                 </h4>
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label
+                  className={`flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border-2 transition-all shadow-lg ${
+                    formData.trailingEnabled
+                      ? 'bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400/40 shadow-emerald-500/40 animate-pulse'
+                      : 'bg-amber-500/15 border-amber-400/70 ring-2 ring-amber-400/30 hover:bg-amber-500/25'
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={formData.trailingEnabled || false}
                     onChange={(e) => setFormData({ ...formData, trailingEnabled: e.target.checked })}
-                    className="w-4 h-4 text-blue-600 bg-zinc-800 border-zinc-600 rounded focus:ring-blue-500"
+                    className="w-5 h-5 accent-emerald-500 cursor-pointer"
                   />
-                  <span className="text-xs text-zinc-300">Enable Trailing</span>
+                  <span className={`text-sm font-bold ${formData.trailingEnabled ? 'text-emerald-300' : 'text-amber-300'}`}>
+                    {formData.trailingEnabled ? '✓ Trailing ON' : '⚡ Enable Trailing'}
+                  </span>
                 </label>
               </div>
 
