@@ -774,7 +774,28 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 </Button>
               </div>
 
-              {/* VPS Order Server Connectivity Check */}
+              {/* Server Power Status Banner (auto on/off cost saver) */}
+              {powerStatus && (
+                <div className={`mt-3 rounded-md border p-3 text-sm ${
+                  powerStatus.specialSessionToday
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                    : powerStatus.state === 'on'
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                      : 'border-slate-500/40 bg-slate-500/10 text-slate-300'
+                }`}>
+                  {powerStatus.specialSessionToday
+                    ? <>⚡ Special trading session — server kept ONLINE by admin today.</>
+                    : powerStatus.state === 'on'
+                      ? <>🟢 Server is <b>ONLINE</b> — ready for trading.</>
+                      : powerStatus.state === 'off'
+                        ? <>🌙 Server is <b>OFF</b> — auto-restarts at <b>08:55 IST</b> on the next trading day (cost saver). Weekends stay off.</>
+                        : <>⏳ Checking server power status…</>}
+                  {!powerStatus.scheduleEnabled && (
+                    <div className="text-xs mt-1 opacity-75">Auto-schedule is currently disabled by admin.</div>
+                  )}
+                </div>
+              )}
+
               <div className="mt-3 pt-3 border-t border-zinc-700">
                 <div className="flex items-center gap-2">
                   <Button
