@@ -789,10 +789,10 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                   {powerStatus.specialSessionToday
                     ? <>⚡ Special trading session — server kept ONLINE by admin today.</>
                     : powerStatus.state === 'on'
-                      ? <>🟢 Server is <b>ONLINE</b> — ready for trading.</>
+                      ? <>🟢 Server is <b>ONLINE</b> — ready for trading. Auto-shutdown at <b>15:31 IST</b> on trading days.</>
                       : powerStatus.state === 'off'
                         ? <>🌙 Server is <b>OFF</b> — auto-restarts at <b>08:55 IST</b> on the next trading day (cost saver). Weekends stay off.</>
-                        : <>⏳ Checking server power status…</>}
+                        : <>🟢 Server assumed <b>ONLINE</b>. Auto schedule: ON 08:55 IST · OFF 15:31 IST (Mon–Fri).</>}
                   {!powerStatus.scheduleEnabled && (
                     <div className="text-xs mt-1 opacity-75">Auto-schedule is currently disabled by admin.</div>
                   )}
