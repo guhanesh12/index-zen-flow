@@ -544,7 +544,13 @@ export function InstrumentSelector({ onSymbolAdd }: InstrumentSelectorProps) {
                       <Label className="text-[10px] text-blue-300 flex items-center gap-1">
                         <span>⚡</span> Trailing Stop Loss
                       </Label>
-                      <label className="flex items-center gap-1 cursor-pointer">
+                      <label
+                        className={`flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-md border-2 transition-all shadow-md ${
+                          config.trailingEnabled
+                            ? 'bg-emerald-500/25 border-emerald-400 ring-2 ring-emerald-400/50 shadow-emerald-500/40 animate-pulse'
+                            : 'bg-amber-500/20 border-amber-400 ring-2 ring-amber-400/40 hover:bg-amber-500/30'
+                        }`}
+                      >
                         <input
                           type="checkbox"
                           checked={config.trailingEnabled}
@@ -552,9 +558,11 @@ export function InstrumentSelector({ onSymbolAdd }: InstrumentSelectorProps) {
                             e.stopPropagation();
                             updateConfig(inst.id, 'trailingEnabled', e.target.checked, inst.lotSize);
                           }}
-                          className="w-3 h-3 text-blue-600 bg-slate-800 border-slate-600 rounded focus:ring-blue-500"
+                          className="w-4 h-4 accent-emerald-500 cursor-pointer"
                         />
-                        <span className="text-[10px] text-slate-300">Enable</span>
+                        <span className={`text-xs font-bold ${config.trailingEnabled ? 'text-emerald-300' : 'text-amber-300'}`}>
+                          {config.trailingEnabled ? '✓ ON' : '⚡ Enable'}
+                        </span>
                       </label>
                     </div>
                     
