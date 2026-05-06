@@ -774,9 +774,63 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       syncEngineState();
     }, 1500);
 
+    // ⚡⚡⚡ LIVE SIGNAL POLLER ⚡⚡⚡
+    // Always fetch fresh AI signals for all 3 indices regardless of engine state.
+    // This ensures the dashboard ALWAYS shows the current candle's signal,
+    // not a stale 15:00 cached signal when engine is OFF.
+    let liveSignalInFlight = false;
+    const fetchLiveSignals = async () => {
+      if (liveSignalInFlight) return;
+      liveSignalInFlight = true;
+      try {
+        const freshToken = await getFreshAccessToken();
+        if (!freshToken) return;
+        const interval = candleIntervalRef.current || '5';
+
+        const indices: Array<'NIFTY' | 'BANKNIFTY' | 'SENSEX'> = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
+        const results = await Promise.all(indices.map(async (idx) => {
+          try {
+            const resp = await fetch(`${serverUrl}/advanced-ai-signal`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
+              body: JSON.stringify({ index: idx, interval, accountBalance: 100000 }),
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            if (!data?.signal) return null;
+            return normalizeSignalPayload(
+              { signal: data.signal, timestamp: Date.now(), timeframe: `${interval}M`, index_name: idx },
+              idx
+            );
+          } catch { return null; }
+        }));
+
+        const fresh: any = {};
+        indices.forEach((idx, i) => { if (results[i]) fresh[idx] = results[i]; });
+        if (!fresh.NIFTY && !fresh.BANKNIFTY && !fresh.SENSEX) return;
+
+        setMultiSymbolSignals(prev => {
+          const updated: any = { ...prev, __timestamp: Date.now() };
+          for (const idx of indices) {
+            if (fresh[idx] && (!prev[idx] || (fresh[idx].timestamp || 0) >= (prev[idx]?.timestamp || 0))) {
+              updated[idx] = fresh[idx];
+            }
+          }
+          return updated;
+        });
+      } finally {
+        liveSignalInFlight = false;
+      }
+    };
+    // Kick once shortly after mount, then every 30s
+    const liveSignalKick = setTimeout(fetchLiveSignals, 2000);
+    const liveSignalInterval = setInterval(fetchLiveSignals, 30000);
+
     return () => {
       clearInterval(clockInterval);
       clearInterval(syncInterval);
+      clearTimeout(liveSignalKick);
+      clearInterval(liveSignalInterval);
       // ⚡ DON'T STOP ENGINE ON UNMOUNT - Keep it running in background
       // Engine only stops when user clicks "Stop Engine" button
     };
