@@ -733,6 +733,12 @@ async function monitorProvisioningJob(
         return;
       }
 
+      const currentUserJobId = await kv.get(`${PROVISIONING_PREFIX}user:${job.userId}`) as string | null;
+      if (job.status === 'failed' || currentUserJobId !== jobId) {
+        console.log(`🛑 Stopping monitor for cancelled/stale provisioning job: ${jobId}`);
+        return;
+      }
+
       // Phase 1: Check if VPS is active (1-2 minutes typical)
       if (droplet.status === 'active') {
         // Get IP address
@@ -884,6 +890,70 @@ export async function getUserProvisioningJob(userId: string): Promise<Provisioni
   const jobId = await kv.get(`${PROVISIONING_PREFIX}user:${userId}`) as string | null;
   if (!jobId) return null;
   return await getProvisioningStatus(jobId);
+}
+
+/**
+ * Cancel/reset a user's current provisioning job. Droplet deletion is best-effort so
+ * users are not blocked when the old DigitalOcean account/token is no longer valid.
+ */
+export async function cancelUserProvisioningJob(userId: string): Promise<{
+  success: boolean;
+  cancelled: boolean;
+  job?: ProvisioningJob;
+  deletionAttempted?: boolean;
+  deletionSucceeded?: boolean;
+  deletionError?: string;
+  error?: string;
+}> {
+  try {
+    const jobId = await kv.get(`${PROVISIONING_PREFIX}user:${userId}`) as string | null;
+    if (!jobId) {
+      return { success: true, cancelled: false };
+    }
+
+    const job = await getProvisioningStatus(jobId);
+    let deletionAttempted = false;
+    let deletionSucceeded = false;
+    let deletionError: string | undefined;
+
+    if (job?.dropletId) {
+      const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
+      if (DO_API_TOKEN) {
+        deletionAttempted = true;
+        try {
+          const response = await fetch(`https://api.digitalocean.com/v2/droplets/${job.dropletId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${DO_API_TOKEN}` }
+          });
+          deletionSucceeded = response.ok || response.status === 204 || response.status === 404;
+          if (!deletionSucceeded) {
+            deletionError = await response.text().catch(() => 'DigitalOcean delete failed');
+          }
+        } catch (deleteError: any) {
+          deletionError = deleteError.message;
+        }
+      }
+    }
+
+    if (job?.ipAddress) {
+      await kv.del(`${PROVISIONING_PREFIX}pending:${job.ipAddress}`);
+    }
+
+    if (job) {
+      job.status = 'failed';
+      job.error = 'Cancelled by user to start a new server';
+      job.completedAt = new Date().toISOString();
+      await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
+    }
+
+    await kv.del(`${PROVISIONING_PREFIX}user:${userId}`);
+
+    console.log(`🧹 Provisioning job reset for user ${userId}: ${jobId}`);
+    return { success: true, cancelled: true, job: job || undefined, deletionAttempted, deletionSucceeded, deletionError };
+  } catch (error: any) {
+    console.error('❌ cancelUserProvisioningJob error:', error);
+    return { success: false, cancelled: false, error: error.message };
+  }
 }
 
 /**

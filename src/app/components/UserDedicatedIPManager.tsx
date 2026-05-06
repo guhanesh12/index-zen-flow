@@ -132,6 +132,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const [copied, setCopied] = useState(false);
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
   const [linkingExisting, setLinkingExisting] = useState(false);
+  const [resettingProvisioning, setResettingProvisioning] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [vpsConnCheck, setVpsConnCheck] = useState<{
@@ -265,7 +266,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
 
   function startPolling() {
     stopPolling();
-    pollRef.current = setInterval(loadStatus, 10000);
+    pollRef.current = setInterval(loadStatus, 3000);
   }
 
   function stopPolling() {
@@ -439,6 +440,31 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     }
   }
 
+  async function resetProvisioning() {
+    if (!confirm('Cancel this stuck VPS creation and start fresh with the new DigitalOcean account?')) return;
+    setResettingProvisioning(true);
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/provisioning-restart`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to restart provisioning');
+
+      prevStatusRef.current = null;
+      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
+      setProgress(2);
+      setShowPaymentOptions(false);
+      toast.success(data.message || 'New VPS creation started.');
+      await loadStatus();
+      startPolling();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not restart provisioning');
+    } finally {
+      setResettingProvisioning(false);
+    }
+  }
+
   async function copyIP(ip: string) {
     try {
       if (navigator.clipboard?.writeText) {
@@ -606,6 +632,28 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 You can leave this page. We'll continue provisioning in the background. Your IP will appear here once ready.
               </AlertDescription>
             </Alert>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                onClick={() => { setCheckingStatus(true); loadStatus(); }}
+                disabled={resettingProvisioning}
+                size="sm"
+                variant="outline"
+                className="flex-1 border-cyan-700 text-cyan-300 hover:bg-cyan-900/30 text-xs"
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Refresh Status
+              </Button>
+              <Button
+                onClick={resetProvisioning}
+                disabled={resettingProvisioning}
+                size="sm"
+                variant="outline"
+                className="flex-1 border-red-900 text-red-300 hover:bg-red-900/20 text-xs"
+              >
+                {resettingProvisioning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Starting New...</> : <><XCircle className="w-3 h-3 mr-1" />Cancel & Create New VPS</>}
+              </Button>
+            </div>
           </div>
         )}
 
@@ -984,11 +1032,11 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         {/* ══ FAILED STATE — Show subscribe button ══ */}
         {vps?.status === 'failed' && !showPaymentOptions && (
           <Button
-            onClick={() => setShowPaymentOptions(true)}
+            onClick={resetProvisioning}
+            disabled={resettingProvisioning}
             className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white text-sm"
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Try Again — Subscribe Now
+            {resettingProvisioning ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting New Server...</> : <><RefreshCw className="w-4 h-4 mr-2" />Clear Old Server & Create New</>}
           </Button>
         )}
 
