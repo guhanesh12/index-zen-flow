@@ -65,6 +65,8 @@ interface User {
   dhanClientId: string;
   createdAt: string;
   lastActive?: string;
+  staticIp?: string;
+  vpsPowerState?: 'on' | 'off' | 'unknown';
 }
 
 interface AdminUsersProps {
