@@ -5423,14 +5423,9 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
       
       const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(user.id);
       
-      if (!provisionResult.success) {
-        return c.json({
-          success: false,
-          error: provisionResult.error
-        }, 400);
-      }
-
-      // If a job was already running, don't double-debit — just return current job status
+      // If a job was already running, don't double-debit — just return current job status.
+      // Keep this before the generic failure branch so stale deployments/older helpers that
+      // return success:false with this message still behave idempotently.
       if (provisionResult.alreadyProvisioning || /Provisioning already in progress/i.test(provisionResult.error || provisionResult.message || '')) {
         return c.json({
           success: true,
@@ -5441,6 +5436,13 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
           estimatedMinutes: provisionResult.estimatedMinutes || 8,
           wallet: { balance: wallet.balance, deducted: 0 }
         });
+      }
+
+      if (!provisionResult.success) {
+        return c.json({
+          success: false,
+          error: provisionResult.error
+        }, 400);
       }
 
       // Deduct from wallet immediately (VPS will be ready in 15 minutes)
