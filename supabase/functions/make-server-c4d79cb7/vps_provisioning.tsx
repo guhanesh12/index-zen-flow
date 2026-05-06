@@ -733,6 +733,12 @@ async function monitorProvisioningJob(
         return;
       }
 
+      const currentUserJobId = await kv.get(`${PROVISIONING_PREFIX}user:${job.userId}`) as string | null;
+      if (job.status === 'failed' || currentUserJobId !== jobId) {
+        console.log(`🛑 Stopping monitor for cancelled/stale provisioning job: ${jobId}`);
+        return;
+      }
+
       // Phase 1: Check if VPS is active (1-2 minutes typical)
       if (droplet.status === 'active') {
         // Get IP address
