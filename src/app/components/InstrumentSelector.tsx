@@ -541,8 +541,8 @@ export function InstrumentSelector({ onSymbolAdd }: InstrumentSelectorProps) {
                   {/* ⚡ Trailing Stop Loss */}
                   <div className="space-y-2 bg-blue-900/10 border border-blue-500/20 rounded p-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-[10px] text-blue-300 flex items-center gap-1">
-                        <span>⚡</span> Trailing Stop Loss
+                      <Label className="text-xs font-bold flex items-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-amber-500/30 to-orange-500/30 border border-amber-400/60 text-amber-200 shadow-md shadow-amber-500/30">
+                        <span className="text-yellow-300">⚡</span> Trailing Stop Loss
                       </Label>
                       <label
                         className={`flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-md border-2 transition-all shadow-md ${
