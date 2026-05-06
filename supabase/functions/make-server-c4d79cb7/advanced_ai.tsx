@@ -839,8 +839,9 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Support/Resistance
-    const highs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
-    const lows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
+    const srCandles = ohlcData.length > 20 ? ohlcData.slice(-51, -1) : ohlcData.slice(0, -1);
+    const highs = (srCandles.length ? srCandles : ohlcData).map(c => c.high).sort((a, b) => b - a);
+    const lows = (srCandles.length ? srCandles : ohlcData).map(c => c.low).sort((a, b) => a - b);
     
     const resistance1 = highs[0];
     const resistance2 = highs[Math.floor(highs.length * 0.2)];
@@ -850,9 +851,9 @@ export class AdvancedAI {
     const support2 = lows[Math.floor(lows.length * 0.2)];
     const support3 = lows[Math.floor(lows.length * 0.4)];
     
-    const srTolerance = Math.max(atr14 * 0.5, lastCandle.close * 0.0015);
-    const nearResistance = lastCandle.close >= resistance1 || Math.abs(resistance1 - lastCandle.close) <= srTolerance;
-    const nearSupport = lastCandle.close <= support1 || Math.abs(lastCandle.close - support1) <= srTolerance;
+    const srTolerance = Math.max(atr14 * 0.35, lastCandle.close * 0.001);
+    const nearResistance = lastCandle.close <= resistance1 && (resistance1 - lastCandle.close) <= srTolerance;
+    const nearSupport = lastCandle.close >= support1 && (lastCandle.close - support1) <= srTolerance;
     calculationsPerformed += 1;
     
     // Fibonacci
@@ -916,7 +917,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 6,
+      required: 7,
       details: [] as string[],
       vwap: false,
       ema: false,
