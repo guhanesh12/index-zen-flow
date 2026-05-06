@@ -1585,18 +1585,24 @@ class PersistentTradingEngine {
     try {
       const normalizedIndex = normalizeIndexName(symbol);
       const normalizedSymbolName = getSymbolDisplayName(symbol);
-      const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
+      const action = aiSignal?.signal?.action || 'WAIT';
+      if (action === 'WAIT') return;
+
+      const targetOptionType = action === 'BUY_CALL' ? 'CE' : action === 'BUY_PUT' ? 'PE' : normalizeOptionType(symbol.optionType || symbol.option_type);
+      const currentPrice = Number(aiSignal?.signal?.riskManagement?.suggestedEntry || aiSignal?.signal?.price || aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close || 0);
+      const strikeStep = normalizedIndex === 'BANKNIFTY' ? 100 : 50;
+      const derivedStrike = currentPrice > 0 ? Math.round(currentPrice / strikeStep) * strikeStep : null;
 
       await supabaseAdmin
         .from('trading_signals')
         .insert({
           user_id: userId,
           symbol: normalizedSymbolName,
-          signal_type: aiSignal?.signal?.action || 'WAIT',
+          signal_type: action,
           index_name: normalizedIndex,
-          price: aiSignal?.signal?.price || null,
-          strike_price: symbol.strikePrice || symbol.strike_price || null,
-          option_type: normalizedOptionType || null,
+          price: currentPrice || null,
+          strike_price: symbol.strikePrice || symbol.strike_price || derivedStrike,
+          option_type: targetOptionType || null,
           expiry: symbol.expiry || null,
           confidence: aiSignal?.signal?.confidence || 0,
           raw_data: aiSignal || {},
