@@ -5431,7 +5431,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
       }
 
       // If a job was already running, don't double-debit — just return current job status
-      if (provisionResult.alreadyProvisioning) {
+      if (provisionResult.alreadyProvisioning || /Provisioning already in progress/i.test(provisionResult.error || provisionResult.message || '')) {
         return c.json({
           success: true,
           provisioning: true,
@@ -5801,7 +5801,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
     console.log(`🤖 Auto-provisioning VPS for user ${user.id} after payment...`);
     const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(user.id);
 
-    if (provisionResult.success && provisionResult.alreadyProvisioning) {
+    if (provisionResult.alreadyProvisioning || /Provisioning already in progress/i.test(provisionResult.error || provisionResult.message || '')) {
       return c.json({
         success: true,
         provisioning: true,
