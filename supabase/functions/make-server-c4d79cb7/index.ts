@@ -5707,7 +5707,120 @@ app.post("/make-server-c4d79cb7/ip-pool/provisioning-restart", async (c) => {
   }
 });
 
-// 💳 Create Razorpay order for DIRECT IP purchase (no wallet needed!)
+// ==================== 💡 VPS POWER SCHEDULER ====================
+// Auto OFF at 15:31 IST, Auto ON at 08:55 IST (Mon-Fri). Saves DigitalOcean cost.
+
+// User: get my VPS power status (banner under static IP)
+app.get("/make-server-c4d79cb7/vps-power/my-status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    const status = await VPSPower.getUserPowerStatus(user.id);
+    return c.json({ success: true, ...status });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// CRON: shutdown all (called by pg_cron at 15:31 IST). No auth — internal sync key OR anon.
+app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
+  try {
+    const result = await VPSPower.autoShutdownAll();
+    return c.json({ success: true, ...result });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// CRON: startup all (08:55 IST Mon-Fri).
+app.post("/make-server-c4d79cb7/vps-power/auto-startup", async (c) => {
+  try {
+    const result = await VPSPower.autoStartupAll();
+    return c.json({ success: true, ...result });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ADMIN: status snapshot (per-user IP, VPS power, engine status)
+app.get("/make-server-c4d79cb7/admin/vps-power/status", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const snap = await VPSPower.getStatusSnapshot();
+    return c.json({ success: true, ...snap });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ADMIN: toggle global auto-schedule
+app.post("/make-server-c4d79cb7/admin/vps-power/schedule", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const { enabled } = await c.req.json();
+    await VPSPower.setScheduleEnabled(Boolean(enabled));
+    return c.json({ success: true, enabled: Boolean(enabled) });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ADMIN: power ON all VPS (optional special-session flag = keep ON today)
+app.post("/make-server-c4d79cb7/admin/vps-power/all-on", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    let body: any = {};
+    try { body = await c.req.json(); } catch {}
+    const result = await VPSPower.adminAllOn(Boolean(body.markSpecial));
+    return c.json({ success: true, ...result });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ADMIN: power OFF all VPS
+app.post("/make-server-c4d79cb7/admin/vps-power/all-off", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const result = await VPSPower.adminAllOff();
+    return c.json({ success: true, ...result });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ADMIN: clear special session flag
+app.post("/make-server-c4d79cb7/admin/vps-power/clear-special", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    await VPSPower.setSpecialSessionDate(null);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ADMIN: per-user VPS power override
+app.post("/make-server-c4d79cb7/admin/vps-power/toggle/:userId", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const userId = c.req.param('userId');
+    const { target } = await c.req.json();
+    if (target !== 'on' && target !== 'off') return c.json({ error: 'target must be on|off' }, 400);
+    const r = await VPSPower.adminTogglePower(userId, target);
+    return c.json({ success: r.ok, ...r });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+
 app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
