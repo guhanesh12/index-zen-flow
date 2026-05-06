@@ -5356,6 +5356,58 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
 
+    const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (existingAssignment) {
+      const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
+      if (wallet.balance < DEDICATED_IP_FEE) {
+        return c.json({
+          success: false,
+          error: `Insufficient balance. Need ₹${DEDICATED_IP_FEE}, you have ₹${wallet.balance}`
+        }, 400);
+      }
+
+      const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, DEDICATED_IP_FEE, body.paymentId);
+      if (!renewalResult.success) {
+        return c.json({ success: false, error: renewalResult.error }, 400);
+      }
+
+      wallet.balance -= DEDICATED_IP_FEE;
+      wallet.totalDeducted = (wallet.totalDeducted || 0) + DEDICATED_IP_FEE;
+      await kv.set(`wallet:${user.id}`, wallet);
+
+      await kv.set(`transaction:${Date.now()}_${user.id}`, {
+        userId: user.id,
+        type: 'debit',
+        amount: DEDICATED_IP_FEE,
+        description: 'Dedicated IP subscription renewal',
+        ipAddress: renewalResult.assignment?.ipAddress,
+        paymentId: body.paymentId,
+        timestamp: new Date().toISOString(),
+        balanceAfter: wallet.balance
+      });
+
+      return c.json({
+        success: true,
+        isRenewal: true,
+        provisioning: false,
+        message: `Subscription renewed successfully. Your existing IP ${renewalResult.assignment?.ipAddress} is preserved.`,
+        assignment: renewalResult.assignment,
+        wallet: { balance: wallet.balance, deducted: DEDICATED_IP_FEE }
+      });
+    }
+
+    const existingJob = await VPSProvisioning.getUserProvisioningJob(user.id);
+    if (existingJob && ['pending', 'creating', 'deploying'].includes(existingJob.status)) {
+      return c.json({
+        success: true,
+        provisioning: true,
+        alreadyProvisioning: true,
+        message: `VPS provisioning already in progress. Status: ${existingJob.status}`,
+        jobId: existingJob.id,
+        estimatedMinutes: existingJob.estimatedMinutes || 8,
+      });
+    }
+
     // Check wallet balance
     const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
     if (wallet.balance < DEDICATED_IP_FEE) {
@@ -5564,14 +5616,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month
 
-    // Check if user already has IP
+    // Existing users can pay this same order as a renewal. Renewal never creates a new VPS.
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
-    if (existingIP) {
-      return c.json({ 
-        success: false,
-        error: 'You already have a dedicated IP. Cancel existing subscription first.' 
-      }, 400);
-    }
 
     // Create Razorpay order
     const razorpayKeyId = Deno.env.get('RAZORPAY_KEY_ID');
@@ -5592,7 +5638,7 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       receipt: receipt,
       notes: {
         userId: user.id,
-        type: 'dedicated_ip_subscription',
+        type: existingIP ? 'dedicated_ip_renewal' : 'dedicated_ip_subscription',
         email: user.email
       },
     };
@@ -5622,6 +5668,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       orderId: order.id,
       amount: DEDICATED_IP_FEE,
       receipt: receipt,
+      isRenewal: Boolean(existingIP),
+      existingIpAddress: existingIP?.ipAddress,
       status: 'created',
       createdAt: new Date().toISOString()
     });
@@ -5634,6 +5682,8 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
       amount: DEDICATED_IP_FEE,
       currency: 'INR',
       keyId: razorpayKeyId,
+      isRenewal: Boolean(existingIP),
+      existingIpAddress: existingIP?.ipAddress,
       notes: orderData.notes
     });
 
@@ -5680,11 +5730,59 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
       return c.json({ error: 'Invalid order' }, 400);
     }
 
+    const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (existingAssignment) {
+      const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, pendingOrder.amount, razorpay_payment_id);
+      if (!renewalResult.success) {
+        return c.json({ success: false, error: renewalResult.error, paymentId: razorpay_payment_id }, 500);
+      }
+
+      pendingOrder.status = 'paid';
+      pendingOrder.paymentId = razorpay_payment_id;
+      pendingOrder.paidAt = new Date().toISOString();
+      pendingOrder.isRenewal = true;
+      await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
+
+      await kv.set(`transaction:${Date.now()}_${user.id}`, {
+        userId: user.id,
+        type: 'payment',
+        method: 'razorpay',
+        amount: pendingOrder.amount,
+        description: 'Dedicated IP subscription renewal',
+        ipAddress: renewalResult.assignment?.ipAddress,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        timestamp: new Date().toISOString()
+      });
+
+      return c.json({
+        success: true,
+        isRenewal: true,
+        provisioning: false,
+        message: `Payment successful! Subscription renewed and existing IP ${renewalResult.assignment?.ipAddress} is preserved.`,
+        assignment: renewalResult.assignment,
+        paymentId: razorpay_payment_id
+      });
+    }
+
     // Mark order as paid
     pendingOrder.status = 'paid';
     pendingOrder.paymentId = razorpay_payment_id;
     pendingOrder.paidAt = new Date().toISOString();
     await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
+
+    const existingJob = await VPSProvisioning.getUserProvisioningJob(user.id);
+    if (existingJob && ['pending', 'creating', 'deploying'].includes(existingJob.status)) {
+      return c.json({
+        success: true,
+        provisioning: true,
+        alreadyProvisioning: true,
+        message: `Payment successful. VPS provisioning is already in progress. Status: ${existingJob.status}`,
+        jobId: existingJob.id,
+        estimatedMinutes: existingJob.estimatedMinutes || 8,
+        paymentId: razorpay_payment_id
+      });
+    }
 
     // ⚡ PROVISION VPS NOW!
     console.log(`🤖 Auto-provisioning VPS for user ${user.id} after payment...`);

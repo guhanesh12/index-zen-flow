@@ -295,6 +295,58 @@ export async function removeIPFromUser(userId: string): Promise<{ success: boole
 }
 
 /**
+ * Renew an existing dedicated IP subscription without changing the VPS/IP.
+ */
+export async function renewUserIPAssignment(
+  userId: string,
+  monthlyFee: number = DEFAULT_DEDICATED_IP_FEE,
+  paymentId?: string
+): Promise<{ success: boolean; assignment?: UserIPAssignment; error?: string }> {
+  try {
+    const existingAssignment = await getUserIPAssignment(userId);
+    if (!existingAssignment) {
+      return { success: false, error: 'No existing IP assignment found for renewal' };
+    }
+
+    const now = new Date();
+    const currentExpiry = new Date(existingAssignment.expiresAt);
+    const renewalBase = Number.isFinite(currentExpiry.getTime()) && currentExpiry > now ? currentExpiry : now;
+    const nextExpiry = new Date(renewalBase.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const renewedAssignment: UserIPAssignment = {
+      ...existingAssignment,
+      userId,
+      subscriptionStatus: 'active',
+      monthlyFee,
+      expiresAt: nextExpiry.toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    };
+
+    await persistUserAssignment(renewedAssignment);
+
+    const ipEntry = await kv.get(`${IP_POOL_PREFIX}${renewedAssignment.ipAddress}`) as IPPoolEntry;
+    if (ipEntry) {
+      ipEntry.status = 'active';
+      ipEntry.currentUsers = Math.max(1, Number(ipEntry.currentUsers || 0));
+      ipEntry.assignedUsers = Array.from(new Set([...(ipEntry.assignedUsers || []), userId]));
+      ipEntry.metadata = {
+        ...(ipEntry.metadata || {}),
+        lastRenewedAt: new Date().toISOString(),
+        lastRenewalPaymentId: paymentId,
+      };
+      await kv.set(`${IP_POOL_PREFIX}${renewedAssignment.ipAddress}`, ipEntry);
+    }
+
+    await updateIPPoolStats();
+    console.log(`✅ IP subscription renewed for user ${userId}: ${renewedAssignment.ipAddress}`);
+    return { success: true, assignment: renewedAssignment };
+  } catch (error: any) {
+    console.error('❌ Failed to renew IP assignment:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Update IP pool statistics
  */
 async function updateIPPoolStats() {
