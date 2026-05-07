@@ -105,6 +105,11 @@ export class DhanService {
         if (response.status === 429 || response.status === 400) {
           const responseText = await responseClone.text();
           if (responseText.includes('Rate_Limit') || responseText.includes('DH-904')) {
+            // ⚡ Auto-reset retry counter if last hit was long ago (>30s)
+            if (Date.now() - (this as any)._lastRateLimitAt > 30000) {
+              this.rateLimitRetryCount = 0;
+            }
+            (this as any)._lastRateLimitAt = Date.now();
             if (this.rateLimitRetryCount >= this.MAX_RATE_LIMIT_RETRIES) {
               console.warn(`⚠️ ${operationName} - RATE LIMIT still active after ${this.rateLimitRetryCount} retries; returning response for graceful fallback`);
               return response;
@@ -371,9 +376,13 @@ export class DhanService {
           // Not JSON, continue
         }
         
-        // ⚡ For other errors, log and return empty instead of throwing
+        // ⚡ For other errors (rate limit, 5xx after retries), use STALE CACHE if available so signals keep flowing
         console.error(`❌ Dhan Intraday OHLC Error (${response.status}): ${responseText}`);
-        console.warn('⚠️ Returning empty candles instead of throwing error to prevent engine crash');
+        if (cached && cached.price && cached.price.length > 0) {
+          console.warn(`⚠️ Falling back to STALE cache (${Math.round((Date.now() - cached.timestamp)/1000)}s old, ${cached.price.length} candles) so signal can still generate`);
+          return cached.price;
+        }
+        console.warn('⚠️ No stale cache — returning empty candles to prevent engine crash');
         return [];
       }
 
