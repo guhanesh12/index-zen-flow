@@ -71,12 +71,17 @@ class RateLimiter {
 // Global rate limiter instance shared across all DhanService instances
 const globalRateLimiter = new RateLimiter();
 
+// ⚡ Shared market-data cache across DhanService instances in the same Edge isolate.
+// Edge functions create new service instances often; an instance-only cache caused
+// repeated OHLC calls and DH-904 rate limits before signals could be generated.
+const sharedPriceCache: Map<string, { price: any; timestamp: number }> = new Map();
+
 export class DhanService {
   private clientId: string;
   private accessToken: string;
-  private priceCache: Map<string, { price: any; timestamp: number }> = new Map();
-  private readonly CACHE_DURATION = 15000; // Keep strategy candles fresh without overloading Dhan
-  private readonly QUOTE_CACHE_DURATION = 1000; // Live position monitor needs near real-time prices
+  private priceCache: Map<string, { price: any; timestamp: number }> = sharedPriceCache;
+  private readonly CACHE_DURATION = 60000; // Keep strategy candles fresh without overloading Dhan
+  private readonly QUOTE_CACHE_DURATION = 5000; // Live position monitor still ticks every second; quote fallback can be safely cached briefly
   private readonly MAX_RETRIES = 3; // Maximum retry attempts for 502 errors
   private readonly RETRY_DELAY = 1000; // Initial retry delay in ms
   private rateLimitRetryCount = 0;
@@ -106,7 +111,7 @@ export class DhanService {
           const responseText = await responseClone.text();
           if (responseText.includes('Rate_Limit') || responseText.includes('DH-904')) {
             // ⚡ Auto-reset retry counter if last hit was long ago (>30s)
-            if (Date.now() - (this as any)._lastRateLimitAt > 30000) {
+            if (!(this as any)._lastRateLimitAt || Date.now() - (this as any)._lastRateLimitAt > 30000) {
               this.rateLimitRetryCount = 0;
             }
             (this as any)._lastRateLimitAt = Date.now();
@@ -989,8 +994,11 @@ export class DhanService {
         const securityId = String(pos.securityId || '');
         const exchangeSegment = pos.exchangeSegment || pos.exchange || (String(pos.tradingSymbol || '').includes('SENSEX') ? 'BSE_FNO' : 'NSE_FNO');
         let livePrice = parseFloat(pos.lastPrice || pos.ltp || pos.lastTradedPrice || pos.currentPrice || 0);
+        const netQty = Number(pos.netQty ?? (Number(pos.buyQty || 0) - Number(pos.sellQty || 0)));
+        const avgPrice = parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || pos.costPrice || 0);
+        const apiUnrealized = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || pos.unrealizedPnL || 0);
 
-        if ((!livePrice || livePrice <= 0) && securityId) {
+        if ((!livePrice || livePrice <= 0) && securityId && (apiUnrealized || Number(pos.unrealizedPnl || pos.unrealizedPnL || 0))) {
           try {
             const quote = await this.getMarketQuote(securityId, exchangeSegment);
             livePrice = Number(quote?.ltp || quote?.close || 0);
@@ -999,9 +1007,6 @@ export class DhanService {
           }
         }
 
-        const netQty = Number(pos.netQty ?? (Number(pos.buyQty || 0) - Number(pos.sellQty || 0)));
-        const avgPrice = parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || pos.costPrice || 0);
-        const apiUnrealized = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || pos.unrealizedPnL || 0);
         const computedUnrealized = avgPrice && livePrice && netQty ? (livePrice - avgPrice) * netQty : 0;
 
         return {
