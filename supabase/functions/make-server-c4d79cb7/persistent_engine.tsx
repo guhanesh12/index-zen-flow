@@ -819,13 +819,13 @@ class PersistentTradingEngine {
           const reason = aiSignal.signal.reason || '';
           const signalTimestamp = Date.now();
 
-          // Store latest UI snapshot for every index, but only persist trade signals to DB.
-          // WAIT is UI/log only to avoid DB bloat and false “signal count” after refresh.
+          // Store latest UI snapshot for every index. Count every analysis (including WAIT)
+          // toward the daily signal stat so the Performance panel reflects real activity.
           const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
+          state.stats.totalSignals++;
+          await this.incrementSignalStats(userId, 'signal');
           if (action !== 'WAIT') {
-            state.stats.totalSignals++;
             await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
-            await this.incrementSignalStats(userId, 'signal');
           }
 
           latestSignalsSnapshot[indexName] = {
