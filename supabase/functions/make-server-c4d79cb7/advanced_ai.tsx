@@ -808,7 +808,20 @@ export class AdvancedAI {
   public static generateAdvancedSignal(ohlcData: OHLCCandle[], accountBalance: number = 100000): AdvancedSignal {
     const startTime = performance.now();
     let calculationsPerformed = 0;
-    
+
+    // 🐛 BUG FIX #1: Drop trailing incomplete / zero-volume candles (after-hours,
+    // pre-open ticks, or partially formed bars). They corrupt the "last candle"
+    // used for entry decisions and skew volume averages.
+    while (ohlcData.length > 2 && ohlcData[ohlcData.length - 1].volume <= 0
+           && ohlcData[ohlcData.length - 1].high === ohlcData[ohlcData.length - 1].low) {
+      ohlcData = ohlcData.slice(0, -1);
+    }
+
+    // 🐛 BUG FIX #2: Guard against insufficient data
+    if (ohlcData.length < 2) {
+      throw new Error(`Insufficient candle data: need ≥2, got ${ohlcData.length}`);
+    }
+
     // Last candle
     const lastCandle = ohlcData[ohlcData.length - 1];
     const prevCandle = ohlcData[ohlcData.length - 2];
@@ -896,16 +909,27 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Volume Analysis
-    const last10Candles = ohlcData.slice(-10);
-    const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
-    const volumeRatio = lastCandle.volume / avgVolume;
-    const isHighVolume = volumeRatio > 1.5;
-    const isVolumeSpike = volumeRatio > 2.0;
+    // 🐛 BUG FIX #3: Exclude the CURRENT candle from average — otherwise a real
+    // spike gets diluted by itself and the volume gate misfires.
+    // 🐛 BUG FIX #4: Indices (NIFTY/BANKNIFTY) have NO volume from Dhan — guard
+    // against divide-by-zero and treat as "no data" instead of NaN/Infinity.
+    const prevWindow = ohlcData.slice(-11, -1); // last 10 PRIOR candles
+    const avgVolume = prevWindow.length
+      ? prevWindow.reduce((sum, c) => sum + (Number.isFinite(c.volume) ? c.volume : 0), 0) / prevWindow.length
+      : 0;
+    const hasVolumeData = avgVolume > 0 && Number.isFinite(lastCandle.volume) && lastCandle.volume > 0;
+    const volumeRatio = hasVolumeData ? lastCandle.volume / avgVolume : 0;
+    const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
+    const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
+
+    // 🐛 BUG FIX #5: Candle range can be 0 (doji / flat bar) — protect division
+    const candleRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
     const bodySize = Math.abs(lastCandle.close - lastCandle.open);
-    const bodyPercent = ((bodySize / (lastCandle.high - lastCandle.low)) * 100) || 0;
+    const bodyPercent = (bodySize / candleRange) * 100;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
-    
-    console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, close=${lastCandle.close}, open=${lastCandle.open}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
+
+    console.log(`📊 VOLUME DEBUG: lastVol=${lastCandle.volume}, avgVol=${avgVolume.toFixed(2)}, ratio=${volumeRatio.toFixed(2)}, hasVolumeData=${hasVolumeData}`);
+    console.log(`🔍 BODYSIZE DEBUG: body=${bodySize.toFixed(2)}, range=${candleRange.toFixed(2)}, bodyPct=${bodyPercent.toFixed(1)}%`);
     
     // Order Flow
     const orderFlow = this.analyzeOrderFlow(ohlcData);
@@ -1077,12 +1101,18 @@ export class AdvancedAI {
     }
     
     // 6. Volume Confirmation (Weight: 1)
-    if ((isBullish || isBearish) && isHighVolume && bodyPercent > 40) {
+    // 🐛 BUG FIX #6: When index has no volume feed, fall back to strong-body candle
+    // so the confirmation isn't permanently disabled on NIFTY/BANKNIFTY.
+    if ((isBullish || isBearish) && hasVolumeData && isHighVolume && bodyPercent > 40) {
       confirmations.volume = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`);
+    } else if ((isBullish || isBearish) && !hasVolumeData && bodyPercent >= 55) {
+      confirmations.volume = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Volume: No feed → strong body fallback (${bodyPercent.toFixed(1)}%)`);
     } else {
-      confirmationDetails.push('❌ Volume: Low or weak candle');
+      confirmationDetails.push(hasVolumeData ? '❌ Volume: Low or weak candle' : '⚠️ Volume: No feed, weak body');
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
@@ -1215,14 +1245,12 @@ export class AdvancedAI {
     let bias: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
     
     // MUST have 6+ confirmations AND suitable market regime
-    // ADJUSTED FOR REAL TRADING: Lower body size requirement from 15 to 10 points
-    // ADJUSTED FOR REAL TRADING: Lower volume requirement from 1.5x to 0.8x (real market conditions)
-    // ⚡ NEW FIX: In very strong trends (ADX > 50), reduce volume requirement to 0.5x
-    const minimumBodySize = 10; // Points (was 15)
-    const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
-    const hasAcceptableVolume = volumeRatio >= minimumVolumeRatio;  // ⚡ FIX: Use >= instead of >
-    
+    // 🐛 BUG FIX #7: hasAcceptableVolume previously failed permanently on indices
+    // (volumeRatio = 0 because no feed). Now: skip volume gate when no feed exists.
+    const minimumBodySize = 10; // Points
+    const isVeryStrongTrend = adx > 50;
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
+    const hasAcceptableVolume = !hasVolumeData ? true : (volumeRatio >= minimumVolumeRatio);
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
