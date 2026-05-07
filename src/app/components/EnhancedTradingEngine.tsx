@@ -2741,6 +2741,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             
             return newSignals;
           });
+          persistLatestSignalsSnapshot(data.signals, signalSyncTime, responseTimeframe);
           
           // ⚡ DEBUG: Verify what we're setting
           console.log(`\n🔧 ============ STATE UPDATE DEBUG ============`);
