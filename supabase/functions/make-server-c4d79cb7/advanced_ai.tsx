@@ -917,7 +917,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 7,
+      required: 8,
       details: [] as string[],
       vwap: false,
       ema: false,
@@ -948,6 +948,8 @@ export class AdvancedAI {
     const trendBearishAllowed = trendBias === 'bearish' && (isBearish || bearishMomentum || bearishCandleCount > bullishCandleCount);
     const confirmationBullish = useTrendBias ? trendBullishAllowed : isBullish;
     const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
+    const hasDirectionalVolume = hasVolumeData && volumeRatio >= 1.15 && bodyPercent >= 40;
+    const hasDirectionalMomentum = bullishMomentum || bearishMomentum;
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
@@ -969,6 +971,7 @@ export class AdvancedAI {
     // 2. EMA Confirmation (Weight: 1)
     const emaUptrend = ema9 > ema21 && ema21 > ema50;
     const emaDowntrend = ema9 < ema21 && ema21 < ema50;
+    const hasCleanTrendAlignment = (confirmationBullish && emaUptrend && priceAboveVWAP) || (confirmationBearish && emaDowntrend && !priceAboveVWAP);
     
     // ⚡ FIX BUG #9: In strong trends (ADX > 40), allow minor pullbacks (price within 0.5 ATR of EMA9)
     const priceNearEma9Bullish = lastCandle.close > ema9 || (lastCandle.close > ema9 - atr14 * 0.5);
@@ -1055,7 +1058,7 @@ export class AdvancedAI {
     }
     
     // 6. Volume Confirmation (Weight: 1)
-    const strongTrendVolumeBypass = adx >= 25 && bodyPercent >= 25 && (confirmationBullish || confirmationBearish);
+    const strongTrendVolumeBypass = adx >= 30 && bodyPercent >= 45 && hasVolumeData && volumeRatio >= 1.0 && (confirmationBullish || confirmationBearish);
     if ((isBullish || isBearish) && ((isHighVolume && bodyPercent > 40) || strongTrendVolumeBypass)) {
       confirmations.volume = true;
       totalWeightedScore += 1;
@@ -1117,13 +1120,13 @@ export class AdvancedAI {
       // Validate bullish pattern
       const patternValidation = this.validatePattern(bullishPatterns[0], lastCandle, prevCandle, nearResistance, nearSupport);
       confirmations.pattern = patternValidation.isValid;
-      totalWeightedScore += patternValidation.weight; // Weight: 1-2 based on validation
+      if (patternValidation.isValid) totalWeightedScore += patternValidation.weight; // Count only validated patterns
       confirmationDetails.push(`${patternValidation.isValid ? '✅' : '⚠️'} Pattern: ${bullishPatterns[0].type} (${patternValidation.reason})`);
     } else if (confirmationBearish && bearishPatterns.length > 0) {
       // Validate bearish pattern
       const patternValidation = this.validatePattern(bearishPatterns[0], lastCandle, prevCandle, nearResistance, nearSupport);
       confirmations.pattern = patternValidation.isValid;
-      totalWeightedScore += patternValidation.weight; // Weight: 1-2 based on validation
+      if (patternValidation.isValid) totalWeightedScore += patternValidation.weight; // Count only validated patterns
       confirmationDetails.push(`${patternValidation.isValid ? '✅' : '⚠️'} Pattern: ${bearishPatterns[0].type} (${patternValidation.reason})`);
     } else {
       confirmationDetails.push('❌ Pattern: No strong pattern');
@@ -1212,8 +1215,9 @@ export class AdvancedAI {
     
     const decisiveBullishMove = isBullish && bullishMomentum;
     const decisiveBearishMove = isBearish && bearishMomentum;
-    const strongBullish = confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
-    const strongBearish = confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const qualityGate = confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume;
+    const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
     
     console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
@@ -1237,12 +1241,14 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
       
-    } else if (confirmations.total < confirmations.required) {
+    } else if (confirmations.total < confirmations.required || !qualityGate) {
       action = 'WAIT';
       confidence = 40;
       // ⚡ FIX BUG #8: Use trend bias in strong trends, not current candle color
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`;
+      reasoning = confirmations.total < confirmations.required
+        ? `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`
+        : `WAIT: Quality gate failed. Need VWAP+EMA+ADX+price-action alignment with real volume confirmation.`;
       
     } else if (candleMovePoints < minimumBodySize) {
       // ⚡ FIX: Only block if no strong pattern exists

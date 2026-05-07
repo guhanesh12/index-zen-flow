@@ -381,13 +381,16 @@ export class DhanService {
           // Not JSON, continue
         }
         
-        // ⚡ For other errors (rate limit, 5xx after retries), use STALE CACHE if available so signals keep flowing
+        // ⚡ Accuracy first: never generate strategy signals from old candles.
+        // Stale cache is allowed only for 1-minute quote/position-monitor fallback.
         console.error(`❌ Dhan Intraday OHLC Error (${response.status}): ${responseText}`);
-        if (cached && cached.price && cached.price.length > 0) {
-          console.warn(`⚠️ Falling back to STALE cache (${Math.round((Date.now() - cached.timestamp)/1000)}s old, ${cached.price.length} candles) so signal can still generate`);
+        const cacheAgeMs = cached ? Date.now() - cached.timestamp : Infinity;
+        const allowQuoteStaleFallback = cached && cached.price && cached.price.length > 0 && parseInt(interval) <= 1 && cacheAgeMs <= 120000;
+        if (allowQuoteStaleFallback) {
+          console.warn(`⚠️ Falling back to recent 1M quote cache (${Math.round(cacheAgeMs/1000)}s old, ${cached.price.length} candles) for position monitor only`);
           return cached.price;
         }
-        console.warn('⚠️ No stale cache — returning empty candles to prevent engine crash');
+        console.warn('⚠️ No fresh OHLC data — returning empty candles so strategy emits WAIT instead of fake trade');
         return [];
       }
 

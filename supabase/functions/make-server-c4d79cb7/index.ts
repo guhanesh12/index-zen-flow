@@ -3395,7 +3395,7 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
     // ⚡ PARALLEL FETCH (SAVE 200-500ms)
     const fetchStart = performance.now();
     const securityId = index === 'BANKNIFTY' ? '25' : '13'; // NIFTY = 13, BANKNIFTY = 25
-    const candleCount = (candles || 50) + 1; // Fetch +1 to account for running candle
+    const candleCount = Math.max(candles || 50, 250) + 1; // enough candles for stable EMA/ADX + running candle
     const candleInterval = interval || '5'; // Default to 5-minute candles
     
     // Fetch data and last order time in parallel
@@ -3409,24 +3409,34 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
 
     if (!ohlcData || ohlcData.length === 0) {
       return c.json({ 
-        error: "Failed to fetch market data",
-        success: false 
-      }, 400);
+        success: true,
+        signal: {
+          action: 'WAIT',
+          confidence: 0,
+          reasoning: 'No fresh closed OHLC data available; waiting for next real market candle.',
+          market_state: 'NO_DATA',
+          bias: 'Neutral',
+          can_place_order: false,
+          noData: true
+        },
+        timestamp: Date.now(),
+        candlesProcessed: 0
+      });
     }
 
     // =============== FILTER OUT RUNNING CANDLE ===============
     // The last candle returned by Dhan might be incomplete (running candle)
     // We need to exclude it and only use completed candles
     
-    // Check if last candle is running (very small range or zero volume indicates incomplete)
+    // Check if last candle is running using IST candle timestamps, not browser/server UTC wall time.
     const possibleRunningCandle = ohlcData[ohlcData.length - 1];
-    const now = Date.now();
     const intervalMinutes = parseInt(candleInterval);
     const intervalMs = intervalMinutes * 60 * 1000;
-    
-    // If the candle's timestamp is within the current interval period, it's likely running
-    const timeSinceCandle = now - possibleRunningCandle.timestamp;
-    const isRunningCandle = timeSinceCandle < intervalMs;
+    const nowIst = new Date(Date.now() + (5.5 * 60 * 60 * 1000));
+    const currentIstMinutes = nowIst.getUTCHours() * 60 + nowIst.getUTCMinutes();
+    const lastCandleIst = new Date(possibleRunningCandle.timestamp + (5.5 * 60 * 60 * 1000));
+    const lastCandleMinutes = lastCandleIst.getUTCHours() * 60 + lastCandleIst.getUTCMinutes();
+    const isRunningCandle = currentIstMinutes >= lastCandleMinutes && currentIstMinutes < lastCandleMinutes + intervalMinutes;
     
     if (isRunningCandle) {
       console.log(`🔄 Excluding running candle: O=${possibleRunningCandle.open}, C=${possibleRunningCandle.close}, V=${possibleRunningCandle.volume}`);
@@ -3704,11 +3714,34 @@ CRITICAL RULES FOR COMMERCIAL TRADING:
     console.log(`⚡ ChatGPT response: ${Math.round(chatgptEnd - chatgptStart)}ms`);
 
     if (aiResponse) {
-      // The analyzeMarket method already returns parsed JSON
+      // The analyzeMarket method already returns parsed JSON, but final trade permission
+      // must be deterministic. AI text alone must never place a real trade.
       let action = aiResponse.action;
-      
-      // ✅ NO LONGER BLOCKING SIGNALS - Allow all valid AI signals to pass through
-      // Commercial use requires capturing every opportunity
+      const bullishQualityGate = action === 'BUY_CALL'
+        && isBullish
+        && !isDoji
+        && bodySize >= 10
+        && bodyPercent >= 35
+        && volumeRatio >= 1.15
+        && priceAboveVWAP
+        && (emaUptrend || priceAboveEMA21)
+        && momentum === 'BULLISH';
+      const bearishQualityGate = action === 'BUY_PUT'
+        && isBearish
+        && !isDoji
+        && bodySize >= 10
+        && bodyPercent >= 35
+        && volumeRatio >= 1.15
+        && !priceAboveVWAP
+        && (emaDowntrend || !priceAboveEMA21)
+        && momentum === 'BEARISH';
+
+      if ((action === 'BUY_CALL' && !bullishQualityGate) || (action === 'BUY_PUT' && !bearishQualityGate)) {
+        console.warn(`🛡️ AI trade blocked by deterministic quality gate: ${action} | body=${bodySize.toFixed(2)}pts/${bodyPercent.toFixed(1)}% volume=${volumeRatio.toFixed(2)}x vwap=${priceAboveVWAP} emaUp=${emaUptrend} emaDown=${emaDowntrend} momentum=${momentum}`);
+        action = 'WAIT';
+        aiResponse.confidence = Math.min(Number(aiResponse.confidence || 0), 45);
+        aiResponse.reasoning = `WAIT: Signal blocked by real-market quality gate. Need candle body, volume, VWAP, EMA, and momentum alignment before trade.`;
+      }
       
       const signal = {
         market_state: aiResponse.market_state,
