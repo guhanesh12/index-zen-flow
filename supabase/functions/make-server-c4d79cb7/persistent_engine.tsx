@@ -1337,6 +1337,28 @@ class PersistentTradingEngine {
           }
         });
         
+        // ⚡⚡⚡ ADVANCED MONITOR INTELLIGENCE (compute BEFORE DB write so UI sees fresh values) ⚡⚡⚡
+        const _now = Date.now();
+        const _hist = Array.isArray((position as any).history) ? (position as any).history : [];
+        _hist.push({ t: _now, price: currentPrice, pnl });
+        while (_hist.length > 12) _hist.shift();
+        (position as any).history = _hist;
+
+        let momentumScore = 0;
+        if (_hist.length >= 6) {
+          const recent = _hist.slice(-3).reduce((a: number, h: any) => a + h.pnl, 0) / 3;
+          const prior  = _hist.slice(-6, -3).reduce((a: number, h: any) => a + h.pnl, 0) / 3;
+          momentumScore = recent - prior;
+        }
+        const giveBack = Math.max(0, (position.highestPnl || 0) - pnl);
+        const giveBackPct = position.highestPnl > 0 ? (giveBack / position.highestPnl) * 100 : 0;
+        const heldMinutes = position.entryTime ? (_now - position.entryTime) / 60000 : 0;
+        const marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
+        (position as any).momentumScore = Number(momentumScore.toFixed(2));
+        (position as any).giveBackPct = Number(giveBackPct.toFixed(1));
+        (position as any).heldMinutes = Number(heldMinutes.toFixed(1));
+        (position as any).marketFavorable = marketFavorable;
+
         // ⚡ Update position in DB (also persist entry_price the first time we see it)
         await supabaseAdmin
           .from('position_monitor_state')
@@ -1355,6 +1377,12 @@ class PersistentTradingEngine {
               trailingActive: _trailingActive,
               profitLocked: position.trailingEnabled && _curSL <= 0,
               lastMonitorAt: Date.now(),
+              momentumScore: (position as any).momentumScore,
+              giveBackPct: (position as any).giveBackPct,
+              heldMinutes: (position as any).heldMinutes,
+              marketFavorable,
+              monitorDecision: (position as any).monitorDecision,
+              history: _hist,
             }
           })
           .eq('user_id', userId)
@@ -1364,6 +1392,8 @@ class PersistentTradingEngine {
           console.error(`❌ Running wallet auto-debit failed for ${userId}:`, err);
         });
 
+        // (momentumScore / giveBackPct / heldMinutes / marketFavorable already computed above)
+
         // ⚡ Check exit conditions using RATCHETED current target/SL (trailing ladder)
         let shouldExit = false;
         let exitReason = '';
@@ -1371,6 +1401,34 @@ class PersistentTradingEngine {
         // Use ratcheted values if trailing is enabled and has ratcheted, else base
         const effectiveTarget = Number(position.currentTargetAmount ?? position.targetAmount ?? 0);
         const effectiveSL = Number(position.currentStopLossAmount ?? position.stopLossAmount ?? 0);
+
+        // ⚡ ADVANCED RISK GUARDS (only act when we already have a peak / enough history)
+        // 1) Give-back guard: peak ≥ ₹150 and we've surrendered ≥ 50% of peak → lock remaining profit
+        if (!shouldExit && (position.highestPnl || 0) >= 150 && giveBackPct >= 50 && pnl > 0) {
+          shouldExit = true;
+          exitReason = `Profit Give-Back Guard (Peak ₹${position.highestPnl.toFixed(2)} → Now ₹${pnl.toFixed(2)}, lost ${giveBackPct.toFixed(0)}%)`;
+        }
+        // 2) Momentum reversal guard: in profit but momentum turned strongly negative for 3 ticks
+        if (!shouldExit && pnl >= 100 && momentumScore <= -25 && _hist.length >= 6) {
+          shouldExit = true;
+          exitReason = `Momentum Reversal (Score ${momentumScore.toFixed(1)}, Peak ₹${(position.highestPnl||0).toFixed(2)}, Now ₹${pnl.toFixed(2)})`;
+        }
+        // 3) Time stop: held > 25 min and pnl is stuck in dead-zone (-30..+30) → free up capital
+        if (!shouldExit && heldMinutes >= 25 && Math.abs(pnl) < 30) {
+          shouldExit = true;
+          exitReason = `Time Stop (Held ${heldMinutes.toFixed(1)}min, P&L stuck at ₹${pnl.toFixed(2)})`;
+        }
+        // 4) Hard market-unfavorable: 5 consecutive negative momentum ticks while in loss
+        if (!shouldExit && pnl < 0 && _hist.length >= 6) {
+          const lastDiffs = _hist.slice(-5).map((h: any, i: number, arr: any[]) => i === 0 ? 0 : h.pnl - arr[i-1].pnl);
+          const allNeg = lastDiffs.slice(1).every((d: number) => d <= 0);
+          if (allNeg && pnl <= -Math.max(50, effectiveSL * 0.6)) {
+            shouldExit = true;
+            exitReason = `Market Unfavorable — Pre-emptive Exit (5 ticks down, P&L ₹${pnl.toFixed(2)})`;
+          }
+        }
+
+        (position as any).monitorDecision = shouldExit ? 'EXIT' : (marketFavorable ? 'HOLD' : 'WATCH');
 
         // Stop Loss check:
         //  - If effectiveSL > 0  → exit when pnl <= -effectiveSL (loss limit)
