@@ -277,7 +277,9 @@ export class AdvancedAI {
    * Calculate EMA (Exponential Moving Average) - OPTIMIZED
    */
   private static calculateEMA(data: OHLCCandle[], period: number): number {
-    if (data.length < period) return data[data.length - 1].close;
+    // ⚡ FIX #2: Return NaN if not enough data — downstream gates will fail safe
+    // (instead of silently returning current close which faked trend alignment)
+    if (data.length < period) return NaN;
     
     // Use SMA for first value (more accurate)
     const sma = this.calculateSMA(data.slice(0, period), period);
@@ -292,13 +294,26 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate VWAP (Volume Weighted Average Price)
+   * ⚡ FIX #1: Calculate VWAP with intraday SESSION RESET
+   * Real VWAP must reset at the start of each trading day (09:15 IST).
+   * We detect a new IST calendar day from the timestamp and reset accumulators.
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
+    if (!data.length) return 0;
     let cumulativeTPV = 0;
     let cumulativeVolume = 0;
+    let lastDayKey = '';
     
     for (const candle of data) {
+      // IST = UTC + 5:30. Detect day change in IST.
+      const ts = (candle.timestamp || 0) * 1000;
+      const ist = new Date(ts + 5.5 * 3600 * 1000);
+      const dayKey = `${ist.getUTCFullYear()}-${ist.getUTCMonth()}-${ist.getUTCDate()}`;
+      if (dayKey !== lastDayKey) {
+        cumulativeTPV = 0;
+        cumulativeVolume = 0;
+        lastDayKey = dayKey;
+      }
       const typicalPrice = (candle.high + candle.low + candle.close) / 3;
       cumulativeTPV += typicalPrice * candle.volume;
       cumulativeVolume += candle.volume;
@@ -308,33 +323,36 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate RSI (Relative Strength Index) - 14 period
+   * ⚡ FIX #5: Calculate RSI with Wilder's smoothing (RMA) — industry standard.
+   * Previous version used a simple average that produced overly volatile RSI
+   * which constantly tripped the 32/68 extension block.
    */
   private static calculateRSI(data: OHLCCandle[], period: number = 14): number {
     if (data.length < period + 1) return 50;
     
+    // Initial average over first `period` changes
     let gains = 0;
     let losses = 0;
-    
-    // Calculate initial average gain/loss
-    for (let i = data.length - period; i < data.length; i++) {
+    for (let i = 1; i <= period; i++) {
       const change = data[i].close - data[i - 1].close;
-      if (change > 0) {
-        gains += change;
-      } else {
-        losses += Math.abs(change);
-      }
+      if (change > 0) gains += change;
+      else losses += Math.abs(change);
+    }
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
+    
+    // Wilder smoothing for remaining candles
+    for (let i = period + 1; i < data.length; i++) {
+      const change = data[i].close - data[i - 1].close;
+      const gain = change > 0 ? change : 0;
+      const loss = change < 0 ? Math.abs(change) : 0;
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
     }
     
-    const avgGain = gains / period;
-    const avgLoss = losses / period;
-    
     if (avgLoss === 0) return 100;
-    
     const rs = avgGain / avgLoss;
-    const rsi = 100 - (100 / (1 + rs));
-    
-    return rsi;
+    return 100 - (100 / (1 + rs));
   }
   
   /**
