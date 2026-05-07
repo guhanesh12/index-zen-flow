@@ -10060,14 +10060,36 @@ app.post("/make-server-c4d79cb7/position-monitor/update", async (c) => {
       return c.json({ error: 'orderId, targetAmount and stopLossAmount are required' }, 400);
     }
 
+    // Fetch current row to merge raw_position (so we override the ratcheted current values)
+    const { data: existingRow } = await supabase
+      .from('position_monitor_state')
+      .select('raw_position')
+      .eq('user_id', user.id)
+      .eq('order_id', orderId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    const mergedRaw = {
+      ...(existingRow?.raw_position || {}),
+      currentTargetAmount: targetAmount,
+      currentStopLossAmount: stopLossAmount,
+      manualEditAt: Date.now(),
+    };
+
     const { error: updateError } = await supabase
       .from('position_monitor_state')
-      .update({ target_amount: targetAmount, stop_loss_amount: stopLossAmount })
+      .update({
+        target_amount: targetAmount,
+        stop_loss_amount: stopLossAmount,
+        highest_pnl: 0, // reset peak so trailing recomputes from new base
+        raw_position: mergedRaw,
+      })
       .eq('user_id', user.id)
       .eq('order_id', orderId)
       .eq('is_active', true);
 
     if (updateError) return c.json({ error: updateError.message }, 500);
+    console.log(`✏️ Position ${orderId} edited → Tgt ₹${targetAmount}, SL ₹${stopLossAmount}`);
     return c.json({ success: true, orderId, targetAmount, stopLossAmount });
   } catch (error: any) {
     console.error('❌ Position update failed:', error);
