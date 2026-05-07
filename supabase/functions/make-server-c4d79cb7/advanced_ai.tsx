@@ -148,9 +148,6 @@ export interface AdvancedSignal {
     isHigh: boolean;
     isSpike: boolean;
     smartMoney: boolean;
-    currentVolume: number;
-    averageVolume: number;
-    hasData: boolean;
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -180,6 +177,90 @@ export interface AdvancedSignal {
 }
 
 export class AdvancedAI {
+  
+  /**
+   * ⚡⚡⚡ MAIN ENTRY POINT - ANALYZE MARKET ⚡⚡⚡
+   * Fetches OHLC data and generates trading signal
+   * 
+   * @param indexSymbol - 'NIFTY' or 'BANKNIFTY'
+   * @param interval - '5' or '15' (minutes)
+   * @param accountBalance - Account balance for position sizing
+   * @param dhanClientId - Dhan client ID (optional, will try to get from env if not provided)
+   * @param dhanAccessToken - Dhan access token (optional, will try to get from env if not provided)
+   */
+  public static async analyzeMarket(
+    indexSymbol: string,
+    interval: '5' | '15',
+    accountBalance: number = 100000,
+    dhanClientId?: string,
+    dhanAccessToken?: string
+  ): Promise<{ signal: AdvancedSignal; ohlcData: OHLCCandle[] } | null> {
+    try {
+      console.log(`\n🤖 AdvancedAI.analyzeMarket() called:`);
+      console.log(`   Index: ${indexSymbol}`);
+      console.log(`   Interval: ${interval}M`);
+      console.log(`   Balance: ₹${accountBalance}`);
+      
+      // Import DhanService to fetch OHLC data
+      const { DhanService } = await import('./dhan_service.tsx');
+      
+      // Get Dhan credentials (use provided ones or try env)
+      const clientId = dhanClientId || Deno.env.get('DHAN_CLIENT_ID') || '';
+      const accessToken = dhanAccessToken || Deno.env.get('DHAN_ACCESS_TOKEN') || '';
+      
+      if (!clientId || !accessToken) {
+        console.error('❌ Dhan credentials not provided');
+        return null;
+      }
+      
+      // Create Dhan service instance
+      const dhanService = new DhanService({
+        clientId: clientId,
+        accessToken: accessToken
+      });
+      
+      // ⚡ FIX: Convert index symbol name to security ID
+      let securityId = indexSymbol;
+      if (indexSymbol.toUpperCase() === 'NIFTY' || indexSymbol.toUpperCase() === 'NIFTY 50' || indexSymbol.toUpperCase() === 'NIFTY50') {
+        securityId = '13'; // NIFTY 50 security ID
+        console.log(`📌 Converting NIFTY to security ID: ${securityId}`);
+      } else if (indexSymbol.toUpperCase() === 'BANKNIFTY' || indexSymbol.toUpperCase() === 'BANK NIFTY' || indexSymbol.toUpperCase() === 'BANKNIFTY50') {
+        securityId = '25'; // BANK NIFTY security ID
+        console.log(`📌 Converting BANKNIFTY to security ID: ${securityId}`);
+      } else if (indexSymbol.toUpperCase() === 'SENSEX' || indexSymbol.toUpperCase() === 'BSE SENSEX') {
+        securityId = '51'; // SENSEX security ID
+        console.log(`📌 Converting SENSEX to security ID: ${securityId}`);
+      } else if (indexSymbol.toUpperCase() === 'FINNIFTY' || indexSymbol.toUpperCase() === 'NIFTY FIN SERVICE') {
+        securityId = '27'; // FINNIFTY security ID
+        console.log(`📌 Converting FINNIFTY to security ID: ${securityId}`);
+      } else {
+        console.log(`📌 Using provided security ID: ${securityId}`);
+      }
+      
+      // Fetch OHLC data
+      console.log(`📊 Fetching OHLC data for security ID ${securityId} (${indexSymbol})...`);
+      const ohlcData = await dhanService.getOHLCData(securityId, interval);
+      
+      if (!ohlcData || ohlcData.length < 50) {
+        console.error(`❌ Insufficient OHLC data: ${ohlcData?.length || 0} candles`);
+        return null;
+      }
+      
+      console.log(`✅ Fetched ${ohlcData.length} candles`);
+      console.log(`🧠 Generating Advanced AI signal...`);
+      
+      // Generate signal using all 15+ indicators
+      const signal = this.generateAdvancedSignal(ohlcData, accountBalance);
+      
+      console.log(`✅ Signal generated: ${signal.action} (${signal.confidence}%)`);
+      
+      return { signal, ohlcData };
+      
+    } catch (error) {
+      console.error('❌ AdvancedAI.analyzeMarket() error:', error);
+      return null;
+    }
+  }
   
   // ========================================
   // TECHNICAL INDICATORS (ALL OPTIMIZED!)
@@ -277,9 +358,7 @@ export class AdvancedAI {
    * Calculate EMA (Exponential Moving Average) - OPTIMIZED
    */
   private static calculateEMA(data: OHLCCandle[], period: number): number {
-    // ⚡ FIX #2: Return NaN if not enough data — downstream gates will fail safe
-    // (instead of silently returning current close which faked trend alignment)
-    if (data.length < period) return NaN;
+    if (data.length < period) return data[data.length - 1].close;
     
     // Use SMA for first value (more accurate)
     const sma = this.calculateSMA(data.slice(0, period), period);
@@ -294,26 +373,13 @@ export class AdvancedAI {
   }
   
   /**
-   * ⚡ FIX #1: Calculate VWAP with intraday SESSION RESET
-   * Real VWAP must reset at the start of each trading day (09:15 IST).
-   * We detect a new IST calendar day from the timestamp and reset accumulators.
+   * Calculate VWAP (Volume Weighted Average Price)
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
-    if (!data.length) return 0;
     let cumulativeTPV = 0;
     let cumulativeVolume = 0;
-    let lastDayKey = '';
     
     for (const candle of data) {
-      // IST = UTC + 5:30. Detect day change in IST.
-      const ts = (candle.timestamp || 0) * 1000;
-      const ist = new Date(ts + 5.5 * 3600 * 1000);
-      const dayKey = `${ist.getUTCFullYear()}-${ist.getUTCMonth()}-${ist.getUTCDate()}`;
-      if (dayKey !== lastDayKey) {
-        cumulativeTPV = 0;
-        cumulativeVolume = 0;
-        lastDayKey = dayKey;
-      }
       const typicalPrice = (candle.high + candle.low + candle.close) / 3;
       cumulativeTPV += typicalPrice * candle.volume;
       cumulativeVolume += candle.volume;
@@ -323,73 +389,53 @@ export class AdvancedAI {
   }
   
   /**
-   * ⚡ FIX #5: Calculate RSI with Wilder's smoothing (RMA) — industry standard.
-   * Previous version used a simple average that produced overly volatile RSI
-   * which constantly tripped the 32/68 extension block.
+   * Calculate RSI (Relative Strength Index) - 14 period
    */
   private static calculateRSI(data: OHLCCandle[], period: number = 14): number {
     if (data.length < period + 1) return 50;
     
-    // Initial average over first `period` changes
     let gains = 0;
     let losses = 0;
-    for (let i = 1; i <= period; i++) {
-      const change = data[i].close - data[i - 1].close;
-      if (change > 0) gains += change;
-      else losses += Math.abs(change);
-    }
-    let avgGain = gains / period;
-    let avgLoss = losses / period;
     
-    // Wilder smoothing for remaining candles
-    for (let i = period + 1; i < data.length; i++) {
+    // Calculate initial average gain/loss
+    for (let i = data.length - period; i < data.length; i++) {
       const change = data[i].close - data[i - 1].close;
-      const gain = change > 0 ? change : 0;
-      const loss = change < 0 ? Math.abs(change) : 0;
-      avgGain = (avgGain * (period - 1) + gain) / period;
-      avgLoss = (avgLoss * (period - 1) + loss) / period;
+      if (change > 0) {
+        gains += change;
+      } else {
+        losses += Math.abs(change);
+      }
     }
+    
+    const avgGain = gains / period;
+    const avgLoss = losses / period;
     
     if (avgLoss === 0) return 100;
+    
     const rs = avgGain / avgLoss;
-    return 100 - (100 / (1 + rs));
+    const rsi = 100 - (100 / (1 + rs));
+    
+    return rsi;
   }
   
   /**
    * Calculate MACD (Moving Average Convergence Divergence)
-   * ✅ FIXED: Proper EMA9 signal line calculation
    */
   private static calculateMACD(data: OHLCCandle[]): { macd: number; signal: number; histogram: number } {
-    if (data.length < 35) {
-      return { macd: 0, signal: 0, histogram: 0 };
-    }
+    const ema12 = this.calculateEMA(data, 12);
+    const ema26 = this.calculateEMA(data, 26);
+    const macd = ema12 - ema26;
     
-    // Step 1: Calculate MACD values for all candles
-    const macdValues: number[] = [];
+    // For signal line, we'd need to calculate EMA of MACD values
+    // Simplified: use 9-period approximation
+    const recentData = data.slice(-9);
+    const signalSum = recentData.reduce((sum, candle) => {
+      const ema12_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 12);
+      const ema26_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 26);
+      return sum + (ema12_temp - ema26_temp);
+    }, 0);
     
-    for (let i = 26; i < data.length; i++) {
-      const subset = data.slice(0, i + 1);
-      const ema12 = this.calculateEMA(subset, 12);
-      const ema26 = this.calculateEMA(subset, 26);
-      macdValues.push(ema12 - ema26);
-    }
-    
-    // Step 2: Calculate signal line (EMA9 of MACD)
-    if (macdValues.length < 9) {
-      const macd = macdValues[macdValues.length - 1] || 0;
-      return { macd, signal: macd, histogram: 0 };
-    }
-    
-    // Use first MACD as starting point
-    const k = 2 / (9 + 1); // EMA multiplier
-    let signal = macdValues[0];
-    
-    for (let i = 1; i < macdValues.length; i++) {
-      signal = (macdValues[i] * k) + (signal * (1 - k));
-    }
-    
-    // Step 3: Calculate histogram
-    const macd = macdValues[macdValues.length - 1];
+    const signal = signalSum / 9;
     const histogram = macd - signal;
     
     return { macd, signal, histogram };
@@ -453,66 +499,35 @@ export class AdvancedAI {
   
   /**
    * Calculate ADX (Average Directional Index) - Trend Strength
-   * ✅ FIXED: Now returns actual ADX (smoothed average of DX), not just DX
    */
   private static calculateADX(data: OHLCCandle[], period: number = 14): number {
-    if (data.length < period * 2) return 0;
+    if (data.length < period + 1) return 0;
     
-    const dxValues: number[] = [];
+    let plusDM = 0;
+    let minusDM = 0;
+    let tr = 0;
     
-    // Calculate DX for each period
-    for (let i = period; i < data.length; i++) {
-      let plusDM = 0;
-      let minusDM = 0;
-      let tr = 0;
+    for (let i = data.length - period; i < data.length; i++) {
+      const highDiff = data[i].high - data[i - 1].high;
+      const lowDiff = data[i - 1].low - data[i].low;
       
-      // Sum over the period
-      for (let j = i - period + 1; j <= i; j++) {
-        const highDiff = data[j].high - data[j - 1].high;
-        const lowDiff = data[j - 1].low - data[j].low;
-        
-        // Directional Movement
-        if (highDiff > lowDiff && highDiff > 0) {
-          plusDM += highDiff;
-        } else if (lowDiff > highDiff && lowDiff > 0) {
-          minusDM += lowDiff;
-        }
-        
-        // True Range
-        tr += Math.max(
-          data[j].high - data[j].low,
-          Math.abs(data[j].high - data[j - 1].close),
-          Math.abs(data[j].low - data[j - 1].close)
-        );
-      }
+      plusDM += (highDiff > lowDiff && highDiff > 0) ? highDiff : 0;
+      minusDM += (lowDiff > highDiff && lowDiff > 0) ? lowDiff : 0;
       
-      // Calculate DI and DX
-      if (tr > 0) {
-        const plusDI = (plusDM / tr) * 100;
-        const minusDI = (minusDM / tr) * 100;
-        const diSum = plusDI + minusDI;
-        
-        if (diSum > 0) {
-          const dx = (Math.abs(plusDI - minusDI) / diSum) * 100;
-          dxValues.push(dx);
-        }
-      }
+      const trueRange = Math.max(
+        data[i].high - data[i].low,
+        Math.abs(data[i].high - data[i - 1].close),
+        Math.abs(data[i].low - data[i - 1].close)
+      );
+      tr += trueRange;
     }
     
-    // ADX = Smoothed average of DX (EMA-like)
-    if (dxValues.length < period) {
-      return dxValues.length > 0 ? dxValues[dxValues.length - 1] : 0;
-    }
+    const plusDI = (plusDM / tr) * 100;
+    const minusDI = (minusDM / tr) * 100;
     
-    // Initial ADX = average of first 'period' DX values
-    let adx = dxValues.slice(0, period).reduce((sum, val) => sum + val, 0) / period;
+    const dx = Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100;
     
-    // Smooth subsequent values
-    for (let i = period; i < dxValues.length; i++) {
-      adx = ((adx * (period - 1)) + dxValues[i]) / period;
-    }
-    
-    return adx;
+    return dx;
   }
   
   /**
@@ -753,23 +768,21 @@ export class AdvancedAI {
     
     // ⚡ FIX: Strong ADX means trending even if EMAs are mixed (price action overrides)
     if (isTrending) {
+      // Check price action for trend direction
       const last5 = data.slice(-5);
       const higherHighs = last5.every((candle, i) => i === 0 || candle.high >= last5[i - 1].high);
       const lowerLows = last5.every((candle, i) => i === 0 || candle.low <= last5[i - 1].low);
-
-      // ⚡ FIX: relaxed direction — short EMA + net 5-bar move
-      const shortEmaUp = indicators.ema9 > indicators.ema21;
-      const shortEmaDown = indicators.ema9 < indicators.ema21;
-      const netUp = last5.length >= 2 && last5[last5.length - 1].close > last5[0].close;
-      const netDown = last5.length >= 2 && last5[last5.length - 1].close < last5[0].close;
-
-      if (emaUptrend || higherHighs || (shortEmaUp && netUp)) {
+      
+      // EMA alignment OR price action confirms trend
+      if (emaUptrend || higherHighs) {
         return { type: 'TRENDING_UP', strength: adx, suitable_for_trading: true };
       }
-      if (emaDowntrend || lowerLows || (shortEmaDown && netDown)) {
+      
+      if (emaDowntrend || lowerLows) {
         return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
       }
-      // Strong ADX but conflicting direction = volatile (do NOT trade)
+      
+      // ADX high but no clear direction = volatile
       return { type: 'VOLATILE', strength: adx, suitable_for_trading: false };
     }
     
@@ -796,12 +809,6 @@ export class AdvancedAI {
     const startTime = performance.now();
     let calculationsPerformed = 0;
     
-    // ⚡ FIX #6: Drop trailing incomplete / zero-volume candles (after-hours bars,
-    // pre-open ticks). They corrupt the "last candle" used for entry decisions.
-    while (ohlcData.length > 2 && (ohlcData[ohlcData.length - 1].volume <= 0)) {
-      ohlcData = ohlcData.slice(0, -1);
-    }
-    
     // Last candle
     const lastCandle = ohlcData[ohlcData.length - 1];
     const prevCandle = ohlcData[ohlcData.length - 2];
@@ -822,21 +829,6 @@ export class AdvancedAI {
     const vwapDistance = ((lastCandle.close - vwap) / vwap) * 100;
     const priceAboveVWAP = lastCandle.close > vwap;
     calculationsPerformed += 1;
-
-    // ⚡ COMBO FIX (opt 3): Opening-hour detection (09:15–10:15 IST = first 4×15m bars)
-    // ADX is unreliable in the opening hour (insufficient bars for smoothing).
-    const lastTs = (lastCandle as any).timestamp || 0;
-    const istDate = new Date((lastTs + 5.5 * 3600) * 1000);
-    const istHour = istDate.getUTCHours();
-    const istMin = istDate.getUTCMinutes();
-    const isOpeningHour = (istHour === 9 && istMin >= 15) || (istHour === 10 && istMin <= 15);
-
-    // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject — price crossing back through VWAP
-    const prevCandleVWAP = ohlcData[ohlcData.length - 2];
-    const prevAboveVWAP = prevCandleVWAP ? prevCandleVWAP.close > vwap : priceAboveVWAP;
-    const vwapReclaimBull = !prevAboveVWAP && priceAboveVWAP; // crossed up
-    const vwapRejectBear = prevAboveVWAP && !priceAboveVWAP;  // crossed down
-    const hasVWAPCross = vwapReclaimBull || vwapRejectBear;
     
     // RSI
     const rsi = this.calculateRSI(ohlcData);
@@ -853,9 +845,8 @@ export class AdvancedAI {
     
     // Bollinger Bands
     const bollinger = this.calculateBollingerBands(ohlcData);
-    const bollingerRange = Math.max(bollinger.upper - bollinger.lower, lastCandle.close * 0.001);
-    const priceNearUpperBand = lastCandle.close >= (bollinger.upper - bollingerRange * 0.15);
-    const priceNearLowerBand = lastCandle.close <= (bollinger.lower + bollingerRange * 0.15);
+    const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
+    const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
     const bollingerSqueeze = bollinger.width < 2;
     calculationsPerformed += 1;
     
@@ -880,9 +871,8 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Support/Resistance
-    const srCandles = ohlcData.length > 20 ? ohlcData.slice(-51, -1) : ohlcData.slice(0, -1);
-    const highs = (srCandles.length ? srCandles : ohlcData).map(c => c.high).sort((a, b) => b - a);
-    const lows = (srCandles.length ? srCandles : ohlcData).map(c => c.low).sort((a, b) => a - b);
+    const highs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
+    const lows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
     
     const resistance1 = highs[0];
     const resistance2 = highs[Math.floor(highs.length * 0.2)];
@@ -892,9 +882,8 @@ export class AdvancedAI {
     const support2 = lows[Math.floor(lows.length * 0.2)];
     const support3 = lows[Math.floor(lows.length * 0.4)];
     
-    const srTolerance = Math.max(atr14 * 0.35, lastCandle.close * 0.001);
-    const nearResistance = lastCandle.close <= resistance1 && (resistance1 - lastCandle.close) <= srTolerance;
-    const nearSupport = lastCandle.close >= support1 && (lastCandle.close - support1) <= srTolerance;
+    const nearResistance = lastCandle.close > resistance1 * 0.98;
+    const nearSupport = lastCandle.close < support1 * 1.02;
     calculationsPerformed += 1;
     
     // Fibonacci
@@ -907,23 +896,15 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Volume Analysis
-    // ⚡ FIX #4: Exclude the CURRENT candle from average — otherwise a real spike
-    // gets diluted by itself and the 1.15x volume gate misfires.
-    const prevWindow = ohlcData.slice(-11, -1); // last 10 PRIOR candles
-    const avgVolume = prevWindow.length
-      ? prevWindow.reduce((sum, c) => sum + c.volume, 0) / prevWindow.length
-      : 0;
-    const volumeRatio = (avgVolume > 0 && lastCandle.volume > 0)
-      ? lastCandle.volume / avgVolume
-      : 0;
-    const hasVolumeData = avgVolume > 0 && lastCandle.volume > 0;
-    const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
-    const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
+    const last10Candles = ohlcData.slice(-10);
+    const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
+    const volumeRatio = lastCandle.volume / avgVolume;
+    const isHighVolume = volumeRatio > 1.5;
+    const isVolumeSpike = volumeRatio > 2.0;
     const bodySize = Math.abs(lastCandle.close - lastCandle.open);
     const bodyPercent = ((bodySize / (lastCandle.high - lastCandle.low)) * 100) || 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
     
-    console.log(`📊 VOLUME DEBUG: lastVolume=${lastCandle.volume}, avgVolume=${avgVolume.toFixed(2)}, volumeRatio=${volumeRatio.toFixed(2)}, hasVolumeData=${hasVolumeData}`);
     console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, close=${lastCandle.close}, open=${lastCandle.open}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
     
     // Order Flow
@@ -962,7 +943,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 8,  // ⚡ HIGH-WIN-RATE: raised 6→8 — only A+ setups
+      required: 6,
       details: [] as string[],
       vwap: false,
       ema: false,
@@ -979,25 +960,16 @@ export class AdvancedAI {
     const isBullish = lastCandle.close > lastCandle.open;
     const isBearish = lastCandle.close < lastCandle.open;
     
-    const recentClosedCandles = ohlcData.slice(-4);
-    const bullishMomentum = lastCandle.close > prevCandle.close && lastCandle.high >= prevCandle.high;
-    const bearishMomentum = lastCandle.close < prevCandle.close && lastCandle.low <= prevCandle.low;
-    const bullishCandleCount = recentClosedCandles.filter(c => c.close > c.open).length;
-    const bearishCandleCount = recentClosedCandles.filter(c => c.close < c.open).length;
-    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' :
-                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' :
+    // ⚡ FIX BUG #8: Use Market Regime for trend bias (not just current candle!)
+    // In strong trends (ADX > 25), small counter-trend candles don't change the bias
+    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' : 
+                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' : 
                       isBullish ? 'bullish' : isBearish ? 'bearish' : 'neutral';
     
-    const useTrendBias = adx > 25;
-    const trendBullishAllowed = trendBias === 'bullish' && (isBullish || bullishMomentum || bullishCandleCount > bearishCandleCount);
-    const trendBearishAllowed = trendBias === 'bearish' && (isBearish || bearishMomentum || bearishCandleCount > bullishCandleCount);
-    const confirmationBullish = useTrendBias ? trendBullishAllowed : isBullish;
-    const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
-    // ⚡ COMBO FIX: NIFTY/BANKNIFTY indices have NO volume from Dhan. Fall back to body% only.
-    const hasDirectionalVolume = hasVolumeData
-      ? (volumeRatio >= 1.15 && bodyPercent >= 40)
-      : (bodyPercent >= 50); // index fallback: strong-bodied candle alone
-    const hasDirectionalMomentum = bullishMomentum || bearishMomentum;
+    // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
+    const useTrendBias = adx > 25;  // Changed from 40 to 25!
+    const confirmationBullish = useTrendBias ? (trendBias === 'bullish') : isBullish;
+    const confirmationBearish = useTrendBias ? (trendBias === 'bearish') : isBearish;
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
@@ -1017,11 +989,8 @@ export class AdvancedAI {
     }
     
     // 2. EMA Confirmation (Weight: 1)
-    // ⚡ FIX #2: If EMA50 is NaN (insufficient data) fall back to ema9>ema21 only
-    const ema50Valid = Number.isFinite(ema50);
-    const emaUptrend = ema50Valid ? (ema9 > ema21 && ema21 > ema50) : (ema9 > ema21);
-    const emaDowntrend = ema50Valid ? (ema9 < ema21 && ema21 < ema50) : (ema9 < ema21);
-    const hasCleanTrendAlignment = (confirmationBullish && emaUptrend && priceAboveVWAP) || (confirmationBearish && emaDowntrend && !priceAboveVWAP);
+    const emaUptrend = ema9 > ema21 && ema21 > ema50;
+    const emaDowntrend = ema9 < ema21 && ema21 < ema50;
     
     // ⚡ FIX BUG #9: In strong trends (ADX > 40), allow minor pullbacks (price within 0.5 ATR of EMA9)
     const priceNearEma9Bullish = lastCandle.close > ema9 || (lastCandle.close > ema9 - atr14 * 0.5);
@@ -1108,30 +1077,25 @@ export class AdvancedAI {
     }
     
     // 6. Volume Confirmation (Weight: 1)
-    const strongTrendVolumeBypass = adx >= 30 && bodyPercent >= 45 && hasVolumeData && volumeRatio >= 1.0 && (confirmationBullish || confirmationBearish);
-    if ((isBullish || isBearish) && ((isHighVolume && bodyPercent > 40) || strongTrendVolumeBypass)) {
+    if ((isBullish || isBearish) && isHighVolume && bodyPercent > 40) {
       confirmations.volume = true;
-      totalWeightedScore += 1;
-      confirmationDetails.push(hasVolumeData
-        ? `✅ Volume: ${strongTrendVolumeBypass && !isHighVolume ? 'Trend candle bypass' : 'High'} (${volumeRatio.toFixed(2)}x) + body ${bodyPercent.toFixed(1)}%`
-        : `✅ Volume: Missing feed ignored, trend candle body ${bodyPercent.toFixed(1)}%`
-      );
+      totalWeightedScore += 1; // Weight: 1
+      confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`);
     } else {
-      confirmationDetails.push(hasVolumeData ? '❌ Volume: Low or weak candle' : '⚠️ Volume: Missing feed, waiting for stronger candle');
+      confirmationDetails.push('❌ Volume: Low or weak candle');
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
+    // ⚡ FIX: Use confirmationBullish/Bearish (trend bias) instead of candle color!
     if (trending && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend))) {
       confirmations.adx = true;
-      totalWeightedScore += 1;
+      totalWeightedScore += 1; // Weight: 1
       confirmationDetails.push(`✅ ADX: Strong trend (${adx.toFixed(1)})`);
     } else {
+      // ⚡ FIX: Show correct ADX interpretation
       const adxInterpretation = this.getADXInterpretation(adx);
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)}) - ${trending ? 'Strong but' : 'Weak,'} EMAs not aligned`);
     }
-
-    // ⚡ Block opening-hour entries (09:15–10:00 IST = first 3 bars). Indicators unreliable at session start.
-    const blockOpeningEntry = isOpeningHour;
     
     // 8. Stochastic Confirmation (Weight: 1)
     if (isBullish && stochOversold) {
@@ -1171,13 +1135,13 @@ export class AdvancedAI {
       // Validate bullish pattern
       const patternValidation = this.validatePattern(bullishPatterns[0], lastCandle, prevCandle, nearResistance, nearSupport);
       confirmations.pattern = patternValidation.isValid;
-      if (patternValidation.isValid) totalWeightedScore += patternValidation.weight; // Count only validated patterns
+      totalWeightedScore += patternValidation.weight; // Weight: 1-2 based on validation
       confirmationDetails.push(`${patternValidation.isValid ? '✅' : '⚠️'} Pattern: ${bullishPatterns[0].type} (${patternValidation.reason})`);
     } else if (confirmationBearish && bearishPatterns.length > 0) {
       // Validate bearish pattern
       const patternValidation = this.validatePattern(bearishPatterns[0], lastCandle, prevCandle, nearResistance, nearSupport);
       confirmations.pattern = patternValidation.isValid;
-      if (patternValidation.isValid) totalWeightedScore += patternValidation.weight; // Count only validated patterns
+      totalWeightedScore += patternValidation.weight; // Weight: 1-2 based on validation
       confirmationDetails.push(`${patternValidation.isValid ? '✅' : '⚠️'} Pattern: ${bearishPatterns[0].type} (${patternValidation.reason})`);
     } else {
       confirmationDetails.push('❌ Pattern: No strong pattern');
@@ -1192,14 +1156,14 @@ export class AdvancedAI {
     // In strong trends, minor pullbacks don't invalidate the trend!
     const trendingMarket = adx > 25;
     
-    if (trendingMarket && confirmationBullish && bullishMomentum) {
+    if (trendingMarket && confirmationBullish) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Uptrend continuation (higher close/high, ADX ${adx.toFixed(1)})`);
-    } else if (trendingMarket && confirmationBearish && bearishMomentum) {
+      confirmationDetails.push(`✅ Price Action: Strong uptrend (ADX ${adx.toFixed(1)})`);
+    } else if (trendingMarket && confirmationBearish) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Downtrend continuation (lower close/low, ADX ${adx.toFixed(1)})`);
+      confirmationDetails.push(`✅ Price Action: Strong downtrend (ADX ${adx.toFixed(1)})`);
     } else if (confirmationBullish && higherHighs) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
@@ -1215,27 +1179,25 @@ export class AdvancedAI {
     confirmations.details = confirmationDetails;
     confirmations.total = totalWeightedScore; // Set the total to the weighted score
     
-    // ========== RISK MANAGEMENT (HIGH-WIN-RATE v2) ==========
+    // ========== RISK MANAGEMENT ==========
     const currentPrice = lastCandle.close;
-
-    // Wider SL (1.8xATR) reduces noise stop-outs; TP at 2.2x risk for solid 1:2.2 R:R
-    const swingWindow = ohlcData.slice(-6, -1);
-    const swingHigh = swingWindow.length ? Math.max(...swingWindow.map(c => c.high)) : lastCandle.high;
-    const swingLow = swingWindow.length ? Math.min(...swingWindow.map(c => c.low)) : lastCandle.low;
-    const isBullishCandle = lastCandle.close > lastCandle.open;
-    const swingDist = isBullishCandle ? (currentPrice - swingLow) : (swingHigh - currentPrice);
-    const stopLossDistance = Math.max(atr14 * 1.0, Math.min(atr14 * 2.2, swingDist + atr14 * 0.3));
-    const suggestedStopLoss = isBullishCandle ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
-
-    const targetDistance = stopLossDistance * 2.2;
-    const suggestedTarget = isBullishCandle ? currentPrice + targetDistance : currentPrice - targetDistance;
-
+    
+    // ATR-based stop loss (2x ATR)
+    const stopLossDistance = atr14 * 2;
+    const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
+    
+    // Target (3x risk for 1:3 RR)
+    const targetDistance = stopLossDistance * 3;
+    const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
+    
+    // Position sizing (risk 2% of account)
     const riskAmount = accountBalance * 0.02;
     const positionSize = Math.floor(riskAmount / stopLossDistance);
-    const riskRewardRatio = 2.2;
+    
+    const riskRewardRatio = 3.0;
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
-
+    
     const riskManagement = {
       suggestedEntry: currentPrice,
       suggestedTarget,
@@ -1253,72 +1215,34 @@ export class AdvancedAI {
     let bias: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
     
     // MUST have 6+ confirmations AND suitable market regime
-    // ✅ FIXED: Use fixed point-based candle body, not percentage-based
-    const minimumBodySize = Math.max(10, atr14 * 0.25); // Dynamic by index volatility
-    const candleMovePoints = Math.max(
-      Math.abs(lastCandle.close - lastCandle.open),
-      Math.abs(lastCandle.high - lastCandle.low)
-    );
+    // ADJUSTED FOR REAL TRADING: Lower body size requirement from 15 to 10 points
+    // ADJUSTED FOR REAL TRADING: Lower volume requirement from 1.5x to 0.8x (real market conditions)
+    // ⚡ NEW FIX: In very strong trends (ADX > 50), reduce volume requirement to 0.5x
+    const minimumBodySize = 10; // Points (was 15)
+    const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
+    const hasAcceptableVolume = volumeRatio >= minimumVolumeRatio;  // ⚡ FIX: Use >= instead of >
     
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
-    console.log(`📏 Candle move check: body=${bodySize.toFixed(2)}pts, range=${(lastCandle.high - lastCandle.low).toFixed(2)}pts, move=${candleMovePoints.toFixed(2)}pts, min=${minimumBodySize.toFixed(2)}pts`);
+    const strongBullish = confirmations.total >= 6 && confirmationBullish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
+    const strongBearish = confirmations.total >= 6 && confirmationBearish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
     
-    const decisiveBullishMove = isBullish && bullishMomentum;
-    const decisiveBearishMove = isBearish && bearishMomentum;
-
-    // 🚫 EXTENSION FILTER: Block late breakouts that mean-revert (fake-trade prevention)
-    //   - Reject if price extended > 0.4% from VWAP (chase risk)
-    //   - Reject BUY when RSI > 68 (overbought chase)
-    //   - Reject SELL when RSI < 32 (oversold chase)
-    // ⚡ FIX #8: ATR-NORMALISED extension block. Old fixed 0.4% rejected every
-    // valid trend trade on Nifty (0.4% ≈ 96pts; trend days extend much further).
-    // Now we reject only when distance exceeds 1.5x ATR (statistically extended).
-    const absVwapDistance = Math.abs(lastCandle.close - vwap);
-    const absVwapDistancePct = Math.abs(vwapDistance);
-    // ⚡ COMBO FIX: in strong trends (ADX>40) allow up to 3xATR; very-strong (ADX>50) up to 4xATR.
-    const atrExtMult = adx > 50 ? 4.0 : adx > 40 ? 3.0 : adx > 25 ? 2.0 : 1.5;
-    const atrExtensionThreshold = atr14 * atrExtMult;
-    const tooExtendedFromVWAP = atr14 > 0 && absVwapDistance > atrExtensionThreshold;
-    const buyChaseRisk = confirmationBullish && rsi > 80;
-    const sellChaseRisk = confirmationBearish && rsi < 20;
-    const extensionBlock = tooExtendedFromVWAP || buyChaseRisk || sellChaseRisk;
-    if (extensionBlock) {
-      console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistance.toFixed(1)}pts (${absVwapDistancePct.toFixed(2)}%) > ${atrExtensionThreshold.toFixed(1)}pts (1.5xATR), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
-    }
-
-    // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject is a separate valid setup — bypass strict ADX/priceAction gate.
-    const vwapCrossSetup = (vwapReclaimBull && confirmationBullish && hasDirectionalVolume) ||
-                           (vwapRejectBear && confirmationBearish && hasDirectionalVolume);
-    // ⚡ HIGH-WIN-RATE: block entries that are RIGHT AT key S/R against trade direction (likely to reject)
-    const blockBullAtResistance = confirmationBullish && nearResistance;
-    const blockBearAtSupport = confirmationBearish && nearSupport;
-    const srBlock = blockBullAtResistance || blockBearAtSupport;
-    // ⚡ HIGH-WIN-RATE: require strong ADX (>22) for trend trades — weak trends fail more
-    const adxStrongEnough = adx >= 22;
-    const qualityGate = !blockOpeningEntry && !srBlock && adxStrongEnough && (
-      (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
-      || vwapCrossSetup
-    );
-    if (vwapCrossSetup) confirmationDetails.push(`✅ VWAP CROSS SETUP: ${vwapReclaimBull ? 'Bullish reclaim' : 'Bearish reject'}`);
-    if (srBlock) confirmationDetails.push(`🚫 S/R BLOCK: ${blockBullAtResistance ? 'Buy at resistance' : 'Sell at support'}`);
-    const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
-    const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
-    
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), isVeryStrongTrend=${isVeryStrongTrend} (ADX=${adx.toFixed(1)}), regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
-      // ⚡ FIX #10: weighted score is 0-12. Map 6→60, 12→95 (linear, ~5.83/pt)
-      confidence = Math.min(95, Math.round(60 + (confirmations.total - 6) * (35 / 6)));
+      confidence = 60 + (confirmations.total * 5); // 60-110%
+      confidence = Math.min(confidence, 95);
       bias = 'Bullish';
       reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
       
     } else if (strongBearish && marketRegime.suitable_for_trading) {
       action = 'BUY_PUT';
-      confidence = Math.min(95, Math.round(60 + (confirmations.total - 6) * (35 / 6)));
+      confidence = 60 + (confirmations.total * 5);
+      confidence = Math.min(confidence, 95);
       bias = 'Bearish';
       reasoning = `STRONG SELL: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
       
@@ -1328,24 +1252,20 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
       
-    } else if (confirmations.total < confirmations.required || !qualityGate) {
+    } else if (confirmations.total < 6) {
       action = 'WAIT';
       confidence = 40;
       // ⚡ FIX BUG #8: Use trend bias in strong trends, not current candle color
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = confirmations.total < confirmations.required
-        ? `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`
-        : extensionBlock
-          ? `WAIT: Entry too extended (VWAP dist ${absVwapDistancePct.toFixed(2)}%, RSI ${rsi.toFixed(1)}). Avoiding chase / fake breakout.`
-          : `WAIT: Quality gate failed. Need VWAP+EMA+ADX+price-action alignment with real volume confirmation.`;
+      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
       
-    } else if (candleMovePoints < minimumBodySize) {
+    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume (1.2x) for consistency
       // ⚡ FIX: Only block if no strong pattern exists
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
-        reasoning = `WAIT: Weak candle movement (${candleMovePoints.toFixed(1)}pts, min ${minimumBodySize}).`;
+        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
       }
     } else {
       action = 'WAIT';
@@ -1406,9 +1326,6 @@ export class AdvancedAI {
         isHigh: isHighVolume,
         isSpike: isVolumeSpike,
         smartMoney,
-        currentVolume: lastCandle.volume,
-        averageVolume: avgVolume,
-        hasData: hasVolumeData,
         buyPressure: orderFlow.buyPressure,
         sellPressure: orderFlow.sellPressure,
         orderFlow: orderFlow.orderFlow
@@ -1420,65 +1337,5 @@ export class AdvancedAI {
       executionTime,
       calculationsPerformed
     };
-  }
-  
-  /**
-   * ⚡⚡⚡ ANALYZE MARKET WRAPPER - FETCHES DATA & GENERATES SIGNAL ⚡⚡⚡
-   */
-  public static async analyzeMarket(
-    dhanService: any,
-    index: string,
-    candleInterval: string,
-    accountBalance: number = 100000
-  ): Promise<{ signal: AdvancedSignal; ohlcData: OHLCCandle[] } | null> {
-    try {
-      console.log(`\n🔍 [AdvancedAI] analyzeMarket() called for ${index} (${candleInterval}M)`);
-
-      const getSecurityId = (idx: string): string => {
-        if (idx === 'NIFTY') return '13';
-        if (idx === 'BANKNIFTY') return '25';
-        if (idx === 'SENSEX') return '51';
-        if (idx === 'FINNIFTY') return '27';
-        if (idx === 'MIDCPNIFTY') return '288';
-        return '13';
-      };
-
-      const securityId = getSecurityId(index.toUpperCase());
-      console.log(`📊 [AdvancedAI] Security ID: ${securityId} for ${index}`);
-      console.log(`📡 [AdvancedAI] Fetching OHLC data...`);
-
-      const rawData = await dhanService.getOHLCData(securityId, candleInterval, 250);
-      if (!rawData || rawData.length === 0) {
-        console.error(`❌ [AdvancedAI] No OHLC data received for ${index}`);
-        return null;
-      }
-
-      const ohlcData: OHLCCandle[] = rawData.map((candle: any) => ({
-        timestamp: candle.timestamp || new Date(candle.start_time).getTime(),
-        open: parseFloat(candle.open),
-        high: parseFloat(candle.high),
-        low: parseFloat(candle.low),
-        close: parseFloat(candle.close),
-        volume: parseFloat(candle.volume || 0)
-      }));
-
-      const analysisCandles = ohlcData.length > 3 ? ohlcData.slice(0, -1) : ohlcData;
-      const analyzedCandle = analysisCandles[analysisCandles.length - 1];
-
-      if (analysisCandles.length !== ohlcData.length) {
-        const liveCandle = ohlcData[ohlcData.length - 1];
-        console.log(`⏱️ [AdvancedAI] Ignoring live candle: ${new Date(liveCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | volume=${liveCandle.volume}`);
-      }
-
-      console.log(`📊 [AdvancedAI] Using closed candle: ${new Date(analyzedCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | close=${analyzedCandle.close} | volume=${analyzedCandle.volume}`);
-
-      const signal = this.generateAdvancedSignal(analysisCandles, accountBalance);
-      console.log(`✅ [AdvancedAI] Signal generated: ${signal.action} (${signal.confidence}% confidence)`);
-
-      return { signal, ohlcData: analysisCandles };
-    } catch (error) {
-      console.error(`❌ [AdvancedAI] analyzeMarket() error:`, error);
-      return null;
-    }
   }
 }
