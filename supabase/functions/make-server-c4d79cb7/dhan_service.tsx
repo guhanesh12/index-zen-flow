@@ -376,9 +376,13 @@ export class DhanService {
           // Not JSON, continue
         }
         
-        // ⚡ For other errors, log and return empty instead of throwing
+        // ⚡ For other errors (rate limit, 5xx after retries), use STALE CACHE if available so signals keep flowing
         console.error(`❌ Dhan Intraday OHLC Error (${response.status}): ${responseText}`);
-        console.warn('⚠️ Returning empty candles instead of throwing error to prevent engine crash');
+        if (cached && cached.price && cached.price.length > 0) {
+          console.warn(`⚠️ Falling back to STALE cache (${Math.round((Date.now() - cached.timestamp)/1000)}s old, ${cached.price.length} candles) so signal can still generate`);
+          return cached.price;
+        }
+        console.warn('⚠️ No stale cache — returning empty candles to prevent engine crash');
         return [];
       }
 
