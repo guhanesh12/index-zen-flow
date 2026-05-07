@@ -753,21 +753,29 @@ export class AdvancedAI {
     
     // ⚡ FIX: Strong ADX means trending even if EMAs are mixed (price action overrides)
     if (isTrending) {
-      // Check price action for trend direction
       const last5 = data.slice(-5);
       const higherHighs = last5.every((candle, i) => i === 0 || candle.high >= last5[i - 1].high);
       const lowerLows = last5.every((candle, i) => i === 0 || candle.low <= last5[i - 1].low);
-      
-      // EMA alignment OR price action confirms trend
-      if (emaUptrend || higherHighs) {
+
+      // ⚡ COMBO FIX: relaxed direction — short-term EMA OR net 5-bar price change
+      const shortEmaUp = indicators.ema9 > indicators.ema21;
+      const shortEmaDown = indicators.ema9 < indicators.ema21;
+      const netUp = last5.length >= 2 && last5[last5.length - 1].close > last5[0].close;
+      const netDown = last5.length >= 2 && last5[last5.length - 1].close < last5[0].close;
+
+      if (emaUptrend || higherHighs || (shortEmaUp && netUp)) {
         return { type: 'TRENDING_UP', strength: adx, suitable_for_trading: true };
       }
-      
-      if (emaDowntrend || lowerLows) {
+      if (emaDowntrend || lowerLows || (shortEmaDown && netDown)) {
         return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
       }
-      
-      // ADX high but no clear direction = volatile
+
+      // ⚡ COMBO FIX: very strong ADX (>40) is tradeable even when called VOLATILE — use net direction
+      if (adx > 40) {
+        if (netUp) return { type: 'TRENDING_UP', strength: adx, suitable_for_trading: true };
+        if (netDown) return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
+      }
+
       return { type: 'VOLATILE', strength: adx, suitable_for_trading: false };
     }
     
