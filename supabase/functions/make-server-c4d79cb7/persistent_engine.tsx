@@ -798,11 +798,10 @@ class PersistentTradingEngine {
           console.log(`\n📊 Analyzing index: ${indexName}`);
           
           const aiSignal = await AdvancedAI.analyzeMarket(
+            dhanService,
             indexName,
             state.candleInterval,
-            100000,
-            dhanClientId,
-            dhanAccessToken
+            100000
           );
           
           analyzedIndices.add(indexName);

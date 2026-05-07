@@ -148,6 +148,9 @@ export interface AdvancedSignal {
     isHigh: boolean;
     isSpike: boolean;
     smartMoney: boolean;
+    currentVolume: number;
+    averageVolume: number;
+    hasData: boolean;
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -177,90 +180,6 @@ export interface AdvancedSignal {
 }
 
 export class AdvancedAI {
-  
-  /**
-   * ⚡⚡⚡ MAIN ENTRY POINT - ANALYZE MARKET ⚡⚡⚡
-   * Fetches OHLC data and generates trading signal
-   * 
-   * @param indexSymbol - 'NIFTY' or 'BANKNIFTY'
-   * @param interval - '5' or '15' (minutes)
-   * @param accountBalance - Account balance for position sizing
-   * @param dhanClientId - Dhan client ID (optional, will try to get from env if not provided)
-   * @param dhanAccessToken - Dhan access token (optional, will try to get from env if not provided)
-   */
-  public static async analyzeMarket(
-    indexSymbol: string,
-    interval: '5' | '15',
-    accountBalance: number = 100000,
-    dhanClientId?: string,
-    dhanAccessToken?: string
-  ): Promise<{ signal: AdvancedSignal; ohlcData: OHLCCandle[] } | null> {
-    try {
-      console.log(`\n🤖 AdvancedAI.analyzeMarket() called:`);
-      console.log(`   Index: ${indexSymbol}`);
-      console.log(`   Interval: ${interval}M`);
-      console.log(`   Balance: ₹${accountBalance}`);
-      
-      // Import DhanService to fetch OHLC data
-      const { DhanService } = await import('./dhan_service.tsx');
-      
-      // Get Dhan credentials (use provided ones or try env)
-      const clientId = dhanClientId || Deno.env.get('DHAN_CLIENT_ID') || '';
-      const accessToken = dhanAccessToken || Deno.env.get('DHAN_ACCESS_TOKEN') || '';
-      
-      if (!clientId || !accessToken) {
-        console.error('❌ Dhan credentials not provided');
-        return null;
-      }
-      
-      // Create Dhan service instance
-      const dhanService = new DhanService({
-        clientId: clientId,
-        accessToken: accessToken
-      });
-      
-      // ⚡ FIX: Convert index symbol name to security ID
-      let securityId = indexSymbol;
-      if (indexSymbol.toUpperCase() === 'NIFTY' || indexSymbol.toUpperCase() === 'NIFTY 50' || indexSymbol.toUpperCase() === 'NIFTY50') {
-        securityId = '13'; // NIFTY 50 security ID
-        console.log(`📌 Converting NIFTY to security ID: ${securityId}`);
-      } else if (indexSymbol.toUpperCase() === 'BANKNIFTY' || indexSymbol.toUpperCase() === 'BANK NIFTY' || indexSymbol.toUpperCase() === 'BANKNIFTY50') {
-        securityId = '25'; // BANK NIFTY security ID
-        console.log(`📌 Converting BANKNIFTY to security ID: ${securityId}`);
-      } else if (indexSymbol.toUpperCase() === 'SENSEX' || indexSymbol.toUpperCase() === 'BSE SENSEX') {
-        securityId = '51'; // SENSEX security ID
-        console.log(`📌 Converting SENSEX to security ID: ${securityId}`);
-      } else if (indexSymbol.toUpperCase() === 'FINNIFTY' || indexSymbol.toUpperCase() === 'NIFTY FIN SERVICE') {
-        securityId = '27'; // FINNIFTY security ID
-        console.log(`📌 Converting FINNIFTY to security ID: ${securityId}`);
-      } else {
-        console.log(`📌 Using provided security ID: ${securityId}`);
-      }
-      
-      // Fetch OHLC data
-      console.log(`📊 Fetching OHLC data for security ID ${securityId} (${indexSymbol})...`);
-      const ohlcData = await dhanService.getOHLCData(securityId, interval);
-      
-      if (!ohlcData || ohlcData.length < 50) {
-        console.error(`❌ Insufficient OHLC data: ${ohlcData?.length || 0} candles`);
-        return null;
-      }
-      
-      console.log(`✅ Fetched ${ohlcData.length} candles`);
-      console.log(`🧠 Generating Advanced AI signal...`);
-      
-      // Generate signal using all 15+ indicators
-      const signal = this.generateAdvancedSignal(ohlcData, accountBalance);
-      
-      console.log(`✅ Signal generated: ${signal.action} (${signal.confidence}%)`);
-      
-      return { signal, ohlcData };
-      
-    } catch (error) {
-      console.error('❌ AdvancedAI.analyzeMarket() error:', error);
-      return null;
-    }
-  }
   
   // ========================================
   // TECHNICAL INDICATORS (ALL OPTIMIZED!)
@@ -420,22 +339,39 @@ export class AdvancedAI {
   
   /**
    * Calculate MACD (Moving Average Convergence Divergence)
+   * ✅ FIXED: Proper EMA9 signal line calculation
    */
   private static calculateMACD(data: OHLCCandle[]): { macd: number; signal: number; histogram: number } {
-    const ema12 = this.calculateEMA(data, 12);
-    const ema26 = this.calculateEMA(data, 26);
-    const macd = ema12 - ema26;
+    if (data.length < 35) {
+      return { macd: 0, signal: 0, histogram: 0 };
+    }
     
-    // For signal line, we'd need to calculate EMA of MACD values
-    // Simplified: use 9-period approximation
-    const recentData = data.slice(-9);
-    const signalSum = recentData.reduce((sum, candle) => {
-      const ema12_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 12);
-      const ema26_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 26);
-      return sum + (ema12_temp - ema26_temp);
-    }, 0);
+    // Step 1: Calculate MACD values for all candles
+    const macdValues: number[] = [];
     
-    const signal = signalSum / 9;
+    for (let i = 26; i < data.length; i++) {
+      const subset = data.slice(0, i + 1);
+      const ema12 = this.calculateEMA(subset, 12);
+      const ema26 = this.calculateEMA(subset, 26);
+      macdValues.push(ema12 - ema26);
+    }
+    
+    // Step 2: Calculate signal line (EMA9 of MACD)
+    if (macdValues.length < 9) {
+      const macd = macdValues[macdValues.length - 1] || 0;
+      return { macd, signal: macd, histogram: 0 };
+    }
+    
+    // Use first MACD as starting point
+    const k = 2 / (9 + 1); // EMA multiplier
+    let signal = macdValues[0];
+    
+    for (let i = 1; i < macdValues.length; i++) {
+      signal = (macdValues[i] * k) + (signal * (1 - k));
+    }
+    
+    // Step 3: Calculate histogram
+    const macd = macdValues[macdValues.length - 1];
     const histogram = macd - signal;
     
     return { macd, signal, histogram };
@@ -499,35 +435,66 @@ export class AdvancedAI {
   
   /**
    * Calculate ADX (Average Directional Index) - Trend Strength
+   * ✅ FIXED: Now returns actual ADX (smoothed average of DX), not just DX
    */
   private static calculateADX(data: OHLCCandle[], period: number = 14): number {
-    if (data.length < period + 1) return 0;
+    if (data.length < period * 2) return 0;
     
-    let plusDM = 0;
-    let minusDM = 0;
-    let tr = 0;
+    const dxValues: number[] = [];
     
-    for (let i = data.length - period; i < data.length; i++) {
-      const highDiff = data[i].high - data[i - 1].high;
-      const lowDiff = data[i - 1].low - data[i].low;
+    // Calculate DX for each period
+    for (let i = period; i < data.length; i++) {
+      let plusDM = 0;
+      let minusDM = 0;
+      let tr = 0;
       
-      plusDM += (highDiff > lowDiff && highDiff > 0) ? highDiff : 0;
-      minusDM += (lowDiff > highDiff && lowDiff > 0) ? lowDiff : 0;
+      // Sum over the period
+      for (let j = i - period + 1; j <= i; j++) {
+        const highDiff = data[j].high - data[j - 1].high;
+        const lowDiff = data[j - 1].low - data[j].low;
+        
+        // Directional Movement
+        if (highDiff > lowDiff && highDiff > 0) {
+          plusDM += highDiff;
+        } else if (lowDiff > highDiff && lowDiff > 0) {
+          minusDM += lowDiff;
+        }
+        
+        // True Range
+        tr += Math.max(
+          data[j].high - data[j].low,
+          Math.abs(data[j].high - data[j - 1].close),
+          Math.abs(data[j].low - data[j - 1].close)
+        );
+      }
       
-      const trueRange = Math.max(
-        data[i].high - data[i].low,
-        Math.abs(data[i].high - data[i - 1].close),
-        Math.abs(data[i].low - data[i - 1].close)
-      );
-      tr += trueRange;
+      // Calculate DI and DX
+      if (tr > 0) {
+        const plusDI = (plusDM / tr) * 100;
+        const minusDI = (minusDM / tr) * 100;
+        const diSum = plusDI + minusDI;
+        
+        if (diSum > 0) {
+          const dx = (Math.abs(plusDI - minusDI) / diSum) * 100;
+          dxValues.push(dx);
+        }
+      }
     }
     
-    const plusDI = (plusDM / tr) * 100;
-    const minusDI = (minusDM / tr) * 100;
+    // ADX = Smoothed average of DX (EMA-like)
+    if (dxValues.length < period) {
+      return dxValues.length > 0 ? dxValues[dxValues.length - 1] : 0;
+    }
     
-    const dx = Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100;
+    // Initial ADX = average of first 'period' DX values
+    let adx = dxValues.slice(0, period).reduce((sum, val) => sum + val, 0) / period;
     
-    return dx;
+    // Smooth subsequent values
+    for (let i = period; i < dxValues.length; i++) {
+      adx = ((adx * (period - 1)) + dxValues[i]) / period;
+    }
+    
+    return adx;
   }
   
   /**
@@ -845,8 +812,9 @@ export class AdvancedAI {
     
     // Bollinger Bands
     const bollinger = this.calculateBollingerBands(ohlcData);
-    const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
-    const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
+    const bollingerRange = Math.max(bollinger.upper - bollinger.lower, lastCandle.close * 0.001);
+    const priceNearUpperBand = lastCandle.close >= (bollinger.upper - bollingerRange * 0.15);
+    const priceNearLowerBand = lastCandle.close <= (bollinger.lower + bollingerRange * 0.15);
     const bollingerSqueeze = bollinger.width < 2;
     calculationsPerformed += 1;
     
@@ -871,8 +839,9 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Support/Resistance
-    const highs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
-    const lows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
+    const srCandles = ohlcData.length > 20 ? ohlcData.slice(-51, -1) : ohlcData.slice(0, -1);
+    const highs = (srCandles.length ? srCandles : ohlcData).map(c => c.high).sort((a, b) => b - a);
+    const lows = (srCandles.length ? srCandles : ohlcData).map(c => c.low).sort((a, b) => a - b);
     
     const resistance1 = highs[0];
     const resistance2 = highs[Math.floor(highs.length * 0.2)];
@@ -882,8 +851,9 @@ export class AdvancedAI {
     const support2 = lows[Math.floor(lows.length * 0.2)];
     const support3 = lows[Math.floor(lows.length * 0.4)];
     
-    const nearResistance = lastCandle.close > resistance1 * 0.98;
-    const nearSupport = lastCandle.close < support1 * 1.02;
+    const srTolerance = Math.max(atr14 * 0.35, lastCandle.close * 0.001);
+    const nearResistance = lastCandle.close <= resistance1 && (resistance1 - lastCandle.close) <= srTolerance;
+    const nearSupport = lastCandle.close >= support1 && (lastCandle.close - support1) <= srTolerance;
     calculationsPerformed += 1;
     
     // Fibonacci
@@ -898,13 +868,17 @@ export class AdvancedAI {
     // Volume Analysis
     const last10Candles = ohlcData.slice(-10);
     const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
-    const volumeRatio = lastCandle.volume / avgVolume;
-    const isHighVolume = volumeRatio > 1.5;
-    const isVolumeSpike = volumeRatio > 2.0;
+    const volumeRatio = (avgVolume > 0 && lastCandle.volume > 0)
+      ? lastCandle.volume / avgVolume
+      : 0;
+    const hasVolumeData = avgVolume > 0 && lastCandle.volume > 0;
+    const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
+    const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
     const bodySize = Math.abs(lastCandle.close - lastCandle.open);
     const bodyPercent = ((bodySize / (lastCandle.high - lastCandle.low)) * 100) || 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
     
+    console.log(`📊 VOLUME DEBUG: lastVolume=${lastCandle.volume}, avgVolume=${avgVolume.toFixed(2)}, volumeRatio=${volumeRatio.toFixed(2)}, hasVolumeData=${hasVolumeData}`);
     console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, close=${lastCandle.close}, open=${lastCandle.open}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
     
     // Order Flow
@@ -943,7 +917,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 6,
+      required: 7,
       details: [] as string[],
       vwap: false,
       ema: false,
@@ -960,16 +934,20 @@ export class AdvancedAI {
     const isBullish = lastCandle.close > lastCandle.open;
     const isBearish = lastCandle.close < lastCandle.open;
     
-    // ⚡ FIX BUG #8: Use Market Regime for trend bias (not just current candle!)
-    // In strong trends (ADX > 25), small counter-trend candles don't change the bias
-    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' : 
-                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' : 
+    const recentClosedCandles = ohlcData.slice(-4);
+    const bullishMomentum = lastCandle.close > prevCandle.close && lastCandle.high >= prevCandle.high;
+    const bearishMomentum = lastCandle.close < prevCandle.close && lastCandle.low <= prevCandle.low;
+    const bullishCandleCount = recentClosedCandles.filter(c => c.close > c.open).length;
+    const bearishCandleCount = recentClosedCandles.filter(c => c.close < c.open).length;
+    const trendBias = marketRegime.type === 'TRENDING_UP' ? 'bullish' :
+                      marketRegime.type === 'TRENDING_DOWN' ? 'bearish' :
                       isBullish ? 'bullish' : isBearish ? 'bearish' : 'neutral';
     
-    // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
-    const useTrendBias = adx > 25;  // Changed from 40 to 25!
-    const confirmationBullish = useTrendBias ? (trendBias === 'bullish') : isBullish;
-    const confirmationBearish = useTrendBias ? (trendBias === 'bearish') : isBearish;
+    const useTrendBias = adx > 25;
+    const trendBullishAllowed = trendBias === 'bullish' && (isBullish || bullishMomentum || bullishCandleCount > bearishCandleCount);
+    const trendBearishAllowed = trendBias === 'bearish' && (isBearish || bearishMomentum || bearishCandleCount > bullishCandleCount);
+    const confirmationBullish = useTrendBias ? trendBullishAllowed : isBullish;
+    const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
@@ -1077,12 +1055,16 @@ export class AdvancedAI {
     }
     
     // 6. Volume Confirmation (Weight: 1)
-    if ((isBullish || isBearish) && isHighVolume && bodyPercent > 40) {
+    const strongTrendVolumeBypass = adx >= 25 && bodyPercent >= 25 && (confirmationBullish || confirmationBearish);
+    if ((isBullish || isBearish) && ((isHighVolume && bodyPercent > 40) || strongTrendVolumeBypass)) {
       confirmations.volume = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`);
+      totalWeightedScore += 1;
+      confirmationDetails.push(hasVolumeData
+        ? `✅ Volume: ${strongTrendVolumeBypass && !isHighVolume ? 'Trend candle bypass' : 'High'} (${volumeRatio.toFixed(2)}x) + body ${bodyPercent.toFixed(1)}%`
+        : `✅ Volume: Missing feed ignored, trend candle body ${bodyPercent.toFixed(1)}%`
+      );
     } else {
-      confirmationDetails.push('❌ Volume: Low or weak candle');
+      confirmationDetails.push(hasVolumeData ? '❌ Volume: Low or weak candle' : '⚠️ Volume: Missing feed, waiting for stronger candle');
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
@@ -1156,14 +1138,14 @@ export class AdvancedAI {
     // In strong trends, minor pullbacks don't invalidate the trend!
     const trendingMarket = adx > 25;
     
-    if (trendingMarket && confirmationBullish) {
+    if (trendingMarket && confirmationBullish && bullishMomentum) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong uptrend (ADX ${adx.toFixed(1)})`);
-    } else if (trendingMarket && confirmationBearish) {
+      confirmationDetails.push(`✅ Price Action: Uptrend continuation (higher close/high, ADX ${adx.toFixed(1)})`);
+    } else if (trendingMarket && confirmationBearish && bearishMomentum) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong downtrend (ADX ${adx.toFixed(1)})`);
+      confirmationDetails.push(`✅ Price Action: Downtrend continuation (lower close/low, ADX ${adx.toFixed(1)})`);
     } else if (confirmationBullish && higherHighs) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
@@ -1215,24 +1197,25 @@ export class AdvancedAI {
     let bias: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
     
     // MUST have 6+ confirmations AND suitable market regime
-    // ⚡ FIX: Indices (NIFTY/BANKNIFTY) have NO real volume — skip volume check when volume is 0/synthetic
-    // ⚡ FIX: Body size scales with index price; use ATR-based dynamic minimum instead of fixed 10pts
-    // ⚡ FIX: Bypass body+volume checks when confirmations are very high (8+/10)
-    const isIndexNoVolume = !isFinite(volumeRatio) || avgVolume <= 0 || lastCandle.volume <= 0;
-    const dynamicMinBody = Math.max(2, Math.min(10, atr * 0.15)); // ATR-based: small for low-vol candles
-    const minimumBodySize = dynamicMinBody;
-    const isVeryStrongTrend = adx > 50;
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
-    const hasAcceptableVolume = isIndexNoVolume ? true : (volumeRatio >= minimumVolumeRatio);
+    // ✅ FIXED: Use fixed point-based candle body, not percentage-based
+    const minimumBodySize = Math.max(10, atr14 * 0.25); // Dynamic by index volatility
+    const candleMovePoints = Math.max(
+      Math.abs(lastCandle.close - lastCandle.open),
+      Math.abs(lastCandle.high - lastCandle.low)
+    );
     
-    // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80) OR very high confirmations (8+)
-    const hasStrongPattern = (confirmations.total >= 8) || patterns.some(p => p.confidence >= 80 && 
+    // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
+    const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
+    console.log(`📏 Candle move check: body=${bodySize.toFixed(2)}pts, range=${(lastCandle.high - lastCandle.low).toFixed(2)}pts, move=${candleMovePoints.toFixed(2)}pts, min=${minimumBodySize.toFixed(2)}pts`);
     
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), isVeryStrongTrend=${isVeryStrongTrend} (ADX=${adx.toFixed(1)}), regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+    const decisiveBullishMove = isBullish && bullishMomentum;
+    const decisiveBearishMove = isBearish && bearishMomentum;
+    const strongBullish = confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    const strongBearish = confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    
+    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
@@ -1254,20 +1237,20 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
       
-    } else if (confirmations.total < 6) {
+    } else if (confirmations.total < confirmations.required) {
       action = 'WAIT';
       confidence = 40;
       // ⚡ FIX BUG #8: Use trend bias in strong trends, not current candle color
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
+      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`;
       
-    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume (1.2x) for consistency
+    } else if (candleMovePoints < minimumBodySize) {
       // ⚡ FIX: Only block if no strong pattern exists
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
-        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
+        reasoning = `WAIT: Weak candle movement (${candleMovePoints.toFixed(1)}pts, min ${minimumBodySize}).`;
       }
     } else {
       action = 'WAIT';
@@ -1328,6 +1311,9 @@ export class AdvancedAI {
         isHigh: isHighVolume,
         isSpike: isVolumeSpike,
         smartMoney,
+        currentVolume: lastCandle.volume,
+        averageVolume: avgVolume,
+        hasData: hasVolumeData,
         buyPressure: orderFlow.buyPressure,
         sellPressure: orderFlow.sellPressure,
         orderFlow: orderFlow.orderFlow
@@ -1339,5 +1325,65 @@ export class AdvancedAI {
       executionTime,
       calculationsPerformed
     };
+  }
+  
+  /**
+   * ⚡⚡⚡ ANALYZE MARKET WRAPPER - FETCHES DATA & GENERATES SIGNAL ⚡⚡⚡
+   */
+  public static async analyzeMarket(
+    dhanService: any,
+    index: string,
+    candleInterval: string,
+    accountBalance: number = 100000
+  ): Promise<{ signal: AdvancedSignal; ohlcData: OHLCCandle[] } | null> {
+    try {
+      console.log(`\n🔍 [AdvancedAI] analyzeMarket() called for ${index} (${candleInterval}M)`);
+
+      const getSecurityId = (idx: string): string => {
+        if (idx === 'NIFTY') return '13';
+        if (idx === 'BANKNIFTY') return '25';
+        if (idx === 'SENSEX') return '51';
+        if (idx === 'FINNIFTY') return '27';
+        if (idx === 'MIDCPNIFTY') return '288';
+        return '13';
+      };
+
+      const securityId = getSecurityId(index.toUpperCase());
+      console.log(`📊 [AdvancedAI] Security ID: ${securityId} for ${index}`);
+      console.log(`📡 [AdvancedAI] Fetching OHLC data...`);
+
+      const rawData = await dhanService.getOHLCData(securityId, candleInterval, 250);
+      if (!rawData || rawData.length === 0) {
+        console.error(`❌ [AdvancedAI] No OHLC data received for ${index}`);
+        return null;
+      }
+
+      const ohlcData: OHLCCandle[] = rawData.map((candle: any) => ({
+        timestamp: candle.timestamp || new Date(candle.start_time).getTime(),
+        open: parseFloat(candle.open),
+        high: parseFloat(candle.high),
+        low: parseFloat(candle.low),
+        close: parseFloat(candle.close),
+        volume: parseFloat(candle.volume || 0)
+      }));
+
+      const analysisCandles = ohlcData.length > 3 ? ohlcData.slice(0, -1) : ohlcData;
+      const analyzedCandle = analysisCandles[analysisCandles.length - 1];
+
+      if (analysisCandles.length !== ohlcData.length) {
+        const liveCandle = ohlcData[ohlcData.length - 1];
+        console.log(`⏱️ [AdvancedAI] Ignoring live candle: ${new Date(liveCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | volume=${liveCandle.volume}`);
+      }
+
+      console.log(`📊 [AdvancedAI] Using closed candle: ${new Date(analyzedCandle.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} | close=${analyzedCandle.close} | volume=${analyzedCandle.volume}`);
+
+      const signal = this.generateAdvancedSignal(analysisCandles, accountBalance);
+      console.log(`✅ [AdvancedAI] Signal generated: ${signal.action} (${signal.confidence}% confidence)`);
+
+      return { signal, ohlcData: analysisCandles };
+    } catch (error) {
+      console.error(`❌ [AdvancedAI] analyzeMarket() error:`, error);
+      return null;
+    }
   }
 }
