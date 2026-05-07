@@ -196,13 +196,11 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     NIFTY: any | null;
     BANKNIFTY: any | null;
     SENSEX: any | null;
+    __timestamp?: number;
   }>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('engine_signals') || '{}');
-      return { NIFTY: saved.NIFTY || null, BANKNIFTY: saved.BANKNIFTY || null, SENSEX: saved.SENSEX || null, __timestamp: saved.__timestamp || 0 };
-    } catch {
-      return { NIFTY: null, BANKNIFTY: null, SENSEX: null };
-    }
+    // Backend engine snapshot is the source of truth. Do not hydrate stale
+    // locally-generated signals here because they can show wrong confidence.
+    return { NIFTY: null, BANKNIFTY: null, SENSEX: null, __timestamp: 0 };
   });
   const [selectedAnalysisIndex, setSelectedAnalysisIndex] = useState<'NIFTY' | 'BANKNIFTY' | 'SENSEX'>('NIFTY');
   
@@ -774,50 +772,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       syncEngineState();
     }, 1500);
 
-    // ⚡⚡⚡ LIVE SIGNAL POLLER ⚡⚡⚡
-    // Always fetch fresh AI signals for all 3 indices regardless of engine state.
-    // This ensures the dashboard ALWAYS shows the current candle's signal,
-    // not a stale 15:00 cached signal when engine is OFF.
+    // ⚡⚡⚡ LIVE SIGNAL SYNC ⚡⚡⚡
+    // Only read the latest saved engine snapshot. Do NOT generate new UI-only
+    // signals here, otherwise card confidence can differ from engine logs.
     let liveSignalInFlight = false;
     const fetchLiveSignals = async () => {
       if (liveSignalInFlight) return;
       liveSignalInFlight = true;
       try {
-        const freshToken = await getFreshAccessToken();
-        if (!freshToken) return;
-        const interval = candleIntervalRef.current || '5';
-
-        const indices: Array<'NIFTY' | 'BANKNIFTY' | 'SENSEX'> = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
-        const results = await Promise.all(indices.map(async (idx) => {
-          try {
-            const resp = await fetch(`${serverUrl}/advanced-ai-signal`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
-              body: JSON.stringify({ index: idx, interval, accountBalance: 100000 }),
-            });
-            if (!resp.ok) return null;
-            const data = await resp.json();
-            if (!data?.signal) return null;
-            return normalizeSignalPayload(
-              { signal: data.signal, timestamp: Date.now(), timeframe: `${interval}M`, index_name: idx },
-              idx
-            );
-          } catch { return null; }
-        }));
-
-        const fresh: any = {};
-        indices.forEach((idx, i) => { if (results[i]) fresh[idx] = results[i]; });
-        if (!fresh.NIFTY && !fresh.BANKNIFTY && !fresh.SENSEX) return;
-
-        setMultiSymbolSignals(prev => {
-          const updated: any = { ...prev, __timestamp: Date.now() };
-          for (const idx of indices) {
-            if (fresh[idx] && (!prev[idx] || (fresh[idx].timestamp || 0) >= (prev[idx]?.timestamp || 0))) {
-              updated[idx] = fresh[idx];
-            }
-          }
-          return updated;
-        });
+        await syncEngineState();
       } finally {
         liveSignalInFlight = false;
       }
@@ -1073,7 +1036,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           };
 
           for (const idx of ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const) {
-            if (latestSignals[idx] && (!prev[idx] || latestSignals[idx].timestamp > (prev[idx]?.timestamp || 0))) {
+            if (latestSignals[idx]) {
+              // Backend latestSignals already represents the latest candle snapshot.
+              // Always trust it, even when timestamps tie or local cache is newer.
               updated[idx] = latestSignals[idx];
             }
           }
