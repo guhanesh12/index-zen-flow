@@ -1248,13 +1248,18 @@ export class AdvancedAI {
     //   - Reject if price extended > 0.4% from VWAP (chase risk)
     //   - Reject BUY when RSI > 68 (overbought chase)
     //   - Reject SELL when RSI < 32 (oversold chase)
+    // ⚡ FIX #8: ATR-NORMALISED extension block. Old fixed 0.4% rejected every
+    // valid trend trade on Nifty (0.4% ≈ 96pts; trend days extend much further).
+    // Now we reject only when distance exceeds 1.5x ATR (statistically extended).
+    const absVwapDistance = Math.abs(lastCandle.close - vwap);
     const absVwapDistancePct = Math.abs(vwapDistance);
-    const tooExtendedFromVWAP = absVwapDistancePct > 0.4;
-    const buyChaseRisk = confirmationBullish && rsi > 68;
-    const sellChaseRisk = confirmationBearish && rsi < 32;
+    const atrExtensionThreshold = atr14 * 1.5;
+    const tooExtendedFromVWAP = atr14 > 0 && absVwapDistance > atrExtensionThreshold;
+    const buyChaseRisk = confirmationBullish && rsi > 75;   // was 68 (too tight w/ Wilder RSI)
+    const sellChaseRisk = confirmationBearish && rsi < 25;  // was 32
     const extensionBlock = tooExtendedFromVWAP || buyChaseRisk || sellChaseRisk;
     if (extensionBlock) {
-      console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistancePct.toFixed(2)}% (max 0.4%), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
+      console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistance.toFixed(1)}pts (${absVwapDistancePct.toFixed(2)}%) > ${atrExtensionThreshold.toFixed(1)}pts (1.5xATR), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
     }
 
     const qualityGate = confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock;
