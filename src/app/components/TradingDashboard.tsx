@@ -923,7 +923,10 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               <>
                 {/* 💰 PROFIT DASHBOARD - Tiered Pricing & Daily Stats */}
                 <ProfitDashboard accessToken={accessToken} />
-                
+
+                {/* 🚀 ADVANCED PRO POSITION MONITOR - momentum / give-back / time-stop / market-favorable */}
+                <AdvancedPositionMonitor accessToken={accessToken} />
+
                 {/* 📊 POSITIONS & ANALYTICS - Shows current positions and P&L */}
                 <AdvancedDashboard 
                   serverUrl={serverUrl}
