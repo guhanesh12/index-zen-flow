@@ -529,7 +529,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       } catch (error) {
         console.warn('⚠️ Position monitor tick failed:', error);
       }
-    }, 5000);
+    }, 1000);
   };
 
   const clearPositionMonitorLoop = () => {
@@ -961,13 +961,14 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           quantity: p.quantity || 1,
           targetAmount: p.target_amount || 3000,
           stopLossAmount: p.stop_loss_amount || 2000,
-          currentTarget: p.target_amount,
-          currentStopLoss: p.stop_loss_amount,
+          // ⚡ Use dynamic (trailing/edited) values when available, fallback to base
+          currentTarget: p.raw_position?.currentTargetAmount ?? p.target_amount,
+          currentStopLoss: p.raw_position?.currentStopLossAmount ?? p.stop_loss_amount,
           trailingEnabled: p.trailing_enabled || false,
-          trailingActivationAmount: 0,
-          targetJumpAmount: 0,
-          stopLossJumpAmount: 0,
-          trailingActivated: false,
+          trailingActivationAmount: p.raw_position?.trailingActivationAmount || 0,
+          targetJumpAmount: p.raw_position?.targetJumpAmount || 0,
+          stopLossJumpAmount: p.raw_position?.stopLossJumpAmount || 0,
+          trailingActivated: p.raw_position?.trailingActivated || false,
           highestPnL: p.highest_pnl || 0,
           pnl: p.pnl || 0,
           entryTime: new Date(p.created_at).getTime(),
@@ -5064,12 +5065,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                           {pos.trailingEnabled && (
                             <>
                               <div className="text-zinc-400">|</div>
-                              <div className={`px-1.5 py-0.5 rounded ${
+                              <div className={`px-1.5 py-0.5 rounded font-semibold ${
                                 pos.trailingActivated 
-                                  ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' 
-                                  : 'bg-zinc-700 text-zinc-400'
+                                  ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 animate-pulse' 
+                                  : 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
                               }`}>
-                                Trailing {pos.trailingActivated ? 'ON' : 'OFF'}
+                                ⚡ Trailing {pos.trailingActivated ? 'ACTIVE 🔒' : 'ARMED'}
                               </div>
                             </>
                           )}
