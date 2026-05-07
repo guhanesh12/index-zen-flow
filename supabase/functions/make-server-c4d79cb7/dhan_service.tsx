@@ -71,12 +71,17 @@ class RateLimiter {
 // Global rate limiter instance shared across all DhanService instances
 const globalRateLimiter = new RateLimiter();
 
+// ⚡ Shared market-data cache across DhanService instances in the same Edge isolate.
+// Edge functions create new service instances often; an instance-only cache caused
+// repeated OHLC calls and DH-904 rate limits before signals could be generated.
+const sharedPriceCache: Map<string, { price: any; timestamp: number }> = new Map();
+
 export class DhanService {
   private clientId: string;
   private accessToken: string;
-  private priceCache: Map<string, { price: any; timestamp: number }> = new Map();
-  private readonly CACHE_DURATION = 15000; // Keep strategy candles fresh without overloading Dhan
-  private readonly QUOTE_CACHE_DURATION = 1000; // Live position monitor needs near real-time prices
+  private priceCache: Map<string, { price: any; timestamp: number }> = sharedPriceCache;
+  private readonly CACHE_DURATION = 60000; // Keep strategy candles fresh without overloading Dhan
+  private readonly QUOTE_CACHE_DURATION = 5000; // Live position monitor still ticks every second; quote fallback can be safely cached briefly
   private readonly MAX_RETRIES = 3; // Maximum retry attempts for 502 errors
   private readonly RETRY_DELAY = 1000; // Initial retry delay in ms
   private rateLimitRetryCount = 0;
@@ -106,7 +111,7 @@ export class DhanService {
           const responseText = await responseClone.text();
           if (responseText.includes('Rate_Limit') || responseText.includes('DH-904')) {
             // ⚡ Auto-reset retry counter if last hit was long ago (>30s)
-            if (Date.now() - (this as any)._lastRateLimitAt > 30000) {
+            if (!(this as any)._lastRateLimitAt || Date.now() - (this as any)._lastRateLimitAt > 30000) {
               this.rateLimitRetryCount = 0;
             }
             (this as any)._lastRateLimitAt = Date.now();
