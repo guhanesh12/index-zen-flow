@@ -10096,17 +10096,8 @@ app.post("/make-server-c4d79cb7/position-monitor/update", async (c) => {
 
     // Also update in-memory engine state if running
     try {
-      const { persistentEngine } = await import('./persistent_engine.tsx');
-      const state = (persistentEngine as any).engineStates?.get?.(user.id);
-      if (state?.activePositions) {
-        const pos = state.activePositions.find((p: any) => p.orderId === orderId);
-        if (pos) {
-          pos.targetAmount = targetAmount;
-          pos.stopLossAmount = stopLossAmount;
-          pos.currentTargetAmount = targetAmount;
-          pos.currentStopLossAmount = stopLossAmount;
-        }
-      }
+      const mod = await import('./persistent_engine.tsx');
+      mod.PersistentTradingEngine.updateActivePositionTargets(user.id, orderId, targetAmount, stopLossAmount);
     } catch (e) {
       console.warn('In-memory engine state update skipped:', (e as any)?.message);
     }
