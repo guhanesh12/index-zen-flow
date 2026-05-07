@@ -1262,7 +1262,9 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = confirmations.total < confirmations.required
         ? `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`
-        : `WAIT: Quality gate failed. Need VWAP+EMA+ADX+price-action alignment with real volume confirmation.`;
+        : extensionBlock
+          ? `WAIT: Entry too extended (VWAP dist ${absVwapDistancePct.toFixed(2)}%, RSI ${rsi.toFixed(1)}). Avoiding chase / fake breakout.`
+          : `WAIT: Quality gate failed. Need VWAP+EMA+ADX+price-action alignment with real volume confirmation.`;
       
     } else if (candleMovePoints < minimumBodySize) {
       // ⚡ FIX: Only block if no strong pattern exists
