@@ -808,7 +808,20 @@ export class AdvancedAI {
   public static generateAdvancedSignal(ohlcData: OHLCCandle[], accountBalance: number = 100000): AdvancedSignal {
     const startTime = performance.now();
     let calculationsPerformed = 0;
-    
+
+    // 🐛 BUG FIX #1: Drop trailing incomplete / zero-volume candles (after-hours,
+    // pre-open ticks, or partially formed bars). They corrupt the "last candle"
+    // used for entry decisions and skew volume averages.
+    while (ohlcData.length > 2 && ohlcData[ohlcData.length - 1].volume <= 0
+           && ohlcData[ohlcData.length - 1].high === ohlcData[ohlcData.length - 1].low) {
+      ohlcData = ohlcData.slice(0, -1);
+    }
+
+    // 🐛 BUG FIX #2: Guard against insufficient data
+    if (ohlcData.length < 2) {
+      throw new Error(`Insufficient candle data: need ≥2, got ${ohlcData.length}`);
+    }
+
     // Last candle
     const lastCandle = ohlcData[ohlcData.length - 1];
     const prevCandle = ohlcData[ohlcData.length - 2];
