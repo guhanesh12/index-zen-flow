@@ -1215,28 +1215,24 @@ export class AdvancedAI {
     confirmations.details = confirmationDetails;
     confirmations.total = totalWeightedScore; // Set the total to the weighted score
     
-    // ========== RISK MANAGEMENT (HIGH-WIN-RATE) ==========
+    // ========== RISK MANAGEMENT (HIGH-WIN-RATE v2) ==========
     const currentPrice = lastCandle.close;
 
-    // ⚡ HIGH-WIN-RATE: tighter SL via recent swing (last 5 bars) capped at 1.5xATR; TP at 2x risk (2:1 R:R)
+    // Wider SL (1.8xATR) reduces noise stop-outs; TP at 2.2x risk for solid 1:2.2 R:R
     const swingWindow = ohlcData.slice(-6, -1);
     const swingHigh = swingWindow.length ? Math.max(...swingWindow.map(c => c.high)) : lastCandle.high;
     const swingLow = swingWindow.length ? Math.min(...swingWindow.map(c => c.low)) : lastCandle.low;
-    const atrSL = atr14 * 1.2;
     const isBullishCandle = lastCandle.close > lastCandle.open;
-    const rawSwingDist = isBullishCandle ? (currentPrice - swingLow) : (swingHigh - currentPrice);
-    const stopLossDistance = Math.max(atr14 * 0.6, Math.min(atrSL, rawSwingDist + atr14 * 0.2));
+    const swingDist = isBullishCandle ? (currentPrice - swingLow) : (swingHigh - currentPrice);
+    const stopLossDistance = Math.max(atr14 * 1.0, Math.min(atr14 * 2.2, swingDist + atr14 * 0.3));
     const suggestedStopLoss = isBullishCandle ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
 
-    // 2:1 R:R — easier to hit TP, raises win rate
-    const targetDistance = stopLossDistance * 2;
+    const targetDistance = stopLossDistance * 2.2;
     const suggestedTarget = isBullishCandle ? currentPrice + targetDistance : currentPrice - targetDistance;
 
-    // Position sizing (risk 2% of account)
     const riskAmount = accountBalance * 0.02;
     const positionSize = Math.floor(riskAmount / stopLossDistance);
-
-    const riskRewardRatio = 2.0;
+    const riskRewardRatio = 2.2;
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
 
