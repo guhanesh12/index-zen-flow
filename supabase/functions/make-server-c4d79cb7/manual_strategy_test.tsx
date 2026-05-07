@@ -159,6 +159,7 @@ export function simulateTrades(
       avgLoss: losses.length ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0,
       tpExits: trades.filter(t => t.exitReason === 'TP').length,
       slExits: trades.filter(t => t.exitReason === 'SL').length,
+      beExits: trades.filter(t => t.exitReason === 'BE').length,
       reverseExits: trades.filter(t => t.exitReason === 'REVERSE_SIGNAL').length,
     },
   };
