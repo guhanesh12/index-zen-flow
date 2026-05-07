@@ -1116,13 +1116,17 @@ export class AdvancedAI {
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
-    // ⚡ FIX: Use confirmationBullish/Bearish (trend bias) instead of candle color!
+    // ⚡ COMBO FIX (opt 3): During opening hour, ADX is unreliable — accept EMA alignment alone.
+    const openingHourTrend = isOpeningHour && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend));
     if (trending && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend))) {
       confirmations.adx = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       confirmationDetails.push(`✅ ADX: Strong trend (${adx.toFixed(1)})`);
+    } else if (openingHourTrend) {
+      confirmations.adx = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ ADX: Opening-hour bypass (EMAs aligned, ADX ${adx.toFixed(1)})`);
     } else {
-      // ⚡ FIX: Show correct ADX interpretation
       const adxInterpretation = this.getADXInterpretation(adx);
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)}) - ${trending ? 'Strong but' : 'Weak,'} EMAs not aligned`);
     }
