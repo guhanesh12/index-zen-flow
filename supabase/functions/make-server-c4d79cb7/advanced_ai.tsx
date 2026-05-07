@@ -1120,13 +1120,13 @@ export class AdvancedAI {
       // Validate bullish pattern
       const patternValidation = this.validatePattern(bullishPatterns[0], lastCandle, prevCandle, nearResistance, nearSupport);
       confirmations.pattern = patternValidation.isValid;
-      totalWeightedScore += patternValidation.weight; // Weight: 1-2 based on validation
+      if (patternValidation.isValid) totalWeightedScore += patternValidation.weight; // Count only validated patterns
       confirmationDetails.push(`${patternValidation.isValid ? '✅' : '⚠️'} Pattern: ${bullishPatterns[0].type} (${patternValidation.reason})`);
     } else if (confirmationBearish && bearishPatterns.length > 0) {
       // Validate bearish pattern
       const patternValidation = this.validatePattern(bearishPatterns[0], lastCandle, prevCandle, nearResistance, nearSupport);
       confirmations.pattern = patternValidation.isValid;
-      totalWeightedScore += patternValidation.weight; // Weight: 1-2 based on validation
+      if (patternValidation.isValid) totalWeightedScore += patternValidation.weight; // Count only validated patterns
       confirmationDetails.push(`${patternValidation.isValid ? '✅' : '⚠️'} Pattern: ${bearishPatterns[0].type} (${patternValidation.reason})`);
     } else {
       confirmationDetails.push('❌ Pattern: No strong pattern');
