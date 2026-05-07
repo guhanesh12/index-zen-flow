@@ -794,6 +794,12 @@ export class AdvancedAI {
     const startTime = performance.now();
     let calculationsPerformed = 0;
     
+    // ⚡ FIX #6: Drop trailing incomplete / zero-volume candles (after-hours bars,
+    // pre-open ticks). They corrupt the "last candle" used for entry decisions.
+    while (ohlcData.length > 2 && (ohlcData[ohlcData.length - 1].volume <= 0)) {
+      ohlcData = ohlcData.slice(0, -1);
+    }
+    
     // Last candle
     const lastCandle = ohlcData[ohlcData.length - 1];
     const prevCandle = ohlcData[ohlcData.length - 2];
