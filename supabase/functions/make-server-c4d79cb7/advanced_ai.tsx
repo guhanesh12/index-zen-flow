@@ -1101,12 +1101,18 @@ export class AdvancedAI {
     }
     
     // 6. Volume Confirmation (Weight: 1)
-    if ((isBullish || isBearish) && isHighVolume && bodyPercent > 40) {
+    // 🐛 BUG FIX #6: When index has no volume feed, fall back to strong-body candle
+    // so the confirmation isn't permanently disabled on NIFTY/BANKNIFTY.
+    if ((isBullish || isBearish) && hasVolumeData && isHighVolume && bodyPercent > 40) {
       confirmations.volume = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`);
+    } else if ((isBullish || isBearish) && !hasVolumeData && bodyPercent >= 55) {
+      confirmations.volume = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Volume: No feed → strong body fallback (${bodyPercent.toFixed(1)}%)`);
     } else {
-      confirmationDetails.push('❌ Volume: Low or weak candle');
+      confirmationDetails.push(hasVolumeData ? '❌ Volume: Low or weak candle' : '⚠️ Volume: No feed, weak body');
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
