@@ -3395,7 +3395,7 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
     // ⚡ PARALLEL FETCH (SAVE 200-500ms)
     const fetchStart = performance.now();
     const securityId = index === 'BANKNIFTY' ? '25' : '13'; // NIFTY = 13, BANKNIFTY = 25
-    const candleCount = (candles || 50) + 1; // Fetch +1 to account for running candle
+    const candleCount = Math.max(candles || 50, 250) + 1; // enough candles for stable EMA/ADX + running candle
     const candleInterval = interval || '5'; // Default to 5-minute candles
     
     // Fetch data and last order time in parallel
@@ -3409,24 +3409,34 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
 
     if (!ohlcData || ohlcData.length === 0) {
       return c.json({ 
-        error: "Failed to fetch market data",
-        success: false 
-      }, 400);
+        success: true,
+        signal: {
+          action: 'WAIT',
+          confidence: 0,
+          reasoning: 'No fresh closed OHLC data available; waiting for next real market candle.',
+          market_state: 'NO_DATA',
+          bias: 'Neutral',
+          can_place_order: false,
+          noData: true
+        },
+        timestamp: Date.now(),
+        candlesProcessed: 0
+      });
     }
 
     // =============== FILTER OUT RUNNING CANDLE ===============
     // The last candle returned by Dhan might be incomplete (running candle)
     // We need to exclude it and only use completed candles
     
-    // Check if last candle is running (very small range or zero volume indicates incomplete)
+    // Check if last candle is running using IST candle timestamps, not browser/server UTC wall time.
     const possibleRunningCandle = ohlcData[ohlcData.length - 1];
-    const now = Date.now();
     const intervalMinutes = parseInt(candleInterval);
     const intervalMs = intervalMinutes * 60 * 1000;
-    
-    // If the candle's timestamp is within the current interval period, it's likely running
-    const timeSinceCandle = now - possibleRunningCandle.timestamp;
-    const isRunningCandle = timeSinceCandle < intervalMs;
+    const nowIst = new Date(Date.now() + (5.5 * 60 * 60 * 1000));
+    const currentIstMinutes = nowIst.getUTCHours() * 60 + nowIst.getUTCMinutes();
+    const lastCandleIst = new Date(possibleRunningCandle.timestamp + (5.5 * 60 * 60 * 1000));
+    const lastCandleMinutes = lastCandleIst.getUTCHours() * 60 + lastCandleIst.getUTCMinutes();
+    const isRunningCandle = currentIstMinutes >= lastCandleMinutes && currentIstMinutes < lastCandleMinutes + intervalMinutes;
     
     if (isRunningCandle) {
       console.log(`🔄 Excluding running candle: O=${possibleRunningCandle.open}, C=${possibleRunningCandle.close}, V=${possibleRunningCandle.volume}`);
