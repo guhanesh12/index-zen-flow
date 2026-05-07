@@ -529,7 +529,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       } catch (error) {
         console.warn('⚠️ Position monitor tick failed:', error);
       }
-    }, 5000);
+    }, 1000);
   };
 
   const clearPositionMonitorLoop = () => {
@@ -5064,12 +5064,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                           {pos.trailingEnabled && (
                             <>
                               <div className="text-zinc-400">|</div>
-                              <div className={`px-1.5 py-0.5 rounded ${
+                              <div className={`px-1.5 py-0.5 rounded font-semibold ${
                                 pos.trailingActivated 
-                                  ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' 
-                                  : 'bg-zinc-700 text-zinc-400'
+                                  ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 animate-pulse' 
+                                  : 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
                               }`}>
-                                Trailing {pos.trailingActivated ? 'ON' : 'OFF'}
+                                ⚡ Trailing {pos.trailingActivated ? 'ACTIVE 🔒' : 'ARMED'}
                               </div>
                             </>
                           )}
