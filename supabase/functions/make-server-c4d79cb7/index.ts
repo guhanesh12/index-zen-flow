@@ -4560,8 +4560,8 @@ app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
     const { open, high, low, close, volume, timestamp } = data;
     console.log(`📥 Got ${close.length} candles from Dhan`);
 
-    const { signals, summary } = runManualStrategy(open, high, low, close, volume, timestamp);
-    const { trades, stats } = simulateTrades(signals, quantity);
+    const { signals, summary, candles } = runManualStrategy(open, high, low, close, volume, timestamp);
+    const { trades, stats } = simulateTrades(signals, quantity, candles);
 
     const callTrades = trades.filter((t: any) => t.entry === 'BUY_CALL');
     const putTrades = trades.filter((t: any) => t.entry === 'BUY_PUT');
