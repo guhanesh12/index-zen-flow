@@ -962,7 +962,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 6,  // ⚡ COMBO FIX: lowered 8→6 (opt 1) — strategy was rejecting valid setups
+      required: 8,  // ⚡ HIGH-WIN-RATE: raised 6→8 — only A+ setups
       details: [] as string[],
       vwap: false,
       ema: false,
