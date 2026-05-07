@@ -822,9 +822,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         liveSignalInFlight = false;
       }
     };
-    // Kick once shortly after mount, then every 30s
-    const liveSignalKick = setTimeout(fetchLiveSignals, 2000);
-    const liveSignalInterval = setInterval(fetchLiveSignals, 30000);
+    // Kick once shortly after mount, then every 8s for fast UI updates
+    const liveSignalKick = setTimeout(fetchLiveSignals, 1000);
+    const liveSignalInterval = setInterval(fetchLiveSignals, 8000);
 
     return () => {
       clearInterval(clockInterval);
