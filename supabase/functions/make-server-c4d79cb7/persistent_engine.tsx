@@ -1337,6 +1337,28 @@ class PersistentTradingEngine {
           }
         });
         
+        // ⚡⚡⚡ ADVANCED MONITOR INTELLIGENCE (compute BEFORE DB write so UI sees fresh values) ⚡⚡⚡
+        const _now = Date.now();
+        const _hist = Array.isArray((position as any).history) ? (position as any).history : [];
+        _hist.push({ t: _now, price: currentPrice, pnl });
+        while (_hist.length > 12) _hist.shift();
+        (position as any).history = _hist;
+
+        let momentumScore = 0;
+        if (_hist.length >= 6) {
+          const recent = _hist.slice(-3).reduce((a: number, h: any) => a + h.pnl, 0) / 3;
+          const prior  = _hist.slice(-6, -3).reduce((a: number, h: any) => a + h.pnl, 0) / 3;
+          momentumScore = recent - prior;
+        }
+        const giveBack = Math.max(0, (position.highestPnl || 0) - pnl);
+        const giveBackPct = position.highestPnl > 0 ? (giveBack / position.highestPnl) * 100 : 0;
+        const heldMinutes = position.entryTime ? (_now - position.entryTime) / 60000 : 0;
+        const marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
+        (position as any).momentumScore = Number(momentumScore.toFixed(2));
+        (position as any).giveBackPct = Number(giveBackPct.toFixed(1));
+        (position as any).heldMinutes = Number(heldMinutes.toFixed(1));
+        (position as any).marketFavorable = marketFavorable;
+
         // ⚡ Update position in DB (also persist entry_price the first time we see it)
         await supabaseAdmin
           .from('position_monitor_state')
@@ -1355,12 +1377,11 @@ class PersistentTradingEngine {
               trailingActive: _trailingActive,
               profitLocked: position.trailingEnabled && _curSL <= 0,
               lastMonitorAt: Date.now(),
-              monitorDecision: (position as any).monitorDecision,
               momentumScore: (position as any).momentumScore,
               giveBackPct: (position as any).giveBackPct,
               heldMinutes: (position as any).heldMinutes,
-              marketFavorable: (position as any).marketFavorable,
-              history: (position as any).history,
+              marketFavorable,
+              history: _hist,
             }
           })
           .eq('user_id', userId)
@@ -1369,14 +1390,6 @@ class PersistentTradingEngine {
         await this.runWalletAutoDebit(userId, state).catch((err) => {
           console.error(`❌ Running wallet auto-debit failed for ${userId}:`, err);
         });
-
-        // ⚡⚡⚡ ADVANCED MONITOR INTELLIGENCE ⚡⚡⚡
-        // Maintain rolling price + pnl history (last 12 ticks) for momentum / give-back / time-stop
-        const _now = Date.now();
-        const _hist = Array.isArray((position as any).history) ? (position as any).history : [];
-        _hist.push({ t: _now, price: currentPrice, pnl });
-        while (_hist.length > 12) _hist.shift();
-        (position as any).history = _hist;
 
         // Momentum: average pnl change over last 3 ticks vs prior 3 ticks
         let momentumScore = 0; // >0 favorable, <0 unfavorable
