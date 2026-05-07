@@ -1277,10 +1277,12 @@ export class AdvancedAI {
     // Now we reject only when distance exceeds 1.5x ATR (statistically extended).
     const absVwapDistance = Math.abs(lastCandle.close - vwap);
     const absVwapDistancePct = Math.abs(vwapDistance);
-    const atrExtensionThreshold = atr14 * 1.5;
+    // ⚡ COMBO FIX: in strong trends (ADX>40) allow up to 3xATR; very-strong (ADX>50) up to 4xATR.
+    const atrExtMult = adx > 50 ? 4.0 : adx > 40 ? 3.0 : adx > 25 ? 2.0 : 1.5;
+    const atrExtensionThreshold = atr14 * atrExtMult;
     const tooExtendedFromVWAP = atr14 > 0 && absVwapDistance > atrExtensionThreshold;
-    const buyChaseRisk = confirmationBullish && rsi > 75;   // was 68 (too tight w/ Wilder RSI)
-    const sellChaseRisk = confirmationBearish && rsi < 25;  // was 32
+    const buyChaseRisk = confirmationBullish && rsi > 80;
+    const sellChaseRisk = confirmationBearish && rsi < 20;
     const extensionBlock = tooExtendedFromVWAP || buyChaseRisk || sellChaseRisk;
     if (extensionBlock) {
       console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistance.toFixed(1)}pts (${absVwapDistancePct.toFixed(2)}%) > ${atrExtensionThreshold.toFixed(1)}pts (1.5xATR), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
