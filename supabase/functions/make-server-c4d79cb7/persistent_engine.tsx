@@ -1381,6 +1381,7 @@ class PersistentTradingEngine {
               giveBackPct: (position as any).giveBackPct,
               heldMinutes: (position as any).heldMinutes,
               marketFavorable,
+              monitorDecision: (position as any).monitorDecision,
               history: _hist,
             }
           })
