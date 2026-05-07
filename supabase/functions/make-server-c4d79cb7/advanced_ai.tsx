@@ -277,7 +277,9 @@ export class AdvancedAI {
    * Calculate EMA (Exponential Moving Average) - OPTIMIZED
    */
   private static calculateEMA(data: OHLCCandle[], period: number): number {
-    if (data.length < period) return data[data.length - 1].close;
+    // ⚡ FIX #2: Return NaN if not enough data — downstream gates will fail safe
+    // (instead of silently returning current close which faked trend alignment)
+    if (data.length < period) return NaN;
     
     // Use SMA for first value (more accurate)
     const sma = this.calculateSMA(data.slice(0, period), period);
@@ -292,13 +294,26 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate VWAP (Volume Weighted Average Price)
+   * ⚡ FIX #1: Calculate VWAP with intraday SESSION RESET
+   * Real VWAP must reset at the start of each trading day (09:15 IST).
+   * We detect a new IST calendar day from the timestamp and reset accumulators.
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
+    if (!data.length) return 0;
     let cumulativeTPV = 0;
     let cumulativeVolume = 0;
+    let lastDayKey = '';
     
     for (const candle of data) {
+      // IST = UTC + 5:30. Detect day change in IST.
+      const ts = (candle.timestamp || 0) * 1000;
+      const ist = new Date(ts + 5.5 * 3600 * 1000);
+      const dayKey = `${ist.getUTCFullYear()}-${ist.getUTCMonth()}-${ist.getUTCDate()}`;
+      if (dayKey !== lastDayKey) {
+        cumulativeTPV = 0;
+        cumulativeVolume = 0;
+        lastDayKey = dayKey;
+      }
       const typicalPrice = (candle.high + candle.low + candle.close) / 3;
       cumulativeTPV += typicalPrice * candle.volume;
       cumulativeVolume += candle.volume;
@@ -308,33 +323,36 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate RSI (Relative Strength Index) - 14 period
+   * ⚡ FIX #5: Calculate RSI with Wilder's smoothing (RMA) — industry standard.
+   * Previous version used a simple average that produced overly volatile RSI
+   * which constantly tripped the 32/68 extension block.
    */
   private static calculateRSI(data: OHLCCandle[], period: number = 14): number {
     if (data.length < period + 1) return 50;
     
+    // Initial average over first `period` changes
     let gains = 0;
     let losses = 0;
-    
-    // Calculate initial average gain/loss
-    for (let i = data.length - period; i < data.length; i++) {
+    for (let i = 1; i <= period; i++) {
       const change = data[i].close - data[i - 1].close;
-      if (change > 0) {
-        gains += change;
-      } else {
-        losses += Math.abs(change);
-      }
+      if (change > 0) gains += change;
+      else losses += Math.abs(change);
+    }
+    let avgGain = gains / period;
+    let avgLoss = losses / period;
+    
+    // Wilder smoothing for remaining candles
+    for (let i = period + 1; i < data.length; i++) {
+      const change = data[i].close - data[i - 1].close;
+      const gain = change > 0 ? change : 0;
+      const loss = change < 0 ? Math.abs(change) : 0;
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
     }
     
-    const avgGain = gains / period;
-    const avgLoss = losses / period;
-    
     if (avgLoss === 0) return 100;
-    
     const rs = avgGain / avgLoss;
-    const rsi = 100 - (100 / (1 + rs));
-    
-    return rsi;
+    return 100 - (100 / (1 + rs));
   }
   
   /**
@@ -776,6 +794,12 @@ export class AdvancedAI {
     const startTime = performance.now();
     let calculationsPerformed = 0;
     
+    // ⚡ FIX #6: Drop trailing incomplete / zero-volume candles (after-hours bars,
+    // pre-open ticks). They corrupt the "last candle" used for entry decisions.
+    while (ohlcData.length > 2 && (ohlcData[ohlcData.length - 1].volume <= 0)) {
+      ohlcData = ohlcData.slice(0, -1);
+    }
+    
     // Last candle
     const lastCandle = ohlcData[ohlcData.length - 1];
     const prevCandle = ohlcData[ohlcData.length - 2];
@@ -866,8 +890,12 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Volume Analysis
-    const last10Candles = ohlcData.slice(-10);
-    const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
+    // ⚡ FIX #4: Exclude the CURRENT candle from average — otherwise a real spike
+    // gets diluted by itself and the 1.15x volume gate misfires.
+    const prevWindow = ohlcData.slice(-11, -1); // last 10 PRIOR candles
+    const avgVolume = prevWindow.length
+      ? prevWindow.reduce((sum, c) => sum + c.volume, 0) / prevWindow.length
+      : 0;
     const volumeRatio = (avgVolume > 0 && lastCandle.volume > 0)
       ? lastCandle.volume / avgVolume
       : 0;
@@ -969,8 +997,10 @@ export class AdvancedAI {
     }
     
     // 2. EMA Confirmation (Weight: 1)
-    const emaUptrend = ema9 > ema21 && ema21 > ema50;
-    const emaDowntrend = ema9 < ema21 && ema21 < ema50;
+    // ⚡ FIX #2: If EMA50 is NaN (insufficient data) fall back to ema9>ema21 only
+    const ema50Valid = Number.isFinite(ema50);
+    const emaUptrend = ema50Valid ? (ema9 > ema21 && ema21 > ema50) : (ema9 > ema21);
+    const emaDowntrend = ema50Valid ? (ema9 < ema21 && ema21 < ema50) : (ema9 < ema21);
     const hasCleanTrendAlignment = (confirmationBullish && emaUptrend && priceAboveVWAP) || (confirmationBearish && emaDowntrend && !priceAboveVWAP);
     
     // ⚡ FIX BUG #9: In strong trends (ADX > 40), allow minor pullbacks (price within 0.5 ATR of EMA9)
@@ -1220,13 +1250,18 @@ export class AdvancedAI {
     //   - Reject if price extended > 0.4% from VWAP (chase risk)
     //   - Reject BUY when RSI > 68 (overbought chase)
     //   - Reject SELL when RSI < 32 (oversold chase)
+    // ⚡ FIX #8: ATR-NORMALISED extension block. Old fixed 0.4% rejected every
+    // valid trend trade on Nifty (0.4% ≈ 96pts; trend days extend much further).
+    // Now we reject only when distance exceeds 1.5x ATR (statistically extended).
+    const absVwapDistance = Math.abs(lastCandle.close - vwap);
     const absVwapDistancePct = Math.abs(vwapDistance);
-    const tooExtendedFromVWAP = absVwapDistancePct > 0.4;
-    const buyChaseRisk = confirmationBullish && rsi > 68;
-    const sellChaseRisk = confirmationBearish && rsi < 32;
+    const atrExtensionThreshold = atr14 * 1.5;
+    const tooExtendedFromVWAP = atr14 > 0 && absVwapDistance > atrExtensionThreshold;
+    const buyChaseRisk = confirmationBullish && rsi > 75;   // was 68 (too tight w/ Wilder RSI)
+    const sellChaseRisk = confirmationBearish && rsi < 25;  // was 32
     const extensionBlock = tooExtendedFromVWAP || buyChaseRisk || sellChaseRisk;
     if (extensionBlock) {
-      console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistancePct.toFixed(2)}% (max 0.4%), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
+      console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistance.toFixed(1)}pts (${absVwapDistancePct.toFixed(2)}%) > ${atrExtensionThreshold.toFixed(1)}pts (1.5xATR), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
     }
 
     const qualityGate = confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock;
@@ -1237,15 +1272,14 @@ export class AdvancedAI {
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
-      confidence = 60 + (confirmations.total * 5); // 60-110%
-      confidence = Math.min(confidence, 95);
+      // ⚡ FIX #10: weighted score is 0-12. Map 6→60, 12→95 (linear, ~5.83/pt)
+      confidence = Math.min(95, Math.round(60 + (confirmations.total - 6) * (35 / 6)));
       bias = 'Bullish';
       reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
       
     } else if (strongBearish && marketRegime.suitable_for_trading) {
       action = 'BUY_PUT';
-      confidence = 60 + (confirmations.total * 5);
-      confidence = Math.min(confidence, 95);
+      confidence = Math.min(95, Math.round(60 + (confirmations.total - 6) * (35 / 6)));
       bias = 'Bearish';
       reasoning = `STRONG SELL: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
       
