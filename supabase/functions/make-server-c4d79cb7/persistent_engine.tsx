@@ -1355,6 +1355,12 @@ class PersistentTradingEngine {
               trailingActive: _trailingActive,
               profitLocked: position.trailingEnabled && _curSL <= 0,
               lastMonitorAt: Date.now(),
+              monitorDecision: (position as any).monitorDecision,
+              momentumScore: (position as any).momentumScore,
+              giveBackPct: (position as any).giveBackPct,
+              heldMinutes: (position as any).heldMinutes,
+              marketFavorable: (position as any).marketFavorable,
+              history: (position as any).history,
             }
           })
           .eq('user_id', userId)
