@@ -1215,25 +1215,31 @@ export class AdvancedAI {
     confirmations.details = confirmationDetails;
     confirmations.total = totalWeightedScore; // Set the total to the weighted score
     
-    // ========== RISK MANAGEMENT ==========
+    // ========== RISK MANAGEMENT (HIGH-WIN-RATE) ==========
     const currentPrice = lastCandle.close;
-    
-    // ATR-based stop loss (2x ATR)
-    const stopLossDistance = atr14 * 2;
-    const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
-    
-    // Target (3x risk for 1:3 RR)
-    const targetDistance = stopLossDistance * 3;
-    const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
-    
+
+    // ⚡ HIGH-WIN-RATE: tighter SL via recent swing (last 5 bars) capped at 1.5xATR; TP at 2x risk (2:1 R:R)
+    const swingWindow = ohlcData.slice(-6, -1);
+    const swingHigh = swingWindow.length ? Math.max(...swingWindow.map(c => c.high)) : lastCandle.high;
+    const swingLow = swingWindow.length ? Math.min(...swingWindow.map(c => c.low)) : lastCandle.low;
+    const atrSL = atr14 * 1.2;
+    const isBullishCandle = lastCandle.close > lastCandle.open;
+    const rawSwingDist = isBullishCandle ? (currentPrice - swingLow) : (swingHigh - currentPrice);
+    const stopLossDistance = Math.max(atr14 * 0.6, Math.min(atrSL, rawSwingDist + atr14 * 0.2));
+    const suggestedStopLoss = isBullishCandle ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
+
+    // 2:1 R:R — easier to hit TP, raises win rate
+    const targetDistance = stopLossDistance * 2;
+    const suggestedTarget = isBullishCandle ? currentPrice + targetDistance : currentPrice - targetDistance;
+
     // Position sizing (risk 2% of account)
     const riskAmount = accountBalance * 0.02;
     const positionSize = Math.floor(riskAmount / stopLossDistance);
-    
-    const riskRewardRatio = 3.0;
+
+    const riskRewardRatio = 2.0;
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
-    
+
     const riskManagement = {
       suggestedEntry: currentPrice,
       suggestedTarget,
