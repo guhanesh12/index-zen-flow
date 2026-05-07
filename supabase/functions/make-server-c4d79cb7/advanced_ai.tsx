@@ -1272,8 +1272,8 @@ export class AdvancedAI {
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
-      confidence = 60 + (confirmations.total * 5); // 60-110%
-      confidence = Math.min(confidence, 95);
+      // ⚡ FIX #10: weighted score is 0-12. Map 6→60, 12→95 (linear, ~5.83/pt)
+      confidence = Math.min(95, Math.round(60 + (confirmations.total - 6) * (35 / 6)));
       bias = 'Bullish';
       reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
       
