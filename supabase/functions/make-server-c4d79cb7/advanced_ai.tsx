@@ -1000,7 +1000,7 @@ export class AdvancedAI {
     // ⚡ FIX #2: If EMA50 is NaN (insufficient data) fall back to ema9>ema21 only
     const ema50Valid = Number.isFinite(ema50);
     const emaUptrend = ema50Valid ? (ema9 > ema21 && ema21 > ema50) : (ema9 > ema21);
-    const emaDowntrend = ema9 < ema21 && ema21 < ema50;
+    const emaDowntrend = ema50Valid ? (ema9 < ema21 && ema21 < ema50) : (ema9 < ema21);
     const hasCleanTrendAlignment = (confirmationBullish && emaUptrend && priceAboveVWAP) || (confirmationBearish && emaDowntrend && !priceAboveVWAP);
     
     // ⚡ FIX BUG #9: In strong trends (ADX > 40), allow minor pullbacks (price within 0.5 ATR of EMA9)
