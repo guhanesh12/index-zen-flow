@@ -995,7 +995,7 @@ export class DhanService {
         const exchangeSegment = pos.exchangeSegment || pos.exchange || (String(pos.tradingSymbol || '').includes('SENSEX') ? 'BSE_FNO' : 'NSE_FNO');
         let livePrice = parseFloat(pos.lastPrice || pos.ltp || pos.lastTradedPrice || pos.currentPrice || 0);
 
-        if ((!livePrice || livePrice <= 0) && securityId) {
+        if ((!livePrice || livePrice <= 0) && securityId && (apiUnrealized || Number(pos.unrealizedPnl || pos.unrealizedPnL || 0))) {
           try {
             const quote = await this.getMarketQuote(securityId, exchangeSegment);
             livePrice = Number(quote?.ltp || quote?.close || 0);
