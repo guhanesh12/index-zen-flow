@@ -1391,23 +1391,7 @@ class PersistentTradingEngine {
           console.error(`❌ Running wallet auto-debit failed for ${userId}:`, err);
         });
 
-        // Momentum: average pnl change over last 3 ticks vs prior 3 ticks
-        let momentumScore = 0; // >0 favorable, <0 unfavorable
-        if (_hist.length >= 6) {
-          const recent = _hist.slice(-3).reduce((a: number, h: any) => a + h.pnl, 0) / 3;
-          const prior  = _hist.slice(-6, -3).reduce((a: number, h: any) => a + h.pnl, 0) / 3;
-          momentumScore = recent - prior;
-        }
-
-        // Give-back: how much profit has been surrendered from peak
-        const giveBack = Math.max(0, (position.highestPnl || 0) - pnl);
-        const giveBackPct = position.highestPnl > 0 ? (giveBack / position.highestPnl) * 100 : 0;
-
-        // Time held in minutes
-        const heldMinutes = position.entryTime ? (_now - position.entryTime) / 60000 : 0;
-
-        // Market favorability flag (used for HOLD vs EXIT signaling in UI)
-        const marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
+        // (momentumScore / giveBackPct / heldMinutes / marketFavorable already computed above)
 
         // ⚡ Check exit conditions using RATCHETED current target/SL (trailing ladder)
         let shouldExit = false;
