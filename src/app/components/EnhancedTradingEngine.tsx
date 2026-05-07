@@ -1071,7 +1071,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           };
 
           for (const idx of ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const) {
-            if (latestSignals[idx] && (!prev[idx] || latestSignals[idx].timestamp > (prev[idx]?.timestamp || 0))) {
+            if (latestSignals[idx]) {
+              // Backend latestSignals already represents the latest candle snapshot.
+              // Always trust it, even when timestamps tie or local cache is newer.
               updated[idx] = latestSignals[idx];
             }
           }
