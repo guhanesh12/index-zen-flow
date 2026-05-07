@@ -997,7 +997,9 @@ export class AdvancedAI {
     }
     
     // 2. EMA Confirmation (Weight: 1)
-    const emaUptrend = ema9 > ema21 && ema21 > ema50;
+    // ⚡ FIX #2: If EMA50 is NaN (insufficient data) fall back to ema9>ema21 only
+    const ema50Valid = Number.isFinite(ema50);
+    const emaUptrend = ema50Valid ? (ema9 > ema21 && ema21 > ema50) : (ema9 > ema21);
     const emaDowntrend = ema9 < ema21 && ema21 < ema50;
     const hasCleanTrendAlignment = (confirmationBullish && emaUptrend && priceAboveVWAP) || (confirmationBearish && emaDowntrend && !priceAboveVWAP);
     
