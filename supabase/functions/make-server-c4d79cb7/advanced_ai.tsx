@@ -1279,8 +1279,7 @@ export class AdvancedAI {
       
     } else if (strongBearish && marketRegime.suitable_for_trading) {
       action = 'BUY_PUT';
-      confidence = 60 + (confirmations.total * 5);
-      confidence = Math.min(confidence, 95);
+      confidence = Math.min(95, Math.round(60 + (confirmations.total - 6) * (35 / 6)));
       bias = 'Bearish';
       reasoning = `STRONG SELL: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
       
