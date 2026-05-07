@@ -822,15 +822,29 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         liveSignalInFlight = false;
       }
     };
-    // Kick once shortly after mount, then every 8s for fast UI updates
+    // ⚡ Align UI fetch with candle close — only fetch right AFTER each Nm candle closes
+    // (engine generates signals on candle close, so UI doesn't need 8s polling)
+    const intervalMs = (parseInt(candleInterval as any, 10) || 5) * 60 * 1000;
+    const POST_CLOSE_DELAY = 5000; // 5s grace for backend to compute signal
+    let liveSignalTimer: any = null;
+    const scheduleNextFetch = () => {
+      const now = Date.now();
+      const nextBoundary = Math.ceil(now / intervalMs) * intervalMs;
+      const delay = (nextBoundary - now) + POST_CLOSE_DELAY;
+      liveSignalTimer = setTimeout(async () => {
+        await fetchLiveSignals();
+        scheduleNextFetch();
+      }, delay);
+    };
+    // Kick once shortly after mount to populate UI with last known signals
     const liveSignalKick = setTimeout(fetchLiveSignals, 1000);
-    const liveSignalInterval = setInterval(fetchLiveSignals, 8000);
+    scheduleNextFetch();
 
     return () => {
       clearInterval(clockInterval);
       clearInterval(syncInterval);
       clearTimeout(liveSignalKick);
-      clearInterval(liveSignalInterval);
+      if (liveSignalTimer) clearTimeout(liveSignalTimer);
       // ⚡ DON'T STOP ENGINE ON UNMOUNT - Keep it running in background
       // Engine only stops when user clicks "Stop Engine" button
     };
