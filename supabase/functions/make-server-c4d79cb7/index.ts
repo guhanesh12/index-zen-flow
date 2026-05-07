@@ -4540,13 +4540,14 @@ app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
 
     const reqBody = {
       securityId, exchangeSegment, instrument,
-      expiryCode: -2147483648,
-      interval, oi: false,
-      fromDate: fmt(fromDate), toDate: fmt(toDate)
+      interval: parseInt(interval),
+      oi: false,
+      fromDate: `${fmt(fromDate)} 09:15:00`,
+      toDate: `${fmt(toDate)} 15:30:00`
     };
 
-    console.log('📤 Dhan historical request:', reqBody);
-    const dhanResp = await fetch('https://api.dhan.co/v2/charts/historical', {
+    console.log('📤 Dhan intraday request:', reqBody);
+    const dhanResp = await fetch('https://api.dhan.co/v2/charts/intraday', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'access-token': credentials.dhanAccessToken },
       body: JSON.stringify(reqBody)
