@@ -10060,14 +10060,57 @@ app.post("/make-server-c4d79cb7/position-monitor/update", async (c) => {
       return c.json({ error: 'orderId, targetAmount and stopLossAmount are required' }, 400);
     }
 
+    // Fetch existing row to merge raw_position
+    const { data: existingRow, error: fetchErr } = await supabase
+      .from('position_monitor_state')
+      .select('raw_position')
+      .eq('user_id', user.id)
+      .eq('order_id', orderId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (fetchErr) return c.json({ error: fetchErr.message }, 500);
+
+    const mergedRaw = {
+      ...(existingRow?.raw_position || {}),
+      targetAmount,
+      stopLossAmount,
+      currentTargetAmount: targetAmount,
+      currentStopLossAmount: stopLossAmount,
+      manualEditAt: new Date().toISOString(),
+    };
+
     const { error: updateError } = await supabase
       .from('position_monitor_state')
-      .update({ target_amount: targetAmount, stop_loss_amount: stopLossAmount })
+      .update({
+        target_amount: targetAmount,
+        stop_loss_amount: stopLossAmount,
+        raw_position: mergedRaw,
+        updated_at: new Date().toISOString(),
+      })
       .eq('user_id', user.id)
       .eq('order_id', orderId)
       .eq('is_active', true);
 
     if (updateError) return c.json({ error: updateError.message }, 500);
+
+    // Also update in-memory engine state if running
+    try {
+      const { persistentEngine } = await import('./persistent_engine.tsx');
+      const state = (persistentEngine as any).engineStates?.get?.(user.id);
+      if (state?.activePositions) {
+        const pos = state.activePositions.find((p: any) => p.orderId === orderId);
+        if (pos) {
+          pos.targetAmount = targetAmount;
+          pos.stopLossAmount = stopLossAmount;
+          pos.currentTargetAmount = targetAmount;
+          pos.currentStopLossAmount = stopLossAmount;
+        }
+      }
+    } catch (e) {
+      console.warn('In-memory engine state update skipped:', (e as any)?.message);
+    }
+
     return c.json({ success: true, orderId, targetAmount, stopLossAmount });
   } catch (error: any) {
     console.error('❌ Position update failed:', error);
