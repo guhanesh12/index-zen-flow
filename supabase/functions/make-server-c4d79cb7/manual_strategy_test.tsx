@@ -88,8 +88,11 @@ export function simulateTrades(
     if (entry.action === 'WAIT') { i++; continue; }
 
     const isLong = entry.action === 'BUY_CALL';
-    const sl = entry.stopLoss;
+    let sl = entry.stopLoss;
     const tp = entry.target;
+    const initialRisk = Math.abs(entry.price - entry.stopLoss);
+    const beTrigger = initialRisk * 1.0; // move SL to entry once 1R reached
+    let beActivated = false;
     let exitPrice = entry.price;
     let exitTs = entry.timestamp;
     let exitReason = 'END_OF_DATA';
@@ -100,12 +103,20 @@ export function simulateTrades(
     for (let k = entry.candleIndex + 1; k < candles.length; k++) {
       const c = candles[k];
       holdingBars++;
+      // Breakeven trail
+      if (!beActivated) {
+        const favMove = isLong ? (c.high - entry.price) : (entry.price - c.low);
+        if (favMove >= beTrigger) {
+          sl = entry.price;
+          beActivated = true;
+        }
+      }
       // Check SL/TP intra-candle
       if (isLong) {
-        if (c.low <= sl) { exitPrice = sl; exitReason = 'SL'; exitTs = c.timestamp; exitDate = new Date(c.timestamp * 1000).toLocaleString('en-IN'); break; }
+        if (c.low <= sl) { exitPrice = sl; exitReason = beActivated && sl === entry.price ? 'BE' : 'SL'; exitTs = c.timestamp; exitDate = new Date(c.timestamp * 1000).toLocaleString('en-IN'); break; }
         if (c.high >= tp) { exitPrice = tp; exitReason = 'TP'; exitTs = c.timestamp; exitDate = new Date(c.timestamp * 1000).toLocaleString('en-IN'); break; }
       } else {
-        if (c.high >= sl) { exitPrice = sl; exitReason = 'SL'; exitTs = c.timestamp; exitDate = new Date(c.timestamp * 1000).toLocaleString('en-IN'); break; }
+        if (c.high >= sl) { exitPrice = sl; exitReason = beActivated && sl === entry.price ? 'BE' : 'SL'; exitTs = c.timestamp; exitDate = new Date(c.timestamp * 1000).toLocaleString('en-IN'); break; }
         if (c.low <= tp) { exitPrice = tp; exitReason = 'TP'; exitTs = c.timestamp; exitDate = new Date(c.timestamp * 1000).toLocaleString('en-IN'); break; }
       }
       // Check opposite signal at this candle
