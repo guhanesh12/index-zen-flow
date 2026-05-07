@@ -830,8 +830,8 @@ export class AdvancedAI {
     const isOpeningHour = (istHour === 9 && istMin >= 15) || (istHour === 10 && istMin <= 15);
 
     // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject — price crossing back through VWAP
-    const prevCandle = ohlcData[ohlcData.length - 2];
-    const prevAboveVWAP = prevCandle ? prevCandle.close > vwap : priceAboveVWAP;
+    const prevCandleVWAP = ohlcData[ohlcData.length - 2];
+    const prevAboveVWAP = prevCandleVWAP ? prevCandleVWAP.close > vwap : priceAboveVWAP;
     const vwapReclaimBull = !prevAboveVWAP && priceAboveVWAP; // crossed up
     const vwapRejectBear = prevAboveVWAP && !priceAboveVWAP;  // crossed down
     const hasVWAPCross = vwapReclaimBull || vwapRejectBear;
