@@ -1215,7 +1215,21 @@ export class AdvancedAI {
     
     const decisiveBullishMove = isBullish && bullishMomentum;
     const decisiveBearishMove = isBearish && bearishMomentum;
-    const qualityGate = confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume;
+
+    // 🚫 EXTENSION FILTER: Block late breakouts that mean-revert (fake-trade prevention)
+    //   - Reject if price extended > 0.4% from VWAP (chase risk)
+    //   - Reject BUY when RSI > 68 (overbought chase)
+    //   - Reject SELL when RSI < 32 (oversold chase)
+    const absVwapDistancePct = Math.abs(vwapDistance);
+    const tooExtendedFromVWAP = absVwapDistancePct > 0.4;
+    const buyChaseRisk = confirmationBullish && rsi > 68;
+    const sellChaseRisk = confirmationBearish && rsi < 32;
+    const extensionBlock = tooExtendedFromVWAP || buyChaseRisk || sellChaseRisk;
+    if (extensionBlock) {
+      console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistancePct.toFixed(2)}% (max 0.4%), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
+    }
+
+    const qualityGate = confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock;
     const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
     const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
     
@@ -1248,7 +1262,9 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = confirmations.total < confirmations.required
         ? `WAIT: Only ${confirmations.total}/10 confirmations. Need at least ${confirmations.required} for high-confidence signal.`
-        : `WAIT: Quality gate failed. Need VWAP+EMA+ADX+price-action alignment with real volume confirmation.`;
+        : extensionBlock
+          ? `WAIT: Entry too extended (VWAP dist ${absVwapDistancePct.toFixed(2)}%, RSI ${rsi.toFixed(1)}). Avoiding chase / fake breakout.`
+          : `WAIT: Quality gate failed. Need VWAP+EMA+ADX+price-action alignment with real volume confirmation.`;
       
     } else if (candleMovePoints < minimumBodySize) {
       // ⚡ FIX: Only block if no strong pattern exists
