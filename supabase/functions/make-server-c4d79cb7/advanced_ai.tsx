@@ -950,7 +950,6 @@ export class AdvancedAI {
     const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
     const hasDirectionalVolume = hasVolumeData && volumeRatio >= 1.15 && bodyPercent >= 40;
     const hasDirectionalMomentum = bullishMomentum || bearishMomentum;
-    const hasCleanTrendAlignment = (confirmationBullish && emaUptrend && priceAboveVWAP) || (confirmationBearish && emaDowntrend && !priceAboveVWAP);
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
@@ -972,6 +971,7 @@ export class AdvancedAI {
     // 2. EMA Confirmation (Weight: 1)
     const emaUptrend = ema9 > ema21 && ema21 > ema50;
     const emaDowntrend = ema9 < ema21 && ema21 < ema50;
+    const hasCleanTrendAlignment = (confirmationBullish && emaUptrend && priceAboveVWAP) || (confirmationBearish && emaDowntrend && !priceAboveVWAP);
     
     // ⚡ FIX BUG #9: In strong trends (ADX > 40), allow minor pullbacks (price within 0.5 ATR of EMA9)
     const priceNearEma9Bullish = lastCandle.close > ema9 || (lastCandle.close > ema9 - atr14 * 0.5);
