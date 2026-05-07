@@ -1532,7 +1532,13 @@ app.post("/make-server-c4d79cb7/market-quote", async (c) => {
       }, 401);
     }
     
-    return c.json({ error: `Failed to fetch market quote: ${error}` }, 500);
+    // ⚡ Upstream/no-data errors → return 200 with quote=null so UI doesn't blank out
+    return c.json({ 
+      success: false, 
+      quote: null, 
+      error: `Failed to fetch market quote: ${error}`,
+      transient: true
+    }, 200);
   }
 });
 

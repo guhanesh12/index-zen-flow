@@ -302,20 +302,28 @@ export class DhanService {
       console.log('⚡ Rate-limited request queued:', JSON.stringify(requestBody, null, 2));
 
       // ⚡⚡⚡ USE GLOBAL RATE LIMITER - This ensures all requests are throttled properly ⚡⚡⚡
-      const response = await globalRateLimiter.throttle(async () => {
-        return await this.retryFetch(
-          'https://api.dhan.co/v2/charts/intraday',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'access-token': this.accessToken,
+      let response: Response;
+      try {
+        response = await globalRateLimiter.throttle(async () => {
+          return await this.retryFetch(
+            'https://api.dhan.co/v2/charts/intraday',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'access-token': this.accessToken,
+              },
+              body: JSON.stringify(requestBody)
             },
-            body: JSON.stringify(requestBody)
-          },
-          'Intraday OHLC'
-        );
-      });
+            'Intraday OHLC'
+          );
+        });
+      } catch (fetchErr) {
+        // ⚡ Upstream Dhan API failed (502/503/network) after retries — return stale cache or empty
+        console.warn(`⚠️ Intraday OHLC upstream failed: ${fetchErr}. Returning stale cache or empty.`);
+        if (cached) return cached.price;
+        return [];
+      }
 
       const responseText = await response.text();
       console.log('Intraday OHLC response status:', response.status);
