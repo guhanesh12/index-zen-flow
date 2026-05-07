@@ -909,16 +909,27 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Volume Analysis
-    const last10Candles = ohlcData.slice(-10);
-    const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
-    const volumeRatio = lastCandle.volume / avgVolume;
-    const isHighVolume = volumeRatio > 1.5;
-    const isVolumeSpike = volumeRatio > 2.0;
+    // 🐛 BUG FIX #3: Exclude the CURRENT candle from average — otherwise a real
+    // spike gets diluted by itself and the volume gate misfires.
+    // 🐛 BUG FIX #4: Indices (NIFTY/BANKNIFTY) have NO volume from Dhan — guard
+    // against divide-by-zero and treat as "no data" instead of NaN/Infinity.
+    const prevWindow = ohlcData.slice(-11, -1); // last 10 PRIOR candles
+    const avgVolume = prevWindow.length
+      ? prevWindow.reduce((sum, c) => sum + (Number.isFinite(c.volume) ? c.volume : 0), 0) / prevWindow.length
+      : 0;
+    const hasVolumeData = avgVolume > 0 && Number.isFinite(lastCandle.volume) && lastCandle.volume > 0;
+    const volumeRatio = hasVolumeData ? lastCandle.volume / avgVolume : 0;
+    const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
+    const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
+
+    // 🐛 BUG FIX #5: Candle range can be 0 (doji / flat bar) — protect division
+    const candleRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
     const bodySize = Math.abs(lastCandle.close - lastCandle.open);
-    const bodyPercent = ((bodySize / (lastCandle.high - lastCandle.low)) * 100) || 0;
+    const bodyPercent = (bodySize / candleRange) * 100;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
-    
-    console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, close=${lastCandle.close}, open=${lastCandle.open}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
+
+    console.log(`📊 VOLUME DEBUG: lastVol=${lastCandle.volume}, avgVol=${avgVolume.toFixed(2)}, ratio=${volumeRatio.toFixed(2)}, hasVolumeData=${hasVolumeData}`);
+    console.log(`🔍 BODYSIZE DEBUG: body=${bodySize.toFixed(2)}, range=${candleRange.toFixed(2)}, bodyPct=${bodyPercent.toFixed(1)}%`);
     
     // Order Flow
     const orderFlow = this.analyzeOrderFlow(ohlcData);
