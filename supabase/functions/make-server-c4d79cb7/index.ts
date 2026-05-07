@@ -4511,6 +4511,91 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
   }
 });
 
+// 📊 AUTO-FETCH BACKTEST: Fetch NIFTY (or given symbol) 15m candles for last N days
+// from Dhan, run AdvancedAI strategy, return full trade report.
+app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
+  console.log('🔥 AUTO-FETCH BACKTEST ROUTE HIT');
+  try {
+    const body = await c.req.json();
+    const {
+      userId,
+      securityId = '13',           // NIFTY 50
+      exchangeSegment = 'IDX_I',
+      instrument = 'INDEX',
+      interval = '15',
+      days = 30,
+      quantity = 75
+    } = body;
+
+    if (!userId) return c.json({ success: false, error: 'userId required' }, 400);
+    const credentials = await kv.get(`api_credentials:${userId}`) as any;
+    if (!credentials?.dhanAccessToken) {
+      return c.json({ success: false, error: 'Dhan credentials not configured' }, 400);
+    }
+
+    const toDate = new Date();
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - days);
+    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    const reqBody = {
+      securityId, exchangeSegment, instrument,
+      expiryCode: -2147483648,
+      interval, oi: false,
+      fromDate: fmt(fromDate), toDate: fmt(toDate)
+    };
+
+    console.log('📤 Dhan historical request:', reqBody);
+    const dhanResp = await fetch('https://api.dhan.co/v2/charts/historical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'access-token': credentials.dhanAccessToken },
+      body: JSON.stringify(reqBody)
+    });
+    const data = await dhanResp.json();
+    if (!dhanResp.ok || !data.open || !data.close) {
+      return c.json({ success: false, error: 'Dhan fetch failed', dhanStatus: dhanResp.status, data }, 502);
+    }
+
+    const { open, high, low, close, volume, timestamp } = data;
+    console.log(`📥 Got ${close.length} candles from Dhan`);
+
+    const { signals, summary } = runManualStrategy(open, high, low, close, volume, timestamp);
+    const { trades, stats } = simulateTrades(signals, quantity);
+
+    const callTrades = trades.filter((t: any) => t.entry === 'BUY_CALL');
+    const putTrades = trades.filter((t: any) => t.entry === 'BUY_PUT');
+    const winners = trades.filter((t: any) => t.pnl > 0);
+    const biggestWin = trades.reduce((m: any, t: any) => (t.pnl > (m?.pnl ?? -Infinity) ? t : m), null);
+    const biggestLoss = trades.reduce((m: any, t: any) => (t.pnl < (m?.pnl ?? Infinity) ? t : m), null);
+
+    return c.json({
+      success: true,
+      symbol: 'NIFTY 50',
+      interval: `${interval}m`,
+      dateRange: {
+        start: new Date(timestamp[0] * 1000).toLocaleString('en-IN'),
+        end: new Date(timestamp[timestamp.length - 1] * 1000).toLocaleString('en-IN'),
+        candles: close.length
+      },
+      signalSummary: summary,
+      tradeSummary: {
+        ...stats,
+        callTrades: callTrades.length,
+        putTrades: putTrades.length,
+        callWins: callTrades.filter((t: any) => t.pnl > 0).length,
+        putWins: putTrades.filter((t: any) => t.pnl > 0).length,
+        biggestWin,
+        biggestLoss,
+      },
+      buySignals: signals.filter((s: any) => s.action !== 'WAIT'),
+      allTrades: trades,
+    });
+  } catch (e: any) {
+    console.error('❌ auto-fetch backtest error', e);
+    return c.json({ success: false, error: e.message, stack: e.stack?.substring(0, 500) }, 500);
+  }
+});
+
 // ============================================
 // 📊 TRADING JOURNAL ROUTES
 // ============================================
