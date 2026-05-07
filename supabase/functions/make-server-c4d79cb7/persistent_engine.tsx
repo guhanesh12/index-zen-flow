@@ -1427,12 +1427,7 @@ class PersistentTradingEngine {
           }
         }
 
-        // Expose decision to raw_position for UI
         (position as any).monitorDecision = shouldExit ? 'EXIT' : (marketFavorable ? 'HOLD' : 'WATCH');
-        (position as any).momentumScore = Number(momentumScore.toFixed(2));
-        (position as any).giveBackPct = Number(giveBackPct.toFixed(1));
-        (position as any).heldMinutes = Number(heldMinutes.toFixed(1));
-        (position as any).marketFavorable = marketFavorable;
 
         // Stop Loss check:
         //  - If effectiveSL > 0  → exit when pnl <= -effectiveSL (loss limit)
