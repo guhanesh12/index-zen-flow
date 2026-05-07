@@ -991,7 +991,10 @@ export class AdvancedAI {
     const trendBearishAllowed = trendBias === 'bearish' && (isBearish || bearishMomentum || bearishCandleCount > bullishCandleCount);
     const confirmationBullish = useTrendBias ? trendBullishAllowed : isBullish;
     const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
-    const hasDirectionalVolume = hasVolumeData && volumeRatio >= 1.15 && bodyPercent >= 40;
+    // ⚡ COMBO FIX: NIFTY/BANKNIFTY indices have NO volume from Dhan. Fall back to body% only.
+    const hasDirectionalVolume = hasVolumeData
+      ? (volumeRatio >= 1.15 && bodyPercent >= 40)
+      : (bodyPercent >= 50); // index fallback: strong-bodied candle alone
     const hasDirectionalMomentum = bullishMomentum || bearishMomentum;
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
