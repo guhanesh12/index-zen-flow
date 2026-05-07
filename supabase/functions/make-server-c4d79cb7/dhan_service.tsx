@@ -994,6 +994,9 @@ export class DhanService {
         const securityId = String(pos.securityId || '');
         const exchangeSegment = pos.exchangeSegment || pos.exchange || (String(pos.tradingSymbol || '').includes('SENSEX') ? 'BSE_FNO' : 'NSE_FNO');
         let livePrice = parseFloat(pos.lastPrice || pos.ltp || pos.lastTradedPrice || pos.currentPrice || 0);
+        const netQty = Number(pos.netQty ?? (Number(pos.buyQty || 0) - Number(pos.sellQty || 0)));
+        const avgPrice = parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || pos.costPrice || 0);
+        const apiUnrealized = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || pos.unrealizedPnL || 0);
 
         if ((!livePrice || livePrice <= 0) && securityId && (apiUnrealized || Number(pos.unrealizedPnl || pos.unrealizedPnL || 0))) {
           try {
@@ -1004,9 +1007,6 @@ export class DhanService {
           }
         }
 
-        const netQty = Number(pos.netQty ?? (Number(pos.buyQty || 0) - Number(pos.sellQty || 0)));
-        const avgPrice = parseFloat(pos.avgPrice || pos.buyAvg || pos.sellAvg || pos.costPrice || 0);
-        const apiUnrealized = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || pos.unrealizedPnL || 0);
         const computedUnrealized = avgPrice && livePrice && netQty ? (livePrice - avgPrice) * netQty : 0;
 
         return {
