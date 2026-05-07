@@ -757,7 +757,7 @@ export class AdvancedAI {
       const higherHighs = last5.every((candle, i) => i === 0 || candle.high >= last5[i - 1].high);
       const lowerLows = last5.every((candle, i) => i === 0 || candle.low <= last5[i - 1].low);
 
-      // ⚡ COMBO FIX: relaxed direction — short-term EMA OR net 5-bar price change
+      // ⚡ FIX: relaxed direction — short EMA + net 5-bar move
       const shortEmaUp = indicators.ema9 > indicators.ema21;
       const shortEmaDown = indicators.ema9 < indicators.ema21;
       const netUp = last5.length >= 2 && last5[last5.length - 1].close > last5[0].close;
@@ -769,13 +769,7 @@ export class AdvancedAI {
       if (emaDowntrend || lowerLows || (shortEmaDown && netDown)) {
         return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
       }
-
-      // ⚡ COMBO FIX: very strong ADX (>40) is tradeable even when called VOLATILE — use net direction
-      if (adx > 40) {
-        if (netUp) return { type: 'TRENDING_UP', strength: adx, suitable_for_trading: true };
-        if (netDown) return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
-      }
-
+      // Strong ADX but conflicting direction = volatile (do NOT trade)
       return { type: 'VOLATILE', strength: adx, suitable_for_trading: false };
     }
     
@@ -1127,20 +1121,17 @@ export class AdvancedAI {
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
-    // ⚡ COMBO FIX (opt 3): During opening hour, ADX is unreliable — accept EMA alignment alone.
-    const openingHourTrend = isOpeningHour && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend));
     if (trending && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend))) {
       confirmations.adx = true;
       totalWeightedScore += 1;
       confirmationDetails.push(`✅ ADX: Strong trend (${adx.toFixed(1)})`);
-    } else if (openingHourTrend) {
-      confirmations.adx = true;
-      totalWeightedScore += 1;
-      confirmationDetails.push(`✅ ADX: Opening-hour bypass (EMAs aligned, ADX ${adx.toFixed(1)})`);
     } else {
       const adxInterpretation = this.getADXInterpretation(adx);
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)}) - ${trending ? 'Strong but' : 'Weak,'} EMAs not aligned`);
     }
+
+    // ⚡ Block opening-hour entries (09:15–10:00 IST = first 3 bars). Indicators unreliable at session start.
+    const blockOpeningEntry = isOpeningHour;
     
     // 8. Stochastic Confirmation (Weight: 1)
     if (isBullish && stochOversold) {
@@ -1299,8 +1290,10 @@ export class AdvancedAI {
     // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject is a separate valid setup — bypass strict ADX/priceAction gate.
     const vwapCrossSetup = (vwapReclaimBull && confirmationBullish && hasDirectionalVolume) ||
                            (vwapRejectBear && confirmationBearish && hasDirectionalVolume);
-    const qualityGate = (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
-                        || vwapCrossSetup;
+    const qualityGate = !blockOpeningEntry && (
+      (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
+      || vwapCrossSetup
+    );
     if (vwapCrossSetup) confirmationDetails.push(`✅ VWAP CROSS SETUP: ${vwapReclaimBull ? 'Bullish reclaim' : 'Bearish reject'}`);
     const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
