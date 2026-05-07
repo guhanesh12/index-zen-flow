@@ -53,6 +53,11 @@ class NotificationService {
   }
 
   private async init() {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      console.warn('⚠️ Browser notifications are not supported; using in-app notifications only.');
+      return;
+    }
+
     // Request notification permission on page load
     if ('Notification' in window && Notification.permission === 'default') {
       console.log('🔔 Requesting notification permission...');
