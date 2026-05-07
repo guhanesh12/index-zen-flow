@@ -242,10 +242,12 @@ export class DhanService {
         return priceData;
       }
 
-      throw new Error('No OHLC data available');
+      // ⚡ No data — return null instead of throwing so endpoint stays 200
+      console.warn(`⚠️ No OHLC data available for ${securityId} — returning null quote`);
+      return null;
     } catch (error) {
-      console.error('Error fetching market quote:', error);
-      throw error;
+      console.error('Error fetching market quote (suppressed):', error);
+      return null;
     }
   }
 
@@ -415,8 +417,9 @@ export class DhanService {
       console.error(`   Response structure:`, JSON.stringify(result, null, 2).substring(0, 500));
       return [];
     } catch (error) {
-      console.error('Error fetching intraday OHLC:', error);
-      throw error;
+      // ⚡ Never throw — return empty so callers can fallback to cache/null gracefully
+      console.error('Error fetching intraday OHLC (suppressed):', error);
+      return [];
     }
   }
 
