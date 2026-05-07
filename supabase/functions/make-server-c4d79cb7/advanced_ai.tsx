@@ -820,6 +820,21 @@ export class AdvancedAI {
     const vwapDistance = ((lastCandle.close - vwap) / vwap) * 100;
     const priceAboveVWAP = lastCandle.close > vwap;
     calculationsPerformed += 1;
+
+    // ⚡ COMBO FIX (opt 3): Opening-hour detection (09:15–10:15 IST = first 4×15m bars)
+    // ADX is unreliable in the opening hour (insufficient bars for smoothing).
+    const lastTs = (lastCandle as any).timestamp || 0;
+    const istDate = new Date((lastTs + 5.5 * 3600) * 1000);
+    const istHour = istDate.getUTCHours();
+    const istMin = istDate.getUTCMinutes();
+    const isOpeningHour = (istHour === 9 && istMin >= 15) || (istHour === 10 && istMin <= 15);
+
+    // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject — price crossing back through VWAP
+    const prevCandle = ohlcData[ohlcData.length - 2];
+    const prevAboveVWAP = prevCandle ? prevCandle.close > vwap : priceAboveVWAP;
+    const vwapReclaimBull = !prevAboveVWAP && priceAboveVWAP; // crossed up
+    const vwapRejectBear = prevAboveVWAP && !priceAboveVWAP;  // crossed down
+    const hasVWAPCross = vwapReclaimBull || vwapRejectBear;
     
     // RSI
     const rsi = this.calculateRSI(ohlcData);
