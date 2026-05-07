@@ -4052,7 +4052,28 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           console.error(`     2. Dhan API rate limiting`);
           console.error(`     3. ${idx} data not available in Dhan API`);
           console.error(`     4. Authentication issue`);
-          return { index: idx, error: 'No data available', details: `Security ID ${securityId} returned no candles` };
+          results.push({
+            index: idx,
+            signal: {
+              action: 'WAIT',
+              confidence: 0,
+              reasoning: `No closed OHLC data available for ${idx}; waiting for next candle/data refresh`,
+              reason: `No closed OHLC data available for ${idx}`,
+              index: idx,
+              timeframe: `${interval}M`,
+              candlesAnalyzed: 0,
+              indicators: {},
+              confirmations: { total: 0, required: 6, details: ['No OHLC data available'] },
+              patterns: [],
+              volumeAnalysis: {},
+              riskManagement: {},
+              marketRegime: { type: 'NO_DATA', suitable_for_trading: false }
+            },
+            candlesProcessed: 0,
+            processingTime: 0,
+            noData: true
+          });
+          continue;
         }
         
         console.log(`✅ ${idx}: ${ohlcData.length} candles fetched`);
