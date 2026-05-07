@@ -757,7 +757,7 @@ export class AdvancedAI {
       const higherHighs = last5.every((candle, i) => i === 0 || candle.high >= last5[i - 1].high);
       const lowerLows = last5.every((candle, i) => i === 0 || candle.low <= last5[i - 1].low);
 
-      // ⚡ COMBO FIX: relaxed direction — short-term EMA OR net 5-bar price change
+      // ⚡ FIX: relaxed direction — short EMA + net 5-bar move
       const shortEmaUp = indicators.ema9 > indicators.ema21;
       const shortEmaDown = indicators.ema9 < indicators.ema21;
       const netUp = last5.length >= 2 && last5[last5.length - 1].close > last5[0].close;
@@ -769,13 +769,7 @@ export class AdvancedAI {
       if (emaDowntrend || lowerLows || (shortEmaDown && netDown)) {
         return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
       }
-
-      // ⚡ COMBO FIX: very strong ADX (>40) is tradeable even when called VOLATILE — use net direction
-      if (adx > 40) {
-        if (netUp) return { type: 'TRENDING_UP', strength: adx, suitable_for_trading: true };
-        if (netDown) return { type: 'TRENDING_DOWN', strength: adx, suitable_for_trading: true };
-      }
-
+      // Strong ADX but conflicting direction = volatile (do NOT trade)
       return { type: 'VOLATILE', strength: adx, suitable_for_trading: false };
     }
     
