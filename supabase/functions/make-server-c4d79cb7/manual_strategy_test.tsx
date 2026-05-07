@@ -91,7 +91,7 @@ export function simulateTrades(
     let sl = entry.stopLoss;
     const tp = entry.target;
     const initialRisk = Math.abs(entry.price - entry.stopLoss);
-    const beTrigger = initialRisk * 1.0; // move SL to entry once 1R reached
+    const beTrigger = initialRisk * 0.6; // move SL to entry once 0.6R reached (early protection)
     let beActivated = false;
     let exitPrice = entry.price;
     let exitTs = entry.timestamp;
