@@ -890,8 +890,12 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Volume Analysis
-    const last10Candles = ohlcData.slice(-10);
-    const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
+    // ⚡ FIX #4: Exclude the CURRENT candle from average — otherwise a real spike
+    // gets diluted by itself and the 1.15x volume gate misfires.
+    const prevWindow = ohlcData.slice(-11, -1); // last 10 PRIOR candles
+    const avgVolume = prevWindow.length
+      ? prevWindow.reduce((sum, c) => sum + c.volume, 0) / prevWindow.length
+      : 0;
     const volumeRatio = (avgVolume > 0 && lastCandle.volume > 0)
       ? lastCandle.volume / avgVolume
       : 0;
