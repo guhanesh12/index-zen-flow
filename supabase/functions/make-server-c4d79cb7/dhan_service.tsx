@@ -102,9 +102,14 @@ export class DhanService {
         const responseClone = response.clone();
         
         // ⚡ NEW: Handle rate limit errors (429 or DH-904)
-        if (response.status === 429 || (response.status === 400 && this.rateLimitRetryCount < this.MAX_RATE_LIMIT_RETRIES)) {
+        if (response.status === 429 || response.status === 400) {
           const responseText = await responseClone.text();
           if (responseText.includes('Rate_Limit') || responseText.includes('DH-904')) {
+            if (this.rateLimitRetryCount >= this.MAX_RATE_LIMIT_RETRIES) {
+              console.warn(`⚠️ ${operationName} - RATE LIMIT still active after ${this.rateLimitRetryCount} retries; returning response for graceful fallback`);
+              return response;
+            }
+
             this.rateLimitRetryCount++;
             const waitTime = 2000 * Math.pow(2, this.rateLimitRetryCount); // Exponential backoff: 2s, 4s, 8s
             console.warn(`⚠️ ${operationName} - RATE LIMIT HIT (attempt ${this.rateLimitRetryCount}/${this.MAX_RATE_LIMIT_RETRIES})`);
@@ -185,10 +190,10 @@ export class DhanService {
     try {
       const exchangeSegment = 'IDX_I'; // Default to INDEX
       const quote = await this.getMarketQuote(securityId, exchangeSegment);
-      return quote.ltp || quote.close || 0;
+      return Number(quote?.ltp || quote?.close || 0);
     } catch (error) {
-      console.error('Error fetching LTP:', error);
-      throw error;
+      console.error('Error fetching LTP (suppressed):', error);
+      return 0;
     }
   }
 
