@@ -174,6 +174,22 @@ class PersistentTradingEngine {
   private static recentOrderKeys: Map<string, number> = new Map();
   private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
   private static readonly POSITION_MONITOR_INTERVAL_MS = 1000;
+
+  /**
+   * Update an in-memory active position's target/stop-loss (called from manual edit endpoint)
+   */
+  static updateActivePositionTargets(userId: string, orderId: string, targetAmount: number, stopLossAmount: number): boolean {
+    const state = this.engineStates.get(userId);
+    if (!state || !state.activePositions) return false;
+    const pos = state.activePositions.find((p: any) => p.orderId === orderId);
+    if (!pos) return false;
+    pos.targetAmount = targetAmount;
+    pos.stopLossAmount = stopLossAmount;
+    pos.currentTargetAmount = targetAmount;
+    pos.currentStopLossAmount = stopLossAmount;
+    console.log(`✏️ [MANUAL EDIT] In-memory updated ${pos.symbolName} → Tgt ₹${targetAmount} SL ₹${stopLossAmount}`);
+    return true;
+  }
   
   /**
    * START ENGINE FOR USER
