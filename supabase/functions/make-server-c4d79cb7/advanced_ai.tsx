@@ -1245,14 +1245,12 @@ export class AdvancedAI {
     let bias: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
     
     // MUST have 6+ confirmations AND suitable market regime
-    // ADJUSTED FOR REAL TRADING: Lower body size requirement from 15 to 10 points
-    // ADJUSTED FOR REAL TRADING: Lower volume requirement from 1.5x to 0.8x (real market conditions)
-    // ⚡ NEW FIX: In very strong trends (ADX > 50), reduce volume requirement to 0.5x
-    const minimumBodySize = 10; // Points (was 15)
-    const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
-    const hasAcceptableVolume = volumeRatio >= minimumVolumeRatio;  // ⚡ FIX: Use >= instead of >
-    
+    // 🐛 BUG FIX #7: hasAcceptableVolume previously failed permanently on indices
+    // (volumeRatio = 0 because no feed). Now: skip volume gate when no feed exists.
+    const minimumBodySize = 10; // Points
+    const isVeryStrongTrend = adx > 50;
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
+    const hasAcceptableVolume = !hasVolumeData ? true : (volumeRatio >= minimumVolumeRatio);
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
