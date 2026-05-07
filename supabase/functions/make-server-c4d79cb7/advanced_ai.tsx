@@ -1290,8 +1290,10 @@ export class AdvancedAI {
     // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject is a separate valid setup — bypass strict ADX/priceAction gate.
     const vwapCrossSetup = (vwapReclaimBull && confirmationBullish && hasDirectionalVolume) ||
                            (vwapRejectBear && confirmationBearish && hasDirectionalVolume);
-    const qualityGate = (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
-                        || vwapCrossSetup;
+    const qualityGate = !blockOpeningEntry && (
+      (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
+      || vwapCrossSetup
+    );
     if (vwapCrossSetup) confirmationDetails.push(`✅ VWAP CROSS SETUP: ${vwapReclaimBull ? 'Bullish reclaim' : 'Bearish reject'}`);
     const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
