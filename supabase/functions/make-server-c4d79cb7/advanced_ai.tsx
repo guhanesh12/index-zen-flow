@@ -1290,11 +1290,18 @@ export class AdvancedAI {
     // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject is a separate valid setup — bypass strict ADX/priceAction gate.
     const vwapCrossSetup = (vwapReclaimBull && confirmationBullish && hasDirectionalVolume) ||
                            (vwapRejectBear && confirmationBearish && hasDirectionalVolume);
-    const qualityGate = !blockOpeningEntry && (
+    // ⚡ HIGH-WIN-RATE: block entries that are RIGHT AT key S/R against trade direction (likely to reject)
+    const blockBullAtResistance = confirmationBullish && nearResistance;
+    const blockBearAtSupport = confirmationBearish && nearSupport;
+    const srBlock = blockBullAtResistance || blockBearAtSupport;
+    // ⚡ HIGH-WIN-RATE: require strong ADX (>22) for trend trades — weak trends fail more
+    const adxStrongEnough = adx >= 22;
+    const qualityGate = !blockOpeningEntry && !srBlock && adxStrongEnough && (
       (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
       || vwapCrossSetup
     );
     if (vwapCrossSetup) confirmationDetails.push(`✅ VWAP CROSS SETUP: ${vwapReclaimBull ? 'Bullish reclaim' : 'Bearish reject'}`);
+    if (srBlock) confirmationDetails.push(`🚫 S/R BLOCK: ${blockBullAtResistance ? 'Buy at resistance' : 'Sell at support'}`);
     const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     
