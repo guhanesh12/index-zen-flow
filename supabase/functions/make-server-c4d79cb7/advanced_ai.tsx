@@ -1283,9 +1283,14 @@ export class AdvancedAI {
       console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistance.toFixed(1)}pts (${absVwapDistancePct.toFixed(2)}%) > ${atrExtensionThreshold.toFixed(1)}pts (1.5xATR), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
     }
 
-    const qualityGate = confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock;
-    const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
-    const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject is a separate valid setup — bypass strict ADX/priceAction gate.
+    const vwapCrossSetup = (vwapReclaimBull && confirmationBullish && hasDirectionalVolume) ||
+                           (vwapRejectBear && confirmationBearish && hasDirectionalVolume);
+    const qualityGate = (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
+                        || vwapCrossSetup;
+    if (vwapCrossSetup) confirmationDetails.push(`✅ VWAP CROSS SETUP: ${vwapReclaimBull ? 'Bullish reclaim' : 'Bearish reject'}`);
+    const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
+    const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     
     console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
