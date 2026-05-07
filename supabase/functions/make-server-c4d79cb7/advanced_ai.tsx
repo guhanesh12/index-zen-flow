@@ -962,7 +962,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 6,  // ⚡ COMBO FIX: lowered 8→6 (opt 1) — strategy was rejecting valid setups
+      required: 8,  // ⚡ HIGH-WIN-RATE: raised 6→8 — only A+ setups
       details: [] as string[],
       vwap: false,
       ema: false,
@@ -1215,25 +1215,27 @@ export class AdvancedAI {
     confirmations.details = confirmationDetails;
     confirmations.total = totalWeightedScore; // Set the total to the weighted score
     
-    // ========== RISK MANAGEMENT ==========
+    // ========== RISK MANAGEMENT (HIGH-WIN-RATE v2) ==========
     const currentPrice = lastCandle.close;
-    
-    // ATR-based stop loss (2x ATR)
-    const stopLossDistance = atr14 * 2;
-    const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
-    
-    // Target (3x risk for 1:3 RR)
-    const targetDistance = stopLossDistance * 3;
-    const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
-    
-    // Position sizing (risk 2% of account)
+
+    // Wider SL (1.8xATR) reduces noise stop-outs; TP at 2.2x risk for solid 1:2.2 R:R
+    const swingWindow = ohlcData.slice(-6, -1);
+    const swingHigh = swingWindow.length ? Math.max(...swingWindow.map(c => c.high)) : lastCandle.high;
+    const swingLow = swingWindow.length ? Math.min(...swingWindow.map(c => c.low)) : lastCandle.low;
+    const isBullishCandle = lastCandle.close > lastCandle.open;
+    const swingDist = isBullishCandle ? (currentPrice - swingLow) : (swingHigh - currentPrice);
+    const stopLossDistance = Math.max(atr14 * 1.0, Math.min(atr14 * 2.2, swingDist + atr14 * 0.3));
+    const suggestedStopLoss = isBullishCandle ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
+
+    const targetDistance = stopLossDistance * 2.2;
+    const suggestedTarget = isBullishCandle ? currentPrice + targetDistance : currentPrice - targetDistance;
+
     const riskAmount = accountBalance * 0.02;
     const positionSize = Math.floor(riskAmount / stopLossDistance);
-    
-    const riskRewardRatio = 3.0;
+    const riskRewardRatio = 2.2;
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
-    
+
     const riskManagement = {
       suggestedEntry: currentPrice,
       suggestedTarget,
@@ -1290,11 +1292,18 @@ export class AdvancedAI {
     // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject is a separate valid setup — bypass strict ADX/priceAction gate.
     const vwapCrossSetup = (vwapReclaimBull && confirmationBullish && hasDirectionalVolume) ||
                            (vwapRejectBear && confirmationBearish && hasDirectionalVolume);
-    const qualityGate = !blockOpeningEntry && (
+    // ⚡ HIGH-WIN-RATE: block entries that are RIGHT AT key S/R against trade direction (likely to reject)
+    const blockBullAtResistance = confirmationBullish && nearResistance;
+    const blockBearAtSupport = confirmationBearish && nearSupport;
+    const srBlock = blockBullAtResistance || blockBearAtSupport;
+    // ⚡ HIGH-WIN-RATE: require strong ADX (>22) for trend trades — weak trends fail more
+    const adxStrongEnough = adx >= 22;
+    const qualityGate = !blockOpeningEntry && !srBlock && adxStrongEnough && (
       (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
       || vwapCrossSetup
     );
     if (vwapCrossSetup) confirmationDetails.push(`✅ VWAP CROSS SETUP: ${vwapReclaimBull ? 'Bullish reclaim' : 'Bearish reject'}`);
+    if (srBlock) confirmationDetails.push(`🚫 S/R BLOCK: ${blockBullAtResistance ? 'Buy at resistance' : 'Sell at support'}`);
     const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     
