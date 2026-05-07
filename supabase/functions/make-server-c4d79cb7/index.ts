@@ -3714,11 +3714,34 @@ CRITICAL RULES FOR COMMERCIAL TRADING:
     console.log(`⚡ ChatGPT response: ${Math.round(chatgptEnd - chatgptStart)}ms`);
 
     if (aiResponse) {
-      // The analyzeMarket method already returns parsed JSON
+      // The analyzeMarket method already returns parsed JSON, but final trade permission
+      // must be deterministic. AI text alone must never place a real trade.
       let action = aiResponse.action;
-      
-      // ✅ NO LONGER BLOCKING SIGNALS - Allow all valid AI signals to pass through
-      // Commercial use requires capturing every opportunity
+      const bullishQualityGate = action === 'BUY_CALL'
+        && isBullish
+        && !isDoji
+        && bodySize >= 10
+        && bodyPercent >= 35
+        && volumeRatio >= 1.15
+        && priceAboveVWAP
+        && (emaUptrend || priceAboveEMA21)
+        && momentum === 'BULLISH';
+      const bearishQualityGate = action === 'BUY_PUT'
+        && isBearish
+        && !isDoji
+        && bodySize >= 10
+        && bodyPercent >= 35
+        && volumeRatio >= 1.15
+        && !priceAboveVWAP
+        && (emaDowntrend || !priceAboveEMA21)
+        && momentum === 'BEARISH';
+
+      if ((action === 'BUY_CALL' && !bullishQualityGate) || (action === 'BUY_PUT' && !bearishQualityGate)) {
+        console.warn(`🛡️ AI trade blocked by deterministic quality gate: ${action} | body=${bodySize.toFixed(2)}pts/${bodyPercent.toFixed(1)}% volume=${volumeRatio.toFixed(2)}x vwap=${priceAboveVWAP} emaUp=${emaUptrend} emaDown=${emaDowntrend} momentum=${momentum}`);
+        action = 'WAIT';
+        aiResponse.confidence = Math.min(Number(aiResponse.confidence || 0), 45);
+        aiResponse.reasoning = `WAIT: Signal blocked by real-market quality gate. Need candle body, volume, VWAP, EMA, and momentum alignment before trade.`;
+      }
       
       const signal = {
         market_state: aiResponse.market_state,
