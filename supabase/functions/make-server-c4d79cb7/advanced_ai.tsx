@@ -820,6 +820,21 @@ export class AdvancedAI {
     const vwapDistance = ((lastCandle.close - vwap) / vwap) * 100;
     const priceAboveVWAP = lastCandle.close > vwap;
     calculationsPerformed += 1;
+
+    // ⚡ COMBO FIX (opt 3): Opening-hour detection (09:15–10:15 IST = first 4×15m bars)
+    // ADX is unreliable in the opening hour (insufficient bars for smoothing).
+    const lastTs = (lastCandle as any).timestamp || 0;
+    const istDate = new Date((lastTs + 5.5 * 3600) * 1000);
+    const istHour = istDate.getUTCHours();
+    const istMin = istDate.getUTCMinutes();
+    const isOpeningHour = (istHour === 9 && istMin >= 15) || (istHour === 10 && istMin <= 15);
+
+    // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject — price crossing back through VWAP
+    const prevCandleVWAP = ohlcData[ohlcData.length - 2];
+    const prevAboveVWAP = prevCandleVWAP ? prevCandleVWAP.close > vwap : priceAboveVWAP;
+    const vwapReclaimBull = !prevAboveVWAP && priceAboveVWAP; // crossed up
+    const vwapRejectBear = prevAboveVWAP && !priceAboveVWAP;  // crossed down
+    const hasVWAPCross = vwapReclaimBull || vwapRejectBear;
     
     // RSI
     const rsi = this.calculateRSI(ohlcData);
@@ -945,7 +960,7 @@ export class AdvancedAI {
     let totalWeightedScore = 0; // NEW: Weighted scoring system
     const confirmations = {
       total: 0,  // This will now be the weighted score
-      required: 8,
+      required: 6,  // ⚡ COMBO FIX: lowered 8→6 (opt 1) — strategy was rejecting valid setups
       details: [] as string[],
       vwap: false,
       ema: false,
@@ -976,7 +991,10 @@ export class AdvancedAI {
     const trendBearishAllowed = trendBias === 'bearish' && (isBearish || bearishMomentum || bearishCandleCount > bullishCandleCount);
     const confirmationBullish = useTrendBias ? trendBullishAllowed : isBullish;
     const confirmationBearish = useTrendBias ? trendBearishAllowed : isBearish;
-    const hasDirectionalVolume = hasVolumeData && volumeRatio >= 1.15 && bodyPercent >= 40;
+    // ⚡ COMBO FIX: NIFTY/BANKNIFTY indices have NO volume from Dhan. Fall back to body% only.
+    const hasDirectionalVolume = hasVolumeData
+      ? (volumeRatio >= 1.15 && bodyPercent >= 40)
+      : (bodyPercent >= 50); // index fallback: strong-bodied candle alone
     const hasDirectionalMomentum = bullishMomentum || bearishMomentum;
     
     // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
@@ -1101,13 +1119,17 @@ export class AdvancedAI {
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
-    // ⚡ FIX: Use confirmationBullish/Bearish (trend bias) instead of candle color!
+    // ⚡ COMBO FIX (opt 3): During opening hour, ADX is unreliable — accept EMA alignment alone.
+    const openingHourTrend = isOpeningHour && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend));
     if (trending && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend))) {
       confirmations.adx = true;
-      totalWeightedScore += 1; // Weight: 1
+      totalWeightedScore += 1;
       confirmationDetails.push(`✅ ADX: Strong trend (${adx.toFixed(1)})`);
+    } else if (openingHourTrend) {
+      confirmations.adx = true;
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ ADX: Opening-hour bypass (EMAs aligned, ADX ${adx.toFixed(1)})`);
     } else {
-      // ⚡ FIX: Show correct ADX interpretation
       const adxInterpretation = this.getADXInterpretation(adx);
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)}) - ${trending ? 'Strong but' : 'Weak,'} EMAs not aligned`);
     }
@@ -1255,18 +1277,25 @@ export class AdvancedAI {
     // Now we reject only when distance exceeds 1.5x ATR (statistically extended).
     const absVwapDistance = Math.abs(lastCandle.close - vwap);
     const absVwapDistancePct = Math.abs(vwapDistance);
-    const atrExtensionThreshold = atr14 * 1.5;
+    // ⚡ COMBO FIX: in strong trends (ADX>40) allow up to 3xATR; very-strong (ADX>50) up to 4xATR.
+    const atrExtMult = adx > 50 ? 4.0 : adx > 40 ? 3.0 : adx > 25 ? 2.0 : 1.5;
+    const atrExtensionThreshold = atr14 * atrExtMult;
     const tooExtendedFromVWAP = atr14 > 0 && absVwapDistance > atrExtensionThreshold;
-    const buyChaseRisk = confirmationBullish && rsi > 75;   // was 68 (too tight w/ Wilder RSI)
-    const sellChaseRisk = confirmationBearish && rsi < 25;  // was 32
+    const buyChaseRisk = confirmationBullish && rsi > 80;
+    const sellChaseRisk = confirmationBearish && rsi < 20;
     const extensionBlock = tooExtendedFromVWAP || buyChaseRisk || sellChaseRisk;
     if (extensionBlock) {
       console.log(`🚫 EXTENSION BLOCK: vwapDist=${absVwapDistance.toFixed(1)}pts (${absVwapDistancePct.toFixed(2)}%) > ${atrExtensionThreshold.toFixed(1)}pts (1.5xATR), rsi=${rsi.toFixed(1)}, buyChase=${buyChaseRisk}, sellChase=${sellChaseRisk}`);
     }
 
-    const qualityGate = confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock;
-    const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
-    const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern);
+    // ⚡ COMBO FIX (opt 2): VWAP reclaim/reject is a separate valid setup — bypass strict ADX/priceAction gate.
+    const vwapCrossSetup = (vwapReclaimBull && confirmationBullish && hasDirectionalVolume) ||
+                           (vwapRejectBear && confirmationBearish && hasDirectionalVolume);
+    const qualityGate = (confirmations.vwap && confirmations.ema && confirmations.adx && confirmations.priceAction && hasCleanTrendAlignment && hasDirectionalMomentum && hasDirectionalVolume && !extensionBlock)
+                        || vwapCrossSetup;
+    if (vwapCrossSetup) confirmationDetails.push(`✅ VWAP CROSS SETUP: ${vwapReclaimBull ? 'Bullish reclaim' : 'Bearish reject'}`);
+    const strongBullish = qualityGate && confirmations.total >= confirmations.required && confirmationBullish && decisiveBullishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
+    const strongBearish = qualityGate && confirmations.total >= confirmations.required && confirmationBearish && decisiveBearishMove && (candleMovePoints >= minimumBodySize || hasStrongPattern || vwapCrossSetup);
     
     console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, decisiveBull=${decisiveBullishMove}, decisiveBear=${decisiveBearishMove}, candleMove=${candleMovePoints.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)}, ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
