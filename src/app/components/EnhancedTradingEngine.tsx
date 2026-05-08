@@ -4582,13 +4582,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                           selectedAnalysisSignal.volume_analysis.is_spike ? 'text-amber-500' : 
                           selectedAnalysisSignal.volume_analysis.is_high ? 'text-yellow-500' : 'text-zinc-400'
                         }`}>
-                          {formatSignalLevel(selectedAnalysisSignal.volume_analysis.ratio)}x
+                          {selectedAnalysisSignal.volume_analysis.has_data
+                            ? `${formatSignalLevel(selectedAnalysisSignal.volume_analysis.ratio)}x`
+                            : 'Index feed N/A'}
                         </span>
-                        {selectedAnalysisSignal.volume_analysis.has_data && (
-                          <div className="mt-1 text-xs text-zinc-500">
-                            Current {formatVolumeCount(selectedAnalysisSignal.volume_analysis.current_volume)} · Avg {formatVolumeCount(selectedAnalysisSignal.volume_analysis.average_volume)}
-                          </div>
-                        )}
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {selectedAnalysisSignal.volume_analysis.has_data
+                            ? `Current ${formatVolumeCount(selectedAnalysisSignal.volume_analysis.current_volume)} · Avg ${formatVolumeCount(selectedAnalysisSignal.volume_analysis.average_volume)}`
+                            : `Candle ${selectedAnalysisSignal.volume_analysis.candle_strength || 'N/A'} · Body ${formatSignalLevel(selectedAnalysisSignal.volume_analysis.body_percent || 0)}%`}
+                        </div>
                       </div>
                       <div>
                         <span className="text-zinc-400">Smart Money:</span>
