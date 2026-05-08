@@ -338,9 +338,31 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { template, to, name, data = {}, userId, channel = "email", subject: customSubject, html: customHtml } = body;
+    let { template, to, name, data = {}, userId, channel = "email", subject: customSubject, html: customHtml } = body;
 
-    if (!to) return new Response(JSON.stringify({ error: "Recipient (to) required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (!to && !userId) return new Response(JSON.stringify({ error: "Recipient (to) or userId required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // 🔥 Auto-fetch user profile to populate name / clientId / email if missing
+    try {
+      let profile: any = null;
+      if (userId) {
+        const { data: p } = await supabase.from("profiles").select("user_id, full_name, client_id, email").eq("user_id", userId).maybeSingle();
+        profile = p;
+      } else if (to) {
+        const { data: p } = await supabase.from("profiles").select("user_id, full_name, client_id, email").eq("email", to).maybeSingle();
+        profile = p;
+        if (p?.user_id) userId = p.user_id;
+      }
+      if (profile) {
+        if (!to) to = profile.email;
+        if (!name) name = profile.full_name || (profile.email ? profile.email.split("@")[0] : "Trader");
+        data = { name: data.name || profile.full_name || name, clientId: data.clientId || profile.client_id, email: data.email || profile.email, ...data };
+        // ensure clientId present
+        if (!data.clientId && profile.client_id) data.clientId = profile.client_id;
+      }
+    } catch (e) { console.warn("[send-email] profile lookup failed", e); }
+
+    if (!to) return new Response(JSON.stringify({ error: "Could not resolve recipient email" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // Load admin settings
     const { data: settings } = await supabase.from("communication_settings").select("*").eq("id", 1).maybeSingle();
