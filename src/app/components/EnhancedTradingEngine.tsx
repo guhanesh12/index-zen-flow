@@ -427,9 +427,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         normalizedVolumeAnalysis.ratio = computedRatio;
       }
 
-       if (!normalizedVolumeAnalysis.has_data && (currentVolume > 0 || averageVolume > 0 || normalizedVolumeAnalysis.ratio > 0)) {
-         normalizedVolumeAnalysis.has_data = true;
-       }
+       const explicitHasData = rawVolumeAnalysis.has_data ?? rawVolumeAnalysis.hasData;
+       if (explicitHasData === undefined && !normalizedVolumeAnalysis.has_data && (currentVolume > 0 || averageVolume > 0 || normalizedVolumeAnalysis.ratio > 0)) {
+          normalizedVolumeAnalysis.has_data = true;
+        }
     }
 
     const timestamp = signalRecord?.created_at
