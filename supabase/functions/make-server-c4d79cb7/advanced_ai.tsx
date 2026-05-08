@@ -938,18 +938,21 @@ export class AdvancedAI {
     // 🐛 BUG FIX #4: Indices (NIFTY/BANKNIFTY) have NO volume from Dhan — guard
     // against divide-by-zero and treat as "no data" instead of NaN/Infinity.
     const prevWindow = ohlcData.slice(-11, -1); // last 10 PRIOR candles
-    const avgVolume = prevWindow.length
-      ? prevWindow.reduce((sum, c) => sum + (Number.isFinite(c.volume) ? c.volume : 0), 0) / prevWindow.length
-      : 0;
     // 🐛 BUG FIX #10: For indices (NIFTY/BANKNIFTY/SENSEX) Dhan often returns
     // sporadic micro-volumes (1-2 ticks) on some candles and zero on others.
     // Previous check (avg>0 && last>0) wrongly considered this a real feed and
     // produced volumeRatio≈0 which permanently blocked trades. Now: require
     // that MAJORITY of recent candles have volume AND avg is meaningful.
-    const candlesWithVolume = prevWindow.filter(c => Number.isFinite(c.volume) && c.volume > 0).length;
-    const volumeFeedReliable = prevWindow.length > 0 && (candlesWithVolume / prevWindow.length) >= 0.7;
-    const hasVolumeData = volumeFeedReliable && avgVolume > 0 && Number.isFinite(lastCandle.volume) && lastCandle.volume > 0;
-    const volumeRatio = hasVolumeData ? lastCandle.volume / avgVolume : 0;
+    const positiveVolumeWindow = prevWindow.filter(c => Number.isFinite(c.volume) && c.volume > 0);
+    const candlesWithVolume = positiveVolumeWindow.length;
+    const volumeCoverage = prevWindow.length > 0 ? candlesWithVolume / prevWindow.length : 0;
+    const avgVolume = positiveVolumeWindow.length
+      ? positiveVolumeWindow.reduce((sum, c) => sum + c.volume, 0) / positiveVolumeWindow.length
+      : 0;
+    const currentVolume = Number.isFinite(lastCandle.volume) && lastCandle.volume > 0 ? lastCandle.volume : 0;
+    const volumeFeedReliable = prevWindow.length >= 5 && volumeCoverage >= 0.8 && avgVolume > 0;
+    const hasVolumeData = volumeFeedReliable && currentVolume > 0;
+    const volumeRatio = hasVolumeData ? currentVolume / avgVolume : 0;
     const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
     const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
 
@@ -959,7 +962,7 @@ export class AdvancedAI {
     const bodyPercent = (bodySize / candleRange) * 100;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
 
-    console.log(`📊 VOLUME DEBUG: lastVol=${lastCandle.volume}, avgVol=${avgVolume.toFixed(2)}, ratio=${volumeRatio.toFixed(2)}, hasVolumeData=${hasVolumeData}`);
+    console.log(`📊 VOLUME DEBUG: lastVol=${currentVolume}, avgVol=${avgVolume.toFixed(2)}, ratio=${volumeRatio.toFixed(2)}, coverage=${(volumeCoverage * 100).toFixed(0)}%, feedReliable=${volumeFeedReliable}, hasVolumeData=${hasVolumeData}`);
     console.log(`🔍 BODYSIZE DEBUG: body=${bodySize.toFixed(2)}, range=${candleRange.toFixed(2)}, bodyPct=${bodyPercent.toFixed(1)}%`);
     
     // Order Flow
