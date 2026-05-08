@@ -722,7 +722,7 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
 // 🔥 NEW: Verify OTP and create account
 app.post("/make-server-c4d79cb7/auth/verify-otp", async (c) => {
   try {
-    const { phone, otp, email, password, name } = await c.req.json();
+    const { phone, otp, email, password, name, referredBy } = await c.req.json();
 
     if (!phone || !otp) {
       return c.json({ error: 'Phone and OTP are required' }, 400);
@@ -788,7 +788,13 @@ app.post("/make-server-c4d79cb7/auth/verify-otp", async (c) => {
         const { data: userData, error } = await supabase.auth.admin.createUser({
           email,
           password,
-          user_metadata: { name, phone },
+          user_metadata: {
+            name,
+            full_name: name,
+            phone,
+            mobile: phone,
+            referred_by: (referredBy || '').toString().trim().toUpperCase() || undefined,
+          },
           email_confirm: true, // Auto-confirm since phone is verified
         });
 
@@ -10841,6 +10847,207 @@ app.get("/make-server-c4d79cb7/signal-stats", async (c) => {
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
+});
+
+// ════════════════════════════════════════════════════════════════
+// 🎁 REFERRAL & PROFILE SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+// Helper: get user from auth header
+async function getUserFromAuth(c: any) {
+  const auth = c.req.header('Authorization') || '';
+  const token = auth.replace('Bearer ', '').trim();
+  if (!token) return null;
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return null;
+  return data.user;
+}
+
+// Public: validate referral code
+app.get("/make-server-c4d79cb7/referral/validate", async (c) => {
+  const code = (c.req.query('code') || '').toString().trim().toUpperCase();
+  if (!code) return c.json({ valid: false, error: 'Code required' }, 400);
+  const { data } = await supabase.from('referral_codes').select('code, user_id').eq('code', code).maybeSingle();
+  if (!data) return c.json({ valid: false });
+  const { data: prof } = await supabase.from('profiles').select('full_name, client_id').eq('user_id', data.user_id).maybeSingle();
+  return c.json({ valid: true, code: data.code, referrerName: prof?.full_name || prof?.client_id || 'A user' });
+});
+
+// Public: referral settings (reward amount + templates)
+app.get("/make-server-c4d79cb7/referral/settings", async (c) => {
+  const { data } = await supabase.from('referral_settings').select('*').limit(1).maybeSingle();
+  return c.json({ settings: data || null });
+});
+
+// User: my profile
+app.get("/make-server-c4d79cb7/profile/me", async (c) => {
+  const user = await getUserFromAuth(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  let { data: profile } = await supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle();
+  if (!profile) {
+    // Backfill profile if missing (legacy users)
+    const { data: created } = await supabase.from('profiles').insert({
+      user_id: user.id,
+      email: user.email,
+      full_name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+      mobile: user.user_metadata?.mobile || user.user_metadata?.phone || '',
+    }).select().single();
+    profile = created;
+    if (profile?.client_id) {
+      await supabase.from('referral_codes').insert({ user_id: user.id, code: profile.client_id }).select();
+      await supabase.from('referral_earnings').insert({ user_id: user.id }).select();
+    }
+  }
+  const { data: code } = await supabase.from('referral_codes').select('code').eq('user_id', user.id).maybeSingle();
+  const { data: earnings } = await supabase.from('referral_earnings').select('*').eq('user_id', user.id).maybeSingle();
+  return c.json({ profile, referralCode: code?.code || profile?.client_id, earnings });
+});
+
+// User: update profile
+app.patch("/make-server-c4d79cb7/profile/me", async (c) => {
+  const user = await getUserFromAuth(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json();
+  const allowed: any = {};
+  for (const k of ['full_name', 'mobile', 'photo_url']) {
+    if (body[k] !== undefined) allowed[k] = String(body[k]).slice(0, 255);
+  }
+  // Profile completion calc
+  const { data: cur } = await supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle();
+  const merged = { ...cur, ...allowed };
+  let pct = 20;
+  if (merged?.full_name) pct += 20;
+  if (merged?.mobile) pct += 20;
+  if (merged?.photo_url) pct += 20;
+  if (merged?.broker_connected) pct += 20;
+  allowed.profile_completion = pct;
+  const { data, error } = await supabase.from('profiles').update(allowed).eq('user_id', user.id).select().single();
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ success: true, profile: data });
+});
+
+// User: my referrals list
+app.get("/make-server-c4d79cb7/referral/my", async (c) => {
+  const user = await getUserFromAuth(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const { data: list } = await supabase
+    .from('referrals')
+    .select('*')
+    .eq('referrer_user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  const { data: earnings } = await supabase.from('referral_earnings').select('*').eq('user_id', user.id).maybeSingle();
+  return c.json({ referrals: list || [], earnings: earnings || { total_earned: 0, total_pending: 0, successful_count: 0, pending_count: 0 } });
+});
+
+// Internal: process first trade reward (called by engine)
+app.post("/make-server-c4d79cb7/referral/process-first-trade", async (c) => {
+  try {
+    const { user_id } = await c.req.json();
+    if (!user_id) return c.json({ error: 'user_id required' }, 400);
+    const { data: ref } = await supabase.from('referrals').select('*').eq('referee_user_id', user_id).maybeSingle();
+    if (!ref || ref.status === 'rewarded') return c.json({ ok: true, skipped: true });
+
+    const { data: settings } = await supabase.from('referral_settings').select('*').limit(1).maybeSingle();
+    if (!settings?.enabled) return c.json({ ok: true, disabled: true });
+    const reward = Number(settings.reward_amount || 0);
+
+    await supabase.from('referrals').update({
+      status: 'rewarded',
+      reward_amount: reward,
+      first_trade_at: new Date().toISOString(),
+      rewarded_at: new Date().toISOString(),
+    }).eq('id', ref.id);
+
+    await supabase.from('wallet_transactions').insert({
+      user_id: ref.referrer_user_id,
+      type: 'referral_reward',
+      amount: reward,
+      reference_id: ref.id,
+      description: `Referral reward for ${ref.referee_client_id}`,
+    });
+
+    const { data: cur } = await supabase.from('referral_earnings').select('*').eq('user_id', ref.referrer_user_id).maybeSingle();
+    await supabase.from('referral_earnings').upsert({
+      user_id: ref.referrer_user_id,
+      total_earned: Number(cur?.total_earned || 0) + reward,
+      total_pending: Math.max(0, Number(cur?.total_pending || 0)),
+      successful_count: Number(cur?.successful_count || 0) + 1,
+      pending_count: Math.max(0, Number(cur?.pending_count || 0) - 1),
+      last_credited_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+
+    return c.json({ ok: true, rewarded: reward });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Admin: referral overview & settings
+app.get("/make-server-c4d79cb7/admin/referrals/overview", async (c) => {
+  try {
+    const [{ count: totalRefs }, { count: successRefs }, { count: pendingRefs }, { data: payouts }, { data: settings }] = await Promise.all([
+      supabase.from('referrals').select('id', { count: 'exact', head: true }),
+      supabase.from('referrals').select('id', { count: 'exact', head: true }).eq('status', 'rewarded'),
+      supabase.from('referrals').select('id', { count: 'exact', head: true }).in('status', ['pending', 'registered']),
+      supabase.from('wallet_transactions').select('amount').eq('type', 'referral_reward'),
+      supabase.from('referral_settings').select('*').limit(1).maybeSingle(),
+    ]);
+    const totalPayout = (payouts || []).reduce((s: number, r: any) => s + Number(r.amount || 0), 0);
+    return c.json({
+      stats: { total: totalRefs || 0, successful: successRefs || 0, pending: pendingRefs || 0, totalPayout },
+      settings: settings || null,
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.patch("/make-server-c4d79cb7/admin/referrals/settings", async (c) => {
+  try {
+    const body = await c.req.json();
+    const updates: any = {};
+    for (const k of ['reward_amount', 'enabled', 'share_template_whatsapp', 'share_template_telegram', 'share_template_email', 'share_template_generic']) {
+      if (body[k] !== undefined) updates[k] = body[k];
+    }
+    const { data: existing } = await supabase.from('referral_settings').select('id').limit(1).maybeSingle();
+    if (existing) {
+      const { data, error } = await supabase.from('referral_settings').update(updates).eq('id', existing.id).select().single();
+      if (error) return c.json({ error: error.message }, 400);
+      return c.json({ success: true, settings: data });
+    } else {
+      const { data, error } = await supabase.from('referral_settings').insert(updates).select().single();
+      if (error) return c.json({ error: error.message }, 400);
+      return c.json({ success: true, settings: data });
+    }
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/admin/referrals/list", async (c) => {
+  const { data } = await supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(500);
+  return c.json({ referrals: data || [] });
+});
+
+app.get("/make-server-c4d79cb7/admin/referrals/leaderboard", async (c) => {
+  const { data } = await supabase
+    .from('referral_earnings')
+    .select('user_id, total_earned, successful_count, pending_count')
+    .order('total_earned', { ascending: false })
+    .limit(50);
+  // join client ids
+  const ids = (data || []).map((d: any) => d.user_id);
+  let profiles: any[] = [];
+  if (ids.length) {
+    const { data: profs } = await supabase.from('profiles').select('user_id, client_id, full_name').in('user_id', ids);
+    profiles = profs || [];
+  }
+  const merged = (data || []).map((d: any) => {
+    const p = profiles.find((x) => x.user_id === d.user_id);
+    return { ...d, client_id: p?.client_id, full_name: p?.full_name };
+  });
+  return c.json({ leaderboard: merged });
 });
 
 Deno.serve(app.fetch);

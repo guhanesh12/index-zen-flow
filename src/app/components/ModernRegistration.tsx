@@ -48,6 +48,7 @@ const registrationSchema = z.object({
   state: z.string().min(1, 'State is required'),
   city: z.string().min(2, 'City must be at least 2 characters').max(100),
   password: z.string().min(8, 'Password must be at least 8 characters').max(50),
+  referralCode: z.string().max(20).optional().or(z.literal('')),
   termsAccepted: z.boolean().refine(val => val === true, 'You must accept the terms and conditions')
 });
 
@@ -64,16 +65,51 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
   const [resendTimer, setResendTimer] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
   const [formStarted, setFormStarted] = useState(false); // Track if user started filling form
-  
+  const [refLocked, setRefLocked] = useState(false);
+  const [refValid, setRefValid] = useState<null | { valid: boolean; referrerName?: string }>(null);
+
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Parse referral code from URL (?ref=ALG0001)
+  const initialRef = (() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return (p.get('ref') || p.get('referral') || '').toString().trim().toUpperCase();
+    } catch { return ''; }
+  })();
 
   const form = useForm<RegistrationFormData>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       country: 'India',
-      termsAccepted: false
+      termsAccepted: false,
+      referralCode: initialRef || ''
     }
   });
+
+  useEffect(() => {
+    if (initialRef) {
+      setRefLocked(true);
+      form.setValue('referralCode', initialRef);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const referralCodeValue = form.watch('referralCode');
+  useEffect(() => {
+    const code = (referralCodeValue || '').trim().toUpperCase();
+    if (!code) { setRefValid(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`${serverUrl}/referral/validate?code=${encodeURIComponent(code)}`, {
+          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        });
+        const j = await res.json();
+        setRefValid({ valid: !!j.valid, referrerName: j.referrerName });
+      } catch { setRefValid(null); }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [referralCodeValue, serverUrl, publicAnonKey]);
 
   useEffect(() => {
     if (resendTimer > 0) {
@@ -214,7 +250,8 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
           // Pass account creation data to backend
           email: formData.email,
           password: formData.password,
-          name: formData.fullName
+          name: formData.fullName,
+          referredBy: (formData.referralCode || '').trim().toUpperCase() || undefined
         })
       });
 
@@ -619,6 +656,49 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
                     <p className="text-red-400 text-xs flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" />
                       {form.formState.errors.password.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Referral Code */}
+                <div className="space-y-2">
+                  <Label htmlFor="referralCode" className="text-slate-300 flex items-center gap-2 text-sm">
+                    <Zap className="h-4 w-4 text-cyan-400" />
+                    Referral Code <span className="text-slate-500 text-xs">(optional)</span>
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="referralCode"
+                      {...form.register('referralCode')}
+                      placeholder="e.g. ALG0001"
+                      readOnly={refLocked}
+                      maxLength={20}
+                      style={{ textTransform: 'uppercase' }}
+                      onChange={(e) => {
+                        e.target.value = e.target.value.toUpperCase();
+                        form.setValue('referralCode', e.target.value);
+                        handleFormInteraction();
+                      }}
+                      className={`bg-slate-900/80 border-slate-700 text-white placeholder:text-slate-600 h-11 focus:border-cyan-500 transition-colors ${
+                        refLocked ? 'opacity-90 cursor-not-allowed' : ''
+                      }`}
+                    />
+                    {refLocked && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wider text-cyan-400 font-semibold">
+                        Locked
+                      </span>
+                    )}
+                  </div>
+                  {refValid && refValid.valid && (
+                    <p className="text-emerald-400 text-xs flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Valid code — referred by {refValid.referrerName}
+                    </p>
+                  )}
+                  {refValid && !refValid.valid && (form.watch('referralCode') || '').length > 0 && (
+                    <p className="text-amber-400 text-xs flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Referral code not found (you can still continue)
                     </p>
                   )}
                 </div>

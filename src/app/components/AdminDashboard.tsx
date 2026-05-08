@@ -10,6 +10,7 @@ import { AdminLandingPage } from './AdminLandingPage';
 import { AdminActivityLogs } from './AdminActivityLogs';
 import { AdminUserManagement } from './AdminUserManagement';
 import { AdminSettings } from './AdminSettings';
+import { AdminReferrals } from './AdminReferrals';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -23,7 +24,8 @@ import {
   Activity, 
   UsersRound, 
   Settings, 
-  LogOut 
+  LogOut,
+  Gift
 } from 'lucide-react';
 import type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
@@ -258,6 +260,10 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 Settings
               </TabsTrigger>
             )}
+            <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
+              <Gift className="size-4 mr-2" />
+              Referrals
+            </TabsTrigger>
           </TabsList>
 
           {canAccessTab('dashboard') && (
@@ -312,6 +318,10 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               />
             </TabsContent>
           )}
+
+          <TabsContent value="referrals">
+            <AdminReferrals accessToken={realAccessToken} />
+          </TabsContent>
         </Tabs>
       </div>
     </div>
