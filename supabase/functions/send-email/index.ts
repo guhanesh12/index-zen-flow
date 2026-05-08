@@ -206,6 +206,89 @@ const TEMPLATES: Record<string, (d: TplData) => { subject: string; html: string 
     ),
   }),
 
+  // 🚀 PREMIUM CONSOLIDATED MULTI-INDEX SIGNAL EMAIL (one mail for all indices)
+  signals_combined: (d) => {
+    const signals = Array.isArray(d.signals) ? d.signals : [];
+    const count = signals.length;
+    const bullCount = signals.filter((s: any) => s.action === 'BUY_CALL').length;
+    const bearCount = signals.filter((s: any) => s.action === 'BUY_PUT').length;
+    const headline = count === 1
+      ? `${signals[0].index} ${signals[0].action === 'BUY_CALL' ? 'BUY CALL' : 'BUY PUT'}`
+      : `${count} Live AI Signals`;
+    const emoji = bearCount > bullCount ? '🔴' : bullCount > bearCount ? '🟢' : '⚡';
+
+    const signalCard = (s: any) => {
+      const isCall = s.action === 'BUY_CALL';
+      const accent = isCall ? BRAND.green : BRAND.red;
+      const bg = isCall
+        ? 'linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%)'
+        : 'linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%)';
+      const tag = isCall ? 'BULLISH · BUY CALL' : 'BEARISH · BUY PUT';
+      const arrow = isCall ? '▲' : '▼';
+      return `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;background:${bg};border-radius:16px;border:1px solid ${accent}33;overflow:hidden;box-shadow:0 4px 14px -6px ${accent}55">
+        <tr><td style="padding:18px 20px;border-left:6px solid ${accent}">
+          <table width="100%"><tr>
+            <td style="vertical-align:middle">
+              <div style="font-size:11px;color:${accent};font-weight:700;letter-spacing:1.5px">${tag}</div>
+              <div style="font-size:22px;font-weight:800;color:#0f172a;margin-top:4px;letter-spacing:-0.3px">
+                <span style="color:${accent};margin-right:6px">${arrow}</span>${s.index || '—'}
+              </div>
+            </td>
+            <td align="right" style="vertical-align:middle">
+              <div style="display:inline-block;background:#0f172a;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:0.5px">
+                AI ${Math.round(Number(s.confidence || 0))}%
+              </div>
+            </td>
+          </tr></table>
+          <table width="100%" style="margin-top:14px;border-collapse:separate;border-spacing:6px">
+            <tr>
+              <td style="background:#ffffff;padding:10px 12px;border-radius:10px;width:33%">
+                <div style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:1px;text-transform:uppercase">Entry</div>
+                <div style="font-size:16px;font-weight:800;color:#0f172a;margin-top:2px">₹${s.entry ? Number(s.entry).toFixed(2) : '—'}</div>
+              </td>
+              <td style="background:#ffffff;padding:10px 12px;border-radius:10px;width:33%">
+                <div style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:1px;text-transform:uppercase">Target</div>
+                <div style="font-size:16px;font-weight:800;color:${BRAND.green};margin-top:2px">₹${s.target ? Number(s.target).toFixed(2) : '—'}</div>
+              </td>
+              <td style="background:#ffffff;padding:10px 12px;border-radius:10px;width:33%">
+                <div style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:1px;text-transform:uppercase">Stop Loss</div>
+                <div style="font-size:16px;font-weight:800;color:${BRAND.red};margin-top:2px">₹${s.sl ? Number(s.sl).toFixed(2) : '—'}</div>
+              </td>
+            </tr>
+          </table>
+          <div style="margin-top:12px;font-size:12px;color:#475569">
+            <span style="display:inline-block;background:#0f172a14;padding:4px 10px;border-radius:999px;margin-right:6px"><b>TF:</b> ${s.timeframe || 'Intraday'}</span>
+            <span style="display:inline-block;background:#0f172a14;padding:4px 10px;border-radius:999px"><b>Risk:</b> ${s.risk || 'Medium'}</span>
+          </div>
+          ${s.reason ? `<div style="margin-top:10px;font-size:12px;color:#475569;line-height:1.5;font-style:italic">&quot;${String(s.reason).substring(0, 160)}&quot;</div>` : ''}
+        </td></tr>
+      </table>`;
+    };
+
+    return {
+      subject: `${emoji} ${headline} — ${BRAND.name} AI Alert`,
+      html: shell(
+        `${emoji} ${headline}`,
+        `<div style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:20px;border-radius:14px;margin-bottom:22px;text-align:center">
+           <div style="color:#94a3b8;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase">Live AI Signal Batch</div>
+           <div style="color:#fff;font-size:22px;font-weight:800;margin-top:6px">${count} Actionable Signal${count === 1 ? '' : 's'}</div>
+           <div style="margin-top:12px">
+             <span style="display:inline-block;background:${BRAND.green}22;color:${BRAND.green};padding:6px 14px;border-radius:999px;font-size:12px;font-weight:700;margin:0 4px">▲ ${bullCount} CALL</span>
+             <span style="display:inline-block;background:${BRAND.red}22;color:${BRAND.red};padding:6px 14px;border-radius:999px;font-size:12px;font-weight:700;margin:0 4px">▼ ${bearCount} PUT</span>
+           </div>
+           <div style="color:#64748b;font-size:11px;margin-top:10px">Generated at ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</div>
+         </div>
+         ${signals.map(signalCard).join('')}
+         ${btn(`${BRAND.url}/dashboard`, "🚀 Open Live Dashboard", BRAND.primary)}
+         <div style="margin-top:24px;padding:14px 16px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:10px;font-size:12px;color:#78350f;line-height:1.6">
+           ⚠️ <b>Risk Disclosure:</b> Options trading carries substantial risk. AI signals are decision-support only — execute trades after personal review. Past performance does not guarantee future results.
+         </div>`,
+        `${count} live AI signal${count === 1 ? '' : 's'}: ${signals.map((s: any) => `${s.index} ${s.action.replace('BUY_', '')}`).join(', ')}`
+      ),
+    };
+  },
+
   trade_exit: (d) => ({
     subject: `${(d.pnl || 0) >= 0 ? "✅" : "❌"} Trade Exited: ${d.symbol}`,
     html: shell(
