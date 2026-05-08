@@ -502,8 +502,14 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950">
+    <div className="min-h-screen gradient-hero">
       <SEO {...SEO_CONFIGS.dashboard} />
+      {/* Indices ticker rail */}
+      <div className="hidden md:block border-b border-border/40 bg-card/40 backdrop-blur-md">
+        <div className="container mx-auto px-4 py-1.5">
+          <IndicesTicker />
+        </div>
+      </div>
 
       {/* ══ LOCK SCREEN OVERLAY ══ */}
       {isLocked && (
