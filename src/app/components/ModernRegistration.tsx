@@ -762,10 +762,10 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      Sending OTP...
+                      Creating Account...
                     </>
                   ) : (
-                    'Continue to OTP Verification'
+                    'Create Account'
                   )}
                 </Button>
               </form>
