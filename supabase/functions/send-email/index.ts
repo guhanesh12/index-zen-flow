@@ -439,6 +439,28 @@ const TEMPLATES: Record<string, (d: TplData) => { subject: string; html: string 
       `Pre-market brief · Markets open at 09:15`)
   }),
 
+  engine_started: (d) => ({
+    subject: `🚀 Trading Engine Started — Auto-Trade is LIVE`,
+    html: shell(`Engine is LIVE 🚀`,
+      `<p>Hi <b>${d.name || "Trader"}</b>,</p>
+       <p>Your <b>${BRAND.name}</b> trading engine has been started successfully and is now monitoring the markets in real-time.</p>
+       <div style="background:linear-gradient(135deg,#dcfce7 0%,#bbf7d0 100%);padding:18px;border-radius:14px;border-left:6px solid ${BRAND.green};margin:20px 0">
+         <div style="font-size:11px;color:#166534;font-weight:700;letter-spacing:1.5px">STATUS</div>
+         <div style="font-size:22px;font-weight:800;color:#0f172a;margin-top:4px">🟢 AUTO-TRADING ACTIVE</div>
+       </div>
+       <table width="100%" style="margin:18px 0">
+         ${stat("Candle Interval", `${d.candleInterval || '15'} Min`, BRAND.primary)}
+         ${stat("Active Symbols", String(d.symbolCount || 0), BRAND.accent)}
+         ${stat("Started At", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST", BRAND.green)}
+         ${stat("Client ID", d.clientId || "—")}
+       </table>
+       <p style="background:#eff6ff;border-left:4px solid ${BRAND.primary};padding:12px 16px;border-radius:8px;color:#1e3a8a;font-size:13px">
+       ⚡ AI will analyze NIFTY · BANKNIFTY · SENSEX and place orders automatically based on signal confidence ≥ 85%.</p>
+       ${btn(`${BRAND.url}/dashboard`, "📊 Open Live Dashboard", BRAND.green)}
+       <p style="font-size:12px;color:#94a3b8;text-align:center;margin-top:18px">You can stop the engine anytime from your dashboard.</p>`,
+      `Engine started · Auto-trading is live`)
+  }),
+
   test: (d) => ({
     subject: `✅ ${BRAND.name} — Email Integration Test Successful`,
     html: shell(
@@ -541,7 +563,7 @@ Deno.serve(async (req) => {
     const { data: settings } = await supabase.from("communication_settings").select("*").eq("id", 1).maybeSingle();
     const s = settings || { email_enabled: true, sms_enabled: false, whatsapp_enabled: false, from_email: "noreply@indexpilotai.com", from_name: BRAND.name };
 
-    // Channel gating
+    // Channel gating (admin-level)
     if (channel === "email" && !s.email_enabled) {
       await supabase.from("email_logs").insert({ user_id: userId || null, recipient: to, template: template || "custom", channel, status: "skipped", error: "Email disabled by admin" });
       return new Response(JSON.stringify({ ok: false, skipped: true, reason: "email_disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -552,6 +574,32 @@ Deno.serve(async (req) => {
     if (channel === "whatsapp" && !s.whatsapp_enabled) {
       return new Response(JSON.stringify({ ok: false, skipped: true, reason: "whatsapp_disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    // 🔒 ALWAYS-ON templates (cannot be disabled by user) — security, onboarding & daily market briefings
+    const ALWAYS_ON = new Set([
+      "otp", "password_reset", "password_changed",
+      "welcome", "daily_premarket", "engine_started",
+      "test",
+    ]);
+
+    // 🔕 User-level opt-out (profile → notifications) for signals / P&L / notification mails
+    if (channel === "email" && userId && template && !ALWAYS_ON.has(template)) {
+      try {
+        const { data: userPrefs } = await supabase
+          .from("notification_preferences")
+          .select("email_enabled, trade_alerts")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (userPrefs && userPrefs.email_enabled === false) {
+          await supabase.from("email_logs").insert({
+            user_id: userId, recipient: to, template, channel,
+            status: "skipped", error: "User disabled notification emails",
+          });
+          return new Response(JSON.stringify({ ok: false, skipped: true, reason: "user_email_off" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      } catch (e) { console.warn("[send-email] user prefs lookup failed", e); }
+    }
+
 
     // Resolve template
     let subject = customSubject || "";

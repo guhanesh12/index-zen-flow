@@ -8159,6 +8159,26 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
 
+    // 📧 Fire-and-forget engine-started email (always-on, bypasses user opt-out)
+    try {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        },
+        body: JSON.stringify({
+          template: 'engine_started',
+          userId: user.id,
+          data: {
+            candleInterval: candleInterval || '15',
+            symbolCount: (symbols || []).length,
+          },
+        }),
+      }).catch((e) => console.warn('[engine_started email]', e?.message));
+    } catch (e) { console.warn('[engine_started email] threw', e); }
+
     return c.json(result);
   } catch (error: any) {
     console.error('❌ Error starting persistent engine:', error);
