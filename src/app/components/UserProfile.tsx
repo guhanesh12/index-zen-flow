@@ -325,15 +325,6 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
                       className="bg-zinc-950 border-zinc-700 text-white mt-1"
                     />
                   </div>
-                  <div>
-                    <Label className="text-xs text-zinc-400">Photo URL</Label>
-                    <Input
-                      value={editForm.photo_url}
-                      onChange={(e) => setEditForm({ ...editForm, photo_url: e.target.value })}
-                      placeholder="https://…"
-                      className="bg-zinc-950 border-zinc-700 text-white mt-1"
-                    />
-                  </div>
                 </div>
                 <Button onClick={saveProfile} className="bg-cyan-600 hover:bg-cyan-700">
                   Save Changes
