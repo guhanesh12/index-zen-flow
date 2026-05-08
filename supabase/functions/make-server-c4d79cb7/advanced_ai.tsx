@@ -1396,9 +1396,16 @@ export class AdvancedAI {
       
       volumeAnalysis: {
         ratio: volumeRatio,
+        current: currentVolume,
+        average: avgVolume,
+        hasData: hasVolumeData,
+        feedReliable: volumeFeedReliable,
+        coverage: volumeCoverage,
         isHigh: isHighVolume,
         isSpike: isVolumeSpike,
         smartMoney,
+        bodySize,
+        bodyPercent,
         buyPressure: orderFlow.buyPressure,
         sellPressure: orderFlow.sellPressure,
         orderFlow: orderFlow.orderFlow
