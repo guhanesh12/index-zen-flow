@@ -1398,6 +1398,7 @@ export class AdvancedAI {
       
       volumeAnalysis: {
         ratio: volumeRatio,
+        rawRatio: rawVolumeRatio,
         current: currentVolume,
         average: avgVolume,
         hasData: hasVolumeData,
@@ -1408,6 +1409,7 @@ export class AdvancedAI {
         smartMoney,
         bodySize,
         bodyPercent,
+        candleStrength,
         buyPressure: orderFlow.buyPressure,
         sellPressure: orderFlow.sellPressure,
         orderFlow: orderFlow.orderFlow
