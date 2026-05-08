@@ -10154,7 +10154,51 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   }
 });
 
-app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
+// 📧 Daily 09:08 IST premarket email — sent only on NSE trading days
+app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
+  try {
+    // Trading-day check using DB function
+    const { data: isTradingDay } = await supabase.rpc('is_trading_day');
+    if (isTradingDay === false) {
+      return c.json({ ok: true, skipped: true, reason: 'Not a trading day (weekend or NSE holiday)' });
+    }
+
+    // All users with engine running OR with a profile email
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, full_name, email, client_id')
+      .not('email', 'is', null);
+
+    let sent = 0, failed = 0;
+    for (const p of (profiles || [])) {
+      try {
+        const { data: engine } = await supabase.from('trading_engine_state').select('is_running, selected_symbols').eq('user_id', p.user_id).maybeSingle();
+        const symbols = Array.isArray(engine?.selected_symbols) ? engine!.selected_symbols : [];
+        const symbolsLabel = symbols.length ? symbols.slice(0, 5).map((s: any) => s.symbolName || s.symbol || s.index || s).join(' · ') : 'NIFTY · BANKNIFTY · SENSEX';
+        const wallet = await kv.get(`wallet:${p.user_id}`).catch(() => null);
+        await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+          body: JSON.stringify({
+            template: 'daily_premarket',
+            to: p.email,
+            name: p.full_name,
+            userId: p.user_id,
+            data: {
+              engineStatus: engine?.is_running ? '🟢 Engine running · Auto-trade ON' : '⚪ Engine idle — start it from dashboard',
+              activeSymbols: symbolsLabel,
+              balance: wallet?.balance || 0,
+            },
+          }),
+        });
+        sent++;
+      } catch (e) { failed++; console.warn('premarket email failed for', p.user_id, e); }
+    }
+    return c.json({ ok: true, sent, failed, total: profiles?.length || 0 });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
+  }
+});
   try {
     let targetUserId = '';
     const authHeader = c.req.header('Authorization');
