@@ -917,7 +917,14 @@ export class AdvancedAI {
     const avgVolume = prevWindow.length
       ? prevWindow.reduce((sum, c) => sum + (Number.isFinite(c.volume) ? c.volume : 0), 0) / prevWindow.length
       : 0;
-    const hasVolumeData = avgVolume > 0 && Number.isFinite(lastCandle.volume) && lastCandle.volume > 0;
+    // 🐛 BUG FIX #10: For indices (NIFTY/BANKNIFTY/SENSEX) Dhan often returns
+    // sporadic micro-volumes (1-2 ticks) on some candles and zero on others.
+    // Previous check (avg>0 && last>0) wrongly considered this a real feed and
+    // produced volumeRatio≈0 which permanently blocked trades. Now: require
+    // that MAJORITY of recent candles have volume AND avg is meaningful.
+    const candlesWithVolume = prevWindow.filter(c => Number.isFinite(c.volume) && c.volume > 0).length;
+    const volumeFeedReliable = prevWindow.length > 0 && (candlesWithVolume / prevWindow.length) >= 0.7;
+    const hasVolumeData = volumeFeedReliable && avgVolume > 0 && Number.isFinite(lastCandle.volume) && lastCandle.volume > 0;
     const volumeRatio = hasVolumeData ? lastCandle.volume / avgVolume : 0;
     const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
     const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
