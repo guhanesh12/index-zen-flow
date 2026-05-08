@@ -145,6 +145,7 @@ export interface AdvancedSignal {
   // Volume analysis
   volumeAnalysis: {
     ratio: number;
+    rawRatio: number;
     current: number;
     average: number;
     hasData: boolean;
@@ -155,6 +156,7 @@ export interface AdvancedSignal {
     smartMoney: boolean;
     bodySize: number;
     bodyPercent: number;
+    candleStrength: string;
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -951,7 +953,8 @@ export class AdvancedAI {
     const currentVolume = Number.isFinite(lastCandle.volume) && lastCandle.volume > 0 ? lastCandle.volume : 0;
     const volumeFeedReliable = prevWindow.length >= 5 && volumeCoverage >= 0.8 && avgVolume > 0;
     const hasVolumeData = volumeFeedReliable && currentVolume > 0;
-    const volumeRatio = hasVolumeData ? currentVolume / avgVolume : 0;
+    const rawVolumeRatio = hasVolumeData ? currentVolume / avgVolume : 0;
+    const volumeRatio = hasVolumeData ? rawVolumeRatio : 1;
     const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
     const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
 
@@ -959,9 +962,10 @@ export class AdvancedAI {
     const candleRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
     const bodySize = Math.abs(lastCandle.close - lastCandle.open);
     const bodyPercent = (bodySize / candleRange) * 100;
+    const candleStrength = bodyPercent >= 60 ? 'STRONG' : bodyPercent >= 40 ? 'DECISIVE' : bodyPercent >= 25 ? 'MODERATE' : 'WEAK';
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
 
-    console.log(`📊 VOLUME DEBUG: lastVol=${currentVolume}, avgVol=${avgVolume.toFixed(2)}, ratio=${volumeRatio.toFixed(2)}, coverage=${(volumeCoverage * 100).toFixed(0)}%, feedReliable=${volumeFeedReliable}, hasVolumeData=${hasVolumeData}`);
+    console.log(`📊 VOLUME DEBUG: lastVol=${currentVolume}, avgVol=${avgVolume.toFixed(2)}, ratio=${hasVolumeData ? volumeRatio.toFixed(2) : 'NO_FEED'}, coverage=${(volumeCoverage * 100).toFixed(0)}%, feedReliable=${volumeFeedReliable}, hasVolumeData=${hasVolumeData}`);
     console.log(`🔍 BODYSIZE DEBUG: body=${bodySize.toFixed(2)}, range=${candleRange.toFixed(2)}, bodyPct=${bodyPercent.toFixed(1)}%`);
     
     // Order Flow
@@ -1136,16 +1140,16 @@ export class AdvancedAI {
     // 6. Volume Confirmation (Weight: 1)
     // 🐛 BUG FIX #6: When index has no volume feed, fall back to strong-body candle
     // so the confirmation isn't permanently disabled on NIFTY/BANKNIFTY.
-    if ((isBullish || isBearish) && hasVolumeData && volumeRatio >= 0.8 && bodyPercent >= 40) {
+    if ((isBullish || isBearish) && hasVolumeData && volumeRatio >= 0.8 && bodyPercent >= 35) {
       confirmations.volume = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Volume: Confirmed (${volumeRatio.toFixed(2)}x) + strong candle`);
-    } else if ((isBullish || isBearish) && !hasVolumeData && bodyPercent >= 40) {
+      confirmationDetails.push(`✅ Volume: Confirmed (${volumeRatio.toFixed(2)}x) + ${candleStrength.toLowerCase()} candle (${bodyPercent.toFixed(1)}%)`);
+    } else if ((isBullish || isBearish) && !hasVolumeData && bodyPercent >= 35) {
       confirmations.volume = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Volume: No feed → strong body fallback (${bodyPercent.toFixed(1)}%)`);
+      confirmationDetails.push(`✅ Volume: Index feed unavailable → ${candleStrength.toLowerCase()} candle strength used (${bodyPercent.toFixed(1)}%)`);
     } else {
-      confirmationDetails.push(hasVolumeData ? `❌ Volume: Low (${volumeRatio.toFixed(2)}x) or weak candle` : `⚠️ Volume: No reliable feed (${(volumeCoverage * 100).toFixed(0)}% coverage), weak body`);
+      confirmationDetails.push(hasVolumeData ? `⚠️ Volume: Low (${volumeRatio.toFixed(2)}x) / candle ${candleStrength.toLowerCase()} (${bodyPercent.toFixed(1)}%)` : `⚠️ Volume: Index feed unavailable, candle strength ${candleStrength.toLowerCase()} (${bodyPercent.toFixed(1)}%)`);
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
@@ -1289,10 +1293,10 @@ export class AdvancedAI {
     const bodyPctThreshold = isVeryStrongTrend ? 0.0002 : 0.0005; // 0.02% / 0.05%
     const minimumBodySize = Math.max(1, currentPrice * bodyPctThreshold);
     // ⚡ Body size gate also passes if candle body is >40% of its range (decisive bar)
-    const hasAcceptableBody = bodySize >= minimumBodySize || bodyPercent >= 40;
-    // Volume gate: require at least 0.8x average volume to allow a trade (no 0.5x relaxation)
+    const hasAcceptableBody = bodySize >= minimumBodySize || bodyPercent >= 35;
+    // Volume is informational for cash indices because Dhan often returns no/partial feed.
     const minimumVolumeRatio = 0.8;
-    const hasAcceptableVolume = !hasVolumeData ? true : (volumeRatio >= minimumVolumeRatio);
+    const hasAcceptableVolume = true;
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
@@ -1336,9 +1340,9 @@ export class AdvancedAI {
         confidence = 35;
         bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
         const volMsg = !hasVolumeData
-          ? 'no volume feed'
-          : `volume ${volumeRatio.toFixed(2)}x (min ${minimumVolumeRatio}x)`;
-        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts / ${bodyPercent.toFixed(0)}% of range, min ${minimumBodySize.toFixed(1)}pts or 40%) or low volume (${volMsg}).`;
+          ? 'index volume feed unavailable; using candle strength'
+          : `volume ${volumeRatio.toFixed(2)}x`;
+        reasoning = `WAIT: Candle strength too weak (body ${bodySize.toFixed(1)}pts / ${bodyPercent.toFixed(0)}% of range, min ${minimumBodySize.toFixed(1)}pts or 35%). ${volMsg}.`;
       }
     } else {
       action = 'WAIT';
@@ -1396,6 +1400,7 @@ export class AdvancedAI {
       
       volumeAnalysis: {
         ratio: volumeRatio,
+        rawRatio: rawVolumeRatio,
         current: currentVolume,
         average: avgVolume,
         hasData: hasVolumeData,
@@ -1406,6 +1411,7 @@ export class AdvancedAI {
         smartMoney,
         bodySize,
         bodyPercent,
+        candleStrength,
         buyPressure: orderFlow.buyPressure,
         sellPressure: orderFlow.sellPressure,
         orderFlow: orderFlow.orderFlow

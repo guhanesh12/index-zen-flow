@@ -3470,9 +3470,13 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
     
     // =============== INSTITUTIONAL MOVEMENT ANALYSIS ===============
     const last10Candles = ohlcData.slice(-10);
-    const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
-    const currentVolume = lastCandle.volume;
-    const volumeRatio = currentVolume / avgVolume;
+    const positiveVolumeCandles = last10Candles.filter(c => Number.isFinite(c.volume) && c.volume > 0);
+    const volumeCoverage = last10Candles.length ? positiveVolumeCandles.length / last10Candles.length : 0;
+    const avgVolume = positiveVolumeCandles.length ? positiveVolumeCandles.reduce((sum, c) => sum + c.volume, 0) / positiveVolumeCandles.length : 0;
+    const currentVolume = Number.isFinite(lastCandle.volume) && lastCandle.volume > 0 ? lastCandle.volume : 0;
+    const hasReliableVolume = volumeCoverage >= 0.8 && avgVolume > 0 && currentVolume > 0;
+    const rawVolumeRatio = hasReliableVolume ? currentVolume / avgVolume : 0;
+    const volumeRatio = hasReliableVolume ? rawVolumeRatio : 1;
     
     // High volume breakout detection
     const isHighVolume = volumeRatio > 1.5; // 50% above average
@@ -3512,7 +3516,7 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
         cumulativeTPV += typicalPrice * candle.volume;
         cumulativeVolume += candle.volume;
       }
-      return cumulativeVolume > 0 ? cumulativeTPV / cumulativeVolume : 0;
+      return cumulativeVolume > 0 ? cumulativeTPV / cumulativeVolume : data.reduce((sum, candle) => sum + ((candle.high + candle.low + candle.close) / 3), 0) / Math.max(data.length, 1);
     };
     
     const vwap = calculateVWAP(ohlcData);
@@ -3710,7 +3714,7 @@ CRITICAL RULES FOR COMMERCIAL TRADING:
         && !isDoji
         && bodySize >= 10
         && bodyPercent >= 35
-        && volumeRatio >= 1.15
+        && (hasReliableVolume ? volumeRatio >= 1.0 : true)
         && priceAboveVWAP
         && (emaUptrend || priceAboveEMA21)
         && momentum === 'BULLISH';
@@ -3719,16 +3723,16 @@ CRITICAL RULES FOR COMMERCIAL TRADING:
         && !isDoji
         && bodySize >= 10
         && bodyPercent >= 35
-        && volumeRatio >= 1.15
+        && (hasReliableVolume ? volumeRatio >= 1.0 : true)
         && !priceAboveVWAP
         && (emaDowntrend || !priceAboveEMA21)
         && momentum === 'BEARISH';
 
       if ((action === 'BUY_CALL' && !bullishQualityGate) || (action === 'BUY_PUT' && !bearishQualityGate)) {
-        console.warn(`🛡️ AI trade blocked by deterministic quality gate: ${action} | body=${bodySize.toFixed(2)}pts/${bodyPercent.toFixed(1)}% volume=${volumeRatio.toFixed(2)}x vwap=${priceAboveVWAP} emaUp=${emaUptrend} emaDown=${emaDowntrend} momentum=${momentum}`);
+        console.warn(`🛡️ AI trade blocked by deterministic quality gate: ${action} | body=${bodySize.toFixed(2)}pts/${bodyPercent.toFixed(1)}% volume=${hasReliableVolume ? `${volumeRatio.toFixed(2)}x` : 'INDEX_FEED_N/A'} vwap=${priceAboveVWAP} emaUp=${emaUptrend} emaDown=${emaDowntrend} momentum=${momentum}`);
         action = 'WAIT';
         aiResponse.confidence = Math.min(Number(aiResponse.confidence || 0), 45);
-        aiResponse.reasoning = `WAIT: Signal blocked by real-market quality gate. Need candle body, volume, VWAP, EMA, and momentum alignment before trade.`;
+        aiResponse.reasoning = `WAIT: Signal blocked by quality gate. Need candle body, VWAP, EMA, and momentum alignment before trade; index volume feed is informational only.`;
       }
       
       const signal = {
@@ -3756,8 +3760,14 @@ CRITICAL RULES FOR COMMERCIAL TRADING:
           current: currentVolume,
           average: avgVolume,
           ratio: volumeRatio,
+          rawRatio: rawVolumeRatio,
+          hasData: hasReliableVolume,
+          feedReliable: hasReliableVolume,
+          coverage: volumeCoverage,
           is_spike: isVolumeSpike,
-          is_high: isHighVolume
+          is_high: isHighVolume,
+          bodyPercent,
+          candleStrength: bodyPercent >= 60 ? 'STRONG' : bodyPercent >= 35 ? 'DECISIVE' : bodyPercent >= 25 ? 'MODERATE' : 'WEAK'
         },
         smart_money_detected: isSmartMoney,
         momentum: momentum,
