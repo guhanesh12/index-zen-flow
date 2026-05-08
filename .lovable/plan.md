@@ -1,80 +1,72 @@
-## Goal
-Redesign the existing trading dashboard into a modern, institutional-grade fintech UI that's beginner-friendly and easy to scan in 3 seconds. Pure UI/UX work — no changes to backend, signal logic, position monitor, or strategy engines.
+# Profile + Client ID + Referral System
 
-## Scope (UI only)
-- Keep all existing data sources, API calls, and business logic untouched
-- Rebuild layout, visual hierarchy, components, color tokens, spacing, animations
-- Wire new components to the same hooks/endpoints currently used
+This is a large feature. I'll deliver it in 4 phases. Confirm and I'll execute end-to-end.
 
-## Design System Updates
-- Update `src/index.css` + `tailwind.config.ts` with fintech tokens:
-  - Semantic colors: `--profit` (green), `--loss` (red), `--warning` (orange), `--info` (blue), `--ai` (purple), `--muted-status` (grey)
-  - Glass surface tokens: `--glass-bg`, `--glass-border`, backdrop blur utilities
-  - Gradients: `--gradient-profit`, `--gradient-loss`, `--gradient-ai`, `--gradient-hero`
-  - Glow shadows: `--glow-profit`, `--glow-loss`, `--glow-ai`
-  - Dark-mode tuned HSL values throughout
-- Add animation keyframes: `pulse-glow`, `count-up`, `shimmer`, `signal-pop`, `live-dot`
+## Phase 1 — Database (Supabase migration)
 
-## New Layout Architecture
+New tables:
+- `profiles` — user_id, client_id (unique, ALG0001…), full_name, email, mobile, photo_url, role, kyc_status, account_status, trading_level, joined_at, profile_completion
+- `referral_codes` — user_id, code (unique, e.g. `ALG0001`), created_at
+- `referrals` — referrer_id, referee_id, referee_client_id, status (pending / registered / first_trade_done / rewarded), reward_amount, registered_at, first_trade_at, rewarded_at
+- `referral_settings` — singleton: reward_amount, enabled, share_template_whatsapp/telegram/email/generic
+- `referral_earnings` — user_id, total_earned, total_pending, last_credited_at
+- `wallet_transactions` — user_id, type (referral_reward, etc.), amount, ref_id, created_at
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ TopBar: Logo │ Market OPEN/CLOSED │ Indices ticker │   │
-│              Global P&L │ Bell │ Quick Trade │ Profile  │
-├──────┬──────────────────────────────────────────────────┤
-│ Side │ MAIN                                             │
-│ Nav  │ ── Quick Status Cards (8 KPI tiles) ──           │
-│      │ ── Live Market Overview (index widgets) ──       │
-│ icons│ ── AI Signal Center (glowing signal cards) ──    │
-│ +    │ ── Live Positions Panel ──                       │
-│ label│ ── Strategy Performance (charts) ──              │
-│      │ ── Broker Connection │ Risk Center ──            │
-│      │ ── Trade Journal preview ──                      │
-└──────┴──────────────────────────────────────────────────┘
-```
+Logic:
+- Auto-generate `client_id` (ALG + zero-padded sequence) via trigger on profile insert
+- Auto-generate referral code = client_id
+- RLS: user reads own rows; admin role full access; service role full access
+- Trigger on signup → create profile + referral code; if `referred_by` metadata → insert pending referral row
+- Trigger / edge function on first successful trade → mark referral `first_trade_done`, credit referrer wallet, log transaction, send notification
 
-Mobile: collapsed sidebar → bottom tab bar (Dashboard / Signals / Positions / Journal / Menu) + floating quick-trade FAB.
+## Phase 2 — Edge functions
 
-## New Components (under `src/app/components/dashboard/`)
-1. `DashboardShell.tsx` — TopBar + Sidebar + content slot, responsive
-2. `TopBar.tsx` — market status pill, indices ticker, global P&L, notifications, quick trade
-3. `SideNav.tsx` — collapsible icon+label nav (uses shadcn sidebar)
-4. `MobileBottomNav.tsx`
-5. `KpiCard.tsx` — icon, animated counter, sparkline (recharts), delta %, status dot
-6. `KpiGrid.tsx` — renders the 8 status cards
-7. `MarketWidget.tsx` + `MarketOverview.tsx` — index card with mini chart, strength bar
-8. `SignalCard.tsx` — glowing border by direction, confidence ring, indicator chips (EMA/RSI/MACD/VWAP/Vol), entry/SL/target, big action button
-9. `SignalCenter.tsx` — grid of SignalCards with filter tabs
-10. `PositionsTable.tsx` — live MTM, ROI, trailing SL, exit button, expandable rows
-11. `StrategyPerformance.tsx` — equity curve, daily P&L bars, win/loss donut, heatmap
-12. `BrokerPanel.tsx` — broker cards with status, latency, auto-trade toggle
-13. `RiskCenter.tsx` — circular progress for daily loss, drawdown, exposure, margin
-14. `JournalPreview.tsx` — recent trades with tags
-15. `QuickTradeFab.tsx` — floating button + sheet
-16. `CommandPalette.tsx` — ⌘K global search
-17. `AiPulse.tsx` — small reusable AI confidence pulse/gauge
+- `referral-process` — called after first trade; credits referrer wallet, updates status, sends notifications
+- `referral-stats` — analytics (totals, leaderboard, monthly growth)
+- `admin-referral-config` — admin updates reward amount / enable-disable / templates
 
-Reuse existing logic by importing the current data hooks/calls from `TradingDashboard.tsx`, `AdvancedPositionMonitor.tsx`, `ProfitDashboard.tsx`, `StrategyManager.tsx`, `BrokerRequest.tsx`, `TradingJournal.tsx`. No backend edits.
+## Phase 3 — User UI
 
-## Integration
-- Replace the body of `src/app/components/TradingDashboard.tsx` to render `<DashboardShell>` with the new sections.
-- Existing route `/dashboard` keeps working (no router changes).
-- All existing screens (Settings, Symbols, Wallet, Support, etc.) become routes inside the new SideNav, mounting the **existing** components unchanged.
+- **Registration page**: `?ref=ALGxxxx` auto-fills referral code field (read-only when via link, otherwise editable). Validates code on submit.
+- **Profile page (`/profile`)**:
+  - Glassmorphism profile card with animated gradient border
+  - Photo, name, email, mobile, **Client ID (copy button)**, role, VIP/verified badges, trading level
+  - Stats grid: wallet balance, total P&L, referral earnings, subscription, broker status, KYC status, join date
+  - Profile completion progress bar
+  - Editable fields (name, mobile, photo)
+- **Referral page / tab**:
+  - Hero banner (generated marketing image) with reward amount
+  - Referral code + link (one-click copy)
+  - QR code (qrcode.react)
+  - Share buttons: WhatsApp, Telegram, Instagram, Facebook, X, Email, Copy
+  - Editable share message preview with emoji template
+  - Stats: total / successful / pending referrals, earnings chart, leaderboard position
+  - Referral history table
 
-## Visual / UX Details
-- Glassmorphism: `bg-card/60 backdrop-blur-xl border border-white/10`
-- Rounded-2xl cards, soft shadow, hover lift (`hover-scale`)
-- Live dot animation on "OPEN" market badge
-- Animated number counters on KPIs
-- Toast (sonner) for new signals
-- Loading skeletons + empty states for every section
-- Keyboard shortcuts: `⌘K` palette, `g d` dashboard, `g s` signals, `g p` positions
+## Phase 4 — Admin UI (`AdminReferrals.tsx` + extend `AdminUserManagement`)
 
-## Out of Scope
-- No strategy/AI/engine logic changes
-- No new endpoints or DB migrations
-- No TradingView paid widgets — use recharts for all charts
-- No changes to auth, admin, or landing pages
+- New "Referrals" tab in admin dashboard
+- Settings card: reward amount input, enable/disable toggle, editable share templates per platform
+- Stats cards: total referrals, successful, pending, total payouts
+- Leaderboard table
+- Transaction history with filters (date, user, status, first-trade status)
+- Fraud flags column (duplicate device/IP)
+- Extended user list: client ID search, referral count, wallet balance, total trades, P&L, registration date, first trade date, referral earnings, status controls
 
-## Deliverable
-A redesigned `/dashboard` matching the institutional fintech brief, fully responsive, dark-mode first, wired to the existing data layer.
+## Technical notes
+
+- Client ID format: `ALG` + 4-digit padded sequence from a Postgres sequence (`alg_client_seq`)
+- Referral link: `https://indexpilotai.com/register?ref={CLIENT_ID}`
+- QR code lib: `qrcode.react`
+- Charts: existing `recharts`
+- Marketing banner: generated via imagegen (premium, 1200x630)
+- Notifications: reuse existing `NotificationCenter` + push notification infra
+- Anti-fraud: store registration IP + device fingerprint on referral row; flag duplicates server-side
+- Wallet credit: insert into existing wallet KV / new `wallet_transactions` table; reuse existing wallet UI
+
+## Out of scope (confirm if needed)
+- Real KYC provider integration (status field only, manual admin update)
+- Real subscription billing (display-only, admin-set)
+- Email/SMS delivery infra (uses existing notification system)
+
+Reply "go" to execute all 4 phases, or tell me which to skip / change.

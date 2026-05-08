@@ -134,6 +134,213 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          account_status: string | null
+          broker_connected: boolean | null
+          client_id: string
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          joined_at: string
+          kyc_status: string | null
+          mobile: string | null
+          photo_url: string | null
+          profile_completion: number | null
+          role: string | null
+          subscription_plan: string | null
+          trading_level: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_status?: string | null
+          broker_connected?: boolean | null
+          client_id?: string
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          joined_at?: string
+          kyc_status?: string | null
+          mobile?: string | null
+          photo_url?: string | null
+          profile_completion?: number | null
+          role?: string | null
+          subscription_plan?: string | null
+          trading_level?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_status?: string | null
+          broker_connected?: boolean | null
+          client_id?: string
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          joined_at?: string
+          kyc_status?: string | null
+          mobile?: string | null
+          photo_url?: string | null
+          profile_completion?: number | null
+          role?: string | null
+          subscription_plan?: string | null
+          trading_level?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      referral_earnings: {
+        Row: {
+          created_at: string
+          id: string
+          last_credited_at: string | null
+          pending_count: number
+          successful_count: number
+          total_earned: number
+          total_pending: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_credited_at?: string | null
+          pending_count?: number
+          successful_count?: number
+          total_earned?: number
+          total_pending?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_credited_at?: string | null
+          pending_count?: number
+          successful_count?: number
+          total_earned?: number
+          total_pending?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      referral_settings: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          reward_amount: number
+          share_template_email: string | null
+          share_template_generic: string | null
+          share_template_telegram: string | null
+          share_template_whatsapp: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          reward_amount?: number
+          share_template_email?: string | null
+          share_template_generic?: string | null
+          share_template_telegram?: string | null
+          share_template_whatsapp?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          reward_amount?: number
+          share_template_email?: string | null
+          share_template_generic?: string | null
+          share_template_telegram?: string | null
+          share_template_whatsapp?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      referrals: {
+        Row: {
+          created_at: string
+          device_fingerprint: string | null
+          first_trade_at: string | null
+          fraud_flag: boolean | null
+          id: string
+          referee_client_id: string | null
+          referee_user_id: string
+          referrer_client_id: string | null
+          referrer_user_id: string
+          registered_at: string
+          registration_ip: string | null
+          reward_amount: number | null
+          rewarded_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          device_fingerprint?: string | null
+          first_trade_at?: string | null
+          fraud_flag?: boolean | null
+          id?: string
+          referee_client_id?: string | null
+          referee_user_id: string
+          referrer_client_id?: string | null
+          referrer_user_id: string
+          registered_at?: string
+          registration_ip?: string | null
+          reward_amount?: number | null
+          rewarded_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          device_fingerprint?: string | null
+          first_trade_at?: string | null
+          fraud_flag?: boolean | null
+          id?: string
+          referee_client_id?: string | null
+          referee_user_id?: string
+          referrer_client_id?: string | null
+          referrer_user_id?: string
+          registered_at?: string
+          registration_ip?: string | null
+          reward_amount?: number | null
+          rewarded_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       signal_stats: {
         Row: {
           created_at: string
@@ -334,6 +541,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_symbols: {
         Row: {
           created_at: string
@@ -382,6 +610,36 @@ export type Database = {
         }
         Relationships: []
       }
+      wallet_transactions: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string | null
+          id: string
+          reference_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          reference_id?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          reference_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -389,6 +647,14 @@ export type Database = {
     Functions: {
       bytea_to_text: { Args: { data: string }; Returns: string }
       execute_backend_engine: { Args: never; Returns: undefined }
+      generate_client_id: { Args: never; Returns: string }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       http: {
         Args: { request: Database["public"]["CompositeTypes"]["http_request"] }
         Returns: Database["public"]["CompositeTypes"]["http_response"]
@@ -531,7 +797,7 @@ export type Database = {
           }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
       http_header: {
@@ -674,6 +940,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+    },
   },
 } as const
