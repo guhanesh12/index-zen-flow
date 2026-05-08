@@ -181,6 +181,8 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
+
+  const shareTo = (platform: string) => {
     const msg = encodeURIComponent(shareMsg);
     const link = encodeURIComponent(referralLink);
     let url = '';
