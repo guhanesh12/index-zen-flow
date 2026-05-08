@@ -951,7 +951,8 @@ export class AdvancedAI {
     const currentVolume = Number.isFinite(lastCandle.volume) && lastCandle.volume > 0 ? lastCandle.volume : 0;
     const volumeFeedReliable = prevWindow.length >= 5 && volumeCoverage >= 0.8 && avgVolume > 0;
     const hasVolumeData = volumeFeedReliable && currentVolume > 0;
-    const volumeRatio = hasVolumeData ? currentVolume / avgVolume : 0;
+    const rawVolumeRatio = hasVolumeData ? currentVolume / avgVolume : 0;
+    const volumeRatio = hasVolumeData ? rawVolumeRatio : 1;
     const isHighVolume = hasVolumeData ? volumeRatio > 1.5 : false;
     const isVolumeSpike = hasVolumeData ? volumeRatio > 2.0 : false;
 
@@ -959,9 +960,10 @@ export class AdvancedAI {
     const candleRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
     const bodySize = Math.abs(lastCandle.close - lastCandle.open);
     const bodyPercent = (bodySize / candleRange) * 100;
+    const candleStrength = bodyPercent >= 60 ? 'STRONG' : bodyPercent >= 40 ? 'DECISIVE' : bodyPercent >= 25 ? 'MODERATE' : 'WEAK';
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
 
-    console.log(`📊 VOLUME DEBUG: lastVol=${currentVolume}, avgVol=${avgVolume.toFixed(2)}, ratio=${volumeRatio.toFixed(2)}, coverage=${(volumeCoverage * 100).toFixed(0)}%, feedReliable=${volumeFeedReliable}, hasVolumeData=${hasVolumeData}`);
+    console.log(`📊 VOLUME DEBUG: lastVol=${currentVolume}, avgVol=${avgVolume.toFixed(2)}, ratio=${hasVolumeData ? volumeRatio.toFixed(2) : 'NO_FEED'}, coverage=${(volumeCoverage * 100).toFixed(0)}%, feedReliable=${volumeFeedReliable}, hasVolumeData=${hasVolumeData}`);
     console.log(`🔍 BODYSIZE DEBUG: body=${bodySize.toFixed(2)}, range=${candleRange.toFixed(2)}, bodyPct=${bodyPercent.toFixed(1)}%`);
     
     // Order Flow
