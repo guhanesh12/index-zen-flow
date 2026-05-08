@@ -250,7 +250,8 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
           // Pass account creation data to backend
           email: formData.email,
           password: formData.password,
-          name: formData.fullName
+          name: formData.fullName,
+          referredBy: (formData.referralCode || '').trim().toUpperCase() || undefined
         })
       });
 
