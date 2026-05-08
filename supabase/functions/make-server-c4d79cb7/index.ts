@@ -11325,4 +11325,15 @@ app.get("/make-server-c4d79cb7/admin/referrals/leaderboard", async (c) => {
   return c.json({ leaderboard: merged });
 });
 
-Deno.serve(app.fetch);
+const FUNCTION_ROUTE_PREFIX = "/make-server-c4d79cb7";
+
+function normalizeFunctionRequest(request: Request): Request {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith(FUNCTION_ROUTE_PREFIX)) {
+    url.pathname = `${FUNCTION_ROUTE_PREFIX}${url.pathname === "/" ? "" : url.pathname}`;
+    return new Request(url.toString(), request);
+  }
+  return request;
+}
+
+Deno.serve((request) => app.fetch(normalizeFunctionRequest(request)));
