@@ -48,6 +48,7 @@ const registrationSchema = z.object({
   state: z.string().min(1, 'State is required'),
   city: z.string().min(2, 'City must be at least 2 characters').max(100),
   password: z.string().min(8, 'Password must be at least 8 characters').max(50),
+  referralCode: z.string().max(20).optional().or(z.literal('')),
   termsAccepted: z.boolean().refine(val => val === true, 'You must accept the terms and conditions')
 });
 
