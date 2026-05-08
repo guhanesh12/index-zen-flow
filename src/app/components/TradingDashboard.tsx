@@ -855,6 +855,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                         { value: 'settings', icon: Settings, label: 'Broker Setup' },
                         { value: 'journal', icon: FileText, label: 'Journal' },
                         { value: 'strategies', icon: Zap, label: 'Strategies' },
+                        { value: 'profile', icon: User, label: 'Profile' },
                         { value: 'support', icon: MessageSquare, label: 'Support' },
                         { value: 'logs', icon: FileText, label: 'Logs' },
                       ].map(({ value, icon: Icon, label }) => {
