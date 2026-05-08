@@ -358,7 +358,7 @@ export function PerformanceChart({ data }: { data?: { d: string; pnl: number }[]
             <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} />
             <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
               {series.map((d, i) => (
-                <cell key={i} fill={d.pnl >= 0 ? "hsl(var(--profit))" : "hsl(var(--loss))"} />
+                <Cell key={i} fill={d.pnl >= 0 ? "hsl(var(--profit))" : "hsl(var(--loss))"} />
               ))}
             </Bar>
           </BarChart>
