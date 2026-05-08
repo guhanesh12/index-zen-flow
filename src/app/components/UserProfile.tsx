@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { projectId } from '@/utils-ext/supabase/info';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
+import { supabase } from '@/utils-ext/supabase/client';
 
 interface Props {
   accessToken: string;
@@ -143,6 +144,44 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
     }
   };
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please select an image'); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Max 5MB'); return; }
+    setUploadingPhoto(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not signed in');
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const path = `${user.id}/avatar-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+      const photoUrl = pub.publicUrl;
+      // Save to profile
+      const res = await fetch(`${serverUrl}/profile/me`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photo_url: photoUrl }),
+      });
+      const j = await res.json();
+      if (!j.success) throw new Error(j.error || 'Save failed');
+      setProfile(j.profile);
+      setEditForm((f: any) => ({ ...f, photo_url: photoUrl }));
+      toast.success('Photo updated');
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const shareTo = (platform: string) => {
     const msg = encodeURIComponent(shareMsg);
     const link = encodeURIComponent(referralLink);
@@ -176,7 +215,7 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
           <CardContent className="p-6">
             <div className="flex flex-col md:flex-row gap-6 items-start">
               {/* Avatar */}
-              <div className="relative">
+              <div className="relative group">
                 <div className="w-28 h-28 rounded-full bg-gradient-to-br from-cyan-500 to-purple-600 p-[3px]">
                   <div className="w-full h-full rounded-full bg-zinc-900 flex items-center justify-center overflow-hidden">
                     {profile?.photo_url ? (
@@ -186,8 +225,24 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
                     )}
                   </div>
                 </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  title="Upload photo"
+                  className="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-white flex items-center justify-center border-2 border-zinc-950 shadow-lg"
+                >
+                  <Camera className="w-4 h-4" />
+                </button>
                 {verified && (
-                  <BadgeCheck className="absolute -bottom-1 -right-1 w-7 h-7 text-cyan-400 bg-zinc-950 rounded-full p-0.5" />
+                  <BadgeCheck className="absolute -top-1 -right-1 w-6 h-6 text-cyan-400 bg-zinc-950 rounded-full p-0.5" />
                 )}
               </div>
 

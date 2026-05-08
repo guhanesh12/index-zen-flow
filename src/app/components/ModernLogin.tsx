@@ -88,6 +88,12 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset password');
       setForgotStep('done');
+      // Auto-redirect back to login after 2.5s
+      setTimeout(() => {
+        setForgotStep('none');
+        setFpEmail(''); setFpPhone(''); setFpOtp(''); setFpNewPass(''); setFpConfirmPass('');
+        form.setValue('email', fpEmail);
+      }, 2500);
     } catch (e: any) { setFpError(e.message); }
     finally { setFpLoading(false); }
   };
@@ -420,6 +426,7 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
                       </div>
                     </div>
                     <p className="text-slate-300">Your password has been updated successfully.</p>
+                    <p className="text-slate-500 text-sm">Redirecting to login…</p>
                     <Button onClick={() => { setForgotStep('none'); setFpEmail(''); setFpPhone(''); setFpOtp(''); setFpNewPass(''); setFpConfirmPass(''); }} className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 h-12 font-semibold">
                       Back to Login
                     </Button>
