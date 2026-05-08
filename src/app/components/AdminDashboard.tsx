@@ -10,6 +10,7 @@ import { AdminLandingPage } from './AdminLandingPage';
 import { AdminActivityLogs } from './AdminActivityLogs';
 import { AdminUserManagement } from './AdminUserManagement';
 import { AdminSettings } from './AdminSettings';
+import { AdminReferrals } from './AdminReferrals';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
