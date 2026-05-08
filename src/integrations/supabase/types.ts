@@ -170,6 +170,24 @@ export type Database = {
         }
         Relationships: []
       }
+      nse_holidays: {
+        Row: {
+          created_at: string
+          holiday_date: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          holiday_date: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          holiday_date?: string
+          name?: string
+        }
+        Relationships: []
+      }
       position_monitor_state: {
         Row: {
           created_at: string
@@ -891,6 +909,7 @@ export type Database = {
         Args: { curlopt: string; value: string }
         Returns: boolean
       }
+      is_trading_day: { Args: { d?: string }; Returns: boolean }
       text_to_bytea: { Args: { data: string }; Returns: string }
       urlencode:
         | { Args: { data: Json }; Returns: string }

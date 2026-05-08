@@ -645,77 +645,59 @@ app.get("/make-server-c4d79cb7/auth/test-2factor", async (c) => {
 // 🔥 NEW: Send OTP for signup using 2factor.in
 app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
   try {
-    const { phone } = await c.req.json();
+    const { phone, email, name } = await c.req.json();
 
     if (!phone || !/^[0-9]{10}$/.test(phone)) {
       return c.json({ error: 'Invalid phone number. Must be 10 digits.' }, 400);
     }
 
-    console.log(`📱 Sending OTP to phone: ${phone}`);
-
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
-    
-    // Enhanced logging
-    console.log('🔑 API Key status:', {
-      exists: !!apiKey,
-      length: apiKey ? apiKey.length : 0,
-      firstChars: apiKey ? apiKey.substring(0, 8) + '...' : 'N/A',
-    });
-    
     if (!apiKey) {
-      console.error('❌ TWOFACTOR_API_KEY not found in environment');
       return c.json({ error: 'OTP service not configured. Please contact support.' }, 500);
     }
 
-    // Construct the API URL
-    const apiUrl = `https://2factor.in/API/V1/${apiKey}/SMS/${phone}/AUTOGEN`;
-    console.log('🌐 Calling 2factor.in API...');
+    // Generate our own 6-digit OTP so we can send the same code via SMS + email
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log(`📱 Sending OTP ${otpCode.slice(0,2)}**** to phone: ${phone}${email ? ' & email: ' + email : ''}`);
 
-    // Call 2factor.in API to send OTP
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-    });
-
-    // Check HTTP status
-    console.log('📡 Response status:', response.status);
+    // 2factor.in: send custom OTP via SMS  →  /API/V1/<key>/SMS/<phone>/<otp>
+    const apiUrl = `https://2factor.in/API/V1/${apiKey}/SMS/${phone}/${otpCode}`;
+    const response = await fetch(apiUrl, { method: 'GET' });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ HTTP error:', response.status, errorText);
-      return c.json({ 
-        error: `API Error: ${response.status}. ${errorText || 'Failed to send OTP'}` 
-      }, 400);
+      console.error('❌ 2factor HTTP error:', response.status, errorText);
+      return c.json({ error: `API Error: ${response.status}. ${errorText || 'Failed to send OTP'}` }, 400);
     }
-
     const data = await response.json();
-    console.log('📱 2factor.in full response:', JSON.stringify(data, null, 2));
 
-    if (data.Status === 'Success') {
-      // Store session ID temporarily in KV for verification
-      const sessionId = data.Details;
-      await kv.set(`otp_session:${phone}`, {
-        sessionId,
-        timestamp: Date.now(),
-      });
-
-      console.log(`✅ OTP sent successfully. Session ID: ${sessionId}`);
-      return c.json({
-        success: true,
-        message: 'OTP sent successfully',
-        sessionId, // Return for frontend reference
-      });
-    } else {
+    if (data.Status !== 'Success') {
       console.error('❌ 2factor.in error:', data);
-      return c.json({ 
-        error: data.Details || data.Message || 'Failed to send OTP. Please try again.' 
-      }, 400);
+      return c.json({ error: data.Details || data.Message || 'Failed to send OTP. Please try again.' }, 400);
     }
+
+    const sessionId = data.Details;
+    await kv.set(`otp_session:${phone}`, { sessionId, otp: otpCode, timestamp: Date.now() });
+
+    // 📧 Also email OTP if address supplied (best-effort)
+    if (email) {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'otp',
+          to: email,
+          name: name || 'there',
+          data: { name: name || 'there', code: otpCode, expiryMinutes: 10 },
+        }),
+      }).catch((e) => console.warn('OTP email failed', e?.message));
+    }
+
+    console.log(`✅ OTP sent successfully. Session ID: ${sessionId}`);
+    return c.json({ success: true, message: 'OTP sent successfully', sessionId });
   } catch (error: any) {
     console.error('❌ Error sending OTP:', error);
-    console.error('❌ Error stack:', error.stack);
-    return c.json({ 
-      error: `Server error: ${error.message || 'Failed to send OTP'}` 
-    }, 500);
+    return c.json({ error: `Server error: ${error.message || 'Failed to send OTP'}` }, 500);
   }
 });
 
@@ -5073,6 +5055,20 @@ app.post("/make-server-c4d79cb7/wallet/verify-payment", async (c) => {
 
     console.log(`✅ Wallet credited: ₹${orderDetails.amount} for user ${user.id}`);
 
+    // 📧 Email user — wallet recharge
+    try {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'wallet_recharge',
+          userId: user.id,
+          to: user.email,
+          data: { amount: orderDetails.amount, balance: newBalance, txnId: razorpay_payment_id, method: 'Razorpay' },
+        }),
+      }).catch(() => {});
+    } catch {}
+
     return c.json({
       success: true,
       newBalance: newBalance,
@@ -9425,6 +9421,21 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
     await kv.set('support:all:tickets', allTickets);
 
     console.log(`✅ Support ticket created: ${ticketId}`);
+
+    // 📧 Confirmation email to user
+    try {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'ticket_created',
+          userId: user.id,
+          to: userEmail,
+          data: { ticketId: ticketId.slice(-8).toUpperCase(), subject, message },
+        }),
+      }).catch(() => {});
+    } catch {}
+
     return c.json({ success: true, ticketId });
   } catch (error: any) {
     console.error('Error creating support ticket:', error);
@@ -9563,6 +9574,21 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
     await kv.set(`support:ticket:${messageId}`, ticket);
 
     console.log(`✅ Admin replied to ticket: ${messageId}`);
+
+    // 📧 Notify user about admin reply
+    try {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'ticket_reply',
+          userId: ticket.userId,
+          to: ticket.userEmail,
+          data: { ticketId: messageId.slice(-8).toUpperCase(), message: reply, subject: ticket.subject },
+        }),
+      }).catch(() => {});
+    } catch {}
+
     return c.json({ success: true });
   } catch (error: any) {
     console.error('Error replying to ticket:', error);
@@ -10125,6 +10151,52 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   } catch (error: any) {
     console.error("❌ [CRON] Tick failed:", error);
     return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 📧 Daily 09:08 IST premarket email — sent only on NSE trading days
+app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
+  try {
+    // Trading-day check using DB function
+    const { data: isTradingDay } = await supabase.rpc('is_trading_day');
+    if (isTradingDay === false) {
+      return c.json({ ok: true, skipped: true, reason: 'Not a trading day (weekend or NSE holiday)' });
+    }
+
+    // All users with engine running OR with a profile email
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, full_name, email, client_id')
+      .not('email', 'is', null);
+
+    let sent = 0, failed = 0;
+    for (const p of (profiles || [])) {
+      try {
+        const { data: engine } = await supabase.from('trading_engine_state').select('is_running, selected_symbols').eq('user_id', p.user_id).maybeSingle();
+        const symbols = Array.isArray(engine?.selected_symbols) ? engine!.selected_symbols : [];
+        const symbolsLabel = symbols.length ? symbols.slice(0, 5).map((s: any) => s.symbolName || s.symbol || s.index || s).join(' · ') : 'NIFTY · BANKNIFTY · SENSEX';
+        const wallet = await kv.get(`wallet:${p.user_id}`).catch(() => null);
+        await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+          body: JSON.stringify({
+            template: 'daily_premarket',
+            to: p.email,
+            name: p.full_name,
+            userId: p.user_id,
+            data: {
+              engineStatus: engine?.is_running ? '🟢 Engine running · Auto-trade ON' : '⚪ Engine idle — start it from dashboard',
+              activeSymbols: symbolsLabel,
+              balance: wallet?.balance || 0,
+            },
+          }),
+        });
+        sent++;
+      } catch (e) { failed++; console.warn('premarket email failed for', p.user_id, e); }
+    }
+    return c.json({ ok: true, sent, failed, total: profiles?.length || 0 });
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500);
   }
 });
 

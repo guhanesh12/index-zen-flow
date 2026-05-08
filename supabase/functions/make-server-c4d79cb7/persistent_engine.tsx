@@ -26,6 +26,37 @@ import { placeOrderViaStaticIP } from './static_ip_helper.tsx';
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from './tiered_debit.tsx';
 
+// 📧 Fire-and-forget email sender (best-effort, never blocks engine)
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+async function sendEmailAsync(template: string, userId: string, data: any = {}) {
+  try {
+    fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, apikey: SUPABASE_SERVICE_KEY },
+      body: JSON.stringify({ template, userId, data }),
+    }).then(r => { if (!r.ok) console.warn(`[email:${template}]`, r.status); }).catch(e => console.warn(`[email:${template}]`, e?.message));
+  } catch (e) { console.warn(`[email:${template}] threw`, e); }
+}
+
+// Trading-day check (uses Asia/Kolkata)
+function isTradingHourIST(now = new Date()): { open: boolean; reason?: string; nextSession?: string } {
+  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const dow = ist.getDay(); // 0=Sun 6=Sat
+  if (dow === 0 || dow === 6) return { open: false, reason: 'Weekend (markets closed)', nextSession: 'Monday 09:15 IST' };
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  if (mins < 9 * 60 + 15) return { open: false, reason: 'Pre-market hours', nextSession: 'Today 09:15 IST' };
+  if (mins > 15 * 60 + 30) return { open: false, reason: 'Market closed for the day', nextSession: 'Next trading day 09:15 IST' };
+  return { open: true };
+}
+async function isTradingDayDB(): Promise<boolean> {
+  try {
+    const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const { data } = await supa.rpc('is_trading_day');
+    return data === true;
+  } catch { return true; }
+}
+
 const SUPPORTED_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;
 type SupportedIndex = typeof SUPPORTED_INDICES[number];
 
@@ -1542,6 +1573,21 @@ class PersistentTradingEngine {
                 exitReason,
               }
             });
+
+            // 📧 Profit / Loss email (best-effort)
+            try {
+              const entry = Number(position.entryPrice || position.entry_price || 0);
+              const exit = Number(position.currentPrice || position.exit_price || 0);
+              const qty = Number(position.quantity || 1);
+              const returnPct = entry > 0 ? ((exit - entry) / entry * 100).toFixed(2) : '—';
+              sendEmailAsync(pnl >= 0 ? 'position_closed_profit' : 'position_closed_loss', userId, {
+                symbol: position.symbolName,
+                entry, exit, qty,
+                pnl: Math.round(pnl * 100) / 100,
+                returnPct,
+                reason: exitReason,
+              });
+            } catch {}
           } else {
             console.log(`❌ EXIT ORDER FAILED: ${exitResult.error}`);
           }
@@ -1684,6 +1730,34 @@ class PersistentTradingEngine {
           raw_data: aiSignal || {},
           status: 'detected'
         });
+
+      // 📧 Email user — only for actionable BUY_CALL / BUY_PUT
+      if (action === 'BUY_CALL' || action === 'BUY_PUT') {
+        const market = isTradingHourIST();
+        const tradingDay = await isTradingDayDB();
+        const sl = aiSignal?.signal?.riskManagement?.stopLoss;
+        const tgt = aiSignal?.signal?.riskManagement?.target;
+        const conf = aiSignal?.signal?.confidence || 0;
+        if (!market.open || !tradingDay) {
+          sendEmailAsync('market_closed', userId, {
+            symbol: normalizedSymbolName,
+            signalType: action,
+            reason: !tradingDay ? 'Today is a market holiday' : market.reason,
+            nextSession: market.nextSession || 'Next trading day · 09:15 IST',
+          });
+        } else {
+          sendEmailAsync(action === 'BUY_CALL' ? 'buy_call' : 'buy_put', userId, {
+            symbol: normalizedSymbolName,
+            entry: currentPrice,
+            target: tgt,
+            sl,
+            confidence: Math.round(Number(conf) * 100) / 100,
+            timeframe: 'Intraday',
+            risk: aiSignal?.signal?.riskManagement?.riskLevel || 'Medium',
+            indexName: normalizedIndex,
+          });
+        }
+      }
     } catch (err) {
       console.error('❌ Failed to save signal to DB:', err);
     }
