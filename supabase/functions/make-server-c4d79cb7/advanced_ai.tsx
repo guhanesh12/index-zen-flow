@@ -1212,13 +1212,17 @@ export class AdvancedAI {
     // ========== RISK MANAGEMENT ==========
     const currentPrice = lastCandle.close;
     
+    // ⚡ FIX: Use TRADE DIRECTION (confirmationBullish) not candle color (isBullish)
+    // Previously SL/TP labels were inverted when trigger candle color != trade direction
+    const tradeIsBullish = confirmationBullish;
+    
     // ATR-based stop loss (2x ATR)
     const stopLossDistance = atr14 * 2;
-    const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
+    const suggestedStopLoss = tradeIsBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
     
     // Target (3x risk for 1:3 RR)
     const targetDistance = stopLossDistance * 3;
-    const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
+    const suggestedTarget = tradeIsBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
     
     // Position sizing (risk 2% of account)
     const riskAmount = accountBalance * 0.02;
