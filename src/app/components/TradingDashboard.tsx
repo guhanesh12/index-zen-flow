@@ -819,6 +819,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                       settings: { icon: Settings, label: 'Broker Setup' },
                       journal: { icon: FileText, label: 'Journal' },
                       strategies: { icon: Zap, label: 'Strategies' },
+                      profile: { icon: User, label: 'Profile' },
                       support: { icon: MessageSquare, label: 'Support' },
                       logs: { icon: FileText, label: 'Logs' },
                     };
