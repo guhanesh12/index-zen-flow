@@ -266,6 +266,10 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               <Gift className="size-4 mr-2" />
               Referrals
             </TabsTrigger>
+            <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
+              <Mail className="size-4 mr-2" />
+              Communication
+            </TabsTrigger>
           </TabsList>
 
           {canAccessTab('dashboard') && (
