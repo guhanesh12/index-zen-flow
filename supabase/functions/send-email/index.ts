@@ -125,59 +125,6 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
   // -------- TRANSACTIONAL (must hit Inbox) --------
   welcome: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your ${BRAND.name} account is ready.</p>
-       <p>Your client ID is <b>${d.clientId || "—"}</b>.</p>
-       <p>You can sign in here: <a href="${BRAND.url}/dashboard" style="color:#1155cc">${BRAND.url}/dashboard</a></p>
-       <p>If you didn't create this account, please reply to this email and we'll help.</p>`
-    );
-    return {
-      subject: `Welcome to ${BRAND.shortName}, ${d.name || "trader"}`,
-      html,
-      text: htmlToText(html),
-    };
-  },
-
-  otp: (d) => {
-    const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your ${BRAND.shortName} verification code is:</p>
-       <p style="font-size:26px;font-weight:bold;letter-spacing:4px;color:#000">${d.code || "------"}</p>
-       <p>This code expires in ${d.expiryMinutes || 10} minutes. Don't share it with anyone.</p>
-       <p>If you didn't request this, you can ignore this email.</p>`
-    );
-    return {
-      subject: `Your ${BRAND.shortName} code: ${d.code || ""}`.trim(),
-      html,
-      text: htmlToText(html),
-    };
-  },
-
-  password_reset: (d) => {
-    const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>We received a request to reset your password. Use this code to continue:</p>
-       <p style="font-size:26px;font-weight:bold;letter-spacing:4px;color:#000">${d.code || "------"}</p>
-       <p>If you didn't request a password reset, please reply to this email so we can secure your account.</p>`
-    );
-    return {
-      subject: `Password reset request`,
-      html,
-      text: htmlToText(html),
-    };
-  },
-
-  password_changed: (d) => {
-    const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your ${BRAND.shortName} password was changed on ${new Date().toLocaleString("en-IN")}.</p>
-       <p>If this wasn't you, please reply to this email immediately.</p>`
-    );
-    return { subject: `Your password was changed`, html, text: htmlToText(html) };
-  },
-
-  welcome: (d) => {
-    const html = plain(
       `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Welcome aboard, ${d.name || "trader"}</h2>
        <p style="margin:0 0 12px">Your ${BRAND.name} account is set up and ready to go.</p>
        ${details([["Client ID", d.clientId || "—"], ["Email", d.email || d.to || "—"]])}
