@@ -146,76 +146,98 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
     }
   };
 
+  // 📧 Send Email OTP
+  const handleSendEmailOtp = async () => {
+    setEmailErr('');
+    setEmailMsg('');
+    const email = (form.getValues('email') || '').trim();
+    const name = (form.getValues('fullName') || '').trim() || 'there';
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailErr('Enter a valid email address first');
+      return;
+    }
+    setEmailSending(true);
+    try {
+      const res = await fetch(`${serverUrl}/auth/email-otp/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ email, name }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Failed to send OTP');
+      setEmailOtpSent(true);
+      setEmailMsg('OTP sent to your email. Check your inbox.');
+    } catch (e: any) {
+      setEmailErr(e.message || 'Failed to send email OTP');
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  // 📧 Verify Email OTP
+  const handleVerifyEmailOtp = async () => {
+    setEmailErr('');
+    setEmailMsg('');
+    const email = (form.getValues('email') || '').trim();
+    if (!emailOtp || emailOtp.length !== 6) {
+      setEmailErr('Enter the 6-digit OTP');
+      return;
+    }
+    setEmailVerifying(true);
+    try {
+      const res = await fetch(`${serverUrl}/auth/email-otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
+        body: JSON.stringify({ email, otp: emailOtp }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Invalid OTP');
+      setEmailVerified(true);
+      setEmailMsg('Email verified ✓');
+    } catch (e: any) {
+      setEmailErr(e.message || 'Verification failed');
+    } finally {
+      setEmailVerifying(false);
+    }
+  };
+
   const onSubmit = async (data: RegistrationFormData) => {
     setError('');
     setSuccess('');
+
+    // ✅ Email must be verified first
+    if (!emailVerified) {
+      setError('Please verify your email address before continuing.');
+      return;
+    }
+
     setLoading(true);
     setFormData(data);
 
     try {
-      // ✅ FIRST: Check if email already exists
-      console.log('🔍 Checking if email already exists:', data.email);
-      const checkEmailResponse = await fetch(`${serverUrl}/auth/check-email`, {
+      // Send mobile OTP
+      const response = await fetch(`${serverUrl}/send-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${publicAnonKey}`
         },
-        body: JSON.stringify({ email: data.email })
-      });
-
-      if (checkEmailResponse.ok) {
-        const emailCheckResult = await checkEmailResponse.json();
-        if (emailCheckResult.exists) {
-          throw new Error('An account with this email already exists. Please sign in instead or use a different email.');
-        }
-      }
-
-      // ✅ Email is available, register directly (no OTP)
-      const response = await fetch(`${serverUrl}/auth/register-direct`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
-        body: JSON.stringify({
-          email: data.email,
-          password: data.password,
-          name: data.fullName,
-          phone: data.mobile,
-          referredBy: (data.referralCode || '').trim().toUpperCase() || undefined,
-        })
+        body: JSON.stringify({ phone: data.mobile })
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Registration failed');
+        throw new Error(errorData.error || 'Failed to send mobile OTP');
       }
 
-      const result = await response.json();
-      if (!result.session?.access_token) {
-        throw new Error('Account creation failed. Please try again.');
-      }
-
-      await supabase.auth.setSession({
-        access_token: result.session.access_token,
-        refresh_token: result.session.refresh_token
-      });
-
-      setSuccess('Account created successfully! Redirecting to dashboard...');
-      trackSignup(data.email, data.fullName, data.mobile, 100, true, result.user?.id);
-
-      setRedirecting(true);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const { data: { session: verifySession } } = await supabase.auth.getSession();
-      if (!verifySession) {
-        throw new Error('Session was not persisted properly. Please try logging in.');
-      }
-      onRegistrationSuccess(result.session.access_token);
-
+      setSuccess('OTP sent to your mobile number');
+      setStep('otp');
+      setResendTimer(60);
+      trackSignup(data.email, data.fullName, data.mobile, 50, false);
+      setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
     } catch (err: any) {
-      console.error('❌ Registration error:', err);
-      setError(err.message || 'Registration failed. Please try again.');
+      console.error('❌ Mobile OTP error:', err);
+      setError(err.message || 'Failed to send mobile OTP. Please try again.');
     } finally {
       setLoading(false);
     }
