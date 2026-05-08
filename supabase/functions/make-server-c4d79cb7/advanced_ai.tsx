@@ -145,9 +145,16 @@ export interface AdvancedSignal {
   // Volume analysis
   volumeAnalysis: {
     ratio: number;
+    current: number;
+    average: number;
+    hasData: boolean;
+    feedReliable: boolean;
+    coverage: number;
     isHigh: boolean;
     isSpike: boolean;
     smartMoney: boolean;
+    bodySize: number;
+    bodyPercent: number;
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -177,6 +184,17 @@ export interface AdvancedSignal {
 }
 
 export class AdvancedAI {
+  private static inferIntervalMinutes(ohlcData: OHLCCandle[]): number | null {
+    const diffs = ohlcData
+      .slice(-12)
+      .map((c, i, arr) => i === 0 ? 0 : c.timestamp - arr[i - 1].timestamp)
+      .filter(diff => Number.isFinite(diff) && diff > 0)
+      .sort((a, b) => a - b);
+
+    if (!diffs.length) return null;
+    return Math.max(1, Math.round(diffs[Math.floor(diffs.length / 2)] / 60000));
+  }
+
   
   /**
    * ⚡⚡⚡ MAIN ENTRY POINT - ANALYZE MARKET ⚡⚡⚡
