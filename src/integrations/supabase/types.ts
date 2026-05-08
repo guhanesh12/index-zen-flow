@@ -14,6 +14,87 @@ export type Database = {
   }
   public: {
     Tables: {
+      communication_settings: {
+        Row: {
+          email_enabled: boolean
+          from_email: string
+          from_name: string
+          id: number
+          reply_to: string | null
+          sms_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+          whatsapp_enabled: boolean
+        }
+        Insert: {
+          email_enabled?: boolean
+          from_email?: string
+          from_name?: string
+          id?: number
+          reply_to?: string | null
+          sms_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          whatsapp_enabled?: boolean
+        }
+        Update: {
+          email_enabled?: boolean
+          from_email?: string
+          from_name?: string
+          id?: number
+          reply_to?: string | null
+          sms_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          whatsapp_enabled?: boolean
+        }
+        Relationships: []
+      }
+      email_logs: {
+        Row: {
+          channel: string
+          created_at: string
+          error: string | null
+          id: string
+          metadata: Json | null
+          provider: string | null
+          provider_message_id: string | null
+          recipient: string
+          status: string
+          subject: string | null
+          template: string
+          user_id: string | null
+        }
+        Insert: {
+          channel?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          metadata?: Json | null
+          provider?: string | null
+          provider_message_id?: string | null
+          recipient: string
+          status?: string
+          subject?: string | null
+          template: string
+          user_id?: string | null
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          metadata?: Json | null
+          provider?: string | null
+          provider_message_id?: string | null
+          recipient?: string
+          status?: string
+          subject?: string | null
+          template?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       kv_store_4e940498: {
         Row: {
           key: string
@@ -56,6 +137,36 @@ export type Database = {
         Update: {
           key?: string
           value?: Json
+        }
+        Relationships: []
+      }
+      notification_preferences: {
+        Row: {
+          email_enabled: boolean
+          marketing: boolean
+          sms_enabled: boolean
+          trade_alerts: boolean
+          updated_at: string
+          user_id: string
+          whatsapp_enabled: boolean
+        }
+        Insert: {
+          email_enabled?: boolean
+          marketing?: boolean
+          sms_enabled?: boolean
+          trade_alerts?: boolean
+          updated_at?: string
+          user_id: string
+          whatsapp_enabled?: boolean
+        }
+        Update: {
+          email_enabled?: boolean
+          marketing?: boolean
+          sms_enabled?: boolean
+          trade_alerts?: boolean
+          updated_at?: string
+          user_id?: string
+          whatsapp_enabled?: boolean
         }
         Relationships: []
       }
