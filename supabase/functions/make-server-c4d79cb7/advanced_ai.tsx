@@ -1216,8 +1216,9 @@ export class AdvancedAI {
     // Previously SL/TP labels were inverted when trigger candle color != trade direction
     const tradeIsBullish = confirmationBullish;
     
-    // ATR-based stop loss (2x ATR)
-    const stopLossDistance = atr14 * 2;
+    // ATR-based stop loss (2x ATR) with minimum floor to prevent SL=entry on tiny ATR
+    const minSlDistance = Math.max(currentPrice * 0.0025, 1); // 0.25% of price or 1pt
+    const stopLossDistance = Math.max(atr14 * 2, minSlDistance);
     const suggestedStopLoss = tradeIsBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
     
     // Target (3x risk for 1:3 RR)

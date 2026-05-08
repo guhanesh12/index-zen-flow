@@ -143,9 +143,11 @@ export function simulateTrades(
     while (i < signals.length && signals[i].timestamp <= exitTs) i++;
   }
 
-  const wins = trades.filter(t => t.pnl >= 0);
+  const wins = trades.filter(t => t.pnl > 0 && t.exitReason !== 'BE');
   const losses = trades.filter(t => t.pnl < 0);
+  const breakEvens = trades.filter(t => t.exitReason === 'BE' || t.pnl === 0);
   const totalPnL = trades.reduce((s, t) => s + t.pnl, 0);
+  const decisive = wins.length + losses.length;
 
   return {
     trades,
@@ -153,7 +155,9 @@ export function simulateTrades(
       totalTrades: trades.length,
       winningTrades: wins.length,
       losingTrades: losses.length,
-      winRate: trades.length ? (wins.length / trades.length) * 100 : 0,
+      breakEvenTrades: breakEvens.length,
+      winRate: decisive ? (wins.length / decisive) * 100 : 0,
+      rawWinRate: trades.length ? (wins.length / trades.length) * 100 : 0,
       totalPnL,
       avgWin: wins.length ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0,
       avgLoss: losses.length ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0,
