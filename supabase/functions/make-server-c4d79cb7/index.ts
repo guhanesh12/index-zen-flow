@@ -5073,6 +5073,20 @@ app.post("/make-server-c4d79cb7/wallet/verify-payment", async (c) => {
 
     console.log(`✅ Wallet credited: ₹${orderDetails.amount} for user ${user.id}`);
 
+    // 📧 Email user — wallet recharge
+    try {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'wallet_recharge',
+          userId: user.id,
+          to: user.email,
+          data: { amount: orderDetails.amount, balance: newBalance, txnId: razorpay_payment_id, method: 'Razorpay' },
+        }),
+      }).catch(() => {});
+    } catch {}
+
     return c.json({
       success: true,
       newBalance: newBalance,
