@@ -827,11 +827,17 @@ export class AdvancedAI {
     const startTime = performance.now();
     let calculationsPerformed = 0;
 
-    // 🐛 BUG FIX #1: Drop trailing incomplete / zero-volume candles (after-hours,
-    // pre-open ticks, or partially formed bars). They corrupt the "last candle"
-    // used for entry decisions and skew volume averages.
+    // Drop only truly flat placeholder candles. Real index candles often have no
+    // volume feed, so zero volume alone must never remove or block a valid candle.
+    const inferredIntervalMinutes = this.inferIntervalMinutes(ohlcData);
+    const lastTimestampAgeMs = Date.now() - ohlcData[ohlcData.length - 1].timestamp;
+    const lastLooksFutureOrRunning = inferredIntervalMinutes
+      ? lastTimestampAgeMs < Math.max(0, inferredIntervalMinutes - 1) * 60000
+      : false;
+
     while (ohlcData.length > 2 && ohlcData[ohlcData.length - 1].volume <= 0
-           && ohlcData[ohlcData.length - 1].high === ohlcData[ohlcData.length - 1].low) {
+           && ohlcData[ohlcData.length - 1].high === ohlcData[ohlcData.length - 1].low
+           && lastLooksFutureOrRunning) {
       ohlcData = ohlcData.slice(0, -1);
     }
 
