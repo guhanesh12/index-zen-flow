@@ -10499,11 +10499,21 @@ app.post("/make-server-c4d79cb7/auth/forgot-password", async (c) => {
     const user = (userList?.users || []).find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
     if (!user) return c.json({ error: 'No account found with this email address.' }, 404);
 
-    // Check if phone matches stored phone in user metadata
-    const storedPhone = user.user_metadata?.phone || user.phone || '';
-    const normalise = (p: string) => p.replace(/\D/g, '').slice(-10);
-    if (!storedPhone || normalise(storedPhone) !== normalise(phone)) {
+    // Check if phone matches stored phone in user metadata OR in the profiles table
+    const normalise = (p: string) => (p || '').replace(/\D/g, '').slice(-10);
+    const metaPhone = normalise(user.user_metadata?.phone || user.user_metadata?.mobile || user.phone || '');
+    let profilePhone = '';
+    try {
+      const { data: prof } = await supabase.from('profiles').select('mobile').eq('user_id', user.id).maybeSingle();
+      profilePhone = normalise(prof?.mobile || '');
+    } catch (_) {}
+    const inputPhone = normalise(phone);
+    if (inputPhone !== metaPhone && inputPhone !== profilePhone) {
       return c.json({ error: 'The mobile number does not match our records for this email.' }, 400);
+    }
+    // Backfill profile mobile if missing
+    if (!profilePhone && inputPhone) {
+      try { await supabase.from('profiles').update({ mobile: inputPhone }).eq('user_id', user.id); } catch (_) {}
     }
 
     // Send OTP via 2factor.in
