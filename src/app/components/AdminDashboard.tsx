@@ -24,7 +24,8 @@ import {
   Activity, 
   UsersRound, 
   Settings, 
-  LogOut 
+  LogOut,
+  Gift
 } from 'lucide-react';
 import type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
