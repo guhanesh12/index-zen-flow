@@ -426,6 +426,7 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
                       </div>
                     </div>
                     <p className="text-slate-300">Your password has been updated successfully.</p>
+                    <p className="text-slate-500 text-sm">Redirecting to login…</p>
                     <Button onClick={() => { setForgotStep('none'); setFpEmail(''); setFpPhone(''); setFpOtp(''); setFpNewPass(''); setFpConfirmPass(''); }} className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 h-12 font-semibold">
                       Back to Login
                     </Button>
