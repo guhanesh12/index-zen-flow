@@ -920,7 +920,7 @@ class PersistentTradingEngine {
           await this.appendSharedLog(userId, {
             type: action === 'WAIT' ? 'WAIT' : action.includes('BUY') ? 'AI_SIGNAL' : 'INFO',
             timestamp: signalTimestamp,
-            message: `🎯 ${indexName}: ${action} (${confidence}%) - ${reason || 'AI analysis complete'} | TF: ${state.candleInterval}M`,
+            message: `🎯 ${indexName} [${tf}M]: ${action} (${confidence}%) - ${reason || 'AI analysis complete'}`,
             data: {
               index: indexName,
               action,
