@@ -4334,15 +4334,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             </span>
             <div className="flex gap-2">
               <Badge 
-                variant="default"
-                className={isRunning 
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 animate-pulse' 
-                  : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                }
-              >
-                ⚡ {candleInterval}M | 🚀 Market Exit {isRunning ? '(ACTIVE)' : ''}
-              </Badge>
-              <Badge 
                 variant={marketStatus === 'OPEN' ? 'default' : 'secondary'}
                 className={marketStatus === 'OPEN' ? 'bg-green-500/10 text-green-500 border-green-500/20' : ''}
               >
@@ -4476,9 +4467,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                 </Button>
               </>
             )}
-            <Button onClick={loadSymbols} variant="outline" size="sm" className="text-white">
-              🔄 Reload Symbols
-            </Button>
           </div>
         </CardContent>
       </Card>
