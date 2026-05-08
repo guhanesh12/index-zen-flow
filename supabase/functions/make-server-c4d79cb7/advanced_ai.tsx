@@ -145,6 +145,7 @@ export interface AdvancedSignal {
   // Volume analysis
   volumeAnalysis: {
     ratio: number;
+    rawRatio: number;
     current: number;
     average: number;
     hasData: boolean;
@@ -155,6 +156,7 @@ export interface AdvancedSignal {
     smartMoney: boolean;
     bodySize: number;
     bodyPercent: number;
+    candleStrength: string;
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
