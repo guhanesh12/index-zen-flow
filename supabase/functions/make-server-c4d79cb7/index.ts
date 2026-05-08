@@ -6888,6 +6888,10 @@ app.post("/make-server-c4d79cb7/admin/users/:userId/engine", async (c) => {
     console.log(`🔄 Admin: ${running ? 'Starting' : 'Stopping'} engine for user ${userId}`);
 
     await kv.set(`engine_running:${userId}`, running);
+    if (running) {
+      const istDate = new Date(Date.now() + 5.5*3600*1000).toISOString().slice(0,10);
+      await kv.set(`engine_last_run_date:${userId}`, istDate);
+    }
 
     console.log(`✅ Admin: Engine ${running ? 'started' : 'stopped'} for user ${userId}`);
     return c.json({ success: true, running });
