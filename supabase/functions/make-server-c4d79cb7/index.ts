@@ -3760,8 +3760,14 @@ CRITICAL RULES FOR COMMERCIAL TRADING:
           current: currentVolume,
           average: avgVolume,
           ratio: volumeRatio,
+          rawRatio: rawVolumeRatio,
+          hasData: hasReliableVolume,
+          feedReliable: hasReliableVolume,
+          coverage: volumeCoverage,
           is_spike: isVolumeSpike,
-          is_high: isHighVolume
+          is_high: isHighVolume,
+          bodyPercent,
+          candleStrength: bodyPercent >= 60 ? 'STRONG' : bodyPercent >= 35 ? 'DECISIVE' : bodyPercent >= 25 ? 'MODERATE' : 'WEAK'
         },
         smart_money_detected: isSmartMoney,
         momentum: momentum,
