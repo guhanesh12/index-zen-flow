@@ -283,82 +283,62 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
     setStep('verifying');
 
     try {
-      // ✅ Verify OTP AND create account via backend (bypasses email rate limits)
+      // Step 1: Verify mobile OTP only (no account creation here)
       const verifyResponse = await fetch(`${serverUrl}/verify-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${publicAnonKey}`
         },
-        body: JSON.stringify({ 
-          phone: formData.mobile, 
-          otp: otpToVerify,
-          // Pass account creation data to backend
-          email: formData.email,
-          password: formData.password,
-          name: formData.fullName,
-          referredBy: (formData.referralCode || '').trim().toUpperCase() || undefined
-        })
+        body: JSON.stringify({ phone: formData.mobile, otp: otpToVerify })
       });
 
       if (!verifyResponse.ok) {
         const errorData = await verifyResponse.json();
-        
-        // Better error message for rate limits
-        if (errorData.error?.includes('rate limit') || errorData.error?.includes('429')) {
-          throw new Error('Too many registration attempts. Please wait a few minutes and try again.');
-        }
-        
-        throw new Error(errorData.error || 'OTP verification failed');
+        throw new Error(errorData.error || 'Mobile OTP verification failed');
       }
 
-      const result = await verifyResponse.json();
-      console.log('✅ OTP verified and account created:', result);
+      // Step 2: Create account (server checks both email + mobile verified flags)
+      const regResponse = await fetch(`${serverUrl}/auth/register-direct`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          name: formData.fullName,
+          phone: formData.mobile,
+          referredBy: (formData.referralCode || '').trim().toUpperCase() || undefined,
+        }),
+      });
 
-      // Backend already created the account and returned session
-      if (!result.session || !result.session.access_token) {
+      if (!regResponse.ok) {
+        const errorData = await regResponse.json();
+        throw new Error(errorData.error || 'Account creation failed');
+      }
+
+      const result = await regResponse.json();
+      if (!result.session?.access_token) {
         throw new Error('Account creation failed. Please try again.');
       }
 
-      // Use the session from backend
-      const signUpData = {
-        user: result.user,
-        session: result.session
-      };
-
-      // Set the session in Supabase client
       await supabase.auth.setSession({
         access_token: result.session.access_token,
-        refresh_token: result.session.refresh_token
+        refresh_token: result.session.refresh_token,
       });
 
-      console.log('✅ Account created successfully - session established');
       setSuccess('Account created successfully! Redirecting to dashboard...');
-      
-      // 📊 Track signup completion (100% complete)
-      trackSignup(formData.email, formData.fullName, formData.mobile, 100, true, signUpData.user?.id);
-      
-      // Check if session was created (it should be since email confirmation is disabled)
-      if (signUpData.session?.access_token) {
-        // Set redirecting flag
-        setRedirecting(true);
-        
-        // CRITICAL: Wait for Supabase to persist session to localStorage
-        console.log('⏳ Waiting for session to persist...');
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Verify session is actually stored before navigating
-        const { data: { session: verifySession } } = await supabase.auth.getSession();
-        if (!verifySession) {
-          throw new Error('Session was not persisted properly. Please try logging in.');
-        }
-        
-        console.log('✅ Session verified in storage');
-        console.log('🚀 Calling onRegistrationSuccess callback...');
-        onRegistrationSuccess(signUpData.session.access_token);
-      } else {
-        throw new Error('Failed to create session. Please try logging in.');
+      trackSignup(formData.email, formData.fullName, formData.mobile, 100, true, result.user?.id);
+
+      setRedirecting(true);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const { data: { session: verifySession } } = await supabase.auth.getSession();
+      if (!verifySession) {
+        throw new Error('Session was not persisted properly. Please try logging in.');
       }
+      onRegistrationSuccess(result.session.access_token);
 
     } catch (err: any) {
       console.error('❌ Verification error:', err);
