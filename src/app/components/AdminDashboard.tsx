@@ -318,6 +318,10 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               />
             </TabsContent>
           )}
+
+          <TabsContent value="referrals">
+            <AdminReferrals accessToken={realAccessToken} />
+          </TabsContent>
         </Tabs>
       </div>
     </div>
