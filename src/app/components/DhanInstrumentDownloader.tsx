@@ -54,7 +54,7 @@ export function DhanInstrumentDownloader({ onInstrumentsProcessed }: DhanInstrum
       } catch (directErr: any) {
         console.warn('⚠️ Direct CDN download failed, trying backend proxy...', directErr.message);
         // Fallback: fetch via edge function proxy
-        const proxyUrl = `https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7/instruments/proxy-csv`;
+        const proxyUrl = `https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/instruments/proxy-csv`;
         const proxyRes = await fetch(proxyUrl, { cache: 'no-cache' });
         if (!proxyRes.ok) {
           throw new Error(`Both direct and proxy download failed. Direct: ${directErr.message}`);
