@@ -722,7 +722,7 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
 // 🔥 NEW: Verify OTP and create account
 app.post("/make-server-c4d79cb7/auth/verify-otp", async (c) => {
   try {
-    const { phone, otp, email, password, name } = await c.req.json();
+    const { phone, otp, email, password, name, referredBy } = await c.req.json();
 
     if (!phone || !otp) {
       return c.json({ error: 'Phone and OTP are required' }, 400);
