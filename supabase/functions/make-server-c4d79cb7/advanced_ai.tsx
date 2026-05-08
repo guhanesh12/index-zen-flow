@@ -1247,8 +1247,16 @@ export class AdvancedAI {
     // MUST have 6+ confirmations AND suitable market regime
     // 🐛 BUG FIX #7: hasAcceptableVolume previously failed permanently on indices
     // (volumeRatio = 0 because no feed). Now: skip volume gate when no feed exists.
-    const minimumBodySize = 10; // Points
+    // 🐛 BUG FIX #9: minimumBodySize was hardcoded to 10 points — wrong for indices.
+    // SENSEX (~80k) / BANKNIFTY (~50k) routinely have valid 5-20pt bodies on 15M;
+    // also the LAST candle may still be forming. Use price-relative threshold:
+    // 0.05% of current price (≈ 40pts on SENSEX, 25pts on BANKNIFTY, 12pts on NIFTY,
+    // ~0.5pt on a ₹1000 stock). Also relax to 0.02% in very strong trends (ADX>50).
     const isVeryStrongTrend = adx > 50;
+    const bodyPctThreshold = isVeryStrongTrend ? 0.0002 : 0.0005; // 0.02% / 0.05%
+    const minimumBodySize = Math.max(1, currentPrice * bodyPctThreshold);
+    // ⚡ Body size gate also passes if candle body is >40% of its range (decisive bar)
+    const hasAcceptableBody = bodySize >= minimumBodySize || bodyPercent >= 40;
     const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
     const hasAcceptableVolume = !hasVolumeData ? true : (volumeRatio >= minimumVolumeRatio);
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
