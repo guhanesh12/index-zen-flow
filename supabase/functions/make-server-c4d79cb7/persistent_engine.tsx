@@ -1144,6 +1144,44 @@ class PersistentTradingEngine {
       if (Object.keys(latestSignalsSnapshot).length > 0) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
       }
+
+      // 📧 ONE consolidated email per candle covering ALL actionable signals
+      try {
+        const actionable = Object.entries(latestSignalsSnapshot)
+          .filter(([, s]: any) => s && (s.action === 'BUY_CALL' || s.action === 'BUY_PUT'))
+          .map(([idx, s]: any) => ({
+            index: idx,
+            action: s.action,
+            confidence: Math.round(Number(s.confidence || 0) * 100) / 100,
+            entry: Number(s?.riskManagement?.suggestedEntry || s?.price || 0),
+            target: s?.riskManagement?.target,
+            sl: s?.riskManagement?.stopLoss,
+            risk: s?.riskManagement?.riskLevel || 'Medium',
+            timeframe: s?.timeframe || `${state.candleInterval}M`,
+            reason: s?.reason || s?.reasoning || '',
+          }));
+
+        if (actionable.length > 0) {
+          const market = isTradingHourIST();
+          const tradingDay = await isTradingDayDB();
+          if (!market.open || !tradingDay) {
+            sendEmailAsync('market_closed', userId, {
+              symbol: actionable.map(a => `${a.index} ${a.action.replace('BUY_', '')}`).join(', '),
+              signalType: 'MULTI',
+              reason: !tradingDay ? 'Today is a market holiday' : market.reason,
+              nextSession: market.nextSession || 'Next trading day · 09:15 IST',
+            });
+          } else {
+            sendEmailAsync('signals_combined', userId, {
+              signals: actionable,
+              candleTimestamp: currentCandleTimestamp,
+              timeframe: `${state.candleInterval}M`,
+            });
+          }
+        }
+      } catch (emailErr) {
+        console.warn('⚠️ Consolidated signal email failed:', emailErr);
+      }
       
       // Save state to KV (legacy)
       await kv.set(`engine_state_${userId}`, state);
