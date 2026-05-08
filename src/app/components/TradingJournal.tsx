@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -62,6 +62,7 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [testing, setTesting] = useState(false);
+  const autoSyncInProgressRef = useRef(false);
 
   // Fetch journal entries from backend
   const fetchJournalEntries = async () => {
@@ -230,6 +231,8 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
 
   // Sync real trades from Dhan API
   const handleSyncRealTrades = async () => {
+    if (autoSyncInProgressRef.current) return false;
+    autoSyncInProgressRef.current = true;
     setSyncing(true);
     try {
       console.log('🔄 Starting Dhan sync...');
@@ -249,20 +252,20 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
       
       if (data.success) {
         console.log(`✅ ${data.message}`);
-        alert(`✅ ${data.message}\nSynced: ${data.syncedCount} trades\nTotal P&L: ₹${data.totalPnL?.toFixed(2) || '0.00'}`);
         // Refresh journal entries
         await fetchJournalEntries();
         setLastSyncTime(new Date().toLocaleTimeString());
+        return true;
       } else if (data.error) {
         console.error('❌ Sync error:', data.error);
-        alert(`❌ Sync failed: ${data.error}`);
       }
     } catch (error) {
       console.error('❌ Failed to sync real trades:', error);
-      alert(`❌ Network error: ${error}`);
     } finally {
+      autoSyncInProgressRef.current = false;
       setSyncing(false);
     }
+    return false;
   };
 
   // Auto-sync P&L automatically — no manual "Sync Now" needed
@@ -279,38 +282,31 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
       return dow !== 0 && dow !== 6;
     };
 
-    const runAutoSync = (reason: string) => {
-      if (syncing) return;
+    const runAutoSync = async (reason: string) => {
+      if (autoSyncInProgressRef.current) return;
       console.log(`🔄 Journal auto-sync triggered (${reason})`);
-      handleSyncRealTrades();
+      const synced = await handleSyncRealTrades();
+      if (synced) localStorage.setItem(STORAGE_KEY, todayKey());
     };
 
-    // 1) Initial sync on mount — guarantees P&L appears without clicking
-    const mountTimer = setTimeout(() => runAutoSync('mount'), 1500);
-
-    // 2) Periodic refresh every 5 min during market hours
-    // 3) Post-close P&L sync (15:30–15:45 IST), once per trading day
+    // Auto-sync only after market close (15:30 IST), once per trading day, silently.
     const tick = () => {
       const now = new Date();
       const totalMin = now.getHours() * 60 + now.getMinutes();
-      const inMarket = isWeekday() && totalMin >= 9 * 60 + 15 && totalMin <= 15 * 60 + 30;
-      const inCloseWindow = isWeekday() && totalMin >= 15 * 60 + 30 && totalMin <= 15 * 60 + 45;
+      const afterMarketClose = isWeekday() && totalMin >= 15 * 60 + 30;
 
-      if (inMarket) runAutoSync('market-hours refresh');
-
-      if (inCloseWindow) {
+      if (afterMarketClose) {
         const last = localStorage.getItem(STORAGE_KEY);
         if (last !== todayKey()) {
           runAutoSync('post-close daily P&L');
-          localStorage.setItem(STORAGE_KEY, todayKey());
         }
       }
     };
 
+    tick();
     const fastInterval = setInterval(tick, 60 * 1000); // every minute for close-window precision
 
     return () => {
-      clearTimeout(mountTimer);
       clearInterval(fastInterval);
     };
   }, [userId]);
