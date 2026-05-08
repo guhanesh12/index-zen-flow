@@ -394,12 +394,17 @@ class PersistentTradingEngine {
           
           // Hydrate memory state if needed
           if (!this.engineStates.has(userId)) {
+            const tfList = Array.isArray(settings.candleIntervals) && settings.candleIntervals.length > 0
+              ? settings.candleIntervals.map(String)
+              : [String(settings.candleInterval || '15')];
             this.engineStates.set(userId, {
               isRunning: true,
               userId,
               candleInterval: settings.candleInterval || '15',
+              candleIntervals: tfList,
               symbols,
               lastProcessedCandle: settings.lastProcessedCandle || '',
+              lastProcessedCandles: settings.lastProcessedCandles || {},
               activePositions: [],
               stats: {
                 totalSignals: settings.totalSignals || 0,
@@ -412,7 +417,7 @@ class PersistentTradingEngine {
               dhanAccessToken: credentials.dhanAccessToken
             });
           }
-          
+
           const dhanService = new DhanService({
             clientId: credentials.dhanClientId,
             accessToken: credentials.dhanAccessToken
