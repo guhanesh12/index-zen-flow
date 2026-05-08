@@ -9439,6 +9439,21 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
     await kv.set('support:all:tickets', allTickets);
 
     console.log(`✅ Support ticket created: ${ticketId}`);
+
+    // 📧 Confirmation email to user
+    try {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'ticket_created',
+          userId: user.id,
+          to: userEmail,
+          data: { ticketId: ticketId.slice(-8).toUpperCase(), subject, message },
+        }),
+      }).catch(() => {});
+    } catch {}
+
     return c.json({ success: true, ticketId });
   } catch (error: any) {
     console.error('Error creating support ticket:', error);
