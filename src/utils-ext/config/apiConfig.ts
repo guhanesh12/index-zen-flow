@@ -19,7 +19,7 @@ import { projectId, publicAnonKey } from '../supabase/info';
  * 1. 'supabase' - Use default Supabase edge functions URL
  * 2. 'custom' - Use custom domain (for mobile networks where Supabase is blocked)
  */
-const API_MODE: 'supabase' | 'custom' = 'supabase';
+const API_MODE: 'supabase' | 'custom' = 'custom';
 
 /**
  * Custom Domain Configuration
