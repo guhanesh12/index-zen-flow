@@ -6,7 +6,7 @@ import {
   ArrowDownRight, Sparkles, Cpu, Gauge, LineChart as LineChartIcon,
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, LineChart, Line, BarChart, Bar,
+  ResponsiveContainer, AreaChart, Area, LineChart, Line, BarChart, Bar, Cell,
   XAxis, YAxis, Tooltip, RadialBarChart, RadialBar,
 } from "recharts";
 
