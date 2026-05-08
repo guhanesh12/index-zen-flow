@@ -9,7 +9,7 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") || "";
+const BREVO_API_KEY = (Deno.env.get("BREVO_API_KEY") || "").trim();
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -299,6 +299,7 @@ async function sendViaBrevo(p: {
   fromEmail: string; fromName: string; replyTo?: string;
 }) {
   if (!BREVO_API_KEY) throw new Error("BREVO_API_KEY not configured");
+  console.log(`[brevo] key prefix=${BREVO_API_KEY.slice(0,10)} len=${BREVO_API_KEY.length}`);
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
