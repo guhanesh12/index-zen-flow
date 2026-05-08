@@ -265,28 +265,55 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
     }
   };
 
-  // Auto-sync at 3:30 PM daily (market close)
+  // Auto-sync P&L automatically — no manual "Sync Now" needed
   useEffect(() => {
-    const checkAndSync = () => {
+    const STORAGE_KEY = `journal_last_autosync_${userId}`;
+
+    const todayKey = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    };
+
+    const isWeekday = () => {
+      const dow = new Date().getDay();
+      return dow !== 0 && dow !== 6;
+    };
+
+    const runAutoSync = (reason: string) => {
+      if (syncing) return;
+      console.log(`🔄 Journal auto-sync triggered (${reason})`);
+      handleSyncRealTrades();
+    };
+
+    // 1) Initial sync on mount — guarantees P&L appears without clicking
+    const mountTimer = setTimeout(() => runAutoSync('mount'), 1500);
+
+    // 2) Periodic refresh every 5 min during market hours
+    // 3) Post-close P&L sync (15:30–15:45 IST), once per trading day
+    const tick = () => {
       const now = new Date();
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      
-      // Sync at 3:30 PM (15:30)
-      if (hours === 15 && minutes === 30) {
-        console.log('🕒 Market closed! Auto-syncing trades to journal...');
-        handleSyncRealTrades();
+      const totalMin = now.getHours() * 60 + now.getMinutes();
+      const inMarket = isWeekday() && totalMin >= 9 * 60 + 15 && totalMin <= 15 * 60 + 30;
+      const inCloseWindow = isWeekday() && totalMin >= 15 * 60 + 30 && totalMin <= 15 * 60 + 45;
+
+      if (inMarket) runAutoSync('market-hours refresh');
+
+      if (inCloseWindow) {
+        const last = localStorage.getItem(STORAGE_KEY);
+        if (last !== todayKey()) {
+          runAutoSync('post-close daily P&L');
+          localStorage.setItem(STORAGE_KEY, todayKey());
+        }
       }
     };
 
-    // Check every minute
-    const interval = setInterval(checkAndSync, 60 * 1000);
-    
-    // Also check immediately on mount
-    checkAndSync();
-    
-    return () => clearInterval(interval);
-  }, []);
+    const fastInterval = setInterval(tick, 60 * 1000); // every minute for close-window precision
+
+    return () => {
+      clearTimeout(mountTimer);
+      clearInterval(fastInterval);
+    };
+  }, [userId]);
 
   // Clear all journal data (remove sample data)
   const handleClearAllData = async () => {
@@ -747,20 +774,18 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">View {viewMode} Trades</CardTitle>
               <div className="flex items-center gap-2">
-                {lastSyncTime && (
-                  <span className="text-xs text-zinc-500">
-                    Last sync: {lastSyncTime}
+                {syncing ? (
+                  <span className="text-xs text-blue-400 flex items-center gap-1">
+                    <Activity className="w-3 h-3 animate-pulse" />
+                    Auto-syncing P&L…
                   </span>
+                ) : lastSyncTime ? (
+                  <span className="text-xs text-zinc-500">
+                    Auto-synced: {lastSyncTime}
+                  </span>
+                ) : (
+                  <span className="text-xs text-zinc-500">Auto-sync enabled</span>
                 )}
-                <Button
-                  onClick={handleSyncRealTrades}
-                  disabled={syncing}
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <Activity className="w-4 h-4 mr-1" />
-                  {syncing ? 'Syncing...' : 'Sync Now'}
-                </Button>
               </div>
             </div>
           </CardHeader>
