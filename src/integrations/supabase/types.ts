@@ -140,6 +140,36 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_billing_log: {
+        Row: {
+          amount: number
+          billed_date: string
+          created_at: string
+          id: string
+          note: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          billed_date: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          billed_date?: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       notification_preferences: {
         Row: {
           email_enabled: boolean

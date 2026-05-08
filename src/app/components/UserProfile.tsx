@@ -11,8 +11,9 @@ import { Textarea } from './ui/textarea';
 import {
   User, Mail, Phone, Copy, Check, Shield, Crown, Star, Wallet, TrendingUp,
   Gift, Share2, QrCode, MessageCircle, Send, Mail as MailIcon, Link as LinkIcon,
-  Trophy, Users, Sparkles, BadgeCheck, Camera, Edit3
+  Trophy, Users, Sparkles, BadgeCheck, Camera, Edit3, Bell, BellOff, Zap
 } from 'lucide-react';
+import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { projectId } from '@/utils-ext/supabase/info';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
@@ -76,6 +77,41 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({ full_name: '', mobile: '', photo_url: '' });
   const [shareMsg, setShareMsg] = useState('');
+  const [notifPrefs, setNotifPrefs] = useState<{ email_enabled: boolean }>({ email_enabled: false });
+  const [savingPrefs, setSavingPrefs] = useState(false);
+
+  const loadNotifPrefs = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('notification_preferences')
+        .select('email_enabled')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      setNotifPrefs({ email_enabled: !!data?.email_enabled });
+    } catch (e) { console.warn(e); }
+  };
+
+  const toggleEmailNotif = async (on: boolean) => {
+    setSavingPrefs(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not signed in');
+      const { error } = await supabase
+        .from('notification_preferences')
+        .upsert({ user_id: user.id, email_enabled: on, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (error) throw error;
+      setNotifPrefs({ email_enabled: on });
+      toast.success(on
+        ? 'Email alerts ON. ₹5/day will be auto-debited from your wallet after market close.'
+        : 'Email alerts OFF. No daily debit will occur.');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update');
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
 
   const referralLink = referralCode
     ? `${window.location.origin}/register?ref=${referralCode}`
@@ -122,6 +158,7 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
 
   useEffect(() => {
     loadAll();
+    loadNotifPrefs();
   }, []);
 
   const saveProfile = async () => {
@@ -333,6 +370,47 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
             )}
           </CardContent>
         </div>
+      </Card>
+
+      {/* NOTIFICATION SETTINGS */}
+      <Card className="bg-gradient-to-br from-zinc-900/80 to-zinc-950/80 border-zinc-800">
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3 flex-1 min-w-[260px]">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${notifPrefs.email_enabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-800 text-zinc-500'}`}>
+                {notifPrefs.email_enabled ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-white font-semibold text-base">Email Signal & P&L Alerts</h3>
+                  <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]">
+                    <Zap className="w-3 h-3 mr-1" />₹5 / day
+                  </Badge>
+                </div>
+                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                  Get instant signal alerts (Nifty / BankNifty / Sensex), trade exits and daily P&L summary in your inbox.
+                  When ON, <span className="text-amber-300 font-medium">₹5 is auto-debited from your wallet daily after market close (3:30 PM IST)</span> — only on days the engine ran.
+                  OTP, welcome and pre-market briefings always remain free.
+                </p>
+                {!notifPrefs.email_enabled && (
+                  <p className="text-[11px] text-cyan-300 mt-2">
+                    💡 Turn ON to never miss a signal. You can switch it OFF anytime.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-medium ${notifPrefs.email_enabled ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                {notifPrefs.email_enabled ? 'ON' : 'OFF'}
+              </span>
+              <Switch
+                checked={notifPrefs.email_enabled}
+                onCheckedChange={toggleEmailNotif}
+                disabled={savingPrefs}
+              />
+            </div>
+          </div>
+        </CardContent>
       </Card>
 
       {/* STAT GRID */}
