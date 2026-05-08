@@ -1257,7 +1257,8 @@ export class AdvancedAI {
     const minimumBodySize = Math.max(1, currentPrice * bodyPctThreshold);
     // ⚡ Body size gate also passes if candle body is >40% of its range (decisive bar)
     const hasAcceptableBody = bodySize >= minimumBodySize || bodyPercent >= 40;
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
+    // Volume gate: require at least 0.8x average volume to allow a trade (no 0.5x relaxation)
+    const minimumVolumeRatio = 0.8;
     const hasAcceptableVolume = !hasVolumeData ? true : (volumeRatio >= minimumVolumeRatio);
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
