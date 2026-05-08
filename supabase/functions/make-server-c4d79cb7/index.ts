@@ -10199,6 +10199,8 @@ app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
     return c.json({ ok: false, error: e.message }, 500);
   }
 });
+
+app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
   try {
     let targetUserId = '';
     const authHeader = c.req.header('Authorization');
