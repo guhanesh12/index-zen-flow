@@ -507,7 +507,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       {/* Indices ticker rail */}
       <div className="hidden md:block border-b border-border/40 bg-card/40 backdrop-blur-md">
         <div className="container mx-auto px-4 py-1.5">
-          <IndicesTicker />
+          <IndicesTicker serverUrl={serverUrl} accessToken={accessToken} />
         </div>
       </div>
 
