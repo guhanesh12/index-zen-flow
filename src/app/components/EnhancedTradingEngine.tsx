@@ -405,14 +405,19 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const normalizedVolumeAnalysis = rawVolumeAnalysis ? {
       ...rawVolumeAnalysis,
       ratio: Number(rawVolumeAnalysis.ratio ?? 0),
+      raw_ratio: Number(rawVolumeAnalysis.raw_ratio ?? rawVolumeAnalysis.rawRatio ?? rawVolumeAnalysis.ratio ?? 0),
       is_high: rawVolumeAnalysis.is_high ?? rawVolumeAnalysis.isHigh ?? false,
       is_spike: rawVolumeAnalysis.is_spike ?? rawVolumeAnalysis.isSpike ?? false,
       smart_money_detected: rawVolumeAnalysis.smart_money_detected ?? rawVolumeAnalysis.smartMoney ?? false,
       current_volume: Number(rawVolumeAnalysis.current_volume ?? rawVolumeAnalysis.currentVolume ?? rawVolumeAnalysis.current ?? 0),
       average_volume: Number(rawVolumeAnalysis.average_volume ?? rawVolumeAnalysis.averageVolume ?? rawVolumeAnalysis.average ?? 0),
+      body_percent: Number(rawVolumeAnalysis.body_percent ?? rawVolumeAnalysis.bodyPercent ?? 0),
+      candle_strength: rawVolumeAnalysis.candle_strength ?? rawVolumeAnalysis.candleStrength ?? 'N/A',
       buyPressure: Number(rawVolumeAnalysis.buyPressure ?? rawVolumeAnalysis.buy_pressure ?? 0),
       sellPressure: Number(rawVolumeAnalysis.sellPressure ?? rawVolumeAnalysis.sell_pressure ?? 0),
       has_data: rawVolumeAnalysis.has_data ?? rawVolumeAnalysis.hasData ?? false,
+      feed_reliable: rawVolumeAnalysis.feed_reliable ?? rawVolumeAnalysis.feedReliable ?? false,
+      coverage: Number(rawVolumeAnalysis.coverage ?? 0),
       orderFlow: rawVolumeAnalysis.orderFlow || rawVolumeAnalysis.order_flow || 'N/A',
     } : null;
 
