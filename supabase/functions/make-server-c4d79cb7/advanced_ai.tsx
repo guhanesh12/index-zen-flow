@@ -1247,18 +1247,26 @@ export class AdvancedAI {
     // MUST have 6+ confirmations AND suitable market regime
     // 🐛 BUG FIX #7: hasAcceptableVolume previously failed permanently on indices
     // (volumeRatio = 0 because no feed). Now: skip volume gate when no feed exists.
-    const minimumBodySize = 10; // Points
+    // 🐛 BUG FIX #9: minimumBodySize was hardcoded to 10 points — wrong for indices.
+    // SENSEX (~80k) / BANKNIFTY (~50k) routinely have valid 5-20pt bodies on 15M;
+    // also the LAST candle may still be forming. Use price-relative threshold:
+    // 0.05% of current price (≈ 40pts on SENSEX, 25pts on BANKNIFTY, 12pts on NIFTY,
+    // ~0.5pt on a ₹1000 stock). Also relax to 0.02% in very strong trends (ADX>50).
     const isVeryStrongTrend = adx > 50;
+    const bodyPctThreshold = isVeryStrongTrend ? 0.0002 : 0.0005; // 0.02% / 0.05%
+    const minimumBodySize = Math.max(1, currentPrice * bodyPctThreshold);
+    // ⚡ Body size gate also passes if candle body is >40% of its range (decisive bar)
+    const hasAcceptableBody = bodySize >= minimumBodySize || bodyPercent >= 40;
     const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
     const hasAcceptableVolume = !hasVolumeData ? true : (volumeRatio >= minimumVolumeRatio);
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
     
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
+    const strongBullish = confirmations.total >= 6 && confirmationBullish && (hasAcceptableBody || hasStrongPattern) && hasAcceptableVolume;
+    const strongBearish = confirmations.total >= 6 && confirmationBearish && (hasAcceptableBody || hasStrongPattern) && hasAcceptableVolume;
     
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), isVeryStrongTrend=${isVeryStrongTrend} (ADX=${adx.toFixed(1)}), regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(2)}, bodyPct=${bodyPercent.toFixed(1)}%), hasAcceptableBody=${hasAcceptableBody}, hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}, hasVolumeData=${hasVolumeData}), isVeryStrongTrend=${isVeryStrongTrend} (ADX=${adx.toFixed(1)}), regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
@@ -1287,13 +1295,16 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
       
-    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume (1.2x) for consistency
+    } else if (!hasAcceptableBody || !hasAcceptableVolume) {
       // ⚡ FIX: Only block if no strong pattern exists
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
-        bias = 'Neutral';
-        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
+        bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
+        const volMsg = !hasVolumeData
+          ? 'no volume feed'
+          : `volume ${volumeRatio.toFixed(2)}x (min ${minimumVolumeRatio}x)`;
+        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts / ${bodyPercent.toFixed(0)}% of range, min ${minimumBodySize.toFixed(1)}pts or 40%) or low volume (${volMsg}).`;
       }
     } else {
       action = 'WAIT';
