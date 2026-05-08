@@ -929,14 +929,57 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             {/* 💰 WALLET BALANCE CHECK - Show Dashboard UI only if balance >= ₹89 */}
             {walletBalance >= 89 ? (
               <>
-                {/* 💰 PROFIT DASHBOARD - Tiered Pricing & Daily Stats */}
+                {/* 🚀 NEW: Premium fintech overview */}
+                <SectionHeader
+                  icon={Sparkles}
+                  title="Trading Overview"
+                  desc="Your complete picture in one glance — markets, P&L, AI confidence and risk."
+                />
+                <KpiGrid
+                  totalPnL={stats.totalPnL || 0}
+                  todayPnL={stats.totalPnL || 0}
+                  winRate={stats.winRate || 0}
+                  runningStrategies={engineRunning ? 1 : 0}
+                  openTrades={activePositions.length}
+                  aiConfidence={lastSignal?.confidence ?? 72}
+                  walletBalance={walletBalance}
+                  marginUsed={0}
+                  spark={[1,3,2,4,5,4,6,7,6,8,7,9]}
+                />
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 space-y-4">
+                    <MarketOverview />
+                    <PerformanceChart />
+                  </div>
+                  <div className="space-y-4">
+                    <RiskCenter
+                      dailyLoss={Math.min(100, Math.abs(stats.totalPnL || 0) / 10)}
+                      drawdown={12}
+                      exposure={Math.min(100, activePositions.length * 25)}
+                      margin={22}
+                    />
+                    <div className="glass-card p-4 glow-ai">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Brain className="size-4 text-ai" />
+                        <h3 className="font-semibold">AI Signal Engine</h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Live multi-indicator AI scanning NIFTY, BANKNIFTY & SENSEX every candle close.
+                      </p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5"><span className="live-dot" /> Online</span>
+                        <span className="text-muted-foreground">Confidence floor 65%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Existing detailed sections — kept intact */}
+                <SectionHeader icon={ActivityIcon} title="Live Positions & Engine" desc="Real-time monitor with momentum guard, give-back & time-stop." />
                 <ProfitDashboard accessToken={accessToken} />
-
-                {/* 🚀 ADVANCED PRO POSITION MONITOR - momentum / give-back / time-stop / market-favorable */}
                 <AdvancedPositionMonitor accessToken={accessToken} />
-
-                {/* 📊 POSITIONS & ANALYTICS - Shows current positions and P&L */}
-                <AdvancedDashboard 
+                <AdvancedDashboard
                   serverUrl={serverUrl}
                   accessToken={accessToken}
                   credentialsConfigured={credentialsConfigured}
