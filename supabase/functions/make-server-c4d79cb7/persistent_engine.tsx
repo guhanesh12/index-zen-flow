@@ -141,8 +141,12 @@ interface EngineState {
   isRunning: boolean;
   userId: string;
   candleInterval: '5' | '15';
+  // ⚡ MULTI-TIMEFRAME: list of selected timeframes (in minutes as string, e.g. ['5','15'])
+  candleIntervals: string[];
   symbols: any[];
   lastProcessedCandle: string;
+  // ⚡ Per-timeframe last processed candle timestamp
+  lastProcessedCandles: Record<string, string>;
   activePositions: any[];
   stats: {
     totalSignals: number;
@@ -158,6 +162,7 @@ interface EngineState {
 interface EngineConfig {
   userId: string;
   candleInterval: '5' | '15';
+  candleIntervals?: string[];
   symbols: any[];
   dhanClientId: string;
   dhanAccessToken: string;
@@ -196,7 +201,12 @@ class PersistentTradingEngine {
    */
   static async startEngine(config: EngineConfig): Promise<{ success: boolean; message: string }> {
     const { userId, candleInterval, symbols, dhanClientId, dhanAccessToken } = config;
-    
+
+    // ⚡ Build list of unique selected timeframes (default to provided candleInterval)
+    const tfList = (config.candleIntervals && config.candleIntervals.length > 0)
+      ? Array.from(new Set(config.candleIntervals.map(String)))
+      : [String(candleInterval)];
+
     // Check if engine already running
     if (this.instances.has(userId)) {
       return {
@@ -218,8 +228,10 @@ class PersistentTradingEngine {
       isRunning: true,
       userId,
       candleInterval,
+      candleIntervals: tfList,
       symbols,
       lastProcessedCandle: '',
+      lastProcessedCandles: {},
       activePositions: [],
       stats: {
         totalSignals: 0,
@@ -240,8 +252,11 @@ class PersistentTradingEngine {
     const marketClose = 15 * 60 + 30;
 
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
-      engineState.lastProcessedCandle = this.getCurrentCandleTimestamp(istTime, parseInt(candleInterval));
-      console.log(`⏱️ Engine armed for ${userId} at candle ${engineState.lastProcessedCandle} - waiting for next ${candleInterval}M candle close`);
+      for (const tf of tfList) {
+        engineState.lastProcessedCandles[tf] = this.getCurrentCandleTimestamp(istTime, parseInt(tf));
+      }
+      engineState.lastProcessedCandle = engineState.lastProcessedCandles[String(candleInterval)] || '';
+      console.log(`⏱️ Engine armed for ${userId} on TFs [${tfList.join(',')}]M - waiting for next candle close`);
     }
     
     this.engineStates.set(userId, engineState);
@@ -379,12 +394,17 @@ class PersistentTradingEngine {
           
           // Hydrate memory state if needed
           if (!this.engineStates.has(userId)) {
+            const tfList = Array.isArray(settings.candleIntervals) && settings.candleIntervals.length > 0
+              ? settings.candleIntervals.map(String)
+              : [String(settings.candleInterval || '15')];
             this.engineStates.set(userId, {
               isRunning: true,
               userId,
               candleInterval: settings.candleInterval || '15',
+              candleIntervals: tfList,
               symbols,
               lastProcessedCandle: settings.lastProcessedCandle || '',
+              lastProcessedCandles: settings.lastProcessedCandles || {},
               activePositions: [],
               stats: {
                 totalSignals: settings.totalSignals || 0,
@@ -397,7 +417,7 @@ class PersistentTradingEngine {
               dhanAccessToken: credentials.dhanAccessToken
             });
           }
-          
+
           const dhanService = new DhanService({
             clientId: credentials.dhanClientId,
             accessToken: credentials.dhanAccessToken
@@ -776,48 +796,70 @@ class PersistentTradingEngine {
       // ⚡⚡⚡ ALWAYS MONITOR ACTIVE POSITIONS (EVERY TICK) ⚡⚡⚡
       await this.monitorPositions(userId, dhanService, state);
       
-      const candleMinutes = parseInt(state.candleInterval);
+      // ⚡ MULTI-TIMEFRAME: iterate every selected timeframe independently.
+      const tfList = (state.candleIntervals && state.candleIntervals.length > 0)
+        ? state.candleIntervals
+        : [String(state.candleInterval)];
+      if (!state.lastProcessedCandles) state.lastProcessedCandles = {};
+      const dbLastProcessedMap: Record<string, string> = liveEngineState?.strategy_settings?.lastProcessedCandles || {};
       const minutesSinceOpen = currentTimeMinutes - marketOpen;
 
-      if (minutesSinceOpen < candleMinutes) {
-        console.log(`⏳ Waiting for first ${state.candleInterval}M candle to close for user ${userId}`);
+      // Build the list of timeframes that have a fresh closed candle to analyze
+      const tfsToProcess: { tf: string; candleMinutes: number; candleTs: string }[] = [];
+      for (const tfStr of tfList) {
+        const candleMinutes = parseInt(tfStr);
+        if (!Number.isFinite(candleMinutes) || candleMinutes <= 0) continue;
+        if (minutesSinceOpen < candleMinutes) {
+          console.log(`⏳ [${tfStr}M] Waiting for first candle close (minutesSinceOpen=${minutesSinceOpen})`);
+          continue;
+        }
+        const candleTs = this.getCurrentCandleTimestamp(istTime, candleMinutes);
+        const lastMem = state.lastProcessedCandles[tfStr] || '';
+        const lastDB = dbLastProcessedMap[tfStr] || '';
+        // Backwards-compat: also honor legacy single lastProcessedCandle if it matches default tf
+        const legacyLast = (tfStr === String(state.candleInterval))
+          ? (state.lastProcessedCandle || liveEngineState?.strategy_settings?.lastProcessedCandle || '')
+          : '';
+        if (candleTs === lastMem || candleTs === lastDB || candleTs === legacyLast) {
+          console.log(`⏸️ [${tfStr}M] Same candle ${candleTs} - skip`);
+          continue;
+        }
+        tfsToProcess.push({ tf: tfStr, candleMinutes, candleTs });
+      }
+
+      if (tfsToProcess.length === 0) {
         await kv.set(`engine_state_${userId}`, state);
         return;
       }
 
-      // Check if new candle is ready for AI analysis
-      const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
-      const dbLastProcessedCandle = liveEngineState?.strategy_settings?.lastProcessedCandle || '';
-      
-      console.log(`📊 Candle check: current=${currentCandleTimestamp} last=${state.lastProcessedCandle} dbLast=${dbLastProcessedCandle} interval=${candleMinutes}M symbols=${state.symbols.length}`);
-      
-      if (currentCandleTimestamp === state.lastProcessedCandle || currentCandleTimestamp === dbLastProcessedCandle) {
-        state.lastProcessedCandle = currentCandleTimestamp;
-        console.log(`⏸️ Same candle ${currentCandleTimestamp} - monitoring positions only`);
-        await kv.set(`engine_state_${userId}`, state);
-        return;
-      }
-      
-      console.log(`\n🔥 NEW CANDLE DETECTED! Processing ${state.candleInterval}M candle at ${currentCandleTimestamp}`);
-      
-      // Mark as processed
-      state.lastProcessedCandle = currentCandleTimestamp;
-      await this.saveEngineStateToDB(userId, state);
-      
-      // ⚡⚡⚡ ANALYZE ALL 3 INDICES INDEPENDENTLY (like frontend does) ⚡⚡⚡
+      // ⚡⚡⚡ ANALYZE ALL 3 INDICES × EVERY READY TIMEFRAME ⚡⚡⚡
       const allIndices = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
       const analyzedIndices = new Set<string>();
       const latestSignalsSnapshot: Record<string, any> = {};
-      
+
+      for (const { tf, candleMinutes, candleTs } of tfsToProcess) {
+        console.log(`\n🔥 NEW CANDLE [${tf}M] @ ${candleTs} - analyzing all indices (last 50 candles each)`);
+        state.lastProcessedCandles[tf] = candleTs;
+        if (tf === String(state.candleInterval)) state.lastProcessedCandle = candleTs;
+      }
+      await this.saveEngineStateToDB(userId, state);
+
+      const currentCandleTimestamp = tfsToProcess[0].candleTs; // used as orderKey marker
+      const tfLoopStart = 0; // marker for replacement
+
+      for (const { tf, candleMinutes, candleTs } of tfsToProcess) {
       for (const indexName of allIndices) {
         try {
-          console.log(`\n📊 Analyzing index: ${indexName}`);
+          console.log(`\n📊 [${tf}M] Analyzing index: ${indexName}`);
           
+          // ⚡ FIX: Correct AdvancedAI.analyzeMarket signature (indexSymbol, interval, balance, clientId, accessToken)
+          // ⚡ Always request the LAST 50 candles for the SELECTED timeframe (handled inside analyzeMarket → getOHLCData)
           const aiSignal = await AdvancedAI.analyzeMarket(
-            dhanService,
             indexName,
-            state.candleInterval,
-            100000
+            tf as '5' | '15',
+            100000,
+            dhanClientId,
+            dhanAccessToken
           );
           
           analyzedIndices.add(indexName);
@@ -847,7 +889,7 @@ class PersistentTradingEngine {
           latestSignalsSnapshot[indexName] = {
             ...aiSignal.signal,
             index: indexName,
-            timeframe: aiSignal.signal.timeframe || `${state.candleInterval}M`,
+            timeframe: aiSignal.signal.timeframe || `${tf}M`,
             timestamp: signalTimestamp,
           };
 
@@ -870,7 +912,7 @@ class PersistentTradingEngine {
               action: action === 'WAIT' ? 'WAIT' : 'BUY',
               confidence,
               reasoning: reason,
-              timeframe: state.candleInterval,
+              timeframe: tf,
             }
           });
 
@@ -878,12 +920,12 @@ class PersistentTradingEngine {
           await this.appendSharedLog(userId, {
             type: action === 'WAIT' ? 'WAIT' : action.includes('BUY') ? 'AI_SIGNAL' : 'INFO',
             timestamp: signalTimestamp,
-            message: `🎯 ${indexName}: ${action} (${confidence}%) - ${reason || 'AI analysis complete'} | TF: ${state.candleInterval}M`,
+            message: `🎯 ${indexName} [${tf}M]: ${action} (${confidence}%) - ${reason || 'AI analysis complete'}`,
             data: {
               index: indexName,
               action,
               confidence,
-              timeframe: `${state.candleInterval}M`,
+              timeframe: `${tf}M`,
               reasoning: aiSignal.signal.reasoning || aiSignal.signal.reason || '',
               confirmations: aiSignal.signal.confirmations?.details || [],
               confirmationsPassed: aiSignal.signal.confirmations?.total || 0,
@@ -946,7 +988,7 @@ class PersistentTradingEngine {
             const normalizedSymbolName = getSymbolDisplayName(symbol);
             const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
             const normalizedSecurityId = String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '');
-            const orderKey = `${userId}:${currentCandleTimestamp}:${normalizedSecurityId}:${action}`;
+            const orderKey = `${userId}:${tf}:${candleTs}:${normalizedSecurityId}:${action}`;
 
             if (!(await this.isEngineStillRunning(userId))) {
               console.log(`🛑 Engine stopped before placing order for ${normalizedSymbolName}`);
@@ -1104,9 +1146,10 @@ class PersistentTradingEngine {
           }
           
         } catch (error) {
-          console.error(`❌ Error analyzing ${indexName}:`, error);
+          console.error(`❌ Error analyzing ${indexName} [${tf}M]:`, error);
         }
-      }
+      } // end indices loop
+      } // end timeframes loop
 
       if (Object.keys(latestSignalsSnapshot).length > 0) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
@@ -1569,7 +1612,9 @@ class PersistentTradingEngine {
           selected_symbols: state.symbols,
           strategy_settings: {
             candleInterval: state.candleInterval,
+            candleIntervals: state.candleIntervals || [String(state.candleInterval)],
             lastProcessedCandle: state.lastProcessedCandle,
+            lastProcessedCandles: state.lastProcessedCandles || {},
             totalSignals: state.stats.totalSignals,
             totalOrders: state.stats.totalOrders,
             totalPnL: state.stats.totalPnL

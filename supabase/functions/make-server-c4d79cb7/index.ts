@@ -8118,7 +8118,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     }
 
     const body = await c.req.json();
-    const { candleInterval, symbols } = body;
+    const { candleInterval, candleIntervals, symbols } = body;
 
     // Get user credentials
     const userCredentials = await kv.get(`api_credentials:${user.id}`);
@@ -8132,15 +8132,21 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
       return c.json({ error: 'Dhan credentials not configured' }, 400);
     }
 
+    // ⚡ Normalize selected timeframes (supports multi-timeframe)
+    const tfList: string[] = Array.isArray(candleIntervals) && candleIntervals.length > 0
+      ? Array.from(new Set(candleIntervals.map((x: any) => String(x))))
+      : [String(candleInterval || '15')];
+
     console.log(`\n🚀 ============ START PERSISTENT ENGINE ============`);
     console.log(`   User: ${user.id}`);
-    console.log(`   Interval: ${candleInterval}M`);
+    console.log(`   Timeframes: [${tfList.join(',')}]M`);
     console.log(`   Symbols: ${symbols.length}`);
 
     // Start engine (saves to both KV and DB)
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
-      candleInterval: candleInterval || '15',
+      candleInterval: (candleInterval || tfList[0] || '15') as '5' | '15',
+      candleIntervals: tfList,
       symbols: symbols || [],
       dhanClientId: credentials.dhanClientId,
       dhanAccessToken: credentials.dhanAccessToken
