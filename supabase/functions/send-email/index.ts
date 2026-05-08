@@ -28,21 +28,74 @@ const BRAND = {
   supportEmail: "support@indexpilotai.com",
 };
 
-// Minimal plain-looking HTML — one column, white bg, black text, ONE link max.
-function plain(bodyHtml: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#222222;font-size:15px;line-height:1.55">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff">
-  <tr><td align="left" style="padding:24px 22px">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
-      <tr><td>${bodyHtml}</td></tr>
-      <tr><td style="padding-top:22px;border-top:1px solid #eeeeee;color:#777777;font-size:12px;line-height:1.5">
-        — ${BRAND.name} Team<br/>
-        Reply to this email if you need help.
+// Premium-but-inbox-safe HTML wrapper.
+// Design: white bg, single 600px column, slim navy header strip with brand
+// wordmark (text, no images = no banner penalty), gold accent rule,
+// content card with system font, one optional CTA button, branded footer.
+// Avoids: gradients, banner images, multi-column, tracking pixels, emojis,
+// "click here" buttons, marketing words.
+function btn(label: string, href: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0">
+    <tr><td bgcolor="#0B1E3F" style="border-radius:6px">
+      <a href="${href}" style="display:inline-block;padding:11px 22px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px">${label}</a>
+    </td></tr>
+  </table>`;
+}
+function plain(bodyHtml: string, opts: { preheader?: string } = {}): string {
+  const pre = opts.preheader || "";
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${BRAND.name}</title></head>
+<body style="margin:0;padding:0;background:#f5f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;font-size:15px;line-height:1.6">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${pre}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6f8">
+  <tr><td align="center" style="padding:24px 12px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #e6e8ec;border-radius:10px;overflow:hidden">
+      <tr><td style="background:#0B1E3F;padding:18px 28px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="color:#ffffff;font-size:17px;font-weight:700;letter-spacing:0.3px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+              IndexPilot<span style="color:#F4B400">·</span>AI
+            </td>
+            <td align="right" style="color:#9aa7c2;font-size:12px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+              ${new Date().toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })}
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+      <tr><td style="height:3px;background:#F4B400;line-height:3px;font-size:0">&nbsp;</td></tr>
+      <tr><td style="padding:28px 32px 12px 32px;color:#1a1a1a;font-size:15px;line-height:1.65">
+        ${bodyHtml}
+      </td></tr>
+      <tr><td style="padding:18px 32px 24px 32px;border-top:1px solid #eef0f3;color:#6b7280;font-size:12.5px;line-height:1.55">
+        Need help? Just reply to this email — a real person from our team will respond.<br/>
+        <span style="color:#9aa1ad">— ${BRAND.name} Team</span>
       </td></tr>
     </table>
+    <div style="max-width:600px;margin:14px auto 0;color:#9aa1ad;font-size:11.5px;line-height:1.5;text-align:center;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+      ${BRAND.name} · <a href="${BRAND.url}" style="color:#9aa1ad;text-decoration:underline">indexpilotai.com</a> · <a href="mailto:${BRAND.supportEmail}" style="color:#9aa1ad;text-decoration:underline">${BRAND.supportEmail}</a><br/>
+      You're receiving this because you have an account with us.
+    </div>
   </td></tr>
 </table></body></html>`;
+}
+
+// Highlighted code/amount block (used for OTP, amounts)
+function codeBox(value: string, label?: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px 0">
+    <tr><td style="background:#f7f9fc;border:1px solid #e3e8f0;border-radius:8px;padding:14px 22px;text-align:center">
+      ${label ? `<div style="color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${label}</div>` : ""}
+      <div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:26px;font-weight:700;letter-spacing:6px;color:#0B1E3F">${value}</div>
+    </td></tr>
+  </table>`;
+}
+
+// Key/value detail rows (used for transaction/signal details)
+function details(rows: Array<[string, string]>): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;border:1px solid #eef0f3;border-radius:8px;overflow:hidden">
+    ${rows.map(([k,v], i) => `<tr style="background:${i%2?'#fafbfc':'#ffffff'}">
+      <td style="padding:10px 16px;color:#6b7280;font-size:13px;width:42%">${k}</td>
+      <td style="padding:10px 16px;color:#1a1a1a;font-size:14px;font-weight:600">${v}</td>
+    </tr>`).join("")}
+  </table>`;
 }
 
 // Strip HTML to get a plain-text fallback (Gmail looks for text/plain part).
