@@ -131,6 +131,23 @@ export default function SignupWithOTP({ onSuccess, onBackToLanding }: SignupWith
         }
 
         console.log('✅ Session set successfully:', sessionData);
+
+        // 🎉 Send welcome email via Brevo (best-effort, non-blocking)
+        try {
+          const userId = sessionData?.user?.id || data.session?.user?.id;
+          const clientId = data.profile?.client_id || data.client_id || '';
+          const referralCode = data.referral_code || data.profile?.client_id || '';
+          await supabase.functions.invoke('send-email', {
+            body: {
+              template: 'welcome',
+              to: email,
+              name,
+              userId,
+              data: { name, email, clientId, referralCode, dashboardUrl: `${window.location.origin}/dashboard` },
+            },
+          });
+        } catch (e) { console.warn('welcome email failed', e); }
+
         
         // Initialize wallet with ₹0 balance
         const accessToken = data.session.access_token;
