@@ -11,8 +11,9 @@ import { Textarea } from './ui/textarea';
 import {
   User, Mail, Phone, Copy, Check, Shield, Crown, Star, Wallet, TrendingUp,
   Gift, Share2, QrCode, MessageCircle, Send, Mail as MailIcon, Link as LinkIcon,
-  Trophy, Users, Sparkles, BadgeCheck, Camera, Edit3
+  Trophy, Users, Sparkles, BadgeCheck, Camera, Edit3, Bell, BellOff, Zap
 } from 'lucide-react';
+import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { projectId } from '@/utils-ext/supabase/info';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
