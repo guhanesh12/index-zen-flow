@@ -10526,7 +10526,8 @@ app.post("/make-server-c4d79cb7/auth/forgot-password", async (c) => {
     if (otpData.Status !== 'Success') return c.json({ error: otpData.Details || 'Failed to send OTP' }, 400);
 
     // Store session in KV (tagged as password-reset)
-    await kv.set(`reset_otp:${phone}`, {
+    const phoneKey = (phone || '').replace(/\D/g, '').slice(-10);
+    await kv.set(`reset_otp:${phoneKey}`, {
       sessionId: otpData.Details,
       userId: user.id,
       email: user.email,
