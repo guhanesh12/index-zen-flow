@@ -4338,7 +4338,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                 </div>
               </div>
             </span>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  console.log('🔄 Manual symbol reload triggered');
+                  await loadSymbols();
+                }}
+                className="h-8 border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+                title="Reload symbols from Symbols tab"
+              >
+                <RefreshCw className="size-3.5 mr-1.5" />
+                Reload Symbols
+              </Button>
               <Badge 
                 variant={marketStatus === 'OPEN' ? 'default' : 'secondary'}
                 className={marketStatus === 'OPEN' ? 'bg-green-500/10 text-green-500 border-green-500/20' : ''}
