@@ -834,13 +834,20 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
                   disabled={loading}
                   className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-semibold h-11 text-base transition-all duration-200 shadow-lg shadow-cyan-500/20"
                 >
+                <Button
+                  type="submit"
+                  disabled={loading || !emailVerified}
+                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-semibold h-11 text-base transition-all duration-200 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+                >
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      Creating Account...
+                      Sending Mobile OTP...
                     </>
+                  ) : !emailVerified ? (
+                    'Verify email to continue'
                   ) : (
-                    'Create Account'
+                    'Continue → Verify Mobile'
                   )}
                 </Button>
               </form>
