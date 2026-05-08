@@ -19,6 +19,7 @@ import { ProfitDashboard } from "./ProfitDashboard";
 import { UserSupport } from "./UserSupport";
 import { StrategyManager } from "./StrategyManager";
 import { BrokerRequest } from "./BrokerRequest";
+import UserProfile from "./UserProfile";
 import { projectId } from "@/utils-ext/supabase/info";
 import { getServerUrl } from "@/utils-ext/config/apiConfig";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
