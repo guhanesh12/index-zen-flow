@@ -68,6 +68,15 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
   const [refLocked, setRefLocked] = useState(false);
   const [refValid, setRefValid] = useState<null | { valid: boolean; referrerName?: string }>(null);
 
+  // Email OTP state
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
+  const [emailOtp, setEmailOtp] = useState('');
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailVerifying, setEmailVerifying] = useState(false);
+  const [emailMsg, setEmailMsg] = useState('');
+  const [emailErr, setEmailErr] = useState('');
+
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Parse referral code from URL (?ref=ALG0001)
