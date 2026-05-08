@@ -26,7 +26,7 @@ import { useResponsive } from "../hooks/useResponsive";
 import { NotificationBell } from "./NotificationBell";
 import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
-import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker } from "./dashboard/DashboardUI";
+import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 
 interface TradingDashboardProps {
@@ -97,6 +97,19 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   
   // Core states
   const [credentialsConfigured, setCredentialsConfigured] = useState(false);
+
+  // 🔴 REAL DATA — Dhan account fund limits & positions
+  const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken);
+  const { positions: dhanPositions } = usePositions(serverUrl, accessToken);
+  const realPositionsPnL = (dhanPositions || []).reduce(
+    (s: number, p: any) => s + Number(p.unrealizedProfit ?? p.pnl ?? p.unrealisedProfit ?? 0), 0
+  );
+  const realOpenTrades = (dhanPositions || []).filter(
+    (p: any) => Number(p.netQty ?? p.quantity ?? 0) !== 0
+  ).length;
+  const realAccountBalance = Number(dhanFunds?.availableBalance ?? 0);
+  const realMarginUsed = Number(dhanFunds?.utilizationAmount ?? 0);
+
   const [logs, setLogs] = useState<any[]>([]);
 
   const normalizeLogs = (rawLogs: any[]) => {
@@ -507,7 +520,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       {/* Indices ticker rail */}
       <div className="hidden md:block border-b border-border/40 bg-card/40 backdrop-blur-md">
         <div className="container mx-auto px-4 py-1.5">
-          <IndicesTicker />
+          <IndicesTicker serverUrl={serverUrl} accessToken={accessToken} />
         </div>
       </div>
 
@@ -936,29 +949,23 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                   desc="Your complete picture in one glance — markets, P&L, AI confidence and risk."
                 />
                 <KpiGrid
-                  totalPnL={stats.totalPnL || 0}
-                  todayPnL={stats.totalPnL || 0}
+                  totalPnL={realPositionsPnL + (stats.totalPnL || 0)}
+                  todayPnL={realPositionsPnL}
                   winRate={stats.winRate || 0}
                   runningStrategies={engineRunning ? 1 : 0}
-                  openTrades={activePositions.length}
-                  aiConfidence={lastSignal?.confidence ?? 72}
-                  walletBalance={walletBalance}
-                  marginUsed={0}
-                  spark={[1,3,2,4,5,4,6,7,6,8,7,9]}
+                  openTrades={realOpenTrades || activePositions.length}
+                  aiConfidence={lastSignal?.confidence ?? 0}
+                  walletBalance={realAccountBalance || walletBalance}
+                  marginUsed={realMarginUsed}
                 />
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="lg:col-span-2 space-y-4">
-                    <MarketOverview />
-                    <PerformanceChart />
+                    <MarketOverview serverUrl={serverUrl} accessToken={accessToken} />
+                    <PerformanceChart serverUrl={serverUrl} accessToken={accessToken} />
                   </div>
                   <div className="space-y-4">
-                    <RiskCenter
-                      dailyLoss={Math.min(100, Math.abs(stats.totalPnL || 0) / 10)}
-                      drawdown={12}
-                      exposure={Math.min(100, activePositions.length * 25)}
-                      margin={22}
-                    />
+                    <RiskCenter serverUrl={serverUrl} accessToken={accessToken} walletBalance={realAccountBalance || walletBalance} />
                     <div className="glass-card p-4 glow-ai">
                       <div className="flex items-center gap-2 mb-2">
                         <Brain className="size-4 text-ai" />
