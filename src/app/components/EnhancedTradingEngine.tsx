@@ -4462,7 +4462,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           </div>
 
           {/* Control Buttons */}
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-wrap gap-2 items-center">
             {!isRunning ? (
               <Button onClick={handleStartEngine} className="bg-green-600 hover:bg-green-700 text-white">
                 <Play className="size-4 mr-2" />
@@ -4474,125 +4474,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   <Pause className="size-4 mr-2" />
                   Stop Engine
                 </Button>
-                <Badge variant="outline" className="bg-green-900/20 text-green-400 border-green-600 ml-2 px-3 py-1">
-                  <div className="size-2 rounded-full bg-green-500 animate-pulse mr-2" />
-                  Running {candleInterval}M | Pre-fetch: 2s early | P&L: 1s
-                </Badge>
               </>
             )}
             <Button onClick={loadSymbols} variant="outline" size="sm" className="text-white">
               🔄 Reload Symbols
-            </Button>
-            
-            {/* ⚡ POSITION MONITOR CONTROL */}
-            {isRunning && (
-              <Button 
-                onClick={isPositionMonitorActive ? stopPositionMonitor : startPositionMonitor}
-                variant={isPositionMonitorActive ? "destructive" : "default"}
-                size="sm"
-                className={isPositionMonitorActive ? "text-white" : "bg-green-600 hover:bg-green-700 text-white"}
-              >
-                {isPositionMonitorActive ? (
-                  <>
-                    <Pause className="size-3 mr-2" />
-                    Stop Monitor
-                  </>
-                ) : (
-                  <>
-                    <Play className="size-3 mr-2" />
-                    Start Monitor
-                  </>
-                )}
-              </Button>
-            )}
-            
-            {/* ⚡ FORCE START TOGGLE (For special sessions) - MORE PROMINENT */}
-            <div className={`flex items-center gap-3 ml-auto border-l-2 pl-4 ${
-              forceStartEnabled 
-                ? 'border-amber-500 bg-amber-500/10 -mx-2 px-4 py-2 rounded-lg' 
-                : 'border-zinc-700'
-            }`}>
-              <div className="flex flex-col">
-                <Label htmlFor="force-start-toggle" className={`text-sm font-semibold cursor-pointer flex items-center gap-2 ${
-                  forceStartEnabled ? 'text-amber-400' : 'text-zinc-400'
-                }`}>
-                  <span className="text-lg">{marketStatus === 'WEEKEND' ? '⚠️' : '💡'}</span>
-                  Force Start
-                </Label>
-                <span className={`text-xs ${forceStartEnabled ? 'text-amber-300' : 'text-zinc-400'}`}>
-                  (Special Sessions)
-                </span>
-              </div>
-              <Switch
-                id="force-start-toggle"
-                checked={forceStartEnabled}
-                onCheckedChange={setForceStartEnabled}
-                disabled={isRunning}
-                className={forceStartEnabled ? 'bg-amber-600 scale-110' : ''}
-              />
-              {forceStartEnabled && (
-                <Badge variant="outline" className="bg-amber-900/30 text-amber-300 border-amber-500 text-xs font-bold animate-pulse">
-                  ✓ ACTIVE
-                </Badge>
-              )}
-            </div>
-            
-            <Button 
-              onClick={() => {
-                console.log('=== ENGINE DEBUG INFO ===');
-                console.log('Is Running:', isRunning);
-                console.log('Market Status:', marketStatus);
-                console.log('Candle Interval:', candleInterval);
-                console.log('Trading Symbols:', tradingSymbols.length, tradingSymbols);
-                console.log('Active Positions:', activePositions.length, activePositions);
-                console.log('Last Signal:', lastSignal);
-                console.log('Dhan Client ID:', dhanClientId);
-                console.log('Next Candle Close:', nextCandleClose);
-                console.log('Seconds to Candle:', secondsToCandle);
-                console.log('Last Processed Candle:', lastProcessedCandle);
-                console.log('=========================');
-                alert('Debug info printed to console!');
-              }} 
-              variant="outline" 
-              size="sm"
-              className="text-white"
-            >
-              🐛 Debug
-            </Button>
-            
-            {/* ⚡ FORCE POSITION MONITOR BUTTON - ALWAYS ENABLED */}
-            <Button 
-              onClick={async () => {
-                console.log('🔥 FORCE POSITION MONITOR TRIGGERED!');
-                
-                try {
-                  // Step 1: Check Dhan for positions (even if activePositions is empty)
-                  const result = await forceCheckPositions();
-                  
-                  if (result.found && result.count > 0) {
-                    // Positions found - monitor them
-                    console.log(`🚀 Found ${result.count} position(s) - starting monitoring...`);
-                    await monitorPositions();
-                    console.log('✅ Forced monitoring complete!');
-                    alert(`✅ Position monitoring started!\n\n📊 Monitoring ${result.count} active position${result.count > 1 ? 's' : ''}.\n\nP&L tracking and auto-exit enabled.`);
-                  } else if (activePositions.length > 0) {
-                    // Already have positions in state
-                    await monitorPositions();
-                    alert(`✅ Position monitoring completed!\n\n📊 Monitored ${activePositions.length} position${activePositions.length > 1 ? 's' : ''}.`);
-                  } else {
-                    alert('⚠️ No active positions found.\n\nThe system will auto-detect positions every 60 seconds.');
-                  }
-                } catch (error) {
-                  console.error('❌ Forced monitoring error:', error);
-                  alert(`❌ Monitoring failed: ${error instanceof Error ? error.message : String(error)}`);
-                }
-              }} 
-              variant="outline" 
-              size="sm"
-              className="bg-purple-950/30 border-purple-500/50 text-purple-300 hover:bg-purple-900/50"
-            >
-              <Activity className="size-4 mr-1.5" />
-              Force Monitor
             </Button>
           </div>
         </CardContent>
