@@ -1338,9 +1338,9 @@ export class AdvancedAI {
         confidence = 35;
         bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
         const volMsg = !hasVolumeData
-          ? 'no volume feed'
-          : `volume ${volumeRatio.toFixed(2)}x (min ${minimumVolumeRatio}x)`;
-        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts / ${bodyPercent.toFixed(0)}% of range, min ${minimumBodySize.toFixed(1)}pts or 40%) or low volume (${volMsg}).`;
+          ? 'index volume feed unavailable; using candle strength'
+          : `volume ${volumeRatio.toFixed(2)}x`;
+        reasoning = `WAIT: Candle strength too weak (body ${bodySize.toFixed(1)}pts / ${bodyPercent.toFixed(0)}% of range, min ${minimumBodySize.toFixed(1)}pts or 35%). ${volMsg}.`;
       }
     } else {
       action = 'WAIT';
