@@ -9592,6 +9592,21 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
     await kv.set(`support:ticket:${messageId}`, ticket);
 
     console.log(`✅ Admin replied to ticket: ${messageId}`);
+
+    // 📧 Notify user about admin reply
+    try {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'ticket_reply',
+          userId: ticket.userId,
+          to: ticket.userEmail,
+          data: { ticketId: messageId.slice(-8).toUpperCase(), message: reply, subject: ticket.subject },
+        }),
+      }).catch(() => {});
+    } catch {}
+
     return c.json({ success: true });
   } catch (error: any) {
     console.error('Error replying to ticket:', error);
