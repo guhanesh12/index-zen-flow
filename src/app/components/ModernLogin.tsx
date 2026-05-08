@@ -88,6 +88,12 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset password');
       setForgotStep('done');
+      // Auto-redirect back to login after 2.5s
+      setTimeout(() => {
+        setForgotStep('none');
+        setFpEmail(''); setFpPhone(''); setFpOtp(''); setFpNewPass(''); setFpConfirmPass('');
+        form.setValue('email', fpEmail);
+      }, 2500);
     } catch (e: any) { setFpError(e.message); }
     finally { setFpLoading(false); }
   };
