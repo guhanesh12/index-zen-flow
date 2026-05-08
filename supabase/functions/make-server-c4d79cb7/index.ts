@@ -4099,14 +4099,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         
         console.log(`✅ ${idx}: ${ohlcData.length} candles fetched`);
         const latestCandle = ohlcData[ohlcData.length - 1];
-        const analysisCandles = ohlcData.length > 3 ? ohlcData.slice(0, -1) : ohlcData;
+        const analysisCandles = ohlcData;
         const analyzedCandle = analysisCandles[analysisCandles.length - 1];
         const firstCandle = ohlcData[0];
         console.log(`   First candle: O:${firstCandle?.open} C:${firstCandle?.close} (timestamp: ${new Date(firstCandle?.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })})`);
         console.log(`   Latest candle: O:${latestCandle?.open} H:${latestCandle?.high} L:${latestCandle?.low} C:${latestCandle?.close} V:${latestCandle?.volume}`);
-        if (analysisCandles.length !== ohlcData.length) {
-          console.log(`   Ignoring live candle for AI analysis. Using closed candle: O:${analyzedCandle?.open} H:${analyzedCandle?.high} L:${analyzedCandle?.low} C:${analyzedCandle?.close} V:${analyzedCandle?.volume}`);
-        }
+        console.log(`   Using latest Dhan candle for AI analysis: O:${analyzedCandle?.open} H:${analyzedCandle?.high} L:${analyzedCandle?.low} C:${analyzedCandle?.close} V:${analyzedCandle?.volume}`);
         console.log(`   Price range: ${Math.min(...ohlcData.map(c => c.low)).toFixed(2)} - ${Math.max(...ohlcData.map(c => c.high)).toFixed(2)}`);
         
         // Generate AI signal for this index
