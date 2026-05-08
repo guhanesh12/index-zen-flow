@@ -889,7 +889,7 @@ class PersistentTradingEngine {
           latestSignalsSnapshot[indexName] = {
             ...aiSignal.signal,
             index: indexName,
-            timeframe: aiSignal.signal.timeframe || `${state.candleInterval}M`,
+            timeframe: aiSignal.signal.timeframe || `${tf}M`,
             timestamp: signalTimestamp,
           };
 
@@ -912,7 +912,7 @@ class PersistentTradingEngine {
               action: action === 'WAIT' ? 'WAIT' : 'BUY',
               confidence,
               reasoning: reason,
-              timeframe: state.candleInterval,
+              timeframe: tf,
             }
           });
 
@@ -925,7 +925,7 @@ class PersistentTradingEngine {
               index: indexName,
               action,
               confidence,
-              timeframe: `${state.candleInterval}M`,
+              timeframe: `${tf}M`,
               reasoning: aiSignal.signal.reasoning || aiSignal.signal.reason || '',
               confirmations: aiSignal.signal.confirmations?.details || [],
               confirmationsPassed: aiSignal.signal.confirmations?.total || 0,
