@@ -10551,11 +10551,23 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     if (!apiKey) return c.json({ error: 'OTP service not configured' }, 500);
 
-    const session = await kv.get(`reset_otp:${phone}`);
+    // Normalize phone (10-digit) so storage/verify keys match regardless of country code
+    const normalisePhone = (p: string) => (p || '').replace(/\D/g, '').slice(-10);
+    const phoneKey = normalisePhone(phone);
+
+    // Try multiple key variations to be backwards-compatible
+    let session: any = await kv.get(`reset_otp:${phoneKey}`);
+    if (!session?.sessionId) session = await kv.get(`reset_otp:${phone}`);
+    if (!session?.sessionId) session = await kv.get(`reset_otp:+91${phoneKey}`);
+    if (!session?.sessionId) session = await kv.get(`reset_otp:91${phoneKey}`);
+
+    console.log(`🔍 reset-password verify - phone:${phone} key:${phoneKey} hasSession:${!!session?.sessionId} otp:${otp}`);
+
     if (!session?.sessionId) return c.json({ error: 'OTP session expired. Please request a new OTP.' }, 400);
 
     // OTP must be used within 10 minutes
     if (Date.now() - session.timestamp > 10 * 60 * 1000) {
+      await kv.delete(`reset_otp:${phoneKey}`);
       await kv.delete(`reset_otp:${phone}`);
       return c.json({ error: 'OTP expired. Please request a new OTP.' }, 400);
     }
@@ -10563,9 +10575,12 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
     const verifyUrl = `https://2factor.in/API/V1/${apiKey}/SMS/VERIFY/${session.sessionId}/${otp}`;
     const verifyRes = await fetch(verifyUrl);
     const verifyData = await verifyRes.json();
+    console.log('🔍 2factor verify response:', JSON.stringify(verifyData));
 
-    if (verifyData.Status !== 'Success' || verifyData.Details !== 'OTP Matched') {
-      return c.json({ error: 'Invalid OTP. Please check and try again.' }, 400);
+    const ok = verifyData.Status === 'Success' &&
+      (verifyData.Details === 'OTP Matched' || /matched/i.test(String(verifyData.Details || '')));
+    if (!ok) {
+      return c.json({ error: `Invalid OTP. ${verifyData.Details || ''}`.trim() }, 400);
     }
 
     // Update password in Supabase
