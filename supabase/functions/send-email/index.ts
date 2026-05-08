@@ -28,21 +28,74 @@ const BRAND = {
   supportEmail: "support@indexpilotai.com",
 };
 
-// Minimal plain-looking HTML — one column, white bg, black text, ONE link max.
-function plain(bodyHtml: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#222222;font-size:15px;line-height:1.55">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff">
-  <tr><td align="left" style="padding:24px 22px">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
-      <tr><td>${bodyHtml}</td></tr>
-      <tr><td style="padding-top:22px;border-top:1px solid #eeeeee;color:#777777;font-size:12px;line-height:1.5">
-        — ${BRAND.name} Team<br/>
-        Reply to this email if you need help.
+// Premium-but-inbox-safe HTML wrapper.
+// Design: white bg, single 600px column, slim navy header strip with brand
+// wordmark (text, no images = no banner penalty), gold accent rule,
+// content card with system font, one optional CTA button, branded footer.
+// Avoids: gradients, banner images, multi-column, tracking pixels, emojis,
+// "click here" buttons, marketing words.
+function btn(label: string, href: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0">
+    <tr><td bgcolor="#0B1E3F" style="border-radius:6px">
+      <a href="${href}" style="display:inline-block;padding:11px 22px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px">${label}</a>
+    </td></tr>
+  </table>`;
+}
+function plain(bodyHtml: string, opts: { preheader?: string } = {}): string {
+  const pre = opts.preheader || "";
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${BRAND.name}</title></head>
+<body style="margin:0;padding:0;background:#f5f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;font-size:15px;line-height:1.6">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${pre}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6f8">
+  <tr><td align="center" style="padding:24px 12px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #e6e8ec;border-radius:10px;overflow:hidden">
+      <tr><td style="background:#0B1E3F;padding:18px 28px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="color:#ffffff;font-size:17px;font-weight:700;letter-spacing:0.3px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+              IndexPilot<span style="color:#F4B400">·</span>AI
+            </td>
+            <td align="right" style="color:#9aa7c2;font-size:12px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+              ${new Date().toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })}
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+      <tr><td style="height:3px;background:#F4B400;line-height:3px;font-size:0">&nbsp;</td></tr>
+      <tr><td style="padding:28px 32px 12px 32px;color:#1a1a1a;font-size:15px;line-height:1.65">
+        ${bodyHtml}
+      </td></tr>
+      <tr><td style="padding:18px 32px 24px 32px;border-top:1px solid #eef0f3;color:#6b7280;font-size:12.5px;line-height:1.55">
+        Need help? Just reply to this email — a real person from our team will respond.<br/>
+        <span style="color:#9aa1ad">— ${BRAND.name} Team</span>
       </td></tr>
     </table>
+    <div style="max-width:600px;margin:14px auto 0;color:#9aa1ad;font-size:11.5px;line-height:1.5;text-align:center;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+      ${BRAND.name} · <a href="${BRAND.url}" style="color:#9aa1ad;text-decoration:underline">indexpilotai.com</a> · <a href="mailto:${BRAND.supportEmail}" style="color:#9aa1ad;text-decoration:underline">${BRAND.supportEmail}</a><br/>
+      You're receiving this because you have an account with us.
+    </div>
   </td></tr>
 </table></body></html>`;
+}
+
+// Highlighted code/amount block (used for OTP, amounts)
+function codeBox(value: string, label?: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:14px 0">
+    <tr><td style="background:#f7f9fc;border:1px solid #e3e8f0;border-radius:8px;padding:14px 22px;text-align:center">
+      ${label ? `<div style="color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${label}</div>` : ""}
+      <div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:26px;font-weight:700;letter-spacing:6px;color:#0B1E3F">${value}</div>
+    </td></tr>
+  </table>`;
+}
+
+// Key/value detail rows (used for transaction/signal details)
+function details(rows: Array<[string, string]>): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0;border:1px solid #eef0f3;border-radius:8px;overflow:hidden">
+    ${rows.map(([k,v], i) => `<tr style="background:${i%2?'#fafbfc':'#ffffff'}">
+      <td style="padding:10px 16px;color:#6b7280;font-size:13px;width:42%">${k}</td>
+      <td style="padding:10px 16px;color:#1a1a1a;font-size:14px;font-weight:600">${v}</td>
+    </tr>`).join("")}
+  </table>`;
 }
 
 // Strip HTML to get a plain-text fallback (Gmail looks for text/plain part).
@@ -72,258 +125,232 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
   // -------- TRANSACTIONAL (must hit Inbox) --------
   welcome: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your ${BRAND.name} account is ready.</p>
-       <p>Your client ID is <b>${d.clientId || "—"}</b>.</p>
-       <p>You can sign in here: <a href="${BRAND.url}/dashboard" style="color:#1155cc">${BRAND.url}/dashboard</a></p>
-       <p>If you didn't create this account, please reply to this email and we'll help.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Welcome aboard, ${d.name || "trader"}</h2>
+       <p style="margin:0 0 12px">Your ${BRAND.name} account is set up and ready to go.</p>
+       ${details([["Client ID", d.clientId || "—"], ["Email", d.email || d.to || "—"]])}
+       ${btn("Open your dashboard", `${BRAND.url}/dashboard`)}
+       <p style="margin:14px 0 0;color:#6b7280;font-size:13px">If you didn't create this account, just reply and we'll help.</p>`,
+      { preheader: `Your ${BRAND.shortName} account is ready` }
     );
-    return {
-      subject: `Welcome to ${BRAND.shortName}, ${d.name || "trader"}`,
-      html,
-      text: htmlToText(html),
-    };
+    return { subject: `Welcome to ${BRAND.shortName}, ${d.name || "trader"}`, html, text: htmlToText(html) };
   },
 
   otp: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your ${BRAND.shortName} verification code is:</p>
-       <p style="font-size:26px;font-weight:bold;letter-spacing:4px;color:#000">${d.code || "------"}</p>
-       <p>This code expires in ${d.expiryMinutes || 10} minutes. Don't share it with anyone.</p>
-       <p>If you didn't request this, you can ignore this email.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Verify your email</h2>
+       <p style="margin:0 0 6px">Hi ${d.name || "there"}, use the code below to continue:</p>
+       ${codeBox(d.code || "------", "Verification code")}
+       <p style="margin:0 0 6px;color:#6b7280;font-size:13px">This code expires in ${d.expiryMinutes || 10} minutes. Don't share it with anyone.</p>
+       <p style="margin:14px 0 0;color:#6b7280;font-size:13px">If you didn't request this, you can safely ignore this email.</p>`,
+      { preheader: `Your code: ${d.code || ""}` }
     );
-    return {
-      subject: `Your ${BRAND.shortName} code: ${d.code || ""}`.trim(),
-      html,
-      text: htmlToText(html),
-    };
+    return { subject: `Your ${BRAND.shortName} code: ${d.code || ""}`.trim(), html, text: htmlToText(html) };
   },
 
   password_reset: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>We received a request to reset your password. Use this code to continue:</p>
-       <p style="font-size:26px;font-weight:bold;letter-spacing:4px;color:#000">${d.code || "------"}</p>
-       <p>If you didn't request a password reset, please reply to this email so we can secure your account.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Reset your password</h2>
+       <p style="margin:0 0 6px">Hi ${d.name || "there"}, use this code to reset your password:</p>
+       ${codeBox(d.code || "------", "Reset code")}
+       <p style="margin:14px 0 0;color:#6b7280;font-size:13px">If you didn't request this, please reply so we can secure your account.</p>`,
+      { preheader: "Password reset code inside" }
     );
-    return {
-      subject: `Password reset request`,
-      html,
-      text: htmlToText(html),
-    };
+    return { subject: `Password reset request`, html, text: htmlToText(html) };
   },
 
   password_changed: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your ${BRAND.shortName} password was changed on ${new Date().toLocaleString("en-IN")}.</p>
-       <p>If this wasn't you, please reply to this email immediately.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Password updated</h2>
+       <p>Hi ${d.name || "there"},</p>
+       <p>Your ${BRAND.shortName} password was changed on <b>${new Date().toLocaleString("en-IN")}</b>.</p>
+       <p style="color:#6b7280;font-size:13px">If this wasn't you, reply to this email immediately.</p>`
     );
     return { subject: `Your password was changed`, html, text: htmlToText(html) };
   },
 
   wallet_recharge: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>We received your payment of ₹${Number(d.amount || 0).toLocaleString("en-IN")}.</p>
-       <p>New wallet balance: ₹${Number(d.balance || 0).toLocaleString("en-IN")}<br/>
-       Transaction ID: ${d.txnId || "—"}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Payment received</h2>
+       <p>Hi ${d.name || "there"}, we've credited your wallet.</p>
+       ${codeBox(`₹${Number(d.amount || 0).toLocaleString("en-IN")}`, "Amount credited")}
+       ${details([["New balance", `₹${Number(d.balance || 0).toLocaleString("en-IN")}`], ["Transaction ID", d.txnId || "—"], ["Date", new Date().toLocaleString("en-IN")]])}
+       ${btn("View wallet", `${BRAND.url}/dashboard?tab=wallet`)}`,
+      { preheader: `₹${d.amount} credited to your wallet` }
     );
     return { subject: `Payment received — ₹${d.amount}`, html, text: htmlToText(html) };
   },
 
   wallet_debit: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>An amount of ₹${Number(d.amount || 0).toLocaleString("en-IN")} was debited from your wallet.</p>
-       <p>Reason: ${d.reason || "Trading charge"}<br/>
-       New balance: ₹${Number(d.balance || 0).toLocaleString("en-IN")}<br/>
-       Transaction ID: ${d.txnId || "—"}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Wallet debit</h2>
+       <p>Hi ${d.name || "there"}, an amount was debited from your wallet.</p>
+       ${codeBox(`₹${Number(d.amount || 0).toLocaleString("en-IN")}`, "Amount debited")}
+       ${details([["Reason", d.reason || "Trading charge"], ["New balance", `₹${Number(d.balance || 0).toLocaleString("en-IN")}`], ["Transaction ID", d.txnId || "—"], ["Date", new Date().toLocaleString("en-IN")]])}`,
+      { preheader: `₹${d.amount} debited from your wallet` }
     );
     return { subject: `Wallet debit — ₹${d.amount}`, html, text: htmlToText(html) };
   },
 
   subscription: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your ${d.plan || "Premium"} plan is now active.</p>
-       <p>Amount: ₹${Number(d.amount || 0).toLocaleString("en-IN")}<br/>
-       Valid until: ${d.expiry || "—"}<br/>
-       Invoice: ${d.invoiceId || "—"}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">${d.plan || "Premium"} plan activated</h2>
+       <p>Hi ${d.name || "there"}, your subscription is now active.</p>
+       ${details([["Plan", d.plan || "Premium"], ["Amount", `₹${Number(d.amount || 0).toLocaleString("en-IN")}`], ["Valid until", d.expiry || "—"], ["Invoice", d.invoiceId || "—"]])}
+       ${btn("Open dashboard", `${BRAND.url}/dashboard`)}`
     );
     return { subject: `${d.plan || "Premium"} plan activated`, html, text: htmlToText(html) };
   },
 
-  // Single signal — keep it personal, no banners
   buy_call: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>A new BUY CALL signal was generated for <b>${d.symbol || "—"}</b>.</p>
-       <p>Entry: ₹${d.entry || "—"}<br/>
-       Target: ₹${d.target || "—"}<br/>
-       Stop loss: ₹${d.sl || "—"}<br/>
-       AI confidence: ${d.confidence || 0}%</p>
-       <p>Open your dashboard to review: ${BRAND.url}/dashboard</p>
-       <p style="color:#777;font-size:12px">Trading involves risk. Review before executing.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Signal: BUY CALL · ${d.symbol || "—"}</h2>
+       <p>Hi ${d.name || "there"}, the AI engine just generated a new signal.</p>
+       ${details([["Symbol", d.symbol || "—"], ["Entry", `₹${d.entry || "—"}`], ["Target", `₹${d.target || "—"}`], ["Stop loss", `₹${d.sl || "—"}`], ["AI confidence", `${d.confidence || 0}%`]])}
+       ${btn("Review on dashboard", `${BRAND.url}/dashboard`)}
+       <p style="color:#6b7280;font-size:12.5px;margin-top:14px">Trading involves risk. Review before executing.</p>`,
+      { preheader: `BUY CALL ${d.symbol} · entry ₹${d.entry}` }
     );
     return { subject: `Signal alert — ${d.symbol || "BUY CALL"}`, html, text: htmlToText(html) };
   },
 
   buy_put: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>A new BUY PUT signal was generated for <b>${d.symbol || "—"}</b>.</p>
-       <p>Entry: ₹${d.entry || "—"}<br/>
-       Target: ₹${d.target || "—"}<br/>
-       Stop loss: ₹${d.sl || "—"}<br/>
-       AI confidence: ${d.confidence || 0}%</p>
-       <p>Open your dashboard to review: ${BRAND.url}/dashboard</p>
-       <p style="color:#777;font-size:12px">Trading involves risk. Review before executing.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Signal: BUY PUT · ${d.symbol || "—"}</h2>
+       <p>Hi ${d.name || "there"}, the AI engine just generated a new signal.</p>
+       ${details([["Symbol", d.symbol || "—"], ["Entry", `₹${d.entry || "—"}`], ["Target", `₹${d.target || "—"}`], ["Stop loss", `₹${d.sl || "—"}`], ["AI confidence", `${d.confidence || 0}%`]])}
+       ${btn("Review on dashboard", `${BRAND.url}/dashboard`)}
+       <p style="color:#6b7280;font-size:12.5px;margin-top:14px">Trading involves risk. Review before executing.</p>`,
+      { preheader: `BUY PUT ${d.symbol} · entry ₹${d.entry}` }
     );
     return { subject: `Signal alert — ${d.symbol || "BUY PUT"}`, html, text: htmlToText(html) };
   },
 
-  // Combined multi-index signals — minimal text list
   signals_combined: (d) => {
     const signals = Array.isArray(d.signals) ? d.signals : [];
-    const lines = signals.map((s: any) => {
+    const rows = signals.flatMap((s: any, i: number) => {
       const action = s.action === "BUY_CALL" ? "BUY CALL" : "BUY PUT";
-      return `• ${s.index || "—"} — ${action} · Entry ₹${s.entry || "—"} · Target ₹${s.target || "—"} · SL ₹${s.sl || "—"} · AI ${Math.round(Number(s.confidence || 0))}%`;
-    }).join("<br/>");
+      return [[`${s.index || "—"} · ${action}`, `Entry ₹${s.entry || "—"} · Target ₹${s.target || "—"} · SL ₹${s.sl || "—"} · AI ${Math.round(Number(s.confidence || 0))}%`]] as [string,string][];
+    });
     const headline = signals.length === 1
       ? `Signal alert — ${signals[0].index} ${signals[0].action === "BUY_CALL" ? "BUY CALL" : "BUY PUT"}`
-      : `${signals.length} signals for ${d.name || "you"}`;
+      : `${signals.length} new signals from your engine`;
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>The AI engine generated the following signals at ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST:</p>
-       <p>${lines || "—"}</p>
-       <p>Open your dashboard: ${BRAND.url}/dashboard</p>
-       <p style="color:#777;font-size:12px">Trading involves risk. Review before executing.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">${signals.length === 1 ? "New signal" : `${signals.length} new signals`}</h2>
+       <p>Hi ${d.name || "there"}, generated at ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST.</p>
+       ${rows.length ? details(rows) : "<p>—</p>"}
+       ${btn("Open dashboard", `${BRAND.url}/dashboard`)}
+       <p style="color:#6b7280;font-size:12.5px;margin-top:14px">Trading involves risk. Review before executing.</p>`,
+      { preheader: headline }
     );
     return { subject: headline, html, text: htmlToText(html) };
   },
 
   trade_exit: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your position in <b>${d.symbol || "—"}</b> was closed.</p>
-       <p>Entry → Exit: ₹${d.entry || "—"} → ₹${d.exit || "—"}<br/>
-       P&L: ₹${Number(d.pnl || 0).toLocaleString("en-IN")}<br/>
-       Reason: ${d.reason || "Target hit"}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Position closed · ${d.symbol || "—"}</h2>
+       ${details([["Symbol", d.symbol || "—"], ["Entry → Exit", `₹${d.entry || "—"} → ₹${d.exit || "—"}`], ["P&L", `₹${Number(d.pnl || 0).toLocaleString("en-IN")}`], ["Reason", d.reason || "Target hit"]])}`
     );
     return { subject: `Trade closed — ${d.symbol}`, html, text: htmlToText(html) };
   },
 
   position_closed_profit: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your position in <b>${d.symbol || "—"}</b> closed in profit.</p>
-       <p>Entry → Exit: ₹${d.entry || "—"} → ₹${d.exit || "—"}<br/>
-       Quantity: ${d.qty || 1}<br/>
-       Net P&L: +₹${Number(d.pnl || 0).toLocaleString("en-IN")}<br/>
-       Reason: ${d.reason || "Target hit"}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Profit booked · ${d.symbol || "—"}</h2>
+       ${codeBox(`+₹${Number(d.pnl || 0).toLocaleString("en-IN")}`, "Net P&L")}
+       ${details([["Symbol", d.symbol || "—"], ["Entry → Exit", `₹${d.entry || "—"} → ₹${d.exit || "—"}`], ["Quantity", String(d.qty || 1)], ["Reason", d.reason || "Target hit"]])}`,
+      { preheader: `+₹${d.pnl} on ${d.symbol}` }
     );
     return { subject: `Profit booked — ${d.symbol}`, html, text: htmlToText(html) };
   },
 
   position_closed_loss: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your position in <b>${d.symbol || "—"}</b> was closed at a loss.</p>
-       <p>Entry → Exit: ₹${d.entry || "—"} → ₹${d.exit || "—"}<br/>
-       Quantity: ${d.qty || 1}<br/>
-       Net P&L: ₹${Number(d.pnl || 0).toLocaleString("en-IN")}<br/>
-       Reason: ${d.reason || "Stop-loss hit"}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Position closed · ${d.symbol || "—"}</h2>
+       ${codeBox(`₹${Number(d.pnl || 0).toLocaleString("en-IN")}`, "Net P&L")}
+       ${details([["Symbol", d.symbol || "—"], ["Entry → Exit", `₹${d.entry || "—"} → ₹${d.exit || "—"}`], ["Quantity", String(d.qty || 1)], ["Reason", d.reason || "Stop-loss hit"]])}`
     );
     return { subject: `Position closed — ${d.symbol}`, html, text: htmlToText(html) };
   },
 
   market_closed: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>The AI engine generated a signal for <b>${d.symbol || "—"}</b>, but the order was not placed because the market is closed.</p>
-       <p>Reason: ${d.reason || "Outside market hours"}<br/>
-       Next session: ${d.nextSession || "Next trading day · 09:15 IST"}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Signal not placed</h2>
+       <p>Hi ${d.name || "there"}, a signal was generated but the order was not placed because the market is closed.</p>
+       ${details([["Symbol", d.symbol || "—"], ["Reason", d.reason || "Outside market hours"], ["Next session", d.nextSession || "Next trading day · 09:15 IST"]])}`
     );
     return { subject: `Signal not placed — market closed`, html, text: htmlToText(html) };
   },
 
   daily_premarket: (d) => {
     const html = plain(
-      `<p>Good morning ${d.name || "there"},</p>
-       <p>Markets open at 09:15 IST today.</p>
-       <p>Engine status: ${d.engineStatus || "Ready"}<br/>
-       Active symbols: ${d.activeSymbols || "NIFTY · BANKNIFTY · SENSEX"}<br/>
-       Wallet balance: ₹${Number(d.balance || 0).toLocaleString("en-IN")}</p>
-       <p>Open dashboard: ${BRAND.url}/dashboard</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Pre-market brief</h2>
+       <p>Good morning ${d.name || "there"}. Markets open at <b>09:15 IST</b> today.</p>
+       ${details([["Engine status", d.engineStatus || "Ready"], ["Active symbols", d.activeSymbols || "NIFTY · BANKNIFTY · SENSEX"], ["Wallet balance", `₹${Number(d.balance || 0).toLocaleString("en-IN")}`]])}
+       ${btn("Open dashboard", `${BRAND.url}/dashboard`)}`
     );
     return { subject: `Pre-market brief for ${new Date().toLocaleDateString("en-IN", { weekday: "long" })}`, html, text: htmlToText(html) };
   },
 
   engine_started: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Your trading engine is now running.</p>
-       <p>Candle interval: ${d.candleInterval || "15"} min<br/>
-       Active symbols: ${d.symbolCount || 0}<br/>
-       Started at: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</p>
-       <p>You can stop the engine anytime from your dashboard: ${BRAND.url}/dashboard</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Trading engine started</h2>
+       <p>Hi ${d.name || "there"}, your engine is now live.</p>
+       ${details([["Candle interval", `${d.candleInterval || "15"} min`], ["Active symbols", String(d.symbolCount || 0)], ["Started at", `${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST`]])}
+       ${btn("Open dashboard", `${BRAND.url}/dashboard`)}`
     );
     return { subject: `Trading engine started`, html, text: htmlToText(html) };
   },
 
   ticket_created: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>We received your support request (ticket #${d.ticketId || "—"}).</p>
-       <p>Subject: ${d.subject || "—"}<br/>
-       Status: Waiting for our team's reply</p>
-       <p>We usually respond within 4–6 hours.</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Support ticket received</h2>
+       <p>Hi ${d.name || "there"}, we've received your request.</p>
+       ${details([["Ticket #", d.ticketId || "—"], ["Subject", d.subject || "—"], ["Status", "Waiting for our team's reply"]])}
+       <p style="color:#6b7280;font-size:13px">We usually respond within 4–6 hours.</p>`
     );
     return { subject: `Support ticket #${d.ticketId} received`, html, text: htmlToText(html) };
   },
 
   ticket_reply: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>Our team replied to your ticket #${d.ticketId || "—"}:</p>
-       <p style="border-left:3px solid #ddd;padding:6px 12px;color:#333">${(d.message || "").toString()}</p>
-       <p>You can reply here or open the ticket: ${BRAND.url}/dashboard?tab=support</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Reply on your ticket</h2>
+       <p>Hi ${d.name || "there"}, our team replied to ticket <b>#${d.ticketId || "—"}</b>:</p>
+       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0"><tr><td style="background:#f7f9fc;border-left:3px solid #F4B400;padding:14px 18px;color:#1a1a1a;font-size:14px;border-radius:4px">${(d.message || "").toString()}</td></tr></table>
+       ${btn("View ticket", `${BRAND.url}/dashboard?tab=support`)}`
     );
     return { subject: `Reply on ticket #${d.ticketId}`, html, text: htmlToText(html) };
   },
 
   referral_reward: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Referral reward credited</h2>
        <p>${d.refereeName || "A new user"} just joined ${BRAND.shortName} using your referral.</p>
-       <p>Reward credited: ₹${Number(d.amount || 0).toLocaleString("en-IN")}<br/>
-       Total referrals: ${d.totalRefs || 1}<br/>
-       Total earned: ₹${Number(d.totalEarned || 0).toLocaleString("en-IN")}</p>`
+       ${codeBox(`+₹${Number(d.amount || 0).toLocaleString("en-IN")}`, "Reward credited")}
+       ${details([["Total referrals", String(d.totalRefs || 1)], ["Total earned", `₹${Number(d.totalEarned || 0).toLocaleString("en-IN")}`]])}
+       ${btn("View referrals", `${BRAND.url}/dashboard?tab=referrals`)}`
     );
     return { subject: `Referral reward credited — ₹${d.amount}`, html, text: htmlToText(html) };
   },
 
-  // Generic notification — used for billing alerts etc. Keep simple.
   notification: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "there"},</p>
-       <p>${(d.message || "").toString()}</p>`
+      `${d.heading ? `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">${d.heading}</h2>` : ""}
+       <p>Hi ${d.name || "there"},</p>
+       <p style="white-space:pre-line">${(d.message || "").toString()}</p>
+       ${d.ctaUrl ? btn(d.ctaLabel || "Open dashboard", d.ctaUrl) : ""}`
     );
     return {
       subject: d.subject || `Notification from ${BRAND.shortName}`,
-      html,
-      text: htmlToText(html),
-      promotional: !!d.promotional, // billing/promo notifications can be flagged
+      html, text: htmlToText(html),
+      promotional: !!d.promotional,
     };
   },
 
   test: (d) => {
     const html = plain(
-      `<p>Hi ${d.name || "Admin"},</p>
-       <p>This is a test email confirming your ${BRAND.name} email service is working.</p>
-       <p>Sent at: ${new Date().toLocaleString("en-IN")}</p>`
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Email integration test</h2>
+       <p>Hi ${d.name || "Admin"}, this confirms your ${BRAND.name} email service is working correctly.</p>
+       ${details([["Sent at", new Date().toLocaleString("en-IN")], ["Service", "Brevo API"], ["Status", "Delivered"]])}`
     );
     return { subject: `Email integration test`, html, text: htmlToText(html) };
   },
