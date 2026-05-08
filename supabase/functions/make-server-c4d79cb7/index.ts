@@ -821,6 +821,8 @@ app.post("/make-server-c4d79cb7/auth/verify-otp", async (c) => {
         
         // Clean up OTP session
         await kv.del(`otp_session:${phone}`);
+        // Mark mobile as verified for 30 minutes
+        await kv.set(`mobile_verified:${phone}`, { verifiedAt: Date.now(), expiresAt: Date.now() + 30 * 60 * 1000 });
         
         return c.json({ 
           success: true, 
