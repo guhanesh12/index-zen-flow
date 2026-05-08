@@ -1138,16 +1138,16 @@ export class AdvancedAI {
     // 6. Volume Confirmation (Weight: 1)
     // 🐛 BUG FIX #6: When index has no volume feed, fall back to strong-body candle
     // so the confirmation isn't permanently disabled on NIFTY/BANKNIFTY.
-    if ((isBullish || isBearish) && hasVolumeData && volumeRatio >= 0.8 && bodyPercent >= 40) {
+    if ((isBullish || isBearish) && hasVolumeData && volumeRatio >= 0.8 && bodyPercent >= 35) {
       confirmations.volume = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Volume: Confirmed (${volumeRatio.toFixed(2)}x) + strong candle`);
-    } else if ((isBullish || isBearish) && !hasVolumeData && bodyPercent >= 40) {
+      confirmationDetails.push(`✅ Volume: Confirmed (${volumeRatio.toFixed(2)}x) + ${candleStrength.toLowerCase()} candle (${bodyPercent.toFixed(1)}%)`);
+    } else if ((isBullish || isBearish) && !hasVolumeData && bodyPercent >= 35) {
       confirmations.volume = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Volume: No feed → strong body fallback (${bodyPercent.toFixed(1)}%)`);
+      confirmationDetails.push(`✅ Volume: Index feed unavailable → ${candleStrength.toLowerCase()} candle strength used (${bodyPercent.toFixed(1)}%)`);
     } else {
-      confirmationDetails.push(hasVolumeData ? `❌ Volume: Low (${volumeRatio.toFixed(2)}x) or weak candle` : `⚠️ Volume: No reliable feed (${(volumeCoverage * 100).toFixed(0)}% coverage), weak body`);
+      confirmationDetails.push(hasVolumeData ? `⚠️ Volume: Low (${volumeRatio.toFixed(2)}x) / candle ${candleStrength.toLowerCase()} (${bodyPercent.toFixed(1)}%)` : `⚠️ Volume: Index feed unavailable, candle strength ${candleStrength.toLowerCase()} (${bodyPercent.toFixed(1)}%)`);
     }
     
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
@@ -1291,10 +1291,10 @@ export class AdvancedAI {
     const bodyPctThreshold = isVeryStrongTrend ? 0.0002 : 0.0005; // 0.02% / 0.05%
     const minimumBodySize = Math.max(1, currentPrice * bodyPctThreshold);
     // ⚡ Body size gate also passes if candle body is >40% of its range (decisive bar)
-    const hasAcceptableBody = bodySize >= minimumBodySize || bodyPercent >= 40;
-    // Volume gate: require at least 0.8x average volume to allow a trade (no 0.5x relaxation)
+    const hasAcceptableBody = bodySize >= minimumBodySize || bodyPercent >= 35;
+    // Volume is informational for cash indices because Dhan often returns no/partial feed.
     const minimumVolumeRatio = 0.8;
-    const hasAcceptableVolume = !hasVolumeData ? true : (volumeRatio >= minimumVolumeRatio);
+    const hasAcceptableVolume = true;
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
