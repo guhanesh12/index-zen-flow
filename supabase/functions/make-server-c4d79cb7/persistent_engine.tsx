@@ -1731,33 +1731,8 @@ class PersistentTradingEngine {
           status: 'detected'
         });
 
-      // 📧 Email user — only for actionable BUY_CALL / BUY_PUT
-      if (action === 'BUY_CALL' || action === 'BUY_PUT') {
-        const market = isTradingHourIST();
-        const tradingDay = await isTradingDayDB();
-        const sl = aiSignal?.signal?.riskManagement?.stopLoss;
-        const tgt = aiSignal?.signal?.riskManagement?.target;
-        const conf = aiSignal?.signal?.confidence || 0;
-        if (!market.open || !tradingDay) {
-          sendEmailAsync('market_closed', userId, {
-            symbol: normalizedSymbolName,
-            signalType: action,
-            reason: !tradingDay ? 'Today is a market holiday' : market.reason,
-            nextSession: market.nextSession || 'Next trading day · 09:15 IST',
-          });
-        } else {
-          sendEmailAsync(action === 'BUY_CALL' ? 'buy_call' : 'buy_put', userId, {
-            symbol: normalizedSymbolName,
-            entry: currentPrice,
-            target: tgt,
-            sl,
-            confidence: Math.round(Number(conf) * 100) / 100,
-            timeframe: 'Intraday',
-            risk: aiSignal?.signal?.riskManagement?.riskLevel || 'Medium',
-            indexName: normalizedIndex,
-          });
-        }
-      }
+      // 📧 Email is now sent ONCE per candle (consolidated for all indices)
+      // — see runEngineForUser() after the index loop. Do not send per-index here.
     } catch (err) {
       console.error('❌ Failed to save signal to DB:', err);
     }
