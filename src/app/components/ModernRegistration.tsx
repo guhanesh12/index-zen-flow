@@ -660,6 +660,49 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
                   )}
                 </div>
 
+                {/* Referral Code */}
+                <div className="space-y-2">
+                  <Label htmlFor="referralCode" className="text-slate-300 flex items-center gap-2 text-sm">
+                    <Zap className="h-4 w-4 text-cyan-400" />
+                    Referral Code <span className="text-slate-500 text-xs">(optional)</span>
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="referralCode"
+                      {...form.register('referralCode')}
+                      placeholder="e.g. ALG0001"
+                      readOnly={refLocked}
+                      maxLength={20}
+                      style={{ textTransform: 'uppercase' }}
+                      onChange={(e) => {
+                        e.target.value = e.target.value.toUpperCase();
+                        form.setValue('referralCode', e.target.value);
+                        handleFormInteraction();
+                      }}
+                      className={`bg-slate-900/80 border-slate-700 text-white placeholder:text-slate-600 h-11 focus:border-cyan-500 transition-colors ${
+                        refLocked ? 'opacity-90 cursor-not-allowed' : ''
+                      }`}
+                    />
+                    {refLocked && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wider text-cyan-400 font-semibold">
+                        Locked
+                      </span>
+                    )}
+                  </div>
+                  {refValid && refValid.valid && (
+                    <p className="text-emerald-400 text-xs flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Valid code — referred by {refValid.referrerName}
+                    </p>
+                  )}
+                  {refValid && !refValid.valid && (form.watch('referralCode') || '').length > 0 && (
+                    <p className="text-amber-400 text-xs flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Referral code not found (you can still continue)
+                    </p>
+                  )}
+                </div>
+
                 {/* Terms */}
                 <div className="flex items-start space-x-2">
                   <Checkbox
