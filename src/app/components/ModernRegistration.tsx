@@ -162,36 +162,51 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
         }
       }
 
-      // ✅ Email is available, proceed with OTP
-      const response = await fetch(`${serverUrl}/send-otp`, {
+      // ✅ Email is available, register directly (no OTP)
+      const response = await fetch(`${serverUrl}/auth/register-direct`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${publicAnonKey}`
         },
-        body: JSON.stringify({ phone: data.mobile })
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          name: data.fullName,
+          phone: data.mobile,
+          referredBy: (data.referralCode || '').trim().toUpperCase() || undefined,
+        })
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to send OTP');
+        throw new Error(errorData.error || 'Registration failed');
       }
 
       const result = await response.json();
-      console.log('📱 OTP sent:', result);
+      if (!result.session?.access_token) {
+        throw new Error('Account creation failed. Please try again.');
+      }
 
-      setSuccess('OTP sent successfully to your mobile number');
-      setStep('otp');
-      setResendTimer(60);
-      
-      // 📊 Track signup progress - OTP sent (50% complete)
-      trackSignup(data.email, data.fullName, data.mobile, 50, false);
-      
-      setTimeout(() => otpInputRefs.current[0]?.focus(), 100);
+      await supabase.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token
+      });
+
+      setSuccess('Account created successfully! Redirecting to dashboard...');
+      trackSignup(data.email, data.fullName, data.mobile, 100, true, result.user?.id);
+
+      setRedirecting(true);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const { data: { session: verifySession } } = await supabase.auth.getSession();
+      if (!verifySession) {
+        throw new Error('Session was not persisted properly. Please try logging in.');
+      }
+      onRegistrationSuccess(result.session.access_token);
 
     } catch (err: any) {
       console.error('❌ Registration error:', err);
-      setError(err.message || 'Failed to send OTP. Please try again.');
+      setError(err.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
