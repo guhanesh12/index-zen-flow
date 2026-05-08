@@ -266,6 +266,96 @@ const TEMPLATES: Record<string, (d: TplData) => { subject: string; html: string 
     ),
   }),
 
+  wallet_debit: (d) => ({
+    subject: `🔻 Wallet debited: ₹${d.amount}`,
+    html: shell(`Amount Debited 🔻`,
+      `<p>Hi <b>${d.name || "Trader"}</b>,</p>
+       <p>An amount has been debited from your ${BRAND.name} wallet.</p>
+       <table width="100%" style="margin:20px 0">
+         ${stat("Amount Debited", `₹${Number(d.amount || 0).toLocaleString("en-IN")}`, BRAND.red)}
+         ${stat("New Balance", `₹${Number(d.balance || 0).toLocaleString("en-IN")}`)}
+         ${stat("Reason", d.reason || "Trading charge", BRAND.accent)}
+         ${stat("Transaction ID", d.txnId || "—")}
+         ${stat("Client ID", d.clientId || "—")}
+       </table>
+       ${btn(`${BRAND.url}/dashboard?tab=wallet`, "View Wallet")}`,
+      `₹${d.amount} debited from wallet`)
+  }),
+
+  market_closed: (d) => ({
+    subject: `🔕 Market Closed — Order not placed (${d.symbol || "Signal"})`,
+    html: shell(`Market is currently closed 🔕`,
+      `<p>Hi <b>${d.name || "Trader"}</b>,</p>
+       <p>Our AI engine generated a signal but the order was <b>not placed</b> because the market is closed.</p>
+       <table width="100%" style="margin:18px 0">
+         ${stat("Symbol", d.symbol || "—")}
+         ${stat("Signal", d.signalType || "—", BRAND.primary)}
+         ${stat("Reason", d.reason || "Outside market hours / weekend / holiday", BRAND.accent)}
+         ${stat("Next Session", d.nextSession || "Next trading day · 09:15 IST", BRAND.green)}
+         ${stat("Client ID", d.clientId || "—")}
+       </table>
+       <p style="font-size:13px;color:#64748b">The engine will resume automatically when markets re-open. No action required.</p>
+       ${btn(`${BRAND.url}/dashboard`, "Open Dashboard")}`,
+      `Market closed — signal queued`)
+  }),
+
+  position_closed_profit: (d) => ({
+    subject: `✅ Profit Booked: ${d.symbol} +₹${d.pnl}`,
+    html: shell(`✅ Profit Booked`,
+      `<div style="background:linear-gradient(135deg,#dcfce7,#bbf7d0);padding:18px;border-radius:12px;border-left:6px solid ${BRAND.green};margin-bottom:18px">
+         <div style="font-size:13px;color:#166534;font-weight:700;letter-spacing:1px">POSITION CLOSED IN PROFIT</div>
+         <div style="font-size:24px;font-weight:800;color:#0f172a;margin-top:4px">${d.symbol || ""}</div>
+       </div>
+       <table width="100%" style="margin:14px 0">
+         ${stat("Entry → Exit", `₹${d.entry || "—"} → ₹${d.exit || "—"}`)}
+         ${stat("Quantity", `${d.qty || 1}`)}
+         ${stat("Net P&L", `+₹${Number(d.pnl || 0).toLocaleString("en-IN")}`, BRAND.green)}
+         ${stat("Return", `${d.returnPct || "—"}%`, BRAND.green)}
+         ${stat("Exit Reason", d.reason || "Target hit", BRAND.accent)}
+         ${stat("Client ID", d.clientId || "—")}
+       </table>
+       ${btn(`${BRAND.url}/dashboard?tab=trades`, "View Trade Details", BRAND.green)}`,
+      `Profit ₹${d.pnl} booked on ${d.symbol}`)
+  }),
+
+  position_closed_loss: (d) => ({
+    subject: `⚠️ Position Closed (Loss): ${d.symbol} ₹${d.pnl}`,
+    html: shell(`Position Closed`,
+      `<div style="background:linear-gradient(135deg,#fee2e2,#fecaca);padding:18px;border-radius:12px;border-left:6px solid ${BRAND.red};margin-bottom:18px">
+         <div style="font-size:13px;color:#7f1d1d;font-weight:700;letter-spacing:1px">POSITION CLOSED — LOSS</div>
+         <div style="font-size:24px;font-weight:800;color:#0f172a;margin-top:4px">${d.symbol || ""}</div>
+       </div>
+       <table width="100%" style="margin:14px 0">
+         ${stat("Entry → Exit", `₹${d.entry || "—"} → ₹${d.exit || "—"}`)}
+         ${stat("Quantity", `${d.qty || 1}`)}
+         ${stat("Net P&L", `₹${Number(d.pnl || 0).toLocaleString("en-IN")}`, BRAND.red)}
+         ${stat("Return", `${d.returnPct || "—"}%`, BRAND.red)}
+         ${stat("Exit Reason", d.reason || "Stop-loss hit", BRAND.accent)}
+         ${stat("Client ID", d.clientId || "—")}
+       </table>
+       <p style="font-size:13px;color:#64748b;background:#fef3c7;padding:12px;border-radius:8px;border-left:4px solid #f59e0b">
+       💡 Risk management protected your capital. Review the trade and stay disciplined.</p>
+       ${btn(`${BRAND.url}/dashboard?tab=trades`, "Review Trade")}`,
+      `Loss closed on ${d.symbol}`)
+  }),
+
+  daily_premarket: (d) => ({
+    subject: `🔔 Pre-Market Brief — Markets open in 8 mins`,
+    html: shell(`Good Morning, ${d.name || "Trader"} ☀️`,
+      `<p>Markets open at <b>09:15 IST</b>. Your IndexPilot AI engine is ready.</p>
+       <table width="100%" style="margin:18px 0">
+         ${stat("Date", d.date || new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short", year: "numeric" }), BRAND.primary)}
+         ${stat("Engine Status", d.engineStatus || "Ready · Auto-trading enabled", BRAND.green)}
+         ${stat("Active Symbols", d.activeSymbols || "NIFTY · BANKNIFTY · SENSEX")}
+         ${stat("Wallet Balance", `₹${Number(d.balance || 0).toLocaleString("en-IN")}`, BRAND.accent)}
+         ${stat("Client ID", d.clientId || "—")}
+       </table>
+       <p>✅ Add your symbols, ✅ Start the engine, ✅ Let AI handle the rest.</p>
+       ${btn(`${BRAND.url}/dashboard`, "🚀 Start Engine")}
+       <p style="font-size:12px;color:#94a3b8;text-align:center;margin-top:18px">Sent only on trading days — never on weekends or NSE holidays.</p>`,
+      `Pre-market brief · Markets open at 09:15`)
+  }),
+
   test: (d) => ({
     subject: `✅ ${BRAND.name} — Email Integration Test Successful`,
     html: shell(
