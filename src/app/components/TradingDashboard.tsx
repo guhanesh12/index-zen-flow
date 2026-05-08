@@ -26,7 +26,7 @@ import { useResponsive } from "../hooks/useResponsive";
 import { NotificationBell } from "./NotificationBell";
 import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
-import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker } from "./dashboard/DashboardUI";
+import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 
 interface TradingDashboardProps {
