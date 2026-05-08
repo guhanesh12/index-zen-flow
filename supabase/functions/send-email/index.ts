@@ -518,7 +518,7 @@ Deno.serve(async (req) => {
 
   try {
     // GET /status — public health check
-    if (req.method === "GET" && url.pathname.endsWith("/status")) {
+    if (req.method === "GET") {
       const { data: settings } = await supabase.from("communication_settings").select("*").eq("id", 1).maybeSingle();
       return new Response(JSON.stringify({
         ok: true,
