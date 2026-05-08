@@ -65,16 +65,51 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
   const [resendTimer, setResendTimer] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
   const [formStarted, setFormStarted] = useState(false); // Track if user started filling form
-  
+  const [refLocked, setRefLocked] = useState(false);
+  const [refValid, setRefValid] = useState<null | { valid: boolean; referrerName?: string }>(null);
+
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Parse referral code from URL (?ref=ALG0001)
+  const initialRef = (() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return (p.get('ref') || p.get('referral') || '').toString().trim().toUpperCase();
+    } catch { return ''; }
+  })();
 
   const form = useForm<RegistrationFormData>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       country: 'India',
-      termsAccepted: false
+      termsAccepted: false,
+      referralCode: initialRef || ''
     }
   });
+
+  useEffect(() => {
+    if (initialRef) {
+      setRefLocked(true);
+      form.setValue('referralCode', initialRef);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const referralCodeValue = form.watch('referralCode');
+  useEffect(() => {
+    const code = (referralCodeValue || '').trim().toUpperCase();
+    if (!code) { setRefValid(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`${serverUrl}/referral/validate?code=${encodeURIComponent(code)}`, {
+          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+        });
+        const j = await res.json();
+        setRefValid({ valid: !!j.valid, referrerName: j.referrerName });
+      } catch { setRefValid(null); }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [referralCodeValue, serverUrl, publicAnonKey]);
 
   useEffect(() => {
     if (resendTimer > 0) {
