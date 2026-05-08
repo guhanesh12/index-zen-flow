@@ -1,75 +1,80 @@
 ## Goal
+Redesign the existing trading dashboard into a modern, institutional-grade fintech UI that's beginner-friendly and easy to scan in 3 seconds. Pure UI/UX work — no changes to backend, signal logic, position monitor, or strategy engines.
 
-Cut DigitalOcean costs by automatically powering VPS off outside Indian market hours, and give admins visibility + manual override (without taking control away from users).
+## Scope (UI only)
+- Keep all existing data sources, API calls, and business logic untouched
+- Rebuild layout, visual hierarchy, components, color tokens, spacing, animations
+- Wire new components to the same hooks/endpoints currently used
 
-## Schedule (IST, Asia/Kolkata)
+## Design System Updates
+- Update `src/index.css` + `tailwind.config.ts` with fintech tokens:
+  - Semantic colors: `--profit` (green), `--loss` (red), `--warning` (orange), `--info` (blue), `--ai` (purple), `--muted-status` (grey)
+  - Glass surface tokens: `--glass-bg`, `--glass-border`, backdrop blur utilities
+  - Gradients: `--gradient-profit`, `--gradient-loss`, `--gradient-ai`, `--gradient-hero`
+  - Glow shadows: `--glow-profit`, `--glow-loss`, `--glow-ai`
+  - Dark-mode tuned HSL values throughout
+- Add animation keyframes: `pulse-glow`, `count-up`, `shimmer`, `signal-pop`, `live-dot`
 
-- Power **OFF**: every trading day at **15:31 IST** (after market close)
-- Power **ON**: every trading day at **08:55 IST** (before market open)
-- **Weekends (Sat/Sun)**: stay OFF — no auto-on
-- **Monday morning 08:55 IST**: auto-on resumes
-- Special trading sessions (e.g. Diwali Muhurat): admin can manually power-on all VPS via a button
+## New Layout Architecture
 
-## What gets built
+```
+┌─────────────────────────────────────────────────────────┐
+│ TopBar: Logo │ Market OPEN/CLOSED │ Indices ticker │   │
+│              Global P&L │ Bell │ Quick Trade │ Profile  │
+├──────┬──────────────────────────────────────────────────┤
+│ Side │ MAIN                                             │
+│ Nav  │ ── Quick Status Cards (8 KPI tiles) ──           │
+│      │ ── Live Market Overview (index widgets) ──       │
+│ icons│ ── AI Signal Center (glowing signal cards) ──    │
+│ +    │ ── Live Positions Panel ──                       │
+│ label│ ── Strategy Performance (charts) ──              │
+│      │ ── Broker Connection │ Risk Center ──            │
+│      │ ── Trade Journal preview ──                      │
+└──────┴──────────────────────────────────────────────────┘
+```
 
-### 1. Backend — VPS power scheduler
+Mobile: collapsed sidebar → bottom tab bar (Dashboard / Signals / Positions / Journal / Menu) + floating quick-trade FAB.
 
-- New edge function endpoints in `make-server-c4d79cb7`:
-  - `POST /vps-power/auto-shutdown` — loops all assigned VPS, calls DigitalOcean `droplet/actions { type: "shutdown" }`
-  - `POST /vps-power/auto-startup` — calls `{ type: "power_on" }`
-  - `POST /vps-power/all-on` — admin-only manual "turn ON all VPS" (for Muhurat / special sessions)
-  - `POST /vps-power/all-off` — admin-only manual kill switch
-  - `POST /vps-power/toggle/:userId` — admin manual single VPS toggle
-  - `GET  /vps-power/status` — returns per-user `{ userId, email, ip, dropletId, powerStatus: on|off|provisioning, lastAction, lastActionAt }`
-- Schedule via Supabase `pg_cron` + `pg_net`:
-  - `31 10 * * 1-5` UTC (= 15:31 IST Mon–Fri) → auto-shutdown
-  - `25 03 * * 1-5` UTC (= 08:55 IST Mon–Fri) → auto-startup
-- Skip logic: if VPS is already in target state, no-op (saves API calls).
-- Persist a `vps_power_schedule_enabled` flag in KV (admin can toggle the whole automation on/off).
+## New Components (under `src/app/components/dashboard/`)
+1. `DashboardShell.tsx` — TopBar + Sidebar + content slot, responsive
+2. `TopBar.tsx` — market status pill, indices ticker, global P&L, notifications, quick trade
+3. `SideNav.tsx` — collapsible icon+label nav (uses shadcn sidebar)
+4. `MobileBottomNav.tsx`
+5. `KpiCard.tsx` — icon, animated counter, sparkline (recharts), delta %, status dot
+6. `KpiGrid.tsx` — renders the 8 status cards
+7. `MarketWidget.tsx` + `MarketOverview.tsx` — index card with mini chart, strength bar
+8. `SignalCard.tsx` — glowing border by direction, confidence ring, indicator chips (EMA/RSI/MACD/VWAP/Vol), entry/SL/target, big action button
+9. `SignalCenter.tsx` — grid of SignalCards with filter tabs
+10. `PositionsTable.tsx` — live MTM, ROI, trailing SL, exit button, expandable rows
+11. `StrategyPerformance.tsx` — equity curve, daily P&L bars, win/loss donut, heatmap
+12. `BrokerPanel.tsx` — broker cards with status, latency, auto-trade toggle
+13. `RiskCenter.tsx` — circular progress for daily loss, drawdown, exposure, margin
+14. `JournalPreview.tsx` — recent trades with tags
+15. `QuickTradeFab.tsx` — floating button + sheet
+16. `CommandPalette.tsx` — ⌘K global search
+17. `AiPulse.tsx` — small reusable AI confidence pulse/gauge
 
-### 2. Admin UI — new "VPS Control" tab in Settings
+Reuse existing logic by importing the current data hooks/calls from `TradingDashboard.tsx`, `AdvancedPositionMonitor.tsx`, `ProfitDashboard.tsx`, `StrategyManager.tsx`, `BrokerRequest.tsx`, `TradingJournal.tsx`. No backend edits.
 
-Location: `AdminSettings.tsx` → add new tab "VPS Power"
+## Integration
+- Replace the body of `src/app/components/TradingDashboard.tsx` to render `<DashboardShell>` with the new sections.
+- Existing route `/dashboard` keeps working (no router changes).
+- All existing screens (Settings, Symbols, Wallet, Support, etc.) become routes inside the new SideNav, mounting the **existing** components unchanged.
 
-- **Master toggle**: Auto-schedule ON/OFF
-- **Manual buttons**: "Power ON all VPS", "Power OFF all VPS", "Special Trading Day (keep ON today)"
-- **Live VPS status table** (polls every 10s):
-| User Email | Static IP | Droplet ID | Power Status | Engine Status | Last Action |
-  - Power Status badge: green=ON, gray=OFF, amber=provisioning
-  - Engine Status: read-only badge (Running/Stopped) — admin **cannot** start/stop user engines
-- Per-row "Power On" / "Power Off" admin override button (VPS only, not engine)
+## Visual / UX Details
+- Glassmorphism: `bg-card/60 backdrop-blur-xl border border-white/10`
+- Rounded-2xl cards, soft shadow, hover lift (`hover-scale`)
+- Live dot animation on "OPEN" market badge
+- Animated number counters on KPIs
+- Toast (sonner) for new signals
+- Loading skeletons + empty states for every section
+- Keyboard shortcuts: `⌘K` palette, `g d` dashboard, `g s` signals, `g p` positions
 
-### 3. User UI — status messages in Static IP section
+## Out of Scope
+- No strategy/AI/engine logic changes
+- No new endpoints or DB migrations
+- No TradingView paid widgets — use recharts for all charts
+- No changes to auth, admin, or landing pages
 
-In `UserDedicatedIPManager.tsx`:
-
-- Show banner under the IP card based on VPS power state:
-  - 🟢 "Server is ONLINE — ready for trading"
-  - 🌙 "Server is OFF — auto-restarts at 8:55 AM IST on the next trading day (cost saver)"
-  - ⚡ "Special trading session — server kept online by admin"
-- Surface IP + power status; engine controls remain user-owned.
-
-## Technical details
-
-- Use `DIGITALOCEAN_API_TOKEN` already in secrets.
-- DO API: `POST https://api.digitalocean.com/v2/droplets/{id}/actions` with `{type:"shutdown"|"power_on"}`.
-- Store last power state per user in KV: `vps:power:{userId} = { state, at, source: 'cron'|'admin'|'user' }`.
-- Cron job inserted via Supabase insert tool (not migration) since it contains the function URL + anon key.
-- Admin endpoints gated by existing admin JWT check pattern used in `index.ts`.
-- All times computed in IST; cron expressed in UTC.
-
-## Files to change
-
-- `supabase/functions/make-server-c4d79cb7/vps_power.tsx` (new)
-- `supabase/functions/make-server-c4d79cb7/index.ts` (wire routes)
-- `src/app/components/AdminSettings.tsx` (new VPS Power tab)
-- `src/app/components/AdminVPSPower.tsx` (new component)
-- `src/app/components/UserDedicatedIPManager.tsx` (status banner)
-- pg_cron schedule (via Supabase insert tool)
-
-## Out of scope
-
-- No changes to signal engine, AI accuracy, or order logic.
-- Admin cannot control user trading engines — status display only.
-
-ADMIN USER SECTION ALOCATED IP SHOW NEED AND SEVER STSUS NEED AND ENGINE STATUS NEED AND NOT ALOW FOR ADMIN USER ENGINE CONTROLL REMON USER SECTION ON OFF BUTTON I NEED REAL ENGINE STAATSU SHOW FOR ALL USER SPARATLY THEN AUTO ENGIN OFF FOR EVERY DAY 3.31 EVEING ENGIN OFF NEED 
+## Deliverable
+A redesigned `/dashboard` matching the institutional fintech brief, fully responsive, dark-mode first, wired to the existing data layer.

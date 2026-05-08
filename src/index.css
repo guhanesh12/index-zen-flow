@@ -23,79 +23,141 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --radius: 0.875rem;
+
+    /* Fintech semantic palette */
+    --profit: 152 76% 45%;
+    --profit-foreground: 0 0% 100%;
+    --loss: 0 84% 62%;
+    --loss-foreground: 0 0% 100%;
+    --warning: 35 95% 58%;
+    --warning-foreground: 240 10% 4%;
+    --info: 210 95% 60%;
+    --info-foreground: 0 0% 100%;
+    --ai: 268 88% 68%;
+    --ai-foreground: 0 0% 100%;
+
+    --glass-bg: 240 10% 8% / 0.55;
+    --glass-border: 240 6% 30% / 0.4;
+
+    --gradient-profit: linear-gradient(135deg, hsl(152 76% 45%), hsl(168 80% 50%));
+    --gradient-loss: linear-gradient(135deg, hsl(0 84% 62%), hsl(340 82% 58%));
+    --gradient-ai: linear-gradient(135deg, hsl(268 88% 68%), hsl(220 92% 64%));
+    --gradient-info: linear-gradient(135deg, hsl(210 95% 60%), hsl(190 90% 55%));
+    --gradient-hero: radial-gradient(at 20% 0%, hsl(220 80% 18% / 0.6) 0px, transparent 50%),
+                     radial-gradient(at 80% 0%, hsl(268 70% 18% / 0.5) 0px, transparent 50%),
+                     linear-gradient(180deg, hsl(240 12% 6%), hsl(240 14% 4%));
+
+    --glow-profit: 0 0 24px hsl(152 76% 45% / 0.45);
+    --glow-loss: 0 0 24px hsl(0 84% 62% / 0.45);
+    --glow-ai: 0 0 28px hsl(268 88% 68% / 0.45);
+    --glow-info: 0 0 24px hsl(210 95% 60% / 0.40);
+
+    --shadow-elev: 0 10px 40px -10px hsl(240 60% 4% / 0.6);
   }
 
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 240 14% 5%;
     --foreground: 240 5% 96%;
-    --card: 240 6% 10%;
+    --card: 240 10% 9%;
     --card-foreground: 240 5% 96%;
-    --popover: 240 6% 10%;
+    --popover: 240 10% 9%;
     --popover-foreground: 240 5% 96%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 6% 10%;
-    --secondary: 240 4% 16%;
+    --primary: 268 88% 68%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 14%;
     --secondary-foreground: 240 5% 96%;
-    --muted: 240 4% 16%;
+    --muted: 240 6% 14%;
     --muted-foreground: 240 5% 64%;
-    --accent: 240 4% 26%;
+    --accent: 240 6% 18%;
     --accent-foreground: 240 5% 96%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 240 4% 26%;
-    --input: 240 4% 26%;
-    --ring: 239 84% 67%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 18%;
+    --input: 240 6% 18%;
+    --ring: 268 88% 68%;
+    --sidebar-background: 240 12% 6%;
+    --sidebar-foreground: 240 5% 80%;
+    --sidebar-primary: 268 88% 68%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-accent: 240 6% 12%;
+    --sidebar-accent-foreground: 240 5% 96%;
+    --sidebar-border: 240 6% 14%;
+    --sidebar-ring: 268 88% 68%;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; font-feature-settings: "ss01", "cv11"; }
+  html { color-scheme: dark; }
+}
 
-  body {
-    @apply bg-background text-foreground;
+@layer components {
+  .glass {
+    background: hsl(var(--glass-bg));
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid hsl(var(--glass-border));
   }
+  .glass-card {
+    @apply glass rounded-2xl shadow-[var(--shadow-elev)];
+  }
+  .glow-profit { box-shadow: var(--glow-profit); }
+  .glow-loss { box-shadow: var(--glow-loss); }
+  .glow-ai { box-shadow: var(--glow-ai); }
+  .glow-info { box-shadow: var(--glow-info); }
+
+  .text-profit { color: hsl(var(--profit)); }
+  .text-loss { color: hsl(var(--loss)); }
+  .text-ai { color: hsl(var(--ai)); }
+  .text-info { color: hsl(var(--info)); }
+  .text-warning { color: hsl(var(--warning)); }
+
+  .bg-profit { background-color: hsl(var(--profit)); }
+  .bg-loss { background-color: hsl(var(--loss)); }
+  .bg-ai { background-color: hsl(var(--ai)); }
+
+  .gradient-profit { background-image: var(--gradient-profit); }
+  .gradient-loss { background-image: var(--gradient-loss); }
+  .gradient-ai { background-image: var(--gradient-ai); }
+  .gradient-info { background-image: var(--gradient-info); }
+  .gradient-hero { background-image: var(--gradient-hero); }
+
+  .live-dot {
+    @apply inline-block size-2 rounded-full;
+    background: hsl(var(--profit));
+    box-shadow: 0 0 0 0 hsl(var(--profit) / 0.7);
+    animation: live-pulse 1.6s cubic-bezier(0.4,0,0.6,1) infinite;
+  }
+  .hover-lift {
+    @apply transition-all duration-300;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 18px 40px -16px hsl(240 60% 2% / 0.7);
+  }
+}
+
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--profit) / 0.6); }
+  50% { box-shadow: 0 0 0 8px hsl(var(--profit) / 0); }
 }
 
 /* Hide scrollbar but keep functionality */
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Custom scrollbar for notification center */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
+.custom-scrollbar::-webkit-scrollbar { width: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: rgba(39,39,42,0.5); border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(63,63,70,0.8); border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(82,82,91,1); }
+
+/* Marquee for ticker */
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(39, 39, 42, 0.5);
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(63, 63, 70, 0.8);
-  border-radius: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(82, 82, 91, 1);
+.ticker-track {
+  animation: ticker-scroll 40s linear infinite;
 }
