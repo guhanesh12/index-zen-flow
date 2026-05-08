@@ -201,7 +201,12 @@ class PersistentTradingEngine {
    */
   static async startEngine(config: EngineConfig): Promise<{ success: boolean; message: string }> {
     const { userId, candleInterval, symbols, dhanClientId, dhanAccessToken } = config;
-    
+
+    // ⚡ Build list of unique selected timeframes (default to provided candleInterval)
+    const tfList = (config.candleIntervals && config.candleIntervals.length > 0)
+      ? Array.from(new Set(config.candleIntervals.map(String)))
+      : [String(candleInterval)];
+
     // Check if engine already running
     if (this.instances.has(userId)) {
       return {
@@ -223,8 +228,10 @@ class PersistentTradingEngine {
       isRunning: true,
       userId,
       candleInterval,
+      candleIntervals: tfList,
       symbols,
       lastProcessedCandle: '',
+      lastProcessedCandles: {},
       activePositions: [],
       stats: {
         totalSignals: 0,
@@ -245,8 +252,11 @@ class PersistentTradingEngine {
     const marketClose = 15 * 60 + 30;
 
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
-      engineState.lastProcessedCandle = this.getCurrentCandleTimestamp(istTime, parseInt(candleInterval));
-      console.log(`⏱️ Engine armed for ${userId} at candle ${engineState.lastProcessedCandle} - waiting for next ${candleInterval}M candle close`);
+      for (const tf of tfList) {
+        engineState.lastProcessedCandles[tf] = this.getCurrentCandleTimestamp(istTime, parseInt(tf));
+      }
+      engineState.lastProcessedCandle = engineState.lastProcessedCandles[String(candleInterval)] || '';
+      console.log(`⏱️ Engine armed for ${userId} on TFs [${tfList.join(',')}]M - waiting for next candle close`);
     }
     
     this.engineStates.set(userId, engineState);
