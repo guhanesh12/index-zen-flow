@@ -788,7 +788,13 @@ app.post("/make-server-c4d79cb7/auth/verify-otp", async (c) => {
         const { data: userData, error } = await supabase.auth.admin.createUser({
           email,
           password,
-          user_metadata: { name, phone },
+          user_metadata: {
+            name,
+            full_name: name,
+            phone,
+            mobile: phone,
+            referred_by: (referredBy || '').toString().trim().toUpperCase() || undefined,
+          },
           email_confirm: true, // Auto-confirm since phone is verified
         });
 
