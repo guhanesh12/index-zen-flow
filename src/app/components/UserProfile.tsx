@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { projectId } from '@/utils-ext/supabase/info';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
+import { supabase } from '@/utils-ext/supabase/client';
 
 interface Props {
   accessToken: string;
