@@ -852,11 +852,14 @@ class PersistentTradingEngine {
         try {
           console.log(`\n📊 [${tf}M] Analyzing index: ${indexName}`);
           
+          // ⚡ FIX: Correct AdvancedAI.analyzeMarket signature (indexSymbol, interval, balance, clientId, accessToken)
+          // ⚡ Always request the LAST 50 candles for the SELECTED timeframe (handled inside analyzeMarket → getOHLCData)
           const aiSignal = await AdvancedAI.analyzeMarket(
-            dhanService,
             indexName,
-            state.candleInterval,
-            100000
+            tf as '5' | '15',
+            100000,
+            dhanClientId,
+            dhanAccessToken
           );
           
           analyzedIndices.add(indexName);
