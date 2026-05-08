@@ -774,20 +774,18 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">View {viewMode} Trades</CardTitle>
               <div className="flex items-center gap-2">
-                {lastSyncTime && (
-                  <span className="text-xs text-zinc-500">
-                    Last sync: {lastSyncTime}
+                {syncing ? (
+                  <span className="text-xs text-blue-400 flex items-center gap-1">
+                    <Activity className="w-3 h-3 animate-pulse" />
+                    Auto-syncing P&L…
                   </span>
+                ) : lastSyncTime ? (
+                  <span className="text-xs text-zinc-500">
+                    Auto-synced: {lastSyncTime}
+                  </span>
+                ) : (
+                  <span className="text-xs text-zinc-500">Auto-sync enabled</span>
                 )}
-                <Button
-                  onClick={handleSyncRealTrades}
-                  disabled={syncing}
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <Activity className="w-4 h-4 mr-1" />
-                  {syncing ? 'Syncing...' : 'Sync Now'}
-                </Button>
               </div>
             </div>
           </CardHeader>
