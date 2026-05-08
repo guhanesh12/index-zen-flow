@@ -988,7 +988,7 @@ class PersistentTradingEngine {
             const normalizedSymbolName = getSymbolDisplayName(symbol);
             const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
             const normalizedSecurityId = String(symbol.securityId || symbol.symbolId || symbol.symbol_id || '');
-            const orderKey = `${userId}:${currentCandleTimestamp}:${normalizedSecurityId}:${action}`;
+            const orderKey = `${userId}:${tf}:${candleTs}:${normalizedSecurityId}:${action}`;
 
             if (!(await this.isEngineStillRunning(userId))) {
               console.log(`🛑 Engine stopped before placing order for ${normalizedSymbolName}`);
