@@ -815,12 +815,12 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                   {(() => {
                     const tabMeta: Record<string, { icon: any; label: string }> = {
                       dashboard: { icon: BarChart3, label: 'Dashboard' },
-                      profile: { icon: User, label: 'Profile' },
                       symbols: { icon: DollarSign, label: 'Symbols' },
                       settings: { icon: Settings, label: 'Broker Setup' },
                       journal: { icon: FileText, label: 'Journal' },
                       strategies: { icon: Zap, label: 'Strategies' },
                       support: { icon: MessageSquare, label: 'Support' },
+                      profile: { icon: User, label: 'Profile' },
                       logs: { icon: FileText, label: 'Logs' },
                     };
                     const current = tabMeta[activeTab] || tabMeta.dashboard;
@@ -851,12 +851,12 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                     <div className="p-2 space-y-1">
                       {[
                         { value: 'dashboard', icon: BarChart3, label: 'Dashboard' },
-                        { value: 'profile', icon: User, label: 'Profile' },
                         { value: 'symbols', icon: DollarSign, label: 'Symbols' },
                         { value: 'settings', icon: Settings, label: 'Broker Setup' },
                         { value: 'journal', icon: FileText, label: 'Journal' },
                         { value: 'strategies', icon: Zap, label: 'Strategies' },
                         { value: 'support', icon: MessageSquare, label: 'Support' },
+                        { value: 'profile', icon: User, label: 'Profile' },
                         { value: 'logs', icon: FileText, label: 'Logs' },
                       ].map(({ value, icon: Icon, label }) => {
                         const active = activeTab === value;
@@ -893,10 +893,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                   <BarChart3 className="w-4 h-4" />
                   <span className="hidden sm:inline">Dashboard</span>
                 </TabsTrigger>
-                <TabsTrigger value="profile" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <User className="w-4 h-4" />
-                  <span className="hidden sm:inline">Profile</span>
-                </TabsTrigger>
                 <TabsTrigger value="symbols" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
                   <DollarSign className="w-4 h-4" />
                   <span className="hidden sm:inline">Symbols</span>
@@ -921,6 +917,10 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                       {supportUnreadCount}
                     </span>
                   )}
+                </TabsTrigger>
+                <TabsTrigger value="profile" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <User className="w-4 h-4" />
+                  <span className="hidden sm:inline">Profile</span>
                 </TabsTrigger>
                 <TabsTrigger value="logs" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
                   <FileText className="w-4 h-4" />
