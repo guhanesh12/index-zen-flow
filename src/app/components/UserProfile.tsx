@@ -158,6 +158,7 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
 
   useEffect(() => {
     loadAll();
+    loadNotifPrefs();
   }, []);
 
   const saveProfile = async () => {
