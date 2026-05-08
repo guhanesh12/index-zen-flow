@@ -887,6 +887,81 @@ app.post("/make-server-c4d79cb7/auth/register-direct", async (c) => {
   }
 });
 
+// 📧 Send Email OTP (independent of mobile OTP)
+app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
+  try {
+    const { email, name } = await c.req.json();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return c.json({ error: 'Valid email is required' }, 400);
+    }
+
+    // Optional: block if email already registered
+    const { data: existingUsers } = await supabase.auth.admin.listUsers();
+    if (existingUsers?.users?.some((u: any) => u.email === email)) {
+      return c.json({ error: 'An account with this email already exists. Please sign in instead.' }, 400);
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
+    await kv.set(`email_otp:${email.toLowerCase()}`, { code, expiresAt, attempts: 0 });
+
+    // Send email via send-email function
+    const emailRes = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+      body: JSON.stringify({
+        template: 'otp',
+        to: email,
+        name: name || 'there',
+        data: { name: name || 'there', code, expiryMinutes: 10 },
+      }),
+    });
+
+    if (!emailRes.ok) {
+      const t = await emailRes.text();
+      console.error('Email OTP send failed', t);
+      return c.json({ error: 'Failed to send email OTP. Please try again.' }, 500);
+    }
+
+    return c.json({ success: true, message: 'OTP sent to your email' });
+  } catch (e: any) {
+    console.error('email-otp/send error', e);
+    return c.json({ error: e.message || 'Failed to send OTP' }, 500);
+  }
+});
+
+// 📧 Verify Email OTP
+app.post("/make-server-c4d79cb7/auth/email-otp/verify", async (c) => {
+  try {
+    const { email, otp } = await c.req.json();
+    if (!email || !otp) return c.json({ error: 'Email and OTP are required' }, 400);
+
+    const key = `email_otp:${email.toLowerCase()}`;
+    const session: any = await kv.get(key);
+    if (!session) return c.json({ error: 'OTP expired or not found. Please request a new one.' }, 400);
+    if (Date.now() > session.expiresAt) {
+      await kv.del(key);
+      return c.json({ error: 'OTP expired. Please request a new one.' }, 400);
+    }
+    if ((session.attempts || 0) >= 5) {
+      await kv.del(key);
+      return c.json({ error: 'Too many incorrect attempts. Request a new OTP.' }, 400);
+    }
+    if (String(otp) !== String(session.code)) {
+      await kv.set(key, { ...session, attempts: (session.attempts || 0) + 1 });
+      return c.json({ error: 'Invalid OTP. Please try again.' }, 400);
+    }
+
+    // Mark verified for 30 minutes so registration can complete
+    await kv.del(key);
+    await kv.set(`email_verified:${email.toLowerCase()}`, { verifiedAt: Date.now(), expiresAt: Date.now() + 30 * 60 * 1000 });
+    return c.json({ success: true, message: 'Email verified' });
+  } catch (e: any) {
+    console.error('email-otp/verify error', e);
+    return c.json({ error: e.message || 'Failed to verify OTP' }, 500);
+  }
+});
+
 // 🔥 NEW: Check if email already exists (for better UX during signup)
 app.post("/make-server-c4d79cb7/auth/check-email", async (c) => {
   try {
