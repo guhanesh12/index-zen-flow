@@ -97,6 +97,19 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   
   // Core states
   const [credentialsConfigured, setCredentialsConfigured] = useState(false);
+
+  // 🔴 REAL DATA — Dhan account fund limits & positions
+  const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken);
+  const { positions: dhanPositions } = usePositions(serverUrl, accessToken);
+  const realPositionsPnL = (dhanPositions || []).reduce(
+    (s: number, p: any) => s + Number(p.unrealizedProfit ?? p.pnl ?? p.unrealisedProfit ?? 0), 0
+  );
+  const realOpenTrades = (dhanPositions || []).filter(
+    (p: any) => Number(p.netQty ?? p.quantity ?? 0) !== 0
+  ).length;
+  const realAccountBalance = Number(dhanFunds?.availableBalance ?? 0);
+  const realMarginUsed = Number(dhanFunds?.utilizationAmount ?? 0);
+
   const [logs, setLogs] = useState<any[]>([]);
 
   const normalizeLogs = (rawLogs: any[]) => {
