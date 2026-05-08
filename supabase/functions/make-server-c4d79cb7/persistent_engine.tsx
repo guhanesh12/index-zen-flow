@@ -1573,6 +1573,21 @@ class PersistentTradingEngine {
                 exitReason,
               }
             });
+
+            // 📧 Profit / Loss email (best-effort)
+            try {
+              const entry = Number(position.entryPrice || position.entry_price || 0);
+              const exit = Number(position.currentPrice || position.exit_price || 0);
+              const qty = Number(position.quantity || 1);
+              const returnPct = entry > 0 ? ((exit - entry) / entry * 100).toFixed(2) : '—';
+              sendEmailAsync(pnl >= 0 ? 'position_closed_profit' : 'position_closed_loss', userId, {
+                symbol: position.symbolName,
+                entry, exit, qty,
+                pnl: Math.round(pnl * 100) / 100,
+                returnPct,
+                reason: exitReason,
+              });
+            } catch {}
           } else {
             console.log(`❌ EXIT ORDER FAILED: ${exitResult.error}`);
           }
