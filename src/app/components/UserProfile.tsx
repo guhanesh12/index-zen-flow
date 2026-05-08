@@ -215,7 +215,7 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
           <CardContent className="p-6">
             <div className="flex flex-col md:flex-row gap-6 items-start">
               {/* Avatar */}
-              <div className="relative">
+              <div className="relative group">
                 <div className="w-28 h-28 rounded-full bg-gradient-to-br from-cyan-500 to-purple-600 p-[3px]">
                   <div className="w-full h-full rounded-full bg-zinc-900 flex items-center justify-center overflow-hidden">
                     {profile?.photo_url ? (
@@ -225,8 +225,24 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
                     )}
                   </div>
                 </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  title="Upload photo"
+                  className="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-white flex items-center justify-center border-2 border-zinc-950 shadow-lg"
+                >
+                  <Camera className="w-4 h-4" />
+                </button>
                 {verified && (
-                  <BadgeCheck className="absolute -bottom-1 -right-1 w-7 h-7 text-cyan-400 bg-zinc-950 rounded-full p-0.5" />
+                  <BadgeCheck className="absolute -top-1 -right-1 w-6 h-6 text-cyan-400 bg-zinc-950 rounded-full p-0.5" />
                 )}
               </div>
 
