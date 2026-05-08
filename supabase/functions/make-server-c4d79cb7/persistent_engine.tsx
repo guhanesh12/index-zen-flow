@@ -141,8 +141,12 @@ interface EngineState {
   isRunning: boolean;
   userId: string;
   candleInterval: '5' | '15';
+  // ⚡ MULTI-TIMEFRAME: list of selected timeframes (in minutes as string, e.g. ['5','15'])
+  candleIntervals: string[];
   symbols: any[];
   lastProcessedCandle: string;
+  // ⚡ Per-timeframe last processed candle timestamp
+  lastProcessedCandles: Record<string, string>;
   activePositions: any[];
   stats: {
     totalSignals: number;
@@ -158,6 +162,7 @@ interface EngineState {
 interface EngineConfig {
   userId: string;
   candleInterval: '5' | '15';
+  candleIntervals?: string[];
   symbols: any[];
   dhanClientId: string;
   dhanAccessToken: string;
