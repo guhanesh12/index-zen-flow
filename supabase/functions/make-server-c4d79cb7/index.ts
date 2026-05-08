@@ -837,6 +837,56 @@ app.post("/make-server-c4d79cb7/auth/verify-otp", async (c) => {
   }
 });
 
+// 🔥 NEW: Direct register (no OTP) — creates account immediately
+app.post("/make-server-c4d79cb7/auth/register-direct", async (c) => {
+  try {
+    const { email, password, name, phone, referredBy } = await c.req.json();
+
+    if (!email || !password || !name) {
+      return c.json({ error: 'Email, password and name are required' }, 400);
+    }
+
+    // Check duplicates
+    const { data: existingUsers } = await supabase.auth.admin.listUsers();
+    const userExists = existingUsers?.users?.some((u: any) => u.email === email);
+    if (userExists) {
+      return c.json({ error: 'An account with this email already exists. Please sign in instead or use a different email.' }, 400);
+    }
+
+    const { data: userData, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      user_metadata: {
+        name,
+        full_name: name,
+        phone: phone || undefined,
+        mobile: phone || undefined,
+        referred_by: (referredBy || '').toString().trim().toUpperCase() || undefined,
+      },
+      email_confirm: true,
+    });
+
+    if (error) {
+      console.error('❌ register-direct createUser error:', error);
+      if (error.message?.includes('email') || error.message?.includes('already')) {
+        return c.json({ error: 'An account with this email already exists.' }, 400);
+      }
+      return c.json({ error: error.message }, 400);
+    }
+
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      console.error('❌ register-direct signIn error:', signInError);
+      return c.json({ error: signInError.message }, 400);
+    }
+
+    return c.json({ success: true, user: userData.user, session: signInData.session });
+  } catch (error: any) {
+    console.error('❌ register-direct error:', error);
+    return c.json({ error: error.message || 'Registration failed' }, 500);
+  }
+});
+
 // 🔥 NEW: Check if email already exists (for better UX during signup)
 app.post("/make-server-c4d79cb7/auth/check-email", async (c) => {
   try {
