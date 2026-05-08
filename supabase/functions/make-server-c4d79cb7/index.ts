@@ -846,6 +846,18 @@ app.post("/make-server-c4d79cb7/auth/register-direct", async (c) => {
       return c.json({ error: 'Email, password and name are required' }, 400);
     }
 
+    // ✅ Require email + mobile OTP verified
+    const emailVer: any = await kv.get(`email_verified:${email.toLowerCase()}`);
+    if (!emailVer || Date.now() > emailVer.expiresAt) {
+      return c.json({ error: 'Email is not verified. Please verify your email OTP first.' }, 400);
+    }
+    if (phone) {
+      const mobVer: any = await kv.get(`mobile_verified:${phone}`);
+      if (!mobVer || Date.now() > mobVer.expiresAt) {
+        return c.json({ error: 'Mobile number is not verified. Please verify your mobile OTP first.' }, 400);
+      }
+    }
+
     // Check duplicates
     const { data: existingUsers } = await supabase.auth.admin.listUsers();
     const userExists = existingUsers?.users?.some((u: any) => u.email === email);
