@@ -10568,8 +10568,8 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
 
     // OTP must be used within 10 minutes
     if (Date.now() - session.timestamp > 10 * 60 * 1000) {
-      await kv.delete(`reset_otp:${phoneKey}`);
-      await kv.delete(`reset_otp:${phone}`);
+      await kv.del(`reset_otp:${phoneKey}`);
+      await kv.del(`reset_otp:${phone}`);
       return c.json({ error: 'OTP expired. Please request a new OTP.' }, 400);
     }
 
@@ -10589,7 +10589,7 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
     if (updateErr) return c.json({ error: 'Failed to update password. Please try again.' }, 500);
 
     // Invalidate OTP session
-    await kv.delete(`reset_otp:${phone}`);
+    await kv.del(`reset_otp:${phone}`);
     console.log(`✅ Password reset successful for user ${session.userId}`);
     return c.json({ success: true, message: 'Password updated successfully. You can now log in.' });
   } catch (err: any) {
