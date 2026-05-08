@@ -1146,9 +1146,10 @@ class PersistentTradingEngine {
           }
           
         } catch (error) {
-          console.error(`❌ Error analyzing ${indexName}:`, error);
+          console.error(`❌ Error analyzing ${indexName} [${tf}M]:`, error);
         }
-      }
+      } // end indices loop
+      } // end timeframes loop
 
       if (Object.keys(latestSignalsSnapshot).length > 0) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
