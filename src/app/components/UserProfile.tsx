@@ -77,6 +77,41 @@ export default function UserProfile({ accessToken, walletBalance = 0, totalProfi
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({ full_name: '', mobile: '', photo_url: '' });
   const [shareMsg, setShareMsg] = useState('');
+  const [notifPrefs, setNotifPrefs] = useState<{ email_enabled: boolean }>({ email_enabled: false });
+  const [savingPrefs, setSavingPrefs] = useState(false);
+
+  const loadNotifPrefs = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('notification_preferences')
+        .select('email_enabled')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      setNotifPrefs({ email_enabled: !!data?.email_enabled });
+    } catch (e) { console.warn(e); }
+  };
+
+  const toggleEmailNotif = async (on: boolean) => {
+    setSavingPrefs(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not signed in');
+      const { error } = await supabase
+        .from('notification_preferences')
+        .upsert({ user_id: user.id, email_enabled: on, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (error) throw error;
+      setNotifPrefs({ email_enabled: on });
+      toast.success(on
+        ? 'Email alerts ON. ₹5/day will be auto-debited from your wallet after market close.'
+        : 'Email alerts OFF. No daily debit will occur.');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update');
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
 
   const referralLink = referralCode
     ? `${window.location.origin}/register?ref=${referralCode}`
