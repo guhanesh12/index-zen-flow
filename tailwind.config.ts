@@ -14,6 +14,11 @@ export default {
     },
     extend: {
       colors: {
+        profit: { DEFAULT: "hsl(var(--profit))", foreground: "hsl(var(--profit-foreground))" },
+        loss: { DEFAULT: "hsl(var(--loss))", foreground: "hsl(var(--loss-foreground))" },
+        warning: { DEFAULT: "hsl(var(--warning))", foreground: "hsl(var(--warning-foreground))" },
+        info: { DEFAULT: "hsl(var(--info))", foreground: "hsl(var(--info-foreground))" },
+        ai: { DEFAULT: "hsl(var(--ai))", foreground: "hsl(var(--ai-foreground))" },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
