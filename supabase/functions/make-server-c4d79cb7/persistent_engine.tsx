@@ -1612,7 +1612,9 @@ class PersistentTradingEngine {
           selected_symbols: state.symbols,
           strategy_settings: {
             candleInterval: state.candleInterval,
+            candleIntervals: state.candleIntervals || [String(state.candleInterval)],
             lastProcessedCandle: state.lastProcessedCandle,
+            lastProcessedCandles: state.lastProcessedCandles || {},
             totalSignals: state.stats.totalSignals,
             totalOrders: state.stats.totalOrders,
             totalPnL: state.stats.totalPnL
