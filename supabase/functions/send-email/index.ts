@@ -461,6 +461,18 @@ const TEMPLATES: Record<string, (d: TplData) => { subject: string; html: string 
       `Engine started · Auto-trading is live`)
   }),
 
+  notification: (d) => ({
+    subject: d.subject || `🔔 ${BRAND.name} Notification`,
+    html: shell(
+      d.heading || "Notification",
+      `<p>Hi <b>${d.name || "Trader"}</b>,</p>
+       <div style="background:#f8fafc;border-left:4px solid ${BRAND.primary};padding:14px 18px;border-radius:8px;color:#0f172a;font-size:14px;line-height:1.6;white-space:pre-line;margin:16px 0">
+         ${(d.message || "").toString()}
+       </div>
+       ${btn(`${BRAND.url}/dashboard`, "Open Dashboard", BRAND.primary)}`,
+      d.subject || "Notification from " + BRAND.name)
+  }),
+
   test: (d) => ({
     subject: `✅ ${BRAND.name} — Email Integration Test Successful`,
     html: shell(
