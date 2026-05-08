@@ -541,7 +541,7 @@ Deno.serve(async (req) => {
     const { data: settings } = await supabase.from("communication_settings").select("*").eq("id", 1).maybeSingle();
     const s = settings || { email_enabled: true, sms_enabled: false, whatsapp_enabled: false, from_email: "noreply@indexpilotai.com", from_name: BRAND.name };
 
-    // Channel gating
+    // Channel gating (admin-level)
     if (channel === "email" && !s.email_enabled) {
       await supabase.from("email_logs").insert({ user_id: userId || null, recipient: to, template: template || "custom", channel, status: "skipped", error: "Email disabled by admin" });
       return new Response(JSON.stringify({ ok: false, skipped: true, reason: "email_disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -552,6 +552,32 @@ Deno.serve(async (req) => {
     if (channel === "whatsapp" && !s.whatsapp_enabled) {
       return new Response(JSON.stringify({ ok: false, skipped: true, reason: "whatsapp_disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    // 🔒 ALWAYS-ON templates (cannot be disabled by user) — security, onboarding & daily market briefings
+    const ALWAYS_ON = new Set([
+      "otp", "password_reset", "password_changed",
+      "welcome", "daily_premarket", "engine_started",
+      "test",
+    ]);
+
+    // 🔕 User-level opt-out (profile → notifications) for signals / P&L / notification mails
+    if (channel === "email" && userId && template && !ALWAYS_ON.has(template)) {
+      try {
+        const { data: userPrefs } = await supabase
+          .from("notification_preferences")
+          .select("email_enabled, trade_alerts")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (userPrefs && userPrefs.email_enabled === false) {
+          await supabase.from("email_logs").insert({
+            user_id: userId, recipient: to, template, channel,
+            status: "skipped", error: "User disabled notification emails",
+          });
+          return new Response(JSON.stringify({ ok: false, skipped: true, reason: "user_email_off" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      } catch (e) { console.warn("[send-email] user prefs lookup failed", e); }
+    }
+
 
     // Resolve template
     let subject = customSubject || "";
