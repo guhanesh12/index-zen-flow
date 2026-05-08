@@ -4352,24 +4352,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* ⚠️ CRITICAL WARNING - Do NOT close browser/tab/logout */}
-          {isRunning && (
-            <div className="bg-red-500/10 border-2 border-red-500/50 rounded-lg p-4 mb-4 animate-pulse">
-              <div className="flex items-start gap-3">
-                <div className="text-red-400 text-2xl">⚠️</div>
-                <div className="flex-1">
-                  <h3 className="text-red-400 font-bold text-base mb-1">ENGINE RUNNING - DO NOT INTERRUPT!</h3>
-                  <p className="text-red-300 text-sm">
-                    ❌ <strong>DO NOT</strong> close this browser tab<br />
-                    ❌ <strong>DO NOT</strong> navigate away from this page<br />
-                    ❌ <strong>DO NOT</strong> logout from your account<br />
-                    <span className="text-red-200 font-semibold">⚡ This will cause signal loss and stop all automated trading!</span>
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Config Row */}
           <div className="grid grid-cols-4 gap-4">
             <div>
