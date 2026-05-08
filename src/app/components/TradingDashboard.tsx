@@ -1181,6 +1181,16 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             </div>
           </TabsContent>
 
+          <TabsContent value="profile">
+            <div className="animate-in fade-in-50 duration-500">
+              <UserProfile
+                accessToken={accessToken}
+                walletBalance={typeof walletBalance === 'number' ? walletBalance : 0}
+                totalProfit={0}
+              />
+            </div>
+          </TabsContent>
+
           <TabsContent value="logs">
             <div className="animate-in fade-in-50 duration-500">
               <Card className="bg-zinc-900 border-zinc-800 shadow-2xl">
