@@ -645,77 +645,59 @@ app.get("/make-server-c4d79cb7/auth/test-2factor", async (c) => {
 // 🔥 NEW: Send OTP for signup using 2factor.in
 app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
   try {
-    const { phone } = await c.req.json();
+    const { phone, email, name } = await c.req.json();
 
     if (!phone || !/^[0-9]{10}$/.test(phone)) {
       return c.json({ error: 'Invalid phone number. Must be 10 digits.' }, 400);
     }
 
-    console.log(`📱 Sending OTP to phone: ${phone}`);
-
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
-    
-    // Enhanced logging
-    console.log('🔑 API Key status:', {
-      exists: !!apiKey,
-      length: apiKey ? apiKey.length : 0,
-      firstChars: apiKey ? apiKey.substring(0, 8) + '...' : 'N/A',
-    });
-    
     if (!apiKey) {
-      console.error('❌ TWOFACTOR_API_KEY not found in environment');
       return c.json({ error: 'OTP service not configured. Please contact support.' }, 500);
     }
 
-    // Construct the API URL
-    const apiUrl = `https://2factor.in/API/V1/${apiKey}/SMS/${phone}/AUTOGEN`;
-    console.log('🌐 Calling 2factor.in API...');
+    // Generate our own 6-digit OTP so we can send the same code via SMS + email
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    console.log(`📱 Sending OTP ${otpCode.slice(0,2)}**** to phone: ${phone}${email ? ' & email: ' + email : ''}`);
 
-    // Call 2factor.in API to send OTP
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-    });
-
-    // Check HTTP status
-    console.log('📡 Response status:', response.status);
+    // 2factor.in: send custom OTP via SMS  →  /API/V1/<key>/SMS/<phone>/<otp>
+    const apiUrl = `https://2factor.in/API/V1/${apiKey}/SMS/${phone}/${otpCode}`;
+    const response = await fetch(apiUrl, { method: 'GET' });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ HTTP error:', response.status, errorText);
-      return c.json({ 
-        error: `API Error: ${response.status}. ${errorText || 'Failed to send OTP'}` 
-      }, 400);
+      console.error('❌ 2factor HTTP error:', response.status, errorText);
+      return c.json({ error: `API Error: ${response.status}. ${errorText || 'Failed to send OTP'}` }, 400);
     }
-
     const data = await response.json();
-    console.log('📱 2factor.in full response:', JSON.stringify(data, null, 2));
 
-    if (data.Status === 'Success') {
-      // Store session ID temporarily in KV for verification
-      const sessionId = data.Details;
-      await kv.set(`otp_session:${phone}`, {
-        sessionId,
-        timestamp: Date.now(),
-      });
-
-      console.log(`✅ OTP sent successfully. Session ID: ${sessionId}`);
-      return c.json({
-        success: true,
-        message: 'OTP sent successfully',
-        sessionId, // Return for frontend reference
-      });
-    } else {
+    if (data.Status !== 'Success') {
       console.error('❌ 2factor.in error:', data);
-      return c.json({ 
-        error: data.Details || data.Message || 'Failed to send OTP. Please try again.' 
-      }, 400);
+      return c.json({ error: data.Details || data.Message || 'Failed to send OTP. Please try again.' }, 400);
     }
+
+    const sessionId = data.Details;
+    await kv.set(`otp_session:${phone}`, { sessionId, otp: otpCode, timestamp: Date.now() });
+
+    // 📧 Also email OTP if address supplied (best-effort)
+    if (email) {
+      fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        body: JSON.stringify({
+          template: 'otp',
+          to: email,
+          name: name || 'there',
+          data: { name: name || 'there', code: otpCode, expiryMinutes: 10 },
+        }),
+      }).catch((e) => console.warn('OTP email failed', e?.message));
+    }
+
+    console.log(`✅ OTP sent successfully. Session ID: ${sessionId}`);
+    return c.json({ success: true, message: 'OTP sent successfully', sessionId });
   } catch (error: any) {
     console.error('❌ Error sending OTP:', error);
-    console.error('❌ Error stack:', error.stack);
-    return c.json({ 
-      error: `Server error: ${error.message || 'Failed to send OTP'}` 
-    }, 500);
+    return c.json({ error: `Server error: ${error.message || 'Failed to send OTP'}` }, 500);
   }
 });
 
