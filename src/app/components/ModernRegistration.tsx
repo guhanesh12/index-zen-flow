@@ -558,24 +558,88 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
                   )}
                 </div>
 
-                {/* Email */}
+                {/* Email + Inline Verification */}
                 <div className="space-y-2">
                   <Label htmlFor="email" className="text-slate-300 flex items-center gap-2 text-sm">
                     <Mail className="h-4 w-4" />
                     Email Address
+                    {emailVerified && (
+                      <span className="text-emerald-400 text-xs flex items-center gap-1 ml-1">
+                        <CheckCircle2 className="h-3 w-3" /> Verified
+                      </span>
+                    )}
                   </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    {...form.register('email')}
-                    placeholder="your.email@example.com"
-                    className="bg-slate-900/80 border-slate-700 text-white placeholder:text-slate-600 h-11 focus:border-cyan-500 transition-colors"
-                    onChange={handleFormInteraction}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="email"
+                      type="email"
+                      {...form.register('email')}
+                      placeholder="your.email@example.com"
+                      readOnly={emailVerified}
+                      className={`bg-slate-900/80 border-slate-700 text-white placeholder:text-slate-600 h-11 focus:border-cyan-500 transition-colors flex-1 ${emailVerified ? 'opacity-90 cursor-not-allowed' : ''}`}
+                      onChange={(e) => {
+                        handleFormInteraction();
+                        // If user changes email after sending OTP, reset verification
+                        if (emailOtpSent || emailVerified) {
+                          setEmailOtpSent(false);
+                          setEmailVerified(false);
+                          setEmailOtp('');
+                          setEmailMsg('');
+                          setEmailErr('');
+                        }
+                      }}
+                    />
+                    {!emailVerified && (
+                      <Button
+                        type="button"
+                        onClick={handleSendEmailOtp}
+                        disabled={emailSending}
+                        className="h-11 bg-cyan-600 hover:bg-cyan-700 text-white text-sm px-4 whitespace-nowrap"
+                      >
+                        {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : (emailOtpSent ? 'Resend' : 'Verify')}
+                      </Button>
+                    )}
+                  </div>
                   {form.formState.errors.email && (
                     <p className="text-red-400 text-xs flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" />
                       {form.formState.errors.email.message}
+                    </p>
+                  )}
+
+                  {/* Inline OTP box */}
+                  {emailOtpSent && !emailVerified && (
+                    <div className="mt-3 p-3 bg-slate-900/60 border border-slate-700 rounded-lg space-y-2">
+                      <p className="text-xs text-slate-400">Enter the 6-digit code sent to your email</p>
+                      <div className="flex gap-2">
+                        <Input
+                          value={emailOtp}
+                          onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder="------"
+                          className="bg-slate-900/80 border-slate-700 text-white text-center tracking-[0.5em] font-mono h-11 flex-1"
+                        />
+                        <Button
+                          type="button"
+                          onClick={handleVerifyEmailOtp}
+                          disabled={emailVerifying || emailOtp.length !== 6}
+                          className="h-11 bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4"
+                        >
+                          {emailVerifying ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verify OTP'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {emailMsg && (
+                    <p className="text-emerald-400 text-xs flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> {emailMsg}
+                    </p>
+                  )}
+                  {emailErr && (
+                    <p className="text-red-400 text-xs flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" /> {emailErr}
                     </p>
                   )}
                 </div>
