@@ -10734,36 +10734,61 @@ app.post("/make-server-c4d79cb7/internal/backfill-debit", async (c) => {
 
 
 
+const normalizeTenDigitPhone = (value: string) => (value || '').replace(/\D/g, '').slice(-10);
+
+async function findPasswordResetUser(emailInput: string, phoneInput: string) {
+  const email = (emailInput || '').trim().toLowerCase();
+  const phone = normalizeTenDigitPhone(phoneInput);
+
+  if (!email || !phone) return { error: 'Email and mobile number are required', status: 400 };
+  if (!/^[0-9]{10}$/.test(phone)) return { error: 'Mobile number must be 10 digits', status: 400 };
+
+  const { data: userList, error: listErr } = await supabase.auth.admin.listUsers();
+  if (listErr) return { error: 'Service unavailable. Please try later.', status: 500 };
+
+  const user = (userList?.users || []).find((u: any) => u.email?.toLowerCase() === email);
+  if (!user) return { error: 'Email and mobile do not match our records', status: 400 };
+
+  const metaPhone = normalizeTenDigitPhone(user.user_metadata?.phone || user.user_metadata?.mobile || user.phone || '');
+  let profilePhone = '';
+  try {
+    const { data: prof } = await supabase.from('profiles').select('mobile').eq('user_id', user.id).maybeSingle();
+    profilePhone = normalizeTenDigitPhone(prof?.mobile || '');
+  } catch (_) {}
+
+  if (phone !== metaPhone && phone !== profilePhone) {
+    return { error: 'Email and mobile do not match our records', status: 400 };
+  }
+
+  if (!profilePhone && phone) {
+    try { await supabase.from('profiles').update({ mobile: phone }).eq('user_id', user.id); } catch (_) {}
+  }
+
+  return { user, phone, email };
+}
+
+// Verify email+phone match only (safe alias for RN apps that call this before sending OTP)
+app.post("/make-server-c4d79cb7/auth/forgot-password/verify", async (c) => {
+  try {
+    const body = await c.req.json();
+    const result: any = await findPasswordResetUser(body.email, body.phone || body.mobile);
+    if (result.error) return c.json({ success: false, error: result.error }, result.status || 400);
+
+    return c.json({ success: true, userId: result.user.id, message: 'Email and mobile verified' });
+  } catch (err: any) {
+    console.error('❌ forgot-password/verify error:', err);
+    return c.json({ success: false, error: err.message || 'Server error' }, 500);
+  }
+});
+
 // Step 1: Verify email+phone match in Supabase, then send OTP
 app.post("/make-server-c4d79cb7/auth/forgot-password", async (c) => {
   try {
-    const { email, phone } = await c.req.json();
-    if (!email || !phone) return c.json({ error: 'Email and phone are required' }, 400);
-    if (!/^[0-9]{10}$/.test(phone)) return c.json({ error: 'Phone must be 10 digits' }, 400);
+    const body = await c.req.json();
+    const result: any = await findPasswordResetUser(body.email, body.phone || body.mobile);
+    if (result.error) return c.json({ success: false, error: result.error }, result.status || 400);
 
-    // Look up the user by email in Supabase
-    const { data: userList, error: listErr } = await supabase.auth.admin.listUsers();
-    if (listErr) return c.json({ error: 'Service unavailable. Please try later.' }, 500);
-
-    const user = (userList?.users || []).find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
-    if (!user) return c.json({ error: 'No account found with this email address.' }, 404);
-
-    // Check if phone matches stored phone in user metadata OR in the profiles table
-    const normalise = (p: string) => (p || '').replace(/\D/g, '').slice(-10);
-    const metaPhone = normalise(user.user_metadata?.phone || user.user_metadata?.mobile || user.phone || '');
-    let profilePhone = '';
-    try {
-      const { data: prof } = await supabase.from('profiles').select('mobile').eq('user_id', user.id).maybeSingle();
-      profilePhone = normalise(prof?.mobile || '');
-    } catch (_) {}
-    const inputPhone = normalise(phone);
-    if (inputPhone !== metaPhone && inputPhone !== profilePhone) {
-      return c.json({ error: 'The mobile number does not match our records for this email.' }, 400);
-    }
-    // Backfill profile mobile if missing
-    if (!profilePhone && inputPhone) {
-      try { await supabase.from('profiles').update({ mobile: inputPhone }).eq('user_id', user.id); } catch (_) {}
-    }
+    const { user, phone } = result;
 
     // Send OTP via 2factor.in
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
@@ -10775,8 +10800,7 @@ app.post("/make-server-c4d79cb7/auth/forgot-password", async (c) => {
     if (otpData.Status !== 'Success') return c.json({ error: otpData.Details || 'Failed to send OTP' }, 400);
 
     // Store session in KV (tagged as password-reset)
-    const phoneKey = (phone || '').replace(/\D/g, '').slice(-10);
-    await kv.set(`reset_otp:${phoneKey}`, {
+    await kv.set(`reset_otp:${phone}`, {
       sessionId: otpData.Details,
       userId: user.id,
       email: user.email,
@@ -10794,7 +10818,10 @@ app.post("/make-server-c4d79cb7/auth/forgot-password", async (c) => {
 // Step 2: Verify OTP + update password
 app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
   try {
-    const { phone, otp, newPassword } = await c.req.json();
+    const body = await c.req.json();
+    const phone = body.phone || body.mobile;
+    const otp = body.otp;
+    const newPassword = body.newPassword || body.new_password || body.password;
     if (!phone || !otp || !newPassword) return c.json({ error: 'Phone, OTP, and new password are required' }, 400);
     if (newPassword.length < 6) return c.json({ error: 'Password must be at least 6 characters' }, 400);
 
@@ -10802,8 +10829,7 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
     if (!apiKey) return c.json({ error: 'OTP service not configured' }, 500);
 
     // Normalize phone (10-digit) so storage/verify keys match regardless of country code
-    const normalisePhone = (p: string) => (p || '').replace(/\D/g, '').slice(-10);
-    const phoneKey = normalisePhone(phone);
+    const phoneKey = normalizeTenDigitPhone(phone);
 
     // Try multiple key variations to be backwards-compatible
     let session: any = await kv.get(`reset_otp:${phoneKey}`);
@@ -10838,6 +10864,7 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
     if (updateErr) return c.json({ error: 'Failed to update password. Please try again.' }, 500);
 
     // Invalidate OTP session
+    await kv.del(`reset_otp:${phoneKey}`);
     await kv.del(`reset_otp:${phone}`);
     console.log(`✅ Password reset successful for user ${session.userId}`);
     return c.json({ success: true, message: 'Password updated successfully. You can now log in.' });
