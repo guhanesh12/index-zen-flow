@@ -5,7 +5,7 @@
  */
 
 import { publicAnonKey } from '@/utils-ext/supabase/info';
-import { getServerUrl } from '@/utils-ext/config/apiConfig';
+import { fetchWithApiFallback, getServerUrl } from '@/utils-ext/config/apiConfig';
 
 // Custom API URL (stored in localStorage, set via Admin Settings)
 const CUSTOM_API_URL_KEY = 'indexpilotai_custom_backend_url';
@@ -70,12 +70,10 @@ export async function apiRequest<T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const baseUrl = getBaseUrl();
-  
   // Clean endpoint (remove leading slash if present)
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  
-  const url = `${baseUrl}${cleanEndpoint}`;
+  const customUrl = getCustomBackendUrl();
+  const url = customUrl ? `${customUrl}${cleanEndpoint}` : `${getBaseUrl()}${cleanEndpoint}`;
 
   const defaultHeaders = getAuthHeaders();
   
@@ -90,7 +88,7 @@ export async function apiRequest<T = any>(
   console.log(`🔗 API Request: ${options.method || 'GET'} ${url}`);
 
   try {
-    const response = await fetch(url, config);
+    const response = customUrl ? await fetch(url, config) : await fetchWithApiFallback(cleanEndpoint, config);
     
     if (!response.ok) {
       let errorMessage = `API Error: ${response.status}`;
