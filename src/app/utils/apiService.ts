@@ -148,9 +148,9 @@ export const api = {
     }),
 
   upload: <T = any>(endpoint: string, formData: FormData, token?: string) => {
-    const baseUrl = getBaseUrl();
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = `${baseUrl}${cleanEndpoint}`;
+    const customUrl = getCustomBackendUrl();
+    const url = customUrl ? `${customUrl}${cleanEndpoint}` : `${getBaseUrl()}${cleanEndpoint}`;
     
     const headers: Record<string, string> = {};
     if (token) {
@@ -159,11 +159,15 @@ export const api = {
       headers['Authorization'] = `Bearer ${publicAnonKey}`;
     }
 
-    return fetch(url, {
+    const requestInit = {
       method: 'POST',
       headers,
       body: formData,
-    }).then(async (response) => {
+    };
+
+    const request = customUrl ? fetch(url, requestInit) : fetchWithApiFallback(cleanEndpoint, requestInit);
+
+    return request.then(async (response) => {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || errorData.message || `Upload failed: ${response.status}`);
