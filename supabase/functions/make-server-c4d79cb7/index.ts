@@ -11326,9 +11326,15 @@ app.get("/make-server-c4d79cb7/admin/referrals/leaderboard", async (c) => {
 });
 
 const FUNCTION_ROUTE_PREFIX = "/make-server-c4d79cb7";
+const SUPABASE_FUNCTIONS_PREFIX = `/functions/v1${FUNCTION_ROUTE_PREFIX}`;
 
 function normalizeFunctionRequest(request: Request): Request {
   const url = new URL(request.url);
+  if (url.pathname.startsWith(SUPABASE_FUNCTIONS_PREFIX)) {
+    url.pathname = url.pathname.replace(SUPABASE_FUNCTIONS_PREFIX, FUNCTION_ROUTE_PREFIX) || FUNCTION_ROUTE_PREFIX;
+    return new Request(url.toString(), request);
+  }
+
   if (!url.pathname.startsWith(FUNCTION_ROUTE_PREFIX)) {
     url.pathname = `${FUNCTION_ROUTE_PREFIX}${url.pathname === "/" ? "" : url.pathname}`;
     return new Request(url.toString(), request);
