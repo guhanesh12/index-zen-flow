@@ -3,7 +3,7 @@
 import { getToken, onMessage, Messaging } from "firebase/messaging";
 import { messaging } from "./config";
 import { supabase } from "@/utils-ext/supabase/client";
-import { getServerUrl } from "@/utils-ext/config/apiConfig";
+import { fetchWithApiFallback, getServerUrl } from "@/utils-ext/config/apiConfig";
 
 export type NotificationType = 
   | 'SIGNAL_DETECTED'
@@ -346,7 +346,7 @@ class NotificationService {
       console.log('🔑 Using access token:', `${accessToken.substring(0, 20)}...`);
 
       // Fetch notifications from backend
-      const response = await fetch(`${serverUrl}/user/notifications`, {
+      const response = await fetchWithApiFallback('/user/notifications', {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
@@ -436,8 +436,7 @@ class NotificationService {
 
         const accessToken = await this.getSessionToken();
         if (accessToken) {
-          const serverUrl = getServerUrl();
-          await fetch(`${serverUrl}/user/notifications/${id}/read`, {
+          await fetchWithApiFallback(`/user/notifications/${id}/read`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${accessToken}`,
@@ -462,8 +461,7 @@ class NotificationService {
 
       const accessToken = await this.getSessionToken();
       if (accessToken) {
-        const serverUrl = getServerUrl();
-        await fetch(`${serverUrl}/user/notifications/read-all`, {
+        await fetchWithApiFallback('/user/notifications/read-all', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -482,8 +480,7 @@ class NotificationService {
     try {
       const accessToken = await this.getSessionToken();
       if (accessToken) {
-        const serverUrl = getServerUrl();
-        await fetch(`${serverUrl}/user/notifications`, {
+        await fetchWithApiFallback('/user/notifications', {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${accessToken}`,

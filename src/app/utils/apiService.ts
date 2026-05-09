@@ -5,7 +5,7 @@
  */
 
 import { publicAnonKey } from '@/utils-ext/supabase/info';
-import { getServerUrl } from '@/utils-ext/config/apiConfig';
+import { fetchWithApiFallback, getServerUrl } from '@/utils-ext/config/apiConfig';
 
 // Custom API URL (stored in localStorage, set via Admin Settings)
 const CUSTOM_API_URL_KEY = 'indexpilotai_custom_backend_url';
@@ -70,12 +70,10 @@ export async function apiRequest<T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const baseUrl = getBaseUrl();
-  
   // Clean endpoint (remove leading slash if present)
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  
-  const url = `${baseUrl}${cleanEndpoint}`;
+  const customUrl = getCustomBackendUrl();
+  const url = customUrl ? `${customUrl}${cleanEndpoint}` : `${getBaseUrl()}${cleanEndpoint}`;
 
   const defaultHeaders = getAuthHeaders();
   
@@ -90,7 +88,7 @@ export async function apiRequest<T = any>(
   console.log(`🔗 API Request: ${options.method || 'GET'} ${url}`);
 
   try {
-    const response = await fetch(url, config);
+    const response = customUrl ? await fetch(url, config) : await fetchWithApiFallback(cleanEndpoint, config);
     
     if (!response.ok) {
       let errorMessage = `API Error: ${response.status}`;
@@ -150,9 +148,9 @@ export const api = {
     }),
 
   upload: <T = any>(endpoint: string, formData: FormData, token?: string) => {
-    const baseUrl = getBaseUrl();
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = `${baseUrl}${cleanEndpoint}`;
+    const customUrl = getCustomBackendUrl();
+    const url = customUrl ? `${customUrl}${cleanEndpoint}` : `${getBaseUrl()}${cleanEndpoint}`;
     
     const headers: Record<string, string> = {};
     if (token) {
@@ -161,11 +159,15 @@ export const api = {
       headers['Authorization'] = `Bearer ${publicAnonKey}`;
     }
 
-    return fetch(url, {
+    const requestInit = {
       method: 'POST',
       headers,
       body: formData,
-    }).then(async (response) => {
+    };
+
+    const request = customUrl ? fetch(url, requestInit) : fetchWithApiFallback(cleanEndpoint, requestInit);
+
+    return request.then(async (response) => {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || errorData.message || `Upload failed: ${response.status}`);
