@@ -58,6 +58,39 @@ export const getServerUrl = (): string => {
 };
 
 /**
+ * Supabase direct URL used as a production fallback if the custom API domain
+ * temporarily serves an old/stale edge function deployment.
+ */
+export const getSupabaseServerUrl = (): string => {
+  return `${SUPABASE_API_DOMAIN}/functions/v1/make-server-c4d79cb7`;
+};
+
+export const getServerUrls = (): string[] => {
+  const primary = getServerUrl();
+  const fallback = getSupabaseServerUrl();
+  return primary === fallback ? [primary] : [primary, fallback];
+};
+
+export async function fetchWithApiFallback(endpoint: string, init?: RequestInit): Promise<Response> {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  let lastResponse: Response | null = null;
+  let lastError: unknown = null;
+
+  for (const baseUrl of getServerUrls()) {
+    try {
+      const response = await fetch(`${baseUrl}${cleanEndpoint}`, init);
+      lastResponse = response;
+      if (response.status !== 404 && response.status < 500) return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('API request failed');
+}
+
+/**
  * Get the URL for the dedicated Express backend that handles
  * VPS provisioning, Razorpay payments, and subscription management.
  *
@@ -118,6 +151,7 @@ export const logApiConfig = () => {
   console.log('📊 [API CONFIG] Mode:', API_MODE);
   console.log('📊 [API CONFIG] Base URL:', getApiBaseUrl());
   console.log('📊 [API CONFIG] Server URL:', getServerUrl());
+  console.log('📊 [API CONFIG] Fallback URLs:', getServerUrls());
   console.log('📊 [API CONFIG] Project ID:', projectId);
   console.log('📊 [API CONFIG] ======================');
 };
