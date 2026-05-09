@@ -436,7 +436,6 @@ class NotificationService {
 
         const accessToken = await this.getSessionToken();
         if (accessToken) {
-          const serverUrl = getServerUrl();
           await fetchWithApiFallback(`/user/notifications/${id}/read`, {
             method: 'POST',
             headers: {
@@ -462,7 +461,6 @@ class NotificationService {
 
       const accessToken = await this.getSessionToken();
       if (accessToken) {
-        const serverUrl = getServerUrl();
         await fetchWithApiFallback('/user/notifications/read-all', {
           method: 'POST',
           headers: {
@@ -482,7 +480,6 @@ class NotificationService {
     try {
       const accessToken = await this.getSessionToken();
       if (accessToken) {
-        const serverUrl = getServerUrl();
         await fetchWithApiFallback('/user/notifications', {
           method: 'DELETE',
           headers: {
