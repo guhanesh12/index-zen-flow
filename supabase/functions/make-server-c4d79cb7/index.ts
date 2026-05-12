@@ -4888,97 +4888,134 @@ app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
       accessToken: credentials.dhanAccessToken
     });
 
-    console.log('🚀 Fetching positions from Dhan API...');
-    
-    // Get ALL positions from Dhan (both open and closed)
-    const positions = await dhanService.getPositions();
-    
-    console.log(`📊 Found ${positions.length} total positions from Dhan`);
-    
-    if (positions.length === 0) {
-      console.warn('⚠️ No positions found from Dhan API');
-      return c.json({ 
-        success: true, 
-        syncedCount: 0,
-        totalPnL: 0,
-        message: 'No positions found in Dhan account'
-      });
-    }
+    console.log('🚀 Fetching positions + trade history from Dhan API...');
 
-    // Log first position for debugging
-    console.log('📦 Sample position:', JSON.stringify(positions[0], null, 2));
-    
-    // Get existing journal entries for today
-    const today = new Date().toISOString().split('T')[0];
-    console.log(`📅 Syncing for date: ${today}`);
-    
-    const existingEntries = await kv.getByPrefix(`journal:${user.id}:${today}`);
-    console.log(`📋 Found ${existingEntries.length} existing journal entries for today`);
-    
-    const existingSymbols = new Set(existingEntries.map((e: any) => e.value.symbol).filter(Boolean));
+    // 1) Current-day positions (open + just-closed today)
+    const positions = await dhanService.getPositions();
+    console.log(`📊 Found ${positions.length} positions from Dhan`);
+
+    // 2) Historical trade book (last 7 days) — required for yesterday's P&L
+    const trades = await dhanService.getTradeHistory(7);
+    console.log(`📚 Found ${trades.length} historical trades from Dhan`);
 
     let addedCount = 0;
     let skippedCount = 0;
     let totalDayPnL = 0;
 
-    // Add ALL positions (open and closed)
-    for (const pos of positions) {
-      const symbol = pos.tradingSymbol || `Security ${pos.securityId}`;
-      
-      // Skip if already logged (by symbol for today)
-      if (existingSymbols.has(symbol)) {
-        console.log(`  ⏭️ Skipped (duplicate): ${symbol}`);
+    // ---- Process historical trades: group by (date, symbol) and compute realized P&L ----
+    // Group trades
+    const groups = new Map<string, any[]>();
+    for (const t of trades) {
+      const tradeTimeRaw: string = t.exchangeTime || t.createTime || t.updateTime || t.tradedTime || '';
+      // Extract YYYY-MM-DD
+      let date = '';
+      if (tradeTimeRaw) {
+        const m = String(tradeTimeRaw).match(/(\d{4}-\d{2}-\d{2})/);
+        if (m) date = m[1];
+      }
+      if (!date) continue;
+      const symbol = t.tradingSymbol || t.customSymbol || `Security ${t.securityId}`;
+      const key = `${date}|${symbol}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(t);
+    }
+
+    for (const [key, list] of groups.entries()) {
+      const [date, symbol] = key.split('|');
+
+      // Skip if a journal entry for this date+symbol already exists
+      const existingForDay = await kv.getByPrefix(`journal:${user.id}:${date}`);
+      const dup = existingForDay.find((e: any) => e.value?.symbol === symbol);
+      if (dup) {
         skippedCount++;
         continue;
       }
 
-      // Calculate P&L (both realized and unrealized)
+      let buyQty = 0, buyVal = 0, sellQty = 0, sellVal = 0;
+      for (const t of list) {
+        const qty = Number(t.tradedQuantity || t.quantity || 0);
+        const price = Number(t.tradedPrice || t.price || 0);
+        const side = String(t.transactionType || t.txnType || '').toUpperCase();
+        if (side === 'BUY') { buyQty += qty; buyVal += qty * price; }
+        else if (side === 'SELL') { sellQty += qty; sellVal += qty * price; }
+      }
+      const matchedQty = Math.min(buyQty, sellQty);
+      if (matchedQty === 0) continue; // not yet closed; skip until exit happens
+      const avgBuy = buyQty > 0 ? buyVal / buyQty : 0;
+      const avgSell = sellQty > 0 ? sellVal / sellQty : 0;
+      const pnl = (avgSell - avgBuy) * matchedQty;
+      totalDayPnL += pnl;
+
+      const entryId = `journal:${user.id}:${date}:${Date.now()}_${addedCount}`;
+      const entry = {
+        id: entryId,
+        userId: user.id,
+        date,
+        timestamp: new Date(date).getTime(),
+        symbol,
+        strategy: 'AI_ENHANCED_ENGINE',
+        side: avgBuy > 0 ? 'BUY' : 'SELL',
+        entryPrice: avgBuy,
+        exitPrice: avgSell,
+        quantity: matchedQty,
+        pnl,
+        orderId: list[0]?.orderId || `TRD_${date}_${symbol}`,
+        notes: `Dhan TradeBook | ${list.length} trades | Buy ₹${avgBuy.toFixed(2)} → Sell ₹${avgSell.toFixed(2)}`,
+      };
+      console.log(`  ✅ Saving historical: ${date} ${symbol} P&L ₹${pnl.toFixed(2)}`);
+      await kv.set(entryId, entry);
+      addedCount++;
+    }
+
+    // ---- Process today's open positions (unrealized) so dashboard reflects today ----
+    const today = new Date().toISOString().split('T')[0];
+    const existingToday = await kv.getByPrefix(`journal:${user.id}:${today}`);
+    const existingSymbolsToday = new Set(existingToday.map((e: any) => e.value?.symbol).filter(Boolean));
+
+    for (const pos of positions) {
+      const symbol = pos.tradingSymbol || `Security ${pos.securityId}`;
+      if (existingSymbolsToday.has(symbol)) { skippedCount++; continue; }
+
       const realizedPnL = parseFloat(pos.realizedProfit || pos.realizedPnl || 0);
       const unrealizedPnL = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || 0);
       const totalPnL = realizedPnL + unrealizedPnL;
-      
       totalDayPnL += totalPnL;
 
-      // Determine entry and exit prices
       const buyAvg = parseFloat(pos.buyAvg || 0);
       const sellAvg = parseFloat(pos.sellAvg || 0);
       const ltp = parseFloat(pos.ltp || pos.lastPrice || 0);
-      
       const entryPrice = buyAvg > 0 ? buyAvg : sellAvg;
       const exitPrice = pos.netQty === 0 ? (sellAvg > 0 ? sellAvg : ltp) : ltp;
       const quantity = Math.abs(pos.buyQty || pos.sellQty || pos.netQty || 0);
 
       const entryId = `journal:${user.id}:${today}:${Date.now()}_${addedCount}`;
-      
       const entry = {
         id: entryId,
         userId: user.id,
         date: today,
         timestamp: Date.now(),
-        symbol: symbol,
-        strategy: 'AI_ENHANCED_ENGINE', // ✅ Mark as AI trade (synced from Dhan)
+        symbol,
+        strategy: 'AI_ENHANCED_ENGINE',
         side: (pos.buyQty || pos.netQty) > 0 ? 'BUY' : 'SELL',
-        entryPrice: entryPrice,
-        exitPrice: exitPrice,
-        quantity: quantity,
+        entryPrice,
+        exitPrice,
+        quantity,
         pnl: totalPnL,
         orderId: pos.drvPositionId || pos.positionId || `POS_${Date.now()}`,
-        notes: `Dhan Sync | Real: ₹${realizedPnL.toFixed(2)} | Unreal: ₹${unrealizedPnL.toFixed(2)} | ${pos.netQty === 0 ? 'Closed' : 'Open'}`
+        notes: `Dhan Position | Real ₹${realizedPnL.toFixed(2)} | Unreal ₹${unrealizedPnL.toFixed(2)} | ${pos.netQty === 0 ? 'Closed' : 'Open'}`,
       };
-
-      console.log(`  ✅ Saving: ${symbol} - P&L: ₹${totalPnL.toFixed(2)}`);
       await kv.set(entryId, entry);
       addedCount++;
     }
 
-    console.log(`✅ Sync complete! Added: ${addedCount} | Skipped: ${skippedCount} | Total Day P&L: ₹${totalDayPnL.toFixed(2)}`);
+    console.log(`✅ Sync complete! Added: ${addedCount} | Skipped: ${skippedCount} | Total P&L: ₹${totalDayPnL.toFixed(2)}`);
 
-    return c.json({ 
-      success: true, 
+    return c.json({
+      success: true,
       syncedCount: addedCount,
-      skippedCount: skippedCount,
+      skippedCount,
       totalPnL: totalDayPnL,
-      message: `Added ${addedCount} trades to journal | Day P&L: ₹${totalDayPnL.toFixed(2)}`
+      message: `Added ${addedCount} trades to journal | P&L: ₹${totalDayPnL.toFixed(2)}`,
     });
   } catch (error: any) {
     console.error('❌ Error syncing manual trades:', error);
