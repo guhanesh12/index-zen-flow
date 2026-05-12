@@ -1073,6 +1073,63 @@ export class DhanService {
     }
   }
 
+  // Get historical trade book (last N days). Dhan endpoint:
+  // GET https://api.dhan.co/v2/trades/{from-date}/{to-date}/{page-number}
+  // Required so the journal can recover yesterday's booked P&L after EOD
+  // (positions API only returns current trading day).
+  async getTradeHistory(daysBack: number = 7): Promise<any[]> {
+    try {
+      const fmt = (d: Date) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+      const toDate = new Date();
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - daysBack);
+
+      const all: any[] = [];
+      // Paginate (Dhan returns up to 100 per page)
+      for (let page = 0; page < 10; page++) {
+        const url = `https://api.dhan.co/v2/trades/${fmt(fromDate)}/${fmt(toDate)}/${page}`;
+        const response = await this.retryFetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'access-token': this.accessToken,
+            'client-id': this.clientId,
+          },
+        }, `Trade History page ${page}`);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          try {
+            const errorData = JSON.parse(errorText);
+            if (errorData.errorCode === 'DH-901') {
+              console.log('🔑 DH-901: Dhan token expired — returning collected trades');
+              return all;
+            }
+          } catch (_) {}
+          console.warn(`⚠️ Trade history page ${page} failed: ${errorText}`);
+          break;
+        }
+
+        const data = await response.json();
+        const arr = Array.isArray(data) ? data : (data?.data || []);
+        if (!arr || arr.length === 0) break;
+        all.push(...arr);
+        if (arr.length < 100) break; // last page
+      }
+
+      console.log(`📚 Trade history: fetched ${all.length} trades for last ${daysBack}d`);
+      return all;
+    } catch (error: any) {
+      console.error('Error fetching trade history:', error?.message || error);
+      return [];
+    }
+  }
+
   // Get fund limits
   async getFundLimits(): Promise<any> {
     try {
