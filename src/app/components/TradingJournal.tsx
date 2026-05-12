@@ -289,20 +289,25 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
       if (synced) localStorage.setItem(STORAGE_KEY, todayKey());
     };
 
-    // Auto-sync only after market close (15:30 IST), once per trading day, silently.
+    // Auto-sync logic:
+    // 1. On mount: if last sync was NOT today, sync immediately (catches yesterday's
+    //    booked P&L when user opens app the next day).
+    // 2. After market close (15:30 IST) on weekdays: sync once per day.
     const tick = () => {
       const now = new Date();
       const totalMin = now.getHours() * 60 + now.getMinutes();
       const afterMarketClose = isWeekday() && totalMin >= 15 * 60 + 30;
+      const last = localStorage.getItem(STORAGE_KEY);
 
-      if (afterMarketClose) {
-        const last = localStorage.getItem(STORAGE_KEY);
-        if (last !== todayKey()) {
-          runAutoSync('post-close daily P&L');
+      // Catch-up sync: if we never synced today, run it now (covers missed days).
+      if (last !== todayKey()) {
+        if (afterMarketClose || last !== todayKey()) {
+          runAutoSync(afterMarketClose ? 'post-close daily P&L' : 'catch-up sync (missed yesterday)');
         }
       }
     };
 
+    // Run immediately on mount so yesterday's booked profits show up today.
     tick();
     const fastInterval = setInterval(tick, 60 * 1000); // every minute for close-window precision
 
