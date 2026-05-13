@@ -976,6 +976,31 @@ export async function cancelUserProvisioningJob(userId: string): Promise<{
 
     if (job?.ipAddress) {
       await kv.del(`${PROVISIONING_PREFIX}pending:${job.ipAddress}`);
+      // 🔥 CRITICAL: also drop the stale ip_pool entry for the old VPS so the
+      // next provisioning run cannot accidentally re-assign this dead IP.
+      try {
+        const oldEntry = await kv.get(`ip_pool:${job.ipAddress}`) as any;
+        if (oldEntry?.metadata?.autoProvisioned) {
+          await kv.del(`ip_pool:${job.ipAddress}`);
+          console.log(`🗑️ Removed cancelled VPS from ip_pool: ${job.ipAddress}`);
+        }
+      } catch (e) {
+        console.warn(`⚠️ Failed to drop ip_pool for cancelled VPS: ${(e as any)?.message}`);
+      }
+    }
+
+    // 🔥 CRITICAL: clear the user's IP assignment if it points at this old VPS,
+    // otherwise getUserIPAssignment() will keep returning the dead IP and orders
+    // will route to a server that no longer exists.
+    try {
+      const currentAssignment = await IPPoolManager.getUserIPAssignment(userId);
+      if (currentAssignment && (!job?.ipAddress || currentAssignment.ipAddress === job.ipAddress)) {
+        await kv.del(`user_ip_assignment:${userId}`);
+        await kv.del(`ip_assignment:${userId}:dedicated`);
+        console.log(`🧹 Cleared stale user IP assignment for ${userId}`);
+      }
+    } catch (e) {
+      console.warn(`⚠️ Failed to clear user IP assignment: ${(e as any)?.message}`);
     }
 
     if (job) {
