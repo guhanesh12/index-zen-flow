@@ -113,14 +113,53 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
   }
 
   const existingAssignment = await IPPoolManager.getUserIPAssignment(job.userId);
-  if (!existingAssignment) {
-    const assignResult = await IPPoolManager.assignIPToUser(job.userId, DEDICATED_IP_MONTHLY_FEE);
 
-    if (!assignResult.success) {
-      job.status = 'failed';
-      job.error = `Failed to assign IP to user: ${assignResult.error}`;
-      await kv.set(`${PROVISIONING_PREFIX}${job.id}`, job);
-      return job;
+  // 🔥 CRITICAL: If the user had a previous IP assignment for a DIFFERENT IP
+  // (e.g. cancelled/stale VPS), release it from the OLD ip_pool entry so the
+  // new VPS IP becomes the user's active IP — not the stale one.
+  if (existingAssignment && existingAssignment.ipAddress && existingAssignment.ipAddress !== ipAddress) {
+    try {
+      const oldIp = existingAssignment.ipAddress;
+      const oldEntry = await kv.get(`ip_pool:${oldIp}`) as any;
+      if (oldEntry) {
+        oldEntry.assignedUsers = (oldEntry.assignedUsers || []).filter((id: string) => id !== job.userId);
+        oldEntry.currentUsers = Math.max(0, Number(oldEntry.currentUsers || 0) - 1);
+        // If old VPS was auto-provisioned & no users left, drop the pool entry entirely
+        if (oldEntry?.metadata?.autoProvisioned && oldEntry.assignedUsers.length === 0) {
+          await kv.del(`ip_pool:${oldIp}`);
+          console.log(`🗑️ Removed stale old ip_pool entry: ${oldIp}`);
+        } else {
+          await kv.set(`ip_pool:${oldIp}`, oldEntry);
+        }
+      }
+    } catch (e) {
+      console.warn(`⚠️ Failed to cleanup old ip_pool entry: ${(e as any)?.message}`);
+    }
+  }
+
+  if (!existingAssignment) {
+    // Build assignment DIRECTLY for the freshly provisioned IP — do NOT call
+    // assignIPToUser() which picks an arbitrary IP from the pool and could
+    // hand back a stale/old IP that wasn't yet cleaned up.
+    const newAssignment = {
+      userId: job.userId,
+      ipAddress,
+      vpsUrl: `http://${ipAddress}:3000`,
+      provider: 'digitalocean',
+      assignedAt: new Date().toISOString(),
+      subscriptionStatus: 'active',
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      monthlyFee: DEDICATED_IP_MONTHLY_FEE,
+      lastUsedAt: new Date().toISOString(),
+    };
+    await kv.set(`user_ip_assignment:${job.userId}`, newAssignment);
+    await kv.set(`ip_assignment:${job.userId}:dedicated`, newAssignment);
+
+    const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
+    if (ipEntry && !ipEntry.assignedUsers?.includes(job.userId)) {
+      ipEntry.currentUsers = Math.max(1, Number(ipEntry.currentUsers || 0) + 1);
+      ipEntry.assignedUsers = [...(ipEntry.assignedUsers || []), job.userId];
+      await kv.set(`ip_pool:${ipAddress}`, ipEntry);
     }
   } else if (existingAssignment.ipAddress !== ipAddress || existingAssignment.subscriptionStatus !== 'active') {
     const expiresAt =
