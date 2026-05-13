@@ -1833,7 +1833,7 @@ class PersistentTradingEngine {
           target_amount: position.targetAmount || 0,
           stop_loss_amount: position.stopLossAmount || 0,
           trailing_enabled: position.trailingEnabled || false,
-          trailing_step: position.stopLossJumpAmount || position.trailingStep || 50,
+          trailing_step: Number(position.stopLossJumpAmount ?? position.trailingStep ?? 0),
           highest_pnl: 0,
           raw_position: {
             ...(symbol.raw_data || {}),
