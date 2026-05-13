@@ -1351,16 +1351,28 @@ class PersistentTradingEngine {
 
         const _baseTarget = Number(position.targetAmount || 0);
         const _baseSL = Number(position.stopLossAmount || 0);
-        const _activation = Number(position.trailingActivationAmount || 0);
-        const _targetJump = Number(position.targetJumpAmount || position.stopLossJumpAmount || position.trailingStep || 0);
-        const _slJump = Number(position.stopLossJumpAmount || position.trailingStep || 0);
+        // ⚡ STRICT: only use the user-entered values. NO fallback to trailingStep
+        // and NO automatic defaults — trailing must be fully user-configured.
+        const _activation = Number(position.trailingActivationAmount ?? 0);
+        const _targetJump = Number(position.targetJumpAmount ?? 0);
+        const _slJump = Number(position.stopLossJumpAmount ?? 0);
 
-        if (position.trailingEnabled && _targetJump > 0 && _slJump > 0 && position.highestPnl >= _activation && _activation >= 0) {
+        // Trailing runs ONLY if user explicitly enabled it AND entered all three values > 0.
+        // (activation > 0, target+ > 0, SL- > 0). Otherwise target/SL stay at the base values.
+        const _trailingConfigured =
+          position.trailingEnabled === true &&
+          _activation > 0 &&
+          _targetJump > 0 &&
+          _slJump > 0;
+
+        if (_trailingConfigured && position.highestPnl >= _activation) {
           const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
           const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
           if (numberOfJumps > 0) {
             const newTarget = _baseTarget + numberOfJumps * _targetJump;
-            const newSL = _baseSL - numberOfJumps * _slJump; // can go negative => profit lock
+            // SL ratchets UP (in profit direction): baseSL is the loss limit (positive number),
+            // each jump reduces it by _slJump. When it crosses 0 it becomes a guaranteed profit lock.
+            const newSL = _baseSL - numberOfJumps * _slJump;
             if (newTarget !== position.currentTargetAmount || newSL !== position.currentStopLossAmount) {
               const oldT = position.currentTargetAmount;
               const oldS = position.currentStopLossAmount;
@@ -1374,7 +1386,7 @@ class PersistentTradingEngine {
                 symbol: position.symbolName,
                 message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${numberOfJumps})`,
                 pnl,
-                data: { peak: position.highestPnl, jumps: numberOfJumps, oldTarget: oldT, newTarget, oldStopLoss: oldS, newStopLoss: newSL, profitLocked: newSL <= 0 }
+                data: { peak: position.highestPnl, jumps: numberOfJumps, oldTarget: oldT, newTarget, oldStopLoss: oldS, newStopLoss: newSL, profitLocked: newSL <= 0, activation: _activation, targetJump: _targetJump, slJump: _slJump }
               });
             }
           }
