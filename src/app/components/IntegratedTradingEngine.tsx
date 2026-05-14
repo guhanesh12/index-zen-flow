@@ -408,7 +408,16 @@ export function IntegratedTradingEngine({ serverUrl, accessToken, onLog }: Integ
         afterMarketOrder: symbol.afterMarketOrder,
         amoTime: symbol.amoTime,
         boProfitValue: symbol.boProfitValue,
-        boStopLossValue: symbol.boStopLossValue
+        boStopLossValue: symbol.boStopLossValue,
+        symbolName: symbol.name,
+        index: symbol.index,
+        optionType: symbol.optionType,
+        targetAmount: symbol.targetAmount,
+        stopLossAmount: symbol.stopLossAmount,
+        trailingEnabled: symbol.trailingEnabled || false,
+        trailingActivationAmount: symbol.trailingActivationAmount || 0,
+        targetJumpAmount: symbol.targetJumpAmount || 0,
+        stopLossJumpAmount: symbol.stopLossJumpAmount || 0
       };
 
       // Execute via backend
