@@ -1252,11 +1252,39 @@ class PersistentTradingEngine {
       .eq('is_active', true);
 
     if (dbPositions && dbPositions.length > 0) {
-      const dbOrderIds = new Set(dbPositions.map((p: any) => p.order_id));
+      const sortedDbPositions = [...dbPositions].sort((a: any, b: any) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime());
+      const seenPositionKeys = new Set<string>();
+      const activeDbPositions: any[] = [];
+      const duplicateIds: string[] = [];
+      for (const dbPos of sortedDbPositions) {
+        const key = getStrikeOptionKey({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id });
+        if (key && seenPositionKeys.has(key)) duplicateIds.push(dbPos.id);
+        else {
+          if (key) seenPositionKeys.add(key);
+          activeDbPositions.push(dbPos);
+        }
+      }
+      if (duplicateIds.length > 0) {
+        await supabaseAdmin
+          .from('position_monitor_state')
+          .update({ is_active: false, exit_reason: 'Duplicate monitor row removed', exited_at: new Date().toISOString() })
+          .in('id', duplicateIds);
+        console.log(`🧹 Removed ${duplicateIds.length} duplicate position monitor row(s) for user ${userId}`);
+      }
+
+      const userSymbolConfigs = await loadUserSymbolsFromDB(userId);
+      const dbOrderIds = new Set(activeDbPositions.map((p: any) => p.order_id));
       state.activePositions = state.activePositions.filter((p: any) => dbOrderIds.has(p.orderId));
 
-      for (const dbPos of dbPositions) {
+      for (const dbPos of activeDbPositions) {
         const existing = state.activePositions.find((p: any) => p.orderId === dbPos.order_id);
+        const symbolCfg = findSymbolConfigForPosition({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id }, userSymbolConfigs);
+        const targetAmount = numeric(symbolCfg?.targetAmount, numeric(dbPos.target_amount));
+        const stopLossAmount = numeric(symbolCfg?.stopLossAmount, numeric(dbPos.stop_loss_amount));
+        const trailingActivationAmount = numeric(symbolCfg?.trailingActivationAmount, numeric(dbPos.raw_position?.trailingActivationAmount ?? dbPos.raw_position?.trailing_activation_amount));
+        const targetJumpAmount = numeric(symbolCfg?.targetJumpAmount, numeric(dbPos.raw_position?.targetJumpAmount ?? dbPos.raw_position?.target_jump_amount));
+        const stopLossJumpAmount = numeric(symbolCfg?.stopLossJumpAmount, numeric(dbPos.raw_position?.stopLossJumpAmount ?? dbPos.raw_position?.stop_loss_jump_amount ?? dbPos.trailing_step));
+        const trailingEnabled = symbolCfg ? !!symbolCfg.trailingEnabled : !!dbPos.trailing_enabled;
         const dbState = {
             orderId: dbPos.order_id,
             symbolName: dbPos.symbol,
@@ -1266,17 +1294,17 @@ class PersistentTradingEngine {
             entryPrice: dbPos.entry_price,
             currentPrice: dbPos.current_price,
             quantity: dbPos.quantity,
-            targetAmount: dbPos.target_amount,
-            stopLossAmount: dbPos.stop_loss_amount,
+            targetAmount,
+            stopLossAmount,
             pnl: dbPos.pnl,
             highestPnl: dbPos.highest_pnl,
-            trailingEnabled: dbPos.trailing_enabled,
-            trailingStep: dbPos.trailing_step,
-            trailingActivationAmount: dbPos.raw_position?.trailingActivationAmount || dbPos.raw_position?.trailing_activation_amount || dbPos.trailing_step || 0,
-            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || dbPos.raw_position?.target_jump_amount || dbPos.trailing_step || 0,
-            stopLossJumpAmount: dbPos.raw_position?.stopLossJumpAmount || dbPos.trailing_step || 0,
-            currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
-            currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
+            trailingEnabled,
+            trailingStep: stopLossJumpAmount,
+            trailingActivationAmount,
+            targetJumpAmount,
+            stopLossJumpAmount,
+            currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? targetAmount,
+            currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? stopLossAmount,
             entryTime: new Date(dbPos.created_at).getTime(),
             status: 'ACTIVE'
           };
