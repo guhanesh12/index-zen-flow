@@ -967,6 +967,51 @@ class PersistentTradingEngine {
             console.log(`⏸️ ${indexName} SKIPPING - Low confidence or WAIT signal`);
             continue;
           }
+
+          if (!state.activePositions || state.activePositions.length === 0) {
+            const { data: dbPositions } = await supabaseAdmin
+              .from('position_monitor_state')
+              .select('*')
+              .eq('user_id', userId)
+              .eq('is_active', true);
+            state.activePositions = (dbPositions || []).map((dbPos: any) => ({
+              orderId: dbPos.order_id,
+              symbolName: dbPos.symbol,
+              securityId: dbPos.symbol_id,
+              index: dbPos.index_name,
+              optionType: normalizeOptionType(dbPos.raw_position?.optionType || dbPos.raw_position?.option_type || dbPos.symbol),
+              exchangeSegment: dbPos.exchange_segment,
+              quantity: dbPos.quantity,
+              pnl: dbPos.pnl,
+              status: 'ACTIVE',
+            }));
+          }
+
+          const reversalPosition = state.activePositions.find((p: any) =>
+            p.status === 'ACTIVE' && p.index === indexName && (
+              (normalizeOptionType(p.optionType || p.symbolName) === 'CE' && action === 'BUY_PUT') ||
+              (normalizeOptionType(p.optionType || p.symbolName) === 'PE' && action === 'BUY_CALL')
+            )
+          );
+          if (reversalPosition && confidence >= 90) {
+            const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || 'OLD'} → ${action === 'BUY_CALL' ? 'CE' : 'PE'}, ${confidence}% confidence)`;
+            const exitResult = await placeOrderViaStaticIP(userId, { dhanClientId, dhanAccessToken }, {
+              securityId: reversalPosition.securityId,
+              transactionType: 'SELL',
+              exchangeSegment: reversalPosition.exchangeSegment || (reversalPosition.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
+              productType: 'INTRADAY', orderType: 'MARKET', validity: 'DAY', quantity: reversalPosition.quantity || 1,
+              disclosedQuantity: 0, price: 0, triggerPrice: 0, afterMarketOrder: false, amoTime: ''
+            });
+            if (exitResult.orderId || exitResult.success) {
+              reversalPosition.status = 'CLOSED';
+              await supabaseAdmin.from('position_monitor_state').update({ is_active: false, exit_reason: exitReason, exited_at: new Date().toISOString(), pnl: reversalPosition.pnl || 0 }).eq('user_id', userId).eq('order_id', reversalPosition.orderId);
+              await this.appendSharedLog(userId, { type: 'POSITION_CLOSED', timestamp: Date.now(), symbol: reversalPosition.symbolName, pnl: reversalPosition.pnl || 0, reason: exitReason, message: `🚪 POSITION CLOSED: ${reversalPosition.symbolName} | ${exitReason} | P&L: ${(reversalPosition.pnl || 0) >= 0 ? '+' : ''}₹${Number(reversalPosition.pnl || 0).toFixed(2)}` });
+              state.activePositions = state.activePositions.filter((p: any) => p.status === 'ACTIVE');
+            } else {
+              console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${exitResult.error}`);
+              continue;
+            }
+          }
           
           const freshSymbols = await getFreshSymbolsForEngine(userId, state.symbols || []);
           if (freshSymbols.length !== (state.symbols || []).length) {
