@@ -1047,8 +1047,32 @@ class PersistentTradingEngine {
                   symbolName: dbPos.symbol,
                   securityId: dbPos.symbol_id,
                   index: dbPos.index_name,
+                  optionType: normalizeOptionType(dbPos.raw_position?.optionType || dbPos.raw_position?.option_type || dbPos.symbol),
                   status: 'ACTIVE',
                 }));
+              }
+            }
+
+            const sameIndexPosition = state.activePositions.find((p: any) =>
+              p.status === 'ACTIVE' && p.index && indexName && p.index === indexName
+            );
+            if (sameIndexPosition && targetOptionType && normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType) {
+              const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || 'OLD'} → ${targetOptionType})`;
+              const exitResult = await placeOrderViaStaticIP(userId, { dhanClientId, dhanAccessToken }, {
+                securityId: sameIndexPosition.securityId,
+                transactionType: 'SELL',
+                exchangeSegment: sameIndexPosition.exchangeSegment || (sameIndexPosition.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
+                productType: 'INTRADAY', orderType: 'MARKET', validity: 'DAY', quantity: sameIndexPosition.quantity || 1,
+                disclosedQuantity: 0, price: 0, triggerPrice: 0, afterMarketOrder: false, amoTime: ''
+              });
+              if (exitResult.orderId || exitResult.success) {
+                sameIndexPosition.status = 'CLOSED';
+                await supabaseAdmin.from('position_monitor_state').update({ is_active: false, exit_reason: exitReason, exited_at: new Date().toISOString(), pnl: sameIndexPosition.pnl || 0 }).eq('user_id', userId).eq('order_id', sameIndexPosition.orderId);
+                await this.appendSharedLog(userId, { type: 'POSITION_CLOSED', timestamp: Date.now(), symbol: sameIndexPosition.symbolName, pnl: sameIndexPosition.pnl || 0, reason: exitReason, message: `🚪 POSITION CLOSED: ${sameIndexPosition.symbolName} | ${exitReason} | P&L: ${(sameIndexPosition.pnl || 0) >= 0 ? '+' : ''}₹${Number(sameIndexPosition.pnl || 0).toFixed(2)}` });
+                state.activePositions = state.activePositions.filter((p: any) => p.status === 'ACTIVE');
+              } else {
+                console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
+                continue;
               }
             }
 
