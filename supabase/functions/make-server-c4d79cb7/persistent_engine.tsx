@@ -85,6 +85,46 @@ function normalizeOptionType(value: any): 'CE' | 'PE' | '' {
   return '';
 }
 
+function numeric(value: any, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function getSecurityId(value: any): string {
+  return String(value?.securityId ?? value?.symbol_id ?? value?.symbolId ?? value?.security_id ?? '').trim();
+}
+
+function getPositionSymbol(value: any): string {
+  return String(value?.symbol ?? value?.symbolName ?? value?.tradingSymbol ?? value?.name ?? value?.displayName ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function getStrikeOptionKey(value: any): string {
+  const sid = getSecurityId(value);
+  if (sid) return `SID:${sid}`;
+  const symbol = getPositionSymbol(value);
+  const option = normalizeOptionType(value?.optionType || value?.option_type || symbol);
+  const index = normalizeIndexName(value);
+  const strikeMatch = symbol.match(/(\d{4,6})(?=(CE|PE)?$)/);
+  const strike = strikeMatch?.[1] || '';
+  if (index && option && strike) return `${index}:${strike}:${option}`;
+  return symbol ? `SYM:${symbol}` : '';
+}
+
+function positionsMatch(a: any, b: any): boolean {
+  const aSid = getSecurityId(a);
+  const bSid = getSecurityId(b);
+  if (aSid && bSid && aSid === bSid) return true;
+  const aKey = getStrikeOptionKey(a);
+  const bKey = getStrikeOptionKey(b);
+  return !!aKey && !!bKey && aKey === bKey;
+}
+
+function findSymbolConfigForPosition(position: any, symbols: any[]): any | null {
+  return symbols.find((s: any) => positionsMatch(s, position)) ||
+    symbols.find((s: any) => getPositionSymbol(s) && getPositionSymbol(s) === getPositionSymbol(position)) ||
+    null;
+}
+
 function resolveSymbolExchangeSegment(symbol: any): string {
   const rawValue = String(symbol?.exchangeSegment ?? symbol?.exchange_segment ?? symbol?.exchange ?? '').toUpperCase().trim();
   if (rawValue === 'BSE' || rawValue === 'BSE_FNO') return 'BSE_FNO';
