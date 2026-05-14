@@ -1048,6 +1048,9 @@ class PersistentTradingEngine {
                   securityId: dbPos.symbol_id,
                   index: dbPos.index_name,
                   optionType: normalizeOptionType(dbPos.raw_position?.optionType || dbPos.raw_position?.option_type || dbPos.symbol),
+                  exchangeSegment: dbPos.exchange_segment,
+                  quantity: dbPos.quantity,
+                  pnl: dbPos.pnl,
                   status: 'ACTIVE',
                 }));
               }
