@@ -1979,7 +1979,7 @@ class PersistentTradingEngine {
             ...(symbol.raw_data || {}),
             trailingActivationAmount: position.trailingActivationAmount || symbol.trailingActivationAmount || 0,
             targetJumpAmount: position.targetJumpAmount || symbol.targetJumpAmount || 0,
-            stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 50,
+            stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 0,
           },
           is_active: true
         }, { onConflict: 'user_id,order_id' });
