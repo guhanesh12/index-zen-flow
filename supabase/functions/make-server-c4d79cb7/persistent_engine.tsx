@@ -1104,7 +1104,7 @@ class PersistentTradingEngine {
             const sameIndexPosition = state.activePositions.find((p: any) =>
               p.status === 'ACTIVE' && p.index && indexName && p.index === indexName
             );
-            if (sameIndexPosition && targetOptionType && normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType) {
+            if (sameIndexPosition && confidence >= 90 && targetOptionType && normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType) {
               const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || 'OLD'} → ${targetOptionType})`;
               const exitResult = await placeOrderViaStaticIP(userId, { dhanClientId, dhanAccessToken }, {
                 securityId: sameIndexPosition.securityId,
