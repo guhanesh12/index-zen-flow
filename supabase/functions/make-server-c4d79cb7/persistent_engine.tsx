@@ -594,26 +594,18 @@ class PersistentTradingEngine {
           if (openPositions.length > 0) {
             const { data: tracked } = await supabaseAdmin
               .from('position_monitor_state')
-              .select('symbol, symbol_id')
+              .select('symbol, symbol_id, raw_position')
               .eq('user_id', userId)
               .eq('is_active', true);
-            const trackedKeys = new Set((tracked || []).map((t: any) => `${t.symbol}|${t.symbol_id || ''}`));
+            const trackedKeys = new Set((tracked || []).map((t: any) => getStrikeOptionKey({ ...t.raw_position, symbol: t.symbol, securityId: t.symbol_id })));
 
             // Load user-configured symbols (target/SL/trailing settings) from user_symbols
             const userConfiguredSymbols = await loadUserSymbolsFromDB(userId);
-            const symbolConfigByKey = new Map<string, any>();
-            const symbolConfigByName = new Map<string, any>();
-            for (const s of userConfiguredSymbols) {
-              const sName = String(s.symbolName || s.symbol || '');
-              const sId = String(s.securityId || s.symbol_id || '');
-              if (sName) symbolConfigByName.set(sName, s);
-              if (sName && sId) symbolConfigByKey.set(`${sName}|${sId}`, s);
-            }
 
             for (const pos of openPositions) {
               const sym = pos.tradingSymbol || pos.symbol || '';
               const sid = String(pos.securityId || '');
-              const key = `${sym}|${sid}`;
+              const key = getStrikeOptionKey({ ...pos, symbol: sym, securityId: sid });
               if (!sym || trackedKeys.has(key)) continue;
 
               const qty = Math.abs(Number(pos.netQty || 1));
@@ -624,13 +616,13 @@ class PersistentTradingEngine {
               const pnl = Number.isFinite(brokerPnl) && brokerPnl !== 0 ? brokerPnl : computedPnl;
 
               // Use user-configured target/SL from Symbols section (no hardcoded defaults)
-              const cfg = symbolConfigByKey.get(key) || symbolConfigByName.get(sym) || {};
+              const cfg = findSymbolConfigForPosition({ ...pos, symbol: sym, securityId: sid }, userConfiguredSymbols) || {};
               const cfgTarget = Number(cfg.targetAmount ?? 0);
               const cfgStopLoss = Number(cfg.stopLossAmount ?? 0);
               const cfgTrailingEnabled = !!cfg.trailingEnabled;
               const cfgTrailingStep = Number(cfg.stopLossJumpAmount ?? cfg.trailingStep ?? 0);
 
-              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || sym}-${Date.now()}`;
+              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || key || sym}`;
 
               await supabaseAdmin
                 .from('position_monitor_state')
@@ -661,6 +653,8 @@ class PersistentTradingEngine {
                     sourceSymbolConfig: cfg ? { targetAmount: cfgTarget, stopLossAmount: cfgStopLoss } : null,
                   },
                 }, { onConflict: 'user_id,order_id' });
+
+              if (key) trackedKeys.add(key);
 
               console.log(`📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss})`);
             }
