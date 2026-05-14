@@ -3333,17 +3333,17 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
         current_price: Number(result.averagePrice || result.price || orderRequest.price || 0),
         quantity: Number(orderRequest.quantity || 1),
         pnl: 0,
-        target_amount: Number(orderRequest.targetAmount || 3000),
-        stop_loss_amount: Number(orderRequest.stopLossAmount || 2000),
+        target_amount: Number(orderRequest.targetAmount || 0),
+        stop_loss_amount: Number(orderRequest.stopLossAmount || 0),
         trailing_enabled: Boolean(orderRequest.trailingEnabled),
-        trailing_step: Number(orderRequest.stopLossJumpAmount || 50),
+        trailing_step: Number(orderRequest.stopLossJumpAmount || 0),
         highest_pnl: 0,
         is_active: true,
         raw_position: {
           optionType: orderRequest.optionType,
           trailingActivationAmount: Number(orderRequest.trailingActivationAmount || 0),
           targetJumpAmount: Number(orderRequest.targetJumpAmount || 0),
-          stopLossJumpAmount: Number(orderRequest.stopLossJumpAmount || 50),
+          stopLossJumpAmount: Number(orderRequest.stopLossJumpAmount || 0),
         },
       }, { onConflict: 'user_id,order_id' });
 
