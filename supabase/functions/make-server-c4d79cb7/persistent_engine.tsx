@@ -1291,6 +1291,7 @@ class PersistentTradingEngine {
             securityId: dbPos.symbol_id,
             exchangeSegment: dbPos.exchange_segment,
             index: dbPos.index_name,
+            optionType: normalizeOptionType(dbPos.raw_position?.optionType || dbPos.raw_position?.option_type || dbPos.symbol),
             entryPrice: dbPos.entry_price,
             currentPrice: dbPos.current_price,
             quantity: dbPos.quantity,
@@ -1508,15 +1509,20 @@ class PersistentTradingEngine {
         await supabaseAdmin
           .from('position_monitor_state')
           .update({
+            target_amount: _baseTarget,
+            stop_loss_amount: _baseSL,
+            trailing_enabled: _trailingConfigured,
+            trailing_step: _slJump,
             current_price: currentPrice,
             entry_price: entryPrice,
             pnl: pnl,
             highest_pnl: position.highestPnl || 0,
             raw_position: {
               ...dhanPos,
+              optionType: position.optionType || normalizeOptionType(position.symbolName),
               trailingActivationAmount: position.trailingActivationAmount || 0,
               targetJumpAmount: position.targetJumpAmount || 0,
-              stopLossJumpAmount: position.stopLossJumpAmount || position.trailingStep || 0,
+              stopLossJumpAmount: position.stopLossJumpAmount || 0,
               currentTargetAmount: _curTgt,
               currentStopLossAmount: _curSL,
               trailingActive: _trailingActive,
