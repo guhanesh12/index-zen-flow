@@ -85,6 +85,46 @@ function normalizeOptionType(value: any): 'CE' | 'PE' | '' {
   return '';
 }
 
+function numeric(value: any, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function getSecurityId(value: any): string {
+  return String(value?.securityId ?? value?.symbol_id ?? value?.symbolId ?? value?.security_id ?? '').trim();
+}
+
+function getPositionSymbol(value: any): string {
+  return String(value?.symbol ?? value?.symbolName ?? value?.tradingSymbol ?? value?.name ?? value?.displayName ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function getStrikeOptionKey(value: any): string {
+  const sid = getSecurityId(value);
+  if (sid) return `SID:${sid}`;
+  const symbol = getPositionSymbol(value);
+  const option = normalizeOptionType(value?.optionType || value?.option_type || symbol);
+  const index = normalizeIndexName(value);
+  const strikeMatch = symbol.match(/(\d{4,6})(?=(CE|PE)?$)/);
+  const strike = strikeMatch?.[1] || '';
+  if (index && option && strike) return `${index}:${strike}:${option}`;
+  return symbol ? `SYM:${symbol}` : '';
+}
+
+function positionsMatch(a: any, b: any): boolean {
+  const aSid = getSecurityId(a);
+  const bSid = getSecurityId(b);
+  if (aSid && bSid && aSid === bSid) return true;
+  const aKey = getStrikeOptionKey(a);
+  const bKey = getStrikeOptionKey(b);
+  return !!aKey && !!bKey && aKey === bKey;
+}
+
+function findSymbolConfigForPosition(position: any, symbols: any[]): any | null {
+  return symbols.find((s: any) => positionsMatch(s, position)) ||
+    symbols.find((s: any) => getPositionSymbol(s) && getPositionSymbol(s) === getPositionSymbol(position)) ||
+    null;
+}
+
 function resolveSymbolExchangeSegment(symbol: any): string {
   const rawValue = String(symbol?.exchangeSegment ?? symbol?.exchange_segment ?? symbol?.exchange ?? '').toUpperCase().trim();
   if (rawValue === 'BSE' || rawValue === 'BSE_FNO') return 'BSE_FNO';
@@ -554,26 +594,18 @@ class PersistentTradingEngine {
           if (openPositions.length > 0) {
             const { data: tracked } = await supabaseAdmin
               .from('position_monitor_state')
-              .select('symbol, symbol_id')
+              .select('symbol, symbol_id, raw_position')
               .eq('user_id', userId)
               .eq('is_active', true);
-            const trackedKeys = new Set((tracked || []).map((t: any) => `${t.symbol}|${t.symbol_id || ''}`));
+            const trackedKeys = new Set((tracked || []).map((t: any) => getStrikeOptionKey({ ...t.raw_position, symbol: t.symbol, securityId: t.symbol_id })));
 
             // Load user-configured symbols (target/SL/trailing settings) from user_symbols
             const userConfiguredSymbols = await loadUserSymbolsFromDB(userId);
-            const symbolConfigByKey = new Map<string, any>();
-            const symbolConfigByName = new Map<string, any>();
-            for (const s of userConfiguredSymbols) {
-              const sName = String(s.symbolName || s.symbol || '');
-              const sId = String(s.securityId || s.symbol_id || '');
-              if (sName) symbolConfigByName.set(sName, s);
-              if (sName && sId) symbolConfigByKey.set(`${sName}|${sId}`, s);
-            }
 
             for (const pos of openPositions) {
               const sym = pos.tradingSymbol || pos.symbol || '';
               const sid = String(pos.securityId || '');
-              const key = `${sym}|${sid}`;
+              const key = getStrikeOptionKey({ ...pos, symbol: sym, securityId: sid });
               if (!sym || trackedKeys.has(key)) continue;
 
               const qty = Math.abs(Number(pos.netQty || 1));
@@ -584,13 +616,13 @@ class PersistentTradingEngine {
               const pnl = Number.isFinite(brokerPnl) && brokerPnl !== 0 ? brokerPnl : computedPnl;
 
               // Use user-configured target/SL from Symbols section (no hardcoded defaults)
-              const cfg = symbolConfigByKey.get(key) || symbolConfigByName.get(sym) || {};
+              const cfg = findSymbolConfigForPosition({ ...pos, symbol: sym, securityId: sid }, userConfiguredSymbols) || {};
               const cfgTarget = Number(cfg.targetAmount ?? 0);
               const cfgStopLoss = Number(cfg.stopLossAmount ?? 0);
               const cfgTrailingEnabled = !!cfg.trailingEnabled;
               const cfgTrailingStep = Number(cfg.stopLossJumpAmount ?? cfg.trailingStep ?? 0);
 
-              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || sym}-${Date.now()}`;
+              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || key || sym}`;
 
               await supabaseAdmin
                 .from('position_monitor_state')
@@ -621,6 +653,8 @@ class PersistentTradingEngine {
                     sourceSymbolConfig: cfg ? { targetAmount: cfgTarget, stopLossAmount: cfgStopLoss } : null,
                   },
                 }, { onConflict: 'user_id,order_id' });
+
+              if (key) trackedKeys.add(key);
 
               console.log(`📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss})`);
             }
@@ -933,6 +967,51 @@ class PersistentTradingEngine {
             console.log(`⏸️ ${indexName} SKIPPING - Low confidence or WAIT signal`);
             continue;
           }
+
+          if (!state.activePositions || state.activePositions.length === 0) {
+            const { data: dbPositions } = await supabaseAdmin
+              .from('position_monitor_state')
+              .select('*')
+              .eq('user_id', userId)
+              .eq('is_active', true);
+            state.activePositions = (dbPositions || []).map((dbPos: any) => ({
+              orderId: dbPos.order_id,
+              symbolName: dbPos.symbol,
+              securityId: dbPos.symbol_id,
+              index: dbPos.index_name,
+              optionType: normalizeOptionType(dbPos.raw_position?.optionType || dbPos.raw_position?.option_type || dbPos.symbol),
+              exchangeSegment: dbPos.exchange_segment,
+              quantity: dbPos.quantity,
+              pnl: dbPos.pnl,
+              status: 'ACTIVE',
+            }));
+          }
+
+          const reversalPosition = state.activePositions.find((p: any) =>
+            p.status === 'ACTIVE' && p.index === indexName && (
+              (normalizeOptionType(p.optionType || p.symbolName) === 'CE' && action === 'BUY_PUT') ||
+              (normalizeOptionType(p.optionType || p.symbolName) === 'PE' && action === 'BUY_CALL')
+            )
+          );
+          if (reversalPosition && confidence >= 90) {
+            const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || 'OLD'} → ${action === 'BUY_CALL' ? 'CE' : 'PE'}, ${confidence}% confidence)`;
+            const exitResult = await placeOrderViaStaticIP(userId, { dhanClientId, dhanAccessToken }, {
+              securityId: reversalPosition.securityId,
+              transactionType: 'SELL',
+              exchangeSegment: reversalPosition.exchangeSegment || (reversalPosition.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
+              productType: 'INTRADAY', orderType: 'MARKET', validity: 'DAY', quantity: reversalPosition.quantity || 1,
+              disclosedQuantity: 0, price: 0, triggerPrice: 0, afterMarketOrder: false, amoTime: ''
+            });
+            if (exitResult.orderId || exitResult.success) {
+              reversalPosition.status = 'CLOSED';
+              await supabaseAdmin.from('position_monitor_state').update({ is_active: false, exit_reason: exitReason, exited_at: new Date().toISOString(), pnl: reversalPosition.pnl || 0 }).eq('user_id', userId).eq('order_id', reversalPosition.orderId);
+              await this.appendSharedLog(userId, { type: 'POSITION_CLOSED', timestamp: Date.now(), symbol: reversalPosition.symbolName, pnl: reversalPosition.pnl || 0, reason: exitReason, message: `🚪 POSITION CLOSED: ${reversalPosition.symbolName} | ${exitReason} | P&L: ${(reversalPosition.pnl || 0) >= 0 ? '+' : ''}₹${Number(reversalPosition.pnl || 0).toFixed(2)}` });
+              state.activePositions = state.activePositions.filter((p: any) => p.status === 'ACTIVE');
+            } else {
+              console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${exitResult.error}`);
+              continue;
+            }
+          }
           
           const freshSymbols = await getFreshSymbolsForEngine(userId, state.symbols || []);
           if (freshSymbols.length !== (state.symbols || []).length) {
@@ -1013,8 +1092,35 @@ class PersistentTradingEngine {
                   symbolName: dbPos.symbol,
                   securityId: dbPos.symbol_id,
                   index: dbPos.index_name,
+                  optionType: normalizeOptionType(dbPos.raw_position?.optionType || dbPos.raw_position?.option_type || dbPos.symbol),
+                  exchangeSegment: dbPos.exchange_segment,
+                  quantity: dbPos.quantity,
+                  pnl: dbPos.pnl,
                   status: 'ACTIVE',
                 }));
+              }
+            }
+
+            const sameIndexPosition = state.activePositions.find((p: any) =>
+              p.status === 'ACTIVE' && p.index && indexName && p.index === indexName
+            );
+            if (sameIndexPosition && confidence >= 90 && targetOptionType && normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType) {
+              const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || 'OLD'} → ${targetOptionType})`;
+              const exitResult = await placeOrderViaStaticIP(userId, { dhanClientId, dhanAccessToken }, {
+                securityId: sameIndexPosition.securityId,
+                transactionType: 'SELL',
+                exchangeSegment: sameIndexPosition.exchangeSegment || (sameIndexPosition.index === 'SENSEX' ? 'BSE_FNO' : 'NSE_FNO'),
+                productType: 'INTRADAY', orderType: 'MARKET', validity: 'DAY', quantity: sameIndexPosition.quantity || 1,
+                disclosedQuantity: 0, price: 0, triggerPrice: 0, afterMarketOrder: false, amoTime: ''
+              });
+              if (exitResult.orderId || exitResult.success) {
+                sameIndexPosition.status = 'CLOSED';
+                await supabaseAdmin.from('position_monitor_state').update({ is_active: false, exit_reason: exitReason, exited_at: new Date().toISOString(), pnl: sameIndexPosition.pnl || 0 }).eq('user_id', userId).eq('order_id', sameIndexPosition.orderId);
+                await this.appendSharedLog(userId, { type: 'POSITION_CLOSED', timestamp: Date.now(), symbol: sameIndexPosition.symbolName, pnl: sameIndexPosition.pnl || 0, reason: exitReason, message: `🚪 POSITION CLOSED: ${sameIndexPosition.symbolName} | ${exitReason} | P&L: ${(sameIndexPosition.pnl || 0) >= 0 ? '+' : ''}₹${Number(sameIndexPosition.pnl || 0).toFixed(2)}` });
+                state.activePositions = state.activePositions.filter((p: any) => p.status === 'ACTIVE');
+              } else {
+                console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
+                continue;
               }
             }
 
@@ -1218,31 +1324,60 @@ class PersistentTradingEngine {
       .eq('is_active', true);
 
     if (dbPositions && dbPositions.length > 0) {
-      const dbOrderIds = new Set(dbPositions.map((p: any) => p.order_id));
+      const sortedDbPositions = [...dbPositions].sort((a: any, b: any) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime());
+      const seenPositionKeys = new Set<string>();
+      const activeDbPositions: any[] = [];
+      const duplicateIds: string[] = [];
+      for (const dbPos of sortedDbPositions) {
+        const key = getStrikeOptionKey({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id });
+        if (key && seenPositionKeys.has(key)) duplicateIds.push(dbPos.id);
+        else {
+          if (key) seenPositionKeys.add(key);
+          activeDbPositions.push(dbPos);
+        }
+      }
+      if (duplicateIds.length > 0) {
+        await supabaseAdmin
+          .from('position_monitor_state')
+          .update({ is_active: false, exit_reason: 'Duplicate monitor row removed', exited_at: new Date().toISOString() })
+          .in('id', duplicateIds);
+        console.log(`🧹 Removed ${duplicateIds.length} duplicate position monitor row(s) for user ${userId}`);
+      }
+
+      const userSymbolConfigs = await loadUserSymbolsFromDB(userId);
+      const dbOrderIds = new Set(activeDbPositions.map((p: any) => p.order_id));
       state.activePositions = state.activePositions.filter((p: any) => dbOrderIds.has(p.orderId));
 
-      for (const dbPos of dbPositions) {
+      for (const dbPos of activeDbPositions) {
         const existing = state.activePositions.find((p: any) => p.orderId === dbPos.order_id);
+        const symbolCfg = findSymbolConfigForPosition({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id }, userSymbolConfigs);
+        const targetAmount = numeric(symbolCfg?.targetAmount, numeric(dbPos.target_amount));
+        const stopLossAmount = numeric(symbolCfg?.stopLossAmount, numeric(dbPos.stop_loss_amount));
+        const trailingActivationAmount = numeric(symbolCfg?.trailingActivationAmount, numeric(dbPos.raw_position?.trailingActivationAmount ?? dbPos.raw_position?.trailing_activation_amount));
+        const targetJumpAmount = numeric(symbolCfg?.targetJumpAmount, numeric(dbPos.raw_position?.targetJumpAmount ?? dbPos.raw_position?.target_jump_amount));
+        const stopLossJumpAmount = numeric(symbolCfg?.stopLossJumpAmount, numeric(dbPos.raw_position?.stopLossJumpAmount ?? dbPos.raw_position?.stop_loss_jump_amount ?? dbPos.trailing_step));
+        const trailingEnabled = symbolCfg ? !!symbolCfg.trailingEnabled : !!dbPos.trailing_enabled;
         const dbState = {
             orderId: dbPos.order_id,
             symbolName: dbPos.symbol,
             securityId: dbPos.symbol_id,
             exchangeSegment: dbPos.exchange_segment,
             index: dbPos.index_name,
+            optionType: normalizeOptionType(dbPos.raw_position?.optionType || dbPos.raw_position?.option_type || dbPos.symbol),
             entryPrice: dbPos.entry_price,
             currentPrice: dbPos.current_price,
             quantity: dbPos.quantity,
-            targetAmount: dbPos.target_amount,
-            stopLossAmount: dbPos.stop_loss_amount,
+            targetAmount,
+            stopLossAmount,
             pnl: dbPos.pnl,
             highestPnl: dbPos.highest_pnl,
-            trailingEnabled: dbPos.trailing_enabled,
-            trailingStep: dbPos.trailing_step,
-            trailingActivationAmount: dbPos.raw_position?.trailingActivationAmount || dbPos.raw_position?.trailing_activation_amount || dbPos.trailing_step || 0,
-            targetJumpAmount: dbPos.raw_position?.targetJumpAmount || dbPos.raw_position?.target_jump_amount || dbPos.trailing_step || 0,
-            stopLossJumpAmount: dbPos.raw_position?.stopLossJumpAmount || dbPos.trailing_step || 0,
-            currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
-            currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
+            trailingEnabled,
+            trailingStep: stopLossJumpAmount,
+            trailingActivationAmount,
+            targetJumpAmount,
+            stopLossJumpAmount,
+            currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? targetAmount,
+            currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? stopLossAmount,
             entryTime: new Date(dbPos.created_at).getTime(),
             status: 'ACTIVE'
           };
@@ -1446,15 +1581,20 @@ class PersistentTradingEngine {
         await supabaseAdmin
           .from('position_monitor_state')
           .update({
+            target_amount: _baseTarget,
+            stop_loss_amount: _baseSL,
+            trailing_enabled: _trailingConfigured,
+            trailing_step: _slJump,
             current_price: currentPrice,
             entry_price: entryPrice,
             pnl: pnl,
             highest_pnl: position.highestPnl || 0,
             raw_position: {
               ...dhanPos,
+              optionType: position.optionType || normalizeOptionType(position.symbolName),
               trailingActivationAmount: position.trailingActivationAmount || 0,
               targetJumpAmount: position.targetJumpAmount || 0,
-              stopLossJumpAmount: position.stopLossJumpAmount || position.trailingStep || 0,
+              stopLossJumpAmount: position.stopLossJumpAmount || 0,
               currentTargetAmount: _curTgt,
               currentStopLossAmount: _curSL,
               trailingActive: _trailingActive,
@@ -1839,7 +1979,7 @@ class PersistentTradingEngine {
             ...(symbol.raw_data || {}),
             trailingActivationAmount: position.trailingActivationAmount || symbol.trailingActivationAmount || 0,
             targetJumpAmount: position.targetJumpAmount || symbol.targetJumpAmount || 0,
-            stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 50,
+            stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 0,
           },
           is_active: true
         }, { onConflict: 'user_id,order_id' });
