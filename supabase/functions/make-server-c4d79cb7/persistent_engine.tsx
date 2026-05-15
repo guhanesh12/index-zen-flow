@@ -110,13 +110,35 @@ function getStrikeOptionKey(value: any): string {
   return symbol ? `SYM:${symbol}` : '';
 }
 
+function getComparablePositionKeys(value: any): Set<string> {
+  const keys = new Set<string>();
+  const sid = getSecurityId(value);
+  const symbol = getPositionSymbol(value);
+  const option = normalizeOptionType(value?.optionType || value?.option_type || symbol);
+  const index = normalizeIndexName(value);
+  const strike = extractStrikePrice(value);
+
+  if (sid) keys.add(`SID:${sid}`);
+  if (symbol) keys.add(`SYM:${symbol}`);
+  if (index && option && strike) keys.add(`OPT:${index}:${strike}:${option}`);
+
+  return keys;
+}
+
+function hasAnyPositionKeyOverlap(a: any, b: any): boolean {
+  const aKeys = getComparablePositionKeys(a);
+  const bKeys = getComparablePositionKeys(b);
+  for (const key of aKeys) {
+    if (bKeys.has(key)) return true;
+  }
+  return false;
+}
+
 function positionsMatch(a: any, b: any): boolean {
   const aSid = getSecurityId(a);
   const bSid = getSecurityId(b);
   if (aSid && bSid && aSid === bSid) return true;
-  const aKey = getStrikeOptionKey(a);
-  const bKey = getStrikeOptionKey(b);
-  return !!aKey && !!bKey && aKey === bKey;
+  return hasAnyPositionKeyOverlap(a, b);
 }
 
 function findSymbolConfigForPosition(position: any, symbols: any[]): any | null {
