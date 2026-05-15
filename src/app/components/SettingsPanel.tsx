@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
+import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
 interface SettingsPanelProps {
