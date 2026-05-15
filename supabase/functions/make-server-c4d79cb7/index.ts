@@ -1233,6 +1233,24 @@ app.post("/make-server-c4d79cb7/update-access-token", async (c) => {
     
     await kv.set(`api_credentials:${user.id}`, updatedCredentials);
 
+    // 🔄 Mirror into broker_credentials so the unified Broker status card
+    // (used by BrokerOAuthConnect + RN app) shows "connected" for users who
+    // generate their token directly from web.dhan.co (Method 1 / Daily Token).
+    try {
+      const expiry = new Date();
+      expiry.setHours(expiry.getHours() + 24); // Dhan daily tokens last ~24h
+      await upsertBrokerRow(user.id, {
+        auth_method: "access_token",
+        dhan_client_id: existing.dhanClientId,
+        access_token: sanitizedToken,
+        access_token_expiry: expiry.toISOString(),
+        last_status: sanitizedToken ? "connected" : "disconnected",
+        last_error: null,
+      });
+    } catch (mirrorErr) {
+      console.error("⚠️ broker_credentials mirror failed:", mirrorErr);
+    }
+
     // Test Dhan connection
     let dhanConnected = false;
     if (existing.dhanClientId && sanitizedToken) {
