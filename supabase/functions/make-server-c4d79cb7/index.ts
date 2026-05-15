@@ -11439,6 +11439,242 @@ app.get("/make-server-c4d79cb7/admin/referrals/leaderboard", async (c) => {
   return c.json({ leaderboard: merged });
 });
 
+// ============================================================================
+// 🔐 BROKER OAUTH (Dhan API Key + Secret, 12-month flow)
+// ============================================================================
+// 3-step Dhan consent flow:
+//   1) POST /broker/oauth/save-keys    -> stores apiKey/apiSecret/redirectUrl
+//   2) POST /broker/oauth/generate-consent -> calls Dhan, returns consentAppId
+//      Frontend opens https://auth.dhan.co/login/consentApp-login?consentAppId=...
+//      Dhan 302-redirects browser to redirectUrl?tokenId=...
+//   3) Our /broker/oauth/callback HTML page postMessages tokenId to opener
+//   4) Frontend POSTs tokenId to /broker/oauth/consume -> we exchange for accessToken
+//
+// API Key + Secret valid 12 months. Access Token valid 24 hours, refreshable
+// by re-running the consent flow. Secret is never returned over the API.
+// ============================================================================
+
+const DHAN_AUTH_BASE = "https://auth.dhan.co";
+
+function sanitizeBrokerRow(row: any) {
+  if (!row) return null;
+  const { api_secret, ...safe } = row;
+  return { ...safe, api_secret_set: !!api_secret };
+}
+
+async function getBrokerRow(userId: string) {
+  const { data, error } = await supabase
+    .from("broker_credentials")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("broker", "dhan")
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function upsertBrokerRow(userId: string, patch: Record<string, any>) {
+  const existing = await getBrokerRow(userId);
+  const payload: Record<string, any> = {
+    user_id: userId,
+    broker: "dhan",
+    ...patch,
+  };
+  if (existing) {
+    const { data, error } = await supabase
+      .from("broker_credentials")
+      .update(payload)
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return data;
+  }
+  const { data, error } = await supabase
+    .from("broker_credentials")
+    .insert(payload)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// --- GET status ------------------------------------------------------------
+app.get("/make-server-c4d79cb7/broker/oauth/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const row = await getBrokerRow(user.id);
+    return c.json({ success: true, credentials: sanitizeBrokerRow(row) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST save-keys --------------------------------------------------------
+app.post("/make-server-c4d79cb7/broker/oauth/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json();
+    const dhanClientId = String(body.dhanClientId || "").trim();
+    const apiKey = String(body.apiKey || "").trim();
+    const apiSecret = String(body.apiSecret || "").trim();
+    const redirectUrl = String(body.redirectUrl || "").trim();
+    const postbackUrl = body.postbackUrl ? String(body.postbackUrl).trim() : null;
+    if (!dhanClientId || !apiKey || !apiSecret || !redirectUrl) {
+      return c.json({ error: "dhanClientId, apiKey, apiSecret and redirectUrl are required" }, 400);
+    }
+    const apiKeyExpiry = new Date();
+    apiKeyExpiry.setFullYear(apiKeyExpiry.getFullYear() + 1);
+    const row = await upsertBrokerRow(user.id, {
+      auth_method: "api_key",
+      dhan_client_id: dhanClientId,
+      api_key: apiKey,
+      api_secret: apiSecret,
+      redirect_url: redirectUrl,
+      postback_url: postbackUrl,
+      api_key_expiry: apiKeyExpiry.toISOString(),
+      last_status: "keys_saved",
+      last_error: null,
+    });
+    return c.json({ success: true, credentials: sanitizeBrokerRow(row) });
+  } catch (err: any) {
+    console.error("save-keys error:", err);
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST generate-consent -------------------------------------------------
+app.post("/make-server-c4d79cb7/broker/oauth/generate-consent", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const row = await getBrokerRow(user.id);
+    if (!row?.api_key || !row?.api_secret || !row?.dhan_client_id) {
+      return c.json({ error: "Save Dhan API Key, Secret and Client ID first" }, 400);
+    }
+    const url = `${DHAN_AUTH_BASE}/app/generate-consent?client_id=${encodeURIComponent(row.dhan_client_id)}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { app_id: row.api_key, app_secret: row.api_secret },
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data?.consentAppId) {
+      await upsertBrokerRow(user.id, { last_status: "consent_failed", last_error: JSON.stringify(data).slice(0, 500) });
+      return c.json({ success: false, error: data?.message || `Dhan returned ${resp.status}`, raw: data }, 400);
+    }
+    await upsertBrokerRow(user.id, {
+      last_consent_app_id: data.consentAppId,
+      last_status: "consent_generated",
+      last_error: null,
+    });
+    const loginUrl = `${DHAN_AUTH_BASE}/login/consentApp-login?consentAppId=${encodeURIComponent(data.consentAppId)}`;
+    return c.json({ success: true, consentAppId: data.consentAppId, loginUrl });
+  } catch (err: any) {
+    console.error("generate-consent error:", err);
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST consume (exchange tokenId for accessToken) -----------------------
+app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json();
+    const tokenId = String(body.tokenId || "").trim();
+    if (!tokenId) return c.json({ error: "tokenId required" }, 400);
+    const row = await getBrokerRow(user.id);
+    if (!row?.api_key || !row?.api_secret) {
+      return c.json({ error: "Save Dhan API Key & Secret first" }, 400);
+    }
+    const url = `${DHAN_AUTH_BASE}/app/consumeApp-consent?tokenId=${encodeURIComponent(tokenId)}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { app_id: row.api_key, app_secret: row.api_secret },
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data?.accessToken) {
+      await upsertBrokerRow(user.id, { last_token_id: tokenId, last_status: "consume_failed", last_error: JSON.stringify(data).slice(0, 500) });
+      return c.json({ success: false, error: data?.message || `Dhan returned ${resp.status}`, raw: data }, 400);
+    }
+    const updated = await upsertBrokerRow(user.id, {
+      access_token: data.accessToken,
+      access_token_expiry: data.expiryTime ? new Date(data.expiryTime).toISOString() : null,
+      dhan_client_id: data.dhanClientId || row.dhan_client_id,
+      dhan_client_name: data.dhanClientName || null,
+      dhan_client_ucc: data.dhanClientUcc || null,
+      given_power_of_attorney: !!data.givenPowerOfAttorney,
+      last_token_id: tokenId,
+      last_status: "connected",
+      last_error: null,
+    });
+    // Mirror access token into legacy KV so existing engine code keeps working
+    try {
+      const existing = (await kv.get(`api_credentials:${user.id}`)) || {};
+      await kv.set(`api_credentials:${user.id}`, {
+        ...existing,
+        dhanClientId: updated.dhan_client_id,
+        dhanAccessToken: updated.access_token,
+        tokenUpdatedAt: new Date().toISOString(),
+      });
+    } catch (_) {}
+    return c.json({ success: true, credentials: sanitizeBrokerRow(updated) });
+  } catch (err: any) {
+    console.error("consume error:", err);
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST disconnect -------------------------------------------------------
+app.post("/make-server-c4d79cb7/broker/oauth/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const { error: delErr } = await supabase
+      .from("broker_credentials")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("broker", "dhan");
+    if (delErr) throw delErr;
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- GET callback (Dhan 302 redirect lands here) ---------------------------
+// Renders a tiny HTML page that posts {tokenId} to window.opener and closes.
+app.get("/make-server-c4d79cb7/broker/oauth/callback", (c) => {
+  const tokenId = c.req.query("tokenId") || "";
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Dhan Login Complete</title>
+<style>body{font-family:system-ui,sans-serif;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}main{max-width:420px;padding:24px;border:1px solid #2a2a2a;border-radius:12px;background:#111}h1{font-size:18px;margin:0 0 8px}p{color:#a3a3a3;font-size:14px;margin:8px 0}</style></head>
+<body><main>
+<h1>${tokenId ? "✅ Dhan login complete" : "⚠️ Missing tokenId"}</h1>
+<p>${tokenId ? "Returning you to IndexPilot AI…" : "No tokenId returned. Please retry from the app."}</p>
+<p style="font-size:11px;color:#525252">You can close this window.</p>
+</main>
+<script>
+(function(){
+  var tokenId=${JSON.stringify(tokenId)};
+  try{
+    if(window.opener){
+      window.opener.postMessage({type:"DHAN_OAUTH_TOKEN",tokenId:tokenId},"*");
+    }
+    // Also broadcast for in-app browsers (RN WebView etc.)
+    if(window.ReactNativeWebView){
+      window.ReactNativeWebView.postMessage(JSON.stringify({type:"DHAN_OAUTH_TOKEN",tokenId:tokenId}));
+    }
+  }catch(e){}
+  setTimeout(function(){ try{ window.close(); }catch(e){} }, 1500);
+})();
+</script>
+</body></html>`;
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+});
+
 const FUNCTION_ROUTE_PREFIX = "/make-server-c4d79cb7";
 const SUPABASE_FUNCTIONS_PREFIX = `/functions/v1${FUNCTION_ROUTE_PREFIX}`;
 
