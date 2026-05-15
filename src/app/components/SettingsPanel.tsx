@@ -447,6 +447,24 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   };
 
   return (
+    <Tabs defaultValue="oauth" className="space-y-4">
+      <TabsList className="grid grid-cols-2 bg-zinc-900 border border-zinc-800">
+        <TabsTrigger value="oauth">API Key &amp; Secret (12 months)</TabsTrigger>
+        <TabsTrigger value="token">Daily Access Token</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="oauth">
+        <BrokerOAuthConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+          }}
+        />
+      </TabsContent>
+
+      <TabsContent value="token">
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
