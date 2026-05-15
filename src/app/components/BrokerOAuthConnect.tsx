@@ -31,12 +31,12 @@ interface BrokerRow {
   last_error?: string | null;
 }
 
-const DEFAULT_REDIRECT = (() => {
-  if (typeof window === "undefined") return "";
-  const supaUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
-  if (supaUrl) return `${supaUrl}/functions/v1/make-server-c4d79cb7/broker/oauth/callback`;
-  return `${window.location.origin}/broker/oauth/callback`;
-})();
+// MUST match exactly what's pasted in the Dhan portal when generating the API key.
+// This is the backend Edge Function URL (custom domain) that Dhan 302-redirects
+// to with ?tokenId=… — it then renders the success tick + auto-redirects to
+// https://indexpilotai.com/dashboard.
+const DEFAULT_REDIRECT =
+  "https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/oauth/callback";
 
 export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Props) {
   const [row, setRow] = useState<BrokerRow | null>(null);
