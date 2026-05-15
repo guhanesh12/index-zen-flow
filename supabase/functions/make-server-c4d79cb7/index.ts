@@ -11648,27 +11648,78 @@ app.post("/make-server-c4d79cb7/broker/oauth/disconnect", async (c) => {
 // Renders a tiny HTML page that posts {tokenId} to window.opener and closes.
 app.get("/make-server-c4d79cb7/broker/oauth/callback", (c) => {
   const tokenId = c.req.query("tokenId") || "";
+  const ok = !!tokenId;
+  // Where to send the user after the success tick (web / same-tab fallback).
+  // RN apps intercept the postMessage above this redirect, so the URL is web-only.
+  const dashboardUrl = "https://indexpilotai.com/dashboard?dhan=connected";
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Dhan Login Complete</title>
-<style>body{font-family:system-ui,sans-serif;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}main{max-width:420px;padding:24px;border:1px solid #2a2a2a;border-radius:12px;background:#111}h1{font-size:18px;margin:0 0 8px}p{color:#a3a3a3;font-size:14px;margin:8px 0}</style></head>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
+  main{max-width:420px;padding:32px 24px;border:1px solid #2a2a2a;border-radius:16px;background:#111}
+  h1{font-size:20px;margin:16px 0 8px;font-weight:600}
+  p{color:#a3a3a3;font-size:14px;margin:8px 0}
+  .tick-wrap{display:flex;justify-content:center;margin-bottom:8px}
+  .tick{width:84px;height:84px;border-radius:50%;background:${ok ? "#10b981" : "#ef4444"};display:flex;align-items:center;justify-content:center;animation:pop .5s cubic-bezier(.2,.8,.2,1.2) both;box-shadow:0 0 0 8px ${ok ? "rgba(16,185,129,.15)" : "rgba(239,68,68,.15)"}}
+  .tick svg{width:44px;height:44px;stroke:#fff;stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  .tick path{stroke-dasharray:60;stroke-dashoffset:60;animation:draw .5s .25s ease forwards}
+  .bar{height:3px;background:#1f2937;border-radius:2px;overflow:hidden;margin-top:20px}
+  .bar>div{height:100%;background:${ok ? "#10b981" : "#ef4444"};width:0;animation:fill 2s linear forwards}
+  @keyframes pop{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @keyframes fill{to{width:100%}}
+  a{color:#10b981;text-decoration:none;font-size:13px}
+</style></head>
 <body><main>
-<h1>${tokenId ? "✅ Dhan login complete" : "⚠️ Missing tokenId"}</h1>
-<p>${tokenId ? "Returning you to IndexPilot AI…" : "No tokenId returned. Please retry from the app."}</p>
-<p style="font-size:11px;color:#525252">You can close this window.</p>
+<div class="tick-wrap"><div class="tick">
+${ok
+  ? `<svg viewBox="0 0 52 52"><path d="M14 27 L23 36 L40 18"/></svg>`
+  : `<svg viewBox="0 0 52 52"><path d="M16 16 L36 36 M36 16 L16 36"/></svg>`}
+</div></div>
+<h1>${ok ? "Dhan Connected" : "Connection Failed"}</h1>
+<p>${ok ? "Redirecting you to your dashboard…" : "No tokenId returned. Please retry from the app."}</p>
+<div class="bar"><div></div></div>
+${ok ? `<p style="margin-top:16px"><a href="${dashboardUrl}">Open dashboard now →</a></p>` : ""}
 </main>
 <script>
 (function(){
   var tokenId=${JSON.stringify(tokenId)};
+  var ok=${ok ? "true" : "false"};
+  var dashUrl=${JSON.stringify(dashboardUrl)};
+  var msg={type:"DHAN_OAUTH_TOKEN",tokenId:tokenId,status:ok?"success":"error"};
+  var sentToParent=false;
   try{
-    if(window.opener){
-      window.opener.postMessage({type:"DHAN_OAUTH_TOKEN",tokenId:tokenId},"*");
-    }
-    // Also broadcast for in-app browsers (RN WebView etc.)
-    if(window.ReactNativeWebView){
-      window.ReactNativeWebView.postMessage(JSON.stringify({type:"DHAN_OAUTH_TOKEN",tokenId:tokenId}));
+    if(window.opener && !window.opener.closed){
+      window.opener.postMessage(msg,"*");
+      sentToParent=true;
     }
   }catch(e){}
-  setTimeout(function(){ try{ window.close(); }catch(e){} }, 1500);
+  try{
+    if(window.parent && window.parent!==window){
+      window.parent.postMessage(msg,"*");
+      sentToParent=true;
+    }
+  }catch(e){}
+  // React Native WebView bridge — RN app should listen and navigate to Home tab.
+  try{
+    if(window.ReactNativeWebView){
+      window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+      sentToParent=true;
+    }
+  }catch(e){}
+  if(!ok) return;
+  setTimeout(function(){
+    // If popup with an opener, just close — opener handles redirect.
+    if(sentToParent && window.opener && !window.opener.closed){
+      try{ window.close(); }catch(e){}
+      // Fallback if close blocked
+      setTimeout(function(){ window.location.replace(dashUrl); }, 400);
+    } else {
+      // Same-tab flow → go to dashboard
+      window.location.replace(dashUrl);
+    }
+  }, 2000);
 })();
 </script>
 </body></html>`;
