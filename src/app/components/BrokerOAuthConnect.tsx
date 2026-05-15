@@ -155,10 +155,20 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Consume failed");
-      toast.success("Dhan connected via OAuth ✅");
+      toast.success("Dhan connected ✅ Redirecting to dashboard…");
       setRow(data.credentials);
       onConnected?.();
       window.dispatchEvent(new CustomEvent("credentials-updated"));
+      // Auto-redirect to dashboard after success tick
+      setTimeout(() => {
+        try {
+          if (window.location.pathname !== "/dashboard") {
+            window.location.assign("/dashboard?dhan=connected");
+          } else {
+            window.dispatchEvent(new CustomEvent("dhan-connected"));
+          }
+        } catch {}
+      }, 1200);
     } catch (e: any) {
       toast.error(e.message || "Consume failed");
     } finally {
