@@ -1045,6 +1045,14 @@ class PersistentTradingEngine {
             return true;
           });
 
+          const signalEntryPrice = Number(aiSignal?.signal?.riskManagement?.suggestedEntry || aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close || 0);
+          const strikeStep = getStrikeStep(indexName as SupportedIndex);
+          const signalAtmStrike = signalEntryPrice > 0 ? Math.round(signalEntryPrice / strikeStep) * strikeStep : null;
+          const strikeSafeSymbols = matchingSymbols.filter((s: any) => {
+            const symbolStrike = extractStrikePrice(s);
+            return !signalAtmStrike || !symbolStrike || Math.abs(symbolStrike - signalAtmStrike) <= strikeStep;
+          });
+
           console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`);
           if (matchingSymbols.length === 0) {
             console.log(`⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`, JSON.stringify(symbolsForIndex.map(s => ({ name: s.name, optionType: s.optionType || s.option_type, active: s.active, securityId: s.securityId || s.symbolId || s.symbol_id })), null, 2));
@@ -1065,9 +1073,24 @@ class PersistentTradingEngine {
                 })),
               }
             });
+          } else if (strikeSafeSymbols.length === 0) {
+            console.log(`🛑 ${indexName} ${action} skipped - selected ${targetOptionType} symbols are not near signal ATM strike ${signalAtmStrike}`);
+            await this.appendSharedLog(userId, {
+              type: 'WAIT',
+              timestamp: Date.now(),
+              message: `🛑 ${indexName} ${action} skipped — selected ${targetOptionType} strike is not near AI ATM strike ${signalAtmStrike || 'unknown'}`,
+              data: {
+                index: indexName,
+                action,
+                signalEntryPrice,
+                signalAtmStrike,
+                allowedDifference: strikeStep,
+                rejectedSymbols: matchingSymbols.map((s: any) => ({ name: getSymbolDisplayName(s), strike: extractStrikePrice(s), securityId: String(s.securityId || s.symbolId || s.symbol_id || '') })),
+              }
+            });
           }
           
-          for (const symbol of matchingSymbols) {
+          for (const symbol of strikeSafeSymbols) {
             const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
             const normalizedSymbolName = getSymbolDisplayName(symbol);
             const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
