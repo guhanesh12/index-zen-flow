@@ -1,63 +1,77 @@
-# Premium Email System — Complete Plan
+# Plan: Add Dhan OAuth (API Key + Secret) Broker Connection
 
-## Goal
-Send beautifully designed, branded transactional emails for every important user event in IndexPilot AI, with full user details (name, client ID, etc.) populated correctly.
+Add a second authentication method to the Broker Setup page so users can connect Dhan via the OAuth (API Key + Secret) flow in addition to the existing direct Access Token method. API Key + Secret are valid for 12 months and will be persisted in the database; the resulting Access Token is auto-refreshed on demand.
 
-## 1. Fix existing template data
-- `welcome` template currently shows empty name/client ID for test sends.
-- Update `send-email` edge function to auto-fetch user profile (`full_name`, `client_id`, `email`) from `profiles` table when only `to` (email) or `userId` is provided.
-- All templates accept `{ name, clientId, email, ...customData }` automatically.
+## 1. Database
 
-## 2. Build premium HTML email templates (React-Email style, branded)
-Design: dark navy header + IndexPilot AI logo, gold accent (#F4B400), white content card, footer with disclaimer + unsubscribe.
+New table `broker_credentials` (per user, one row per broker):
 
-Templates to create / upgrade:
+- `user_id` (text, unique)
+- `broker` (text, default `dhan`)
+- `auth_method` (text: `access_token` | `api_key`)
+- `dhan_client_id` (text)
+- `api_key` (text, nullable)
+- `api_secret` (text, nullable)             ← stored encrypted via pgcrypto
+- `access_token` (text, nullable)
+- `access_token_expiry` (timestamptz)
+- `api_key_expiry` (timestamptz, +12 months)
+- `redirect_url` (text)
+- `postback_url` (text, nullable)
+- `last_consent_app_id` (text)
+- `last_token_id` (text)
+- `created_at`, `updated_at`
 
-| Key | Trigger | Content |
-|---|---|---|
-| `welcome` | After signup | Name, Client ID, dashboard CTA |
-| `otp_register` | Registration OTP | 6-digit OTP, 10-min expiry |
-| `wallet_credit` | Wallet recharge / credit | Amount, new balance, txn ID, date |
-| `wallet_debit` | Wallet debit | Amount, balance, reason, txn ID |
-| `signal_buy_call` | Engine fires BUY_CALL | Symbol, strike, LTP, confidence, reasoning |
-| `signal_buy_put` | Engine fires BUY_PUT | Same as above |
-| `order_market_closed` | Pre-market signal blocked | "Market is closed" notice with next session time |
-| `position_closed_profit` | Position exits in profit | Symbol, entry/exit, P&L, % return |
-| `position_closed_loss` | Position exits in loss | Same fields, red accent |
-| `support_ticket_user` | User submits ticket | Ticket #, subject, body, "we'll respond soon" |
-| `support_ticket_admin_reply` | Admin replies on ticket | Ticket #, admin reply, link to view |
-| `daily_premarket_open` | 9:08 IST trading days only | "Markets opening soon, engine ready" |
+RLS: user can read/update their own row; service role full access.
 
-WAIT signals do NOT send mail (only BUY_CALL / BUY_PUT — as requested).
+## 2. Backend (edge function `make-server-c4d79cb7`)
 
-## 3. Engine + holiday/weekend gating
-- Add `nse_holidays` table (seed 2026 NSE holiday list) + helper `isTradingDay(date)`.
-- Cron job for 9:08 IST premarket email runs daily but skips on weekends + holidays.
-- Engine auto-trigger checks `isTradingDay()` before processing signals.
+New routes mounted under `/broker/oauth`:
 
-## 4. Wire triggers
-- Razorpay webhook → wallet_credit/debit emails.
-- `advanced_ai` engine, when `action ∈ {BUY_CALL, BUY_PUT}` → signal email.
-- Position monitor exit → position_closed_profit/loss email.
-- Support ticket create → user confirmation; admin reply → user notification.
-- Registration OTP flow → otp_register mail.
+```text
+POST /broker/oauth/save-keys          body { dhanClientId, apiKey, apiSecret, redirectUrl, postbackUrl? }
+POST /broker/oauth/generate-consent   → calls https://auth.dhan.co/app/generate-consent
+GET  /broker/oauth/callback           ← Dhan 302-redirect lands here, captures tokenId, auto-runs consume, then redirects user back to app
+POST /broker/oauth/consume            body { tokenId } → calls https://auth.dhan.co/app/consumeApp-consent
+GET  /broker/oauth/status             returns connection + expiry info
+POST /broker/oauth/refresh            re-runs consent flow link generation when access token < 1 hour
+POST /broker/oauth/disconnect
+```
 
-## 5. Database
-- `nse_holidays(date PK, name)`
-- `support_tickets(id, user_id, subject, body, status, created_at)`
-- `support_ticket_replies(id, ticket_id, author_id, is_admin, body, created_at)`
-- (Skip if any already exist — verify first.)
+Each handler validates the JWT, loads `broker_credentials`, talks to Dhan, stores results, returns sanitised data (never returns `api_secret`).
+
+`callback` page returns minimal HTML that posts a `window.opener` message + closes the popup.
+
+## 3. Frontend
+
+In `SettingsPanel.tsx` (Broker → Connect tab), add a tab switcher:
+
+- **Tab A — Access Token** (existing UI, unchanged)
+- **Tab B — API Key & Secret (12 months)** (new)
+
+New Tab B fields:
+- Dhan Client ID
+- API Key
+- API Secret (masked)
+- Redirect URL (prefilled with our `/broker/oauth/callback`)
+- Postback URL (optional)
+- **Save Keys** button → `POST /broker/oauth/save-keys`
+- **Connect with Dhan** button → calls `generate-consent`, opens `https://auth.dhan.co/login/consentApp-login?consentAppId=...` in a popup, listens for `postMessage` from callback, then refreshes status
+- Status card: shows Access Token expiry countdown + API Key expiry (12 mo) + Reconnect button
+
+All copy stays in the same dark theme/semantic-token style as the existing panel.
+
+## 4. After build — React Native prompt deliverable
+
+Once shipped, return a single ready-to-paste prompt containing:
+- All real backend URLs (`https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7/broker/oauth/...`)
+- All Dhan endpoints used
+- Step-by-step flow (save-keys → generate-consent → in-app browser opens consent URL → deep-link back with `tokenId` → consume → store → use access token in headers)
+- Required headers, request bodies, response shapes
+- Suggested screens & components for the React Native app
 
 ## Technical notes
-- Templates rendered via shared HTML builder in `_shared/email-templates.ts` (single design system; one render function per template key).
-- Profile auto-fetch in `send-email` makes any caller able to just pass `{ userId, template, data }`.
-- All sends logged to existing `email_logs` table.
-- Honors `notification_preferences.email_enabled`.
 
-## Out of scope (confirm if needed later)
-- WhatsApp / SMS for same events (templates exist but channels are toggled off).
-- Marketing newsletters (rejected — transactional only).
-
----
-
-This is ~3-4 hours of focused work. Approve and I'll build it end-to-end.
+- `api_secret` encrypted with `pgp_sym_encrypt(secret, current_setting('app.broker_key'))` on insert and `pgp_sym_decrypt(...)` on read inside the edge function only. The symmetric key is stored as a Supabase secret `BROKER_ENC_KEY`.
+- Access Token expiry is parsed from Dhan response (`expiryTime`, IST). A daily cron (already exists: `execute_backend_engine`) gets a sibling cron to call `/broker/oauth/refresh-all` for users whose token expires < 2 h.
+- Existing `/api-credentials` endpoint stays for backward compat; new endpoints live alongside.
+- No change to trading engine — it just reads `access_token` from `broker_credentials` if present, otherwise falls back to the legacy KV store.

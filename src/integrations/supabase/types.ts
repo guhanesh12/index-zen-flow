@@ -14,6 +14,78 @@ export type Database = {
   }
   public: {
     Tables: {
+      broker_credentials: {
+        Row: {
+          access_token: string | null
+          access_token_expiry: string | null
+          api_key: string | null
+          api_key_expiry: string | null
+          api_secret: string | null
+          auth_method: string
+          broker: string
+          created_at: string
+          dhan_client_id: string | null
+          dhan_client_name: string | null
+          dhan_client_ucc: string | null
+          given_power_of_attorney: boolean | null
+          id: string
+          last_consent_app_id: string | null
+          last_error: string | null
+          last_status: string | null
+          last_token_id: string | null
+          postback_url: string | null
+          redirect_url: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          access_token_expiry?: string | null
+          api_key?: string | null
+          api_key_expiry?: string | null
+          api_secret?: string | null
+          auth_method?: string
+          broker?: string
+          created_at?: string
+          dhan_client_id?: string | null
+          dhan_client_name?: string | null
+          dhan_client_ucc?: string | null
+          given_power_of_attorney?: boolean | null
+          id?: string
+          last_consent_app_id?: string | null
+          last_error?: string | null
+          last_status?: string | null
+          last_token_id?: string | null
+          postback_url?: string | null
+          redirect_url?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          access_token_expiry?: string | null
+          api_key?: string | null
+          api_key_expiry?: string | null
+          api_secret?: string | null
+          auth_method?: string
+          broker?: string
+          created_at?: string
+          dhan_client_id?: string | null
+          dhan_client_name?: string | null
+          dhan_client_ucc?: string | null
+          given_power_of_attorney?: boolean | null
+          id?: string
+          last_consent_app_id?: string | null
+          last_error?: string | null
+          last_status?: string | null
+          last_token_id?: string | null
+          postback_url?: string | null
+          redirect_url?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       communication_settings: {
         Row: {
           email_enabled: boolean
