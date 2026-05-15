@@ -10,8 +10,12 @@ async function fetchSignals(): Promise<Row[]> {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const url = `${SUPABASE_URL}/rest/v1/trading_signals?select=created_at,index_name,signal_type,price,raw_data&created_at=gte.${today.toISOString()}&order=created_at.asc`;
+  console.log("URL:", url);
+  console.log("Has SERVICE_KEY:", !!SERVICE_KEY, "len:", SERVICE_KEY?.length);
   const res = await fetch(url, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
-  return await res.json();
+  const text = await res.text();
+  console.log("status:", res.status, "body preview:", text.slice(0, 200));
+  return JSON.parse(text);
 }
 
 function fmtIST(iso: string) {
