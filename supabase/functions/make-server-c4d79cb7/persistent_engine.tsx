@@ -1751,51 +1751,39 @@ class PersistentTradingEngine {
 
         // (momentumScore / giveBackPct / heldMinutes / marketFavorable already computed above)
 
-        // ⚡ Check exit conditions using RATCHETED current target/SL (trailing ladder)
+        // ⚡ Check exit conditions using Engaged engine order: Target/SL first, then strong reversal.
         let shouldExit = false;
         let exitReason = '';
 
-        // Use ratcheted values if trailing is enabled and has ratcheted, else base
         const effectiveTarget = Number(position.currentTargetAmount ?? position.targetAmount ?? 0);
         const effectiveSL = Number(position.currentStopLossAmount ?? position.stopLossAmount ?? 0);
-
-        // ⚡ SIMPLIFIED EXIT LOGIC (user requirement):
-        // Position closes ONLY on:
-        //   1. Target Hit (using ORIGINAL target — trailing only adjusts display, never closes early)
-        //   2. Stop Loss Hit (using ORIGINAL stop loss — never auto-close from trailing-locked SL)
-        //   3. Market clearly unfavorable (sustained adverse movement while in loss)
-        // Removed: Profit Lock Hit, Profit Give-Back, Momentum Reversal, Time Stop.
-
         const baseTarget = Number(position.targetAmount ?? 0);
         const baseSL = Number(position.stopLossAmount ?? 0);
 
-        // 1) Target Hit — use original target only
-        if (!shouldExit && baseTarget > 0 && pnl >= baseTarget) {
+        if (!shouldExit && effectiveTarget > 0 && pnl >= effectiveTarget) {
           shouldExit = true;
-          exitReason = `Target Achieved (Target: ₹${baseTarget.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          exitReason = `Target Achieved (Target: ₹${effectiveTarget.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
         }
 
-        // 2) Stop Loss Hit — use original SL only (positive amount = max loss tolerated)
-        if (!shouldExit && baseSL > 0 && pnl <= -baseSL) {
+        if (!shouldExit && effectiveSL > 0 && pnl <= -effectiveSL) {
           shouldExit = true;
-          exitReason = `Stop Loss Hit (SL: ₹${baseSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
         }
 
-        // 3) Market Unfavorable — only when in real loss AND sustained adverse movement
-        //    Requires: pnl is meaningfully negative, history shows 5 consecutive down ticks,
-        //    and loss has reached at least 80% of original SL (so we never close prematurely
-        //    on small wiggles). If no SL set, requires absolute loss ≥ ₹150.
-        if (!shouldExit && pnl < 0 && _hist.length >= 6) {
-          const lastDiffs = _hist.slice(-5).map((h: any, i: number, arr: any[]) => i === 0 ? 0 : h.pnl - arr[i-1].pnl);
-          const allNeg = lastDiffs.slice(1).every((d: number) => d <= 0);
-          const lossThreshold = baseSL > 0 ? baseSL * 0.8 : 150;
-          if (allNeg && pnl <= -lossThreshold) {
+        if (!shouldExit && effectiveSL <= 0 && position.trailingEnabled) {
+          const lockedProfit = Math.abs(effectiveSL);
+          if (pnl <= lockedProfit) {
             shouldExit = true;
-            exitReason = `Market Unfavorable (5 ticks down, P&L ₹${pnl.toFixed(2)})`;
+            exitReason = `Trailing Stop Loss Hit (Locked: ₹${lockedProfit.toFixed(2)}, Current: ₹${pnl.toFixed(2)}, Peak: ₹${(position.highestPnl || 0).toFixed(2)})`;
           }
         }
 
-        (position as any).monitorDecision = shouldExit ? 'EXIT' : (marketFavorable ? 'HOLD' : 'WATCH');
+        if (!shouldExit && signalShouldExit) {
+          shouldExit = true;
+          exitReason = signalExitReason;
+        }
+
+        (position as any).monitorDecision = shouldExit ? 'EXIT' : monitorDecision;
         
         if (shouldExit) {
           console.log(`\n🚪 EXIT TRIGGERED: ${exitReason}`);
