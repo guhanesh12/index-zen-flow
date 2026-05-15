@@ -11640,13 +11640,15 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
     }
     const url = `${DHAN_AUTH_BASE}/app/consumeApp-consent?tokenId=${encodeURIComponent(tokenId)}`;
     const resp = await fetch(url, {
-      method: "POST",
+      method: "GET",
       headers: { app_id: row.api_key, app_secret: row.api_secret },
     });
-    const data = await resp.json().catch(() => ({}));
+    const rawText = await resp.text();
+    const data = rawText ? (() => { try { return JSON.parse(rawText); } catch { return {}; } })() : {};
     if (!resp.ok || !data?.accessToken) {
-      await upsertBrokerRow(user.id, { last_token_id: tokenId, last_status: "consume_failed", last_error: JSON.stringify(data).slice(0, 500) });
-      return c.json({ success: false, error: data?.message || `Dhan returned ${resp.status}`, raw: data }, 400);
+      const errorPayload = rawText || JSON.stringify(data) || `HTTP ${resp.status}`;
+      await upsertBrokerRow(user.id, { last_token_id: tokenId, last_status: "consume_failed", last_error: errorPayload.slice(0, 500) });
+      return c.json({ success: false, error: data?.message || data?.errorMessage || `Dhan returned ${resp.status}`, raw: data || rawText }, 400);
     }
     const updated = await upsertBrokerRow(user.id, {
       access_token: data.accessToken,
