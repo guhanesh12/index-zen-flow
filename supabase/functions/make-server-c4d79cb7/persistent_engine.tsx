@@ -1928,7 +1928,7 @@ class PersistentTradingEngine {
 
       const targetOptionType = action === 'BUY_CALL' ? 'CE' : action === 'BUY_PUT' ? 'PE' : normalizeOptionType(symbol.optionType || symbol.option_type);
       const currentPrice = Number(aiSignal?.signal?.riskManagement?.suggestedEntry || aiSignal?.signal?.price || aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close || 0);
-      const strikeStep = normalizedIndex === 'BANKNIFTY' ? 100 : 50;
+      const strikeStep = getStrikeStep(normalizedIndex);
       const derivedStrike = currentPrice > 0 ? Math.round(currentPrice / strikeStep) * strikeStep : null;
 
       await supabaseAdmin
