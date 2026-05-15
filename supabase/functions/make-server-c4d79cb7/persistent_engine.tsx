@@ -1393,10 +1393,11 @@ class PersistentTradingEngine {
       const activeDbPositions: any[] = [];
       const duplicateIds: string[] = [];
       for (const dbPos of sortedDbPositions) {
-        const key = getStrikeOptionKey({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id });
-        if (key && seenPositionKeys.has(key)) duplicateIds.push(dbPos.id);
+        const keys = getComparablePositionKeys({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id });
+        const isDuplicate = Array.from(keys).some((key) => seenPositionKeys.has(key));
+        if (keys.size > 0 && isDuplicate) duplicateIds.push(dbPos.id);
         else {
-          if (key) seenPositionKeys.add(key);
+          keys.forEach((key) => seenPositionKeys.add(key));
           activeDbPositions.push(dbPos);
         }
       }
@@ -1414,12 +1415,14 @@ class PersistentTradingEngine {
 
       for (const dbPos of activeDbPositions) {
         const existing = state.activePositions.find((p: any) => p.orderId === dbPos.order_id);
-        const symbolCfg = findSymbolConfigForPosition({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id }, userSymbolConfigs);
-        const targetAmount = numeric(symbolCfg?.targetAmount, numeric(dbPos.target_amount));
-        const stopLossAmount = numeric(symbolCfg?.stopLossAmount, numeric(dbPos.stop_loss_amount));
-        const trailingActivationAmount = numeric(symbolCfg?.trailingActivationAmount, numeric(dbPos.raw_position?.trailingActivationAmount ?? dbPos.raw_position?.trailing_activation_amount));
-        const targetJumpAmount = numeric(symbolCfg?.targetJumpAmount, numeric(dbPos.raw_position?.targetJumpAmount ?? dbPos.raw_position?.target_jump_amount));
-        const stopLossJumpAmount = numeric(symbolCfg?.stopLossJumpAmount, numeric(dbPos.raw_position?.stopLossJumpAmount ?? dbPos.raw_position?.stop_loss_jump_amount ?? dbPos.trailing_step));
+        const rawPosition = dbPos.raw_position || {};
+        const symbolCfg = findSymbolConfigForPosition({ ...rawPosition, symbol: dbPos.symbol, securityId: dbPos.symbol_id }, userSymbolConfigs);
+        const manualRiskEdit = !!rawPosition.manualEditAt;
+        const targetAmount = manualRiskEdit ? numeric(rawPosition.targetAmount, numeric(dbPos.target_amount)) : numeric(symbolCfg?.targetAmount, numeric(dbPos.target_amount));
+        const stopLossAmount = manualRiskEdit ? numeric(rawPosition.stopLossAmount, numeric(dbPos.stop_loss_amount)) : numeric(symbolCfg?.stopLossAmount, numeric(dbPos.stop_loss_amount));
+        const trailingActivationAmount = numeric(symbolCfg?.trailingActivationAmount, numeric(rawPosition.trailingActivationAmount ?? rawPosition.trailing_activation_amount));
+        const targetJumpAmount = numeric(symbolCfg?.targetJumpAmount, numeric(rawPosition.targetJumpAmount ?? rawPosition.target_jump_amount));
+        const stopLossJumpAmount = numeric(symbolCfg?.stopLossJumpAmount, numeric(rawPosition.stopLossJumpAmount ?? rawPosition.stop_loss_jump_amount ?? dbPos.trailing_step));
         const trailingEnabled = symbolCfg ? !!symbolCfg.trailingEnabled : !!dbPos.trailing_enabled;
         const dbState = {
             orderId: dbPos.order_id,
