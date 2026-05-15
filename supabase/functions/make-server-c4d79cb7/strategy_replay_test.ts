@@ -20,7 +20,7 @@ function fmtIST(iso: string) {
 }
 
 Deno.test({
-  name: "replay today's candles through current strategy",
+  name: "replay today candles through current strategy",
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
