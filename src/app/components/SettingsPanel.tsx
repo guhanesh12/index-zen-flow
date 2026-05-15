@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
+import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
 interface SettingsPanelProps {
@@ -445,6 +447,24 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   };
 
   return (
+    <Tabs defaultValue="oauth" className="space-y-4">
+      <TabsList className="grid grid-cols-2 bg-zinc-900 border border-zinc-800">
+        <TabsTrigger value="oauth">API Key &amp; Secret (12 months)</TabsTrigger>
+        <TabsTrigger value="token">Daily Access Token</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="oauth">
+        <BrokerOAuthConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+          }}
+        />
+      </TabsContent>
+
+      <TabsContent value="token">
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -910,5 +930,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         </DialogContent>
       </Dialog>
     </Card>
+      </TabsContent>
+    </Tabs>
   );
 }
