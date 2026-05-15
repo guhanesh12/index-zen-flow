@@ -136,6 +136,20 @@ function getSymbolDisplayName(symbol: any): string {
   return symbol?.symbolName || symbol?.name || symbol?.symbol_name || symbol?.displayName || 'UNKNOWN';
 }
 
+function extractStrikePrice(value: any): number | null {
+  const direct = numeric(value?.strikePrice ?? value?.strike_price ?? value?.strike ?? value?.raw_data?.strikePrice ?? value?.raw_data?.strike_price, NaN);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+
+  const compactSymbol = getPositionSymbol(value);
+  const match = compactSymbol.match(/(\d{4,6})(?=(CE|PE)$)/);
+  const parsed = match?.[1] ? Number(match[1]) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getStrikeStep(indexName: SupportedIndex): number {
+  return indexName === 'BANKNIFTY' || indexName === 'SENSEX' ? 100 : 50;
+}
+
 async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
   try {
     const { data, error } = await supabaseAdmin
