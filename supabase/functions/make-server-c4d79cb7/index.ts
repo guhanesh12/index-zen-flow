@@ -459,7 +459,57 @@ app.get("/make-server-c4d79cb7/health", (c) => {
   });
 });
 
-// ==================== TESTING ROUTES (FOR MARKET CLOSED) ====================
+// 🔁 Replay today's signals through CURRENT strategy (admin-only diagnostic)
+app.get("/make-server-c4d79cb7/admin/replay-strategy-today", async (c) => {
+  try {
+    const today = new Date(); today.setUTCHours(0,0,0,0);
+    const url = `${Deno.env.get('SUPABASE_URL')}/rest/v1/trading_signals?select=created_at,index_name,signal_type,price,raw_data&created_at=gte.${today.toISOString()}&order=created_at.asc`;
+    const res = await fetch(url, { headers: { apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!}` } });
+    const rows: any[] = await res.json();
+    const seen = new Set<string>();
+    const unique: any[] = [];
+    for (const r of rows) {
+      const ist = new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(r.created_at));
+      const k = `${r.index_name}-${ist}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if (r.raw_data?.ohlcData?.length) unique.push({ ...r, ist });
+    }
+    const results = unique.map((r:any) => {
+      const ohlc = r.raw_data.ohlcData;
+      const sig = AdvancedAI.generateAdvancedSignal(ohlc, 100000);
+      return {
+        time: r.ist,
+        index: r.index_name,
+        spot: ohlc[ohlc.length-1].close,
+        candles: ohlc.length,
+        old_signal: r.signal_type,
+        new_action: sig.action,
+        new_confidence: sig.confidence,
+        bias: sig.bias,
+        regime: sig.marketRegime.type,
+        confirms: `${sig.confirmations.total}/${sig.confirmations.required}`,
+        rsi: +sig.indicators.rsi.toFixed(1),
+        adx: +sig.indicators.adx.toFixed(1),
+        ema9: +sig.indicators.ema9.toFixed(2),
+        ema21: +sig.indicators.ema21.toFixed(2),
+        target: sig.riskManagement.suggestedTarget,
+        sl: sig.riskManagement.suggestedStopLoss,
+        rr: sig.riskManagement.riskRewardRatio,
+      };
+    });
+    const oldCounts: Record<string,number> = {}, newCounts: Record<string,number> = {};
+    let agree = 0;
+    for (const r of results) {
+      oldCounts[r.old_signal] = (oldCounts[r.old_signal]||0)+1;
+      newCounts[r.new_action] = (newCounts[r.new_action]||0)+1;
+      if (r.old_signal === r.new_action) agree++;
+    }
+    return c.json({ total: results.length, oldCounts, newCounts, agreementPct: results.length ? +(agree*100/results.length).toFixed(1) : 0, results });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
 
 /**
  * 🧪 Test Static IP Integration (No Real Order)
