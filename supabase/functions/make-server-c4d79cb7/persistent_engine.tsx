@@ -110,13 +110,35 @@ function getStrikeOptionKey(value: any): string {
   return symbol ? `SYM:${symbol}` : '';
 }
 
+function getComparablePositionKeys(value: any): Set<string> {
+  const keys = new Set<string>();
+  const sid = getSecurityId(value);
+  const symbol = getPositionSymbol(value);
+  const option = normalizeOptionType(value?.optionType || value?.option_type || symbol);
+  const index = normalizeIndexName(value);
+  const strike = extractStrikePrice(value);
+
+  if (sid) keys.add(`SID:${sid}`);
+  if (symbol) keys.add(`SYM:${symbol}`);
+  if (index && option && strike) keys.add(`OPT:${index}:${strike}:${option}`);
+
+  return keys;
+}
+
+function hasAnyPositionKeyOverlap(a: any, b: any): boolean {
+  const aKeys = getComparablePositionKeys(a);
+  const bKeys = getComparablePositionKeys(b);
+  for (const key of aKeys) {
+    if (bKeys.has(key)) return true;
+  }
+  return false;
+}
+
 function positionsMatch(a: any, b: any): boolean {
   const aSid = getSecurityId(a);
   const bSid = getSecurityId(b);
   if (aSid && bSid && aSid === bSid) return true;
-  const aKey = getStrikeOptionKey(a);
-  const bKey = getStrikeOptionKey(b);
-  return !!aKey && !!bKey && aKey === bKey;
+  return hasAnyPositionKeyOverlap(a, b);
 }
 
 function findSymbolConfigForPosition(position: any, symbols: any[]): any | null {
@@ -611,7 +633,10 @@ class PersistentTradingEngine {
               .select('symbol, symbol_id, raw_position')
               .eq('user_id', userId)
               .eq('is_active', true);
-            const trackedKeys = new Set((tracked || []).map((t: any) => getStrikeOptionKey({ ...t.raw_position, symbol: t.symbol, securityId: t.symbol_id })));
+            const trackedKeys = new Set<string>();
+            for (const t of tracked || []) {
+              getComparablePositionKeys({ ...t.raw_position, symbol: t.symbol, securityId: t.symbol_id }).forEach((key) => trackedKeys.add(key));
+            }
 
             // Load user-configured symbols (target/SL/trailing settings) from user_symbols
             const userConfiguredSymbols = await loadUserSymbolsFromDB(userId);
@@ -619,8 +644,8 @@ class PersistentTradingEngine {
             for (const pos of openPositions) {
               const sym = pos.tradingSymbol || pos.symbol || '';
               const sid = String(pos.securityId || '');
-              const key = getStrikeOptionKey({ ...pos, symbol: sym, securityId: sid });
-              if (!sym || trackedKeys.has(key)) continue;
+              const keys = getComparablePositionKeys({ ...pos, symbol: sym, securityId: sid });
+              if (!sym || Array.from(keys).some((key) => trackedKeys.has(key))) continue;
 
               const qty = Math.abs(Number(pos.netQty || 1));
               const entry = parseFloat(pos.buyAvg || pos.avgPrice || pos.costPrice || 0);
@@ -636,7 +661,7 @@ class PersistentTradingEngine {
               const cfgTrailingEnabled = !!cfg.trailingEnabled;
               const cfgTrailingStep = Number(cfg.stopLossJumpAmount ?? cfg.trailingStep ?? 0);
 
-              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || key || sym}`;
+              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || Array.from(keys)[0] || sym}`;
 
               await supabaseAdmin
                 .from('position_monitor_state')
@@ -668,7 +693,7 @@ class PersistentTradingEngine {
                   },
                 }, { onConflict: 'user_id,order_id' });
 
-              if (key) trackedKeys.add(key);
+              keys.forEach((key) => trackedKeys.add(key));
 
               console.log(`📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss})`);
             }
@@ -1371,10 +1396,11 @@ class PersistentTradingEngine {
       const activeDbPositions: any[] = [];
       const duplicateIds: string[] = [];
       for (const dbPos of sortedDbPositions) {
-        const key = getStrikeOptionKey({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id });
-        if (key && seenPositionKeys.has(key)) duplicateIds.push(dbPos.id);
+        const keys = getComparablePositionKeys({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id });
+        const isDuplicate = Array.from(keys).some((key) => seenPositionKeys.has(key));
+        if (keys.size > 0 && isDuplicate) duplicateIds.push(dbPos.id);
         else {
-          if (key) seenPositionKeys.add(key);
+          keys.forEach((key) => seenPositionKeys.add(key));
           activeDbPositions.push(dbPos);
         }
       }
@@ -1392,12 +1418,14 @@ class PersistentTradingEngine {
 
       for (const dbPos of activeDbPositions) {
         const existing = state.activePositions.find((p: any) => p.orderId === dbPos.order_id);
-        const symbolCfg = findSymbolConfigForPosition({ ...dbPos.raw_position, symbol: dbPos.symbol, securityId: dbPos.symbol_id }, userSymbolConfigs);
-        const targetAmount = numeric(symbolCfg?.targetAmount, numeric(dbPos.target_amount));
-        const stopLossAmount = numeric(symbolCfg?.stopLossAmount, numeric(dbPos.stop_loss_amount));
-        const trailingActivationAmount = numeric(symbolCfg?.trailingActivationAmount, numeric(dbPos.raw_position?.trailingActivationAmount ?? dbPos.raw_position?.trailing_activation_amount));
-        const targetJumpAmount = numeric(symbolCfg?.targetJumpAmount, numeric(dbPos.raw_position?.targetJumpAmount ?? dbPos.raw_position?.target_jump_amount));
-        const stopLossJumpAmount = numeric(symbolCfg?.stopLossJumpAmount, numeric(dbPos.raw_position?.stopLossJumpAmount ?? dbPos.raw_position?.stop_loss_jump_amount ?? dbPos.trailing_step));
+        const rawPosition = dbPos.raw_position || {};
+        const symbolCfg = findSymbolConfigForPosition({ ...rawPosition, symbol: dbPos.symbol, securityId: dbPos.symbol_id }, userSymbolConfigs);
+        const manualRiskEdit = !!rawPosition.manualEditAt;
+        const targetAmount = manualRiskEdit ? numeric(rawPosition.targetAmount, numeric(dbPos.target_amount)) : numeric(symbolCfg?.targetAmount, numeric(dbPos.target_amount));
+        const stopLossAmount = manualRiskEdit ? numeric(rawPosition.stopLossAmount, numeric(dbPos.stop_loss_amount)) : numeric(symbolCfg?.stopLossAmount, numeric(dbPos.stop_loss_amount));
+        const trailingActivationAmount = numeric(symbolCfg?.trailingActivationAmount, numeric(rawPosition.trailingActivationAmount ?? rawPosition.trailing_activation_amount));
+        const targetJumpAmount = numeric(symbolCfg?.targetJumpAmount, numeric(rawPosition.targetJumpAmount ?? rawPosition.target_jump_amount));
+        const stopLossJumpAmount = numeric(symbolCfg?.stopLossJumpAmount, numeric(rawPosition.stopLossJumpAmount ?? rawPosition.stop_loss_jump_amount ?? dbPos.trailing_step));
         const trailingEnabled = symbolCfg ? !!symbolCfg.trailingEnabled : !!dbPos.trailing_enabled;
         const dbState = {
             orderId: dbPos.order_id,
@@ -1445,6 +1473,21 @@ class PersistentTradingEngine {
     try {
       // Fetch fresh positions from Dhan
       const dhanPositions = await dhanService.getPositions();
+      const monitorSignalCache = new Map<string, any>();
+      const getMonitorSignal = async (indexName: SupportedIndex) => {
+        if (monitorSignalCache.has(indexName)) return monitorSignalCache.get(indexName);
+        const securityIdMap: Record<string, string> = { NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' };
+        try {
+          const ohlcData = await dhanService.getOHLCData(securityIdMap[indexName], String(state.candleInterval || '5'), 50);
+          const signal = ohlcData && ohlcData.length > 0 ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000) : null;
+          monitorSignalCache.set(indexName, signal);
+          return signal;
+        } catch (err: any) {
+          console.error(`❌ Monitor AI signal failed for ${indexName}:`, err?.message || err);
+          monitorSignalCache.set(indexName, null);
+          return null;
+        }
+      };
       
       for (const position of state.activePositions) {
         if (position.status !== 'ACTIVE') continue;
@@ -1613,10 +1656,59 @@ class PersistentTradingEngine {
         const giveBack = Math.max(0, (position.highestPnl || 0) - pnl);
         const giveBackPct = position.highestPnl > 0 ? (giveBack / position.highestPnl) * 100 : 0;
         const heldMinutes = position.entryTime ? (_now - position.entryTime) / 60000 : 0;
-        const marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
+        let marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
         (position as any).momentumScore = Number(momentumScore.toFixed(2));
         (position as any).giveBackPct = Number(giveBackPct.toFixed(1));
         (position as any).heldMinutes = Number(heldMinutes.toFixed(1));
+        (position as any).marketFavorable = marketFavorable;
+
+        // ⚡ Same Engaged engine monitor confirmation: fetch fresh AI signal and exit strong reversal.
+        const monitorIndex = normalizeIndexName(position);
+        const currentSignal = await getMonitorSignal(monitorIndex);
+        const indicators = currentSignal?.indicators || {};
+        let signalShouldExit = false;
+        let signalExitReason = '';
+        let monitorDecision: 'HOLD' | 'WATCH' | 'EXIT' = marketFavorable ? 'HOLD' : 'WATCH';
+        let monitorReasoning = `⏳ Monitoring P&L ₹${pnl.toFixed(2)}`;
+        let marketMomentum: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+        let momentumStrength = 0;
+
+        if (currentSignal) {
+          const trendDirection = Number(indicators.ema9 || 0) > Number(indicators.ema21 || 0) ? 'BULLISH' : 'BEARISH';
+          const rsiStrength = Number(indicators.rsi || 50) > 50 ? 'BULLISH' : 'BEARISH';
+          const macdStrength = indicators.macdBullish ? 'BULLISH' : 'BEARISH';
+          let bullishCount = 0;
+          let bearishCount = 0;
+          if (trendDirection === 'BULLISH') bullishCount++; else bearishCount++;
+          if (indicators.priceAboveVWAP) bullishCount++; else bearishCount++;
+          if (rsiStrength === 'BULLISH') bullishCount++; else bearishCount++;
+          if (macdStrength === 'BULLISH') bullishCount++; else bearishCount++;
+          if (currentSignal.volumeAnalysis?.orderFlow === 'BULLISH') bullishCount++;
+          if (currentSignal.volumeAnalysis?.orderFlow === 'BEARISH') bearishCount++;
+          marketMomentum = bullishCount > bearishCount ? 'BULLISH' : bearishCount > bullishCount ? 'BEARISH' : 'NEUTRAL';
+          momentumStrength = Math.max(bullishCount, bearishCount);
+          const positionDirection = normalizeOptionType(position.optionType || position.symbolName) === 'CE' ? 'BULLISH' : 'BEARISH';
+          const isAlignedWithMarket = positionDirection === marketMomentum;
+          marketFavorable = isAlignedWithMarket && momentumStrength >= 3;
+
+          if (
+            (normalizeOptionType(position.optionType || position.symbolName) === 'CE' && currentSignal.action === 'BUY_PUT' && Number(currentSignal.confidence || 0) >= 90) ||
+            (normalizeOptionType(position.optionType || position.symbolName) === 'PE' && currentSignal.action === 'BUY_CALL' && Number(currentSignal.confidence || 0) >= 90)
+          ) {
+            signalShouldExit = true;
+            signalExitReason = `Strong Market Reversal (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence)`;
+          } else if (!isAlignedWithMarket && pnl < -200) {
+            signalShouldExit = true;
+            signalExitReason = `Market Not Favorable (${marketMomentum} against ${positionDirection}, P&L ₹${pnl.toFixed(2)})`;
+          } else if (isAlignedWithMarket && momentumStrength >= 3) {
+            monitorReasoning = `✅ HOLD - ${marketMomentum} momentum matches ${positionDirection} position (${momentumStrength}/6 confirmations)`;
+          } else {
+            monitorReasoning = `⚠️ WATCH - Market ${marketMomentum}, AI ${currentSignal.action} (${currentSignal.confidence || 0}%), P&L ₹${pnl.toFixed(2)}`;
+          }
+          monitorDecision = signalShouldExit ? 'EXIT' : marketFavorable ? 'HOLD' : 'WATCH';
+        }
+
+        (position as any).monitorDecision = monitorDecision;
         (position as any).marketFavorable = marketFavorable;
 
         // ⚡ Update position in DB (also persist entry_price the first time we see it)
@@ -1659,51 +1751,39 @@ class PersistentTradingEngine {
 
         // (momentumScore / giveBackPct / heldMinutes / marketFavorable already computed above)
 
-        // ⚡ Check exit conditions using RATCHETED current target/SL (trailing ladder)
+        // ⚡ Check exit conditions using Engaged engine order: Target/SL first, then strong reversal.
         let shouldExit = false;
         let exitReason = '';
 
-        // Use ratcheted values if trailing is enabled and has ratcheted, else base
         const effectiveTarget = Number(position.currentTargetAmount ?? position.targetAmount ?? 0);
         const effectiveSL = Number(position.currentStopLossAmount ?? position.stopLossAmount ?? 0);
-
-        // ⚡ SIMPLIFIED EXIT LOGIC (user requirement):
-        // Position closes ONLY on:
-        //   1. Target Hit (using ORIGINAL target — trailing only adjusts display, never closes early)
-        //   2. Stop Loss Hit (using ORIGINAL stop loss — never auto-close from trailing-locked SL)
-        //   3. Market clearly unfavorable (sustained adverse movement while in loss)
-        // Removed: Profit Lock Hit, Profit Give-Back, Momentum Reversal, Time Stop.
-
         const baseTarget = Number(position.targetAmount ?? 0);
         const baseSL = Number(position.stopLossAmount ?? 0);
 
-        // 1) Target Hit — use original target only
-        if (!shouldExit && baseTarget > 0 && pnl >= baseTarget) {
+        if (!shouldExit && effectiveTarget > 0 && pnl >= effectiveTarget) {
           shouldExit = true;
-          exitReason = `Target Achieved (Target: ₹${baseTarget.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          exitReason = `Target Achieved (Target: ₹${effectiveTarget.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
         }
 
-        // 2) Stop Loss Hit — use original SL only (positive amount = max loss tolerated)
-        if (!shouldExit && baseSL > 0 && pnl <= -baseSL) {
+        if (!shouldExit && effectiveSL > 0 && pnl <= -effectiveSL) {
           shouldExit = true;
-          exitReason = `Stop Loss Hit (SL: ₹${baseSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
         }
 
-        // 3) Market Unfavorable — only when in real loss AND sustained adverse movement
-        //    Requires: pnl is meaningfully negative, history shows 5 consecutive down ticks,
-        //    and loss has reached at least 80% of original SL (so we never close prematurely
-        //    on small wiggles). If no SL set, requires absolute loss ≥ ₹150.
-        if (!shouldExit && pnl < 0 && _hist.length >= 6) {
-          const lastDiffs = _hist.slice(-5).map((h: any, i: number, arr: any[]) => i === 0 ? 0 : h.pnl - arr[i-1].pnl);
-          const allNeg = lastDiffs.slice(1).every((d: number) => d <= 0);
-          const lossThreshold = baseSL > 0 ? baseSL * 0.8 : 150;
-          if (allNeg && pnl <= -lossThreshold) {
+        if (!shouldExit && effectiveSL <= 0 && position.trailingEnabled) {
+          const lockedProfit = Math.abs(effectiveSL);
+          if (pnl <= lockedProfit) {
             shouldExit = true;
-            exitReason = `Market Unfavorable (5 ticks down, P&L ₹${pnl.toFixed(2)})`;
+            exitReason = `Trailing Stop Loss Hit (Locked: ₹${lockedProfit.toFixed(2)}, Current: ₹${pnl.toFixed(2)}, Peak: ₹${(position.highestPnl || 0).toFixed(2)})`;
           }
         }
 
-        (position as any).monitorDecision = shouldExit ? 'EXIT' : (marketFavorable ? 'HOLD' : 'WATCH');
+        if (!shouldExit && signalShouldExit) {
+          shouldExit = true;
+          exitReason = signalExitReason;
+        }
+
+        (position as any).monitorDecision = shouldExit ? 'EXIT' : monitorDecision;
         
         if (shouldExit) {
           console.log(`\n🚪 EXIT TRIGGERED: ${exitReason}`);
