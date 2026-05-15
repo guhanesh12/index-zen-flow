@@ -930,5 +930,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         </DialogContent>
       </Dialog>
     </Card>
+      </TabsContent>
+    </Tabs>
   );
 }
