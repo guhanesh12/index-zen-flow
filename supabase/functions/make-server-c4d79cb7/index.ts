@@ -11480,6 +11480,36 @@ function sanitizeBrokerRow(row: any) {
   return { ...safe, api_secret_set: !!api_secret };
 }
 
+function legacyTokenExpiryIso(credentials: any) {
+  const updatedAt = credentials?.tokenUpdatedAt ? new Date(credentials.tokenUpdatedAt) : new Date();
+  const base = Number.isFinite(updatedAt.getTime()) ? updatedAt : new Date();
+  base.setHours(base.getHours() + 24);
+  return base.toISOString();
+}
+
+async function syncLegacyAccessTokenToBrokerRow(userId: string, row: any) {
+  const legacy = await kv.get(`api_credentials:${userId}`) as any;
+  const legacyClientId = String(legacy?.dhanClientId || "").trim();
+  const legacyAccessToken = String(legacy?.dhanAccessToken || "").trim();
+  if (!legacyClientId || !legacyAccessToken) return row;
+
+  const existingTokenActive = row?.access_token && row?.access_token_expiry && new Date(row.access_token_expiry).getTime() > Date.now();
+  if (existingTokenActive) return row;
+
+  const expiryIso = legacyTokenExpiryIso(legacy);
+  const tokenStillValid = new Date(expiryIso).getTime() > Date.now();
+  if (!tokenStillValid) return row;
+
+  return await upsertBrokerRow(userId, {
+    auth_method: row?.api_key ? row.auth_method || "api_key" : "access_token",
+    dhan_client_id: row?.dhan_client_id || legacyClientId,
+    access_token: legacyAccessToken,
+    access_token_expiry: expiryIso,
+    last_status: "connected",
+    last_error: null,
+  });
+}
+
 async function getBrokerRow(userId: string) {
   const { data, error } = await supabase
     .from("broker_credentials")
@@ -11522,7 +11552,8 @@ app.get("/make-server-c4d79cb7/broker/oauth/status", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
-    const row = await getBrokerRow(user.id);
+    let row = await getBrokerRow(user.id);
+    row = await syncLegacyAccessTokenToBrokerRow(user.id, row);
     return c.json({ success: true, credentials: sanitizeBrokerRow(row) });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
@@ -11609,13 +11640,15 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
     }
     const url = `${DHAN_AUTH_BASE}/app/consumeApp-consent?tokenId=${encodeURIComponent(tokenId)}`;
     const resp = await fetch(url, {
-      method: "POST",
+      method: "GET",
       headers: { app_id: row.api_key, app_secret: row.api_secret },
     });
-    const data = await resp.json().catch(() => ({}));
+    const rawText = await resp.text();
+    const data = rawText ? (() => { try { return JSON.parse(rawText); } catch { return {}; } })() : {};
     if (!resp.ok || !data?.accessToken) {
-      await upsertBrokerRow(user.id, { last_token_id: tokenId, last_status: "consume_failed", last_error: JSON.stringify(data).slice(0, 500) });
-      return c.json({ success: false, error: data?.message || `Dhan returned ${resp.status}`, raw: data }, 400);
+      const errorPayload = rawText || JSON.stringify(data) || `HTTP ${resp.status}`;
+      await upsertBrokerRow(user.id, { last_token_id: tokenId, last_status: "consume_failed", last_error: errorPayload.slice(0, 500) });
+      return c.json({ success: false, error: data?.message || data?.errorMessage || `Dhan returned ${resp.status}`, raw: data || rawText }, 400);
     }
     const updated = await upsertBrokerRow(user.id, {
       access_token: data.accessToken,
