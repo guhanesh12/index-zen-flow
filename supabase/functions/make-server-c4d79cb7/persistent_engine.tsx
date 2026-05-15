@@ -1473,6 +1473,21 @@ class PersistentTradingEngine {
     try {
       // Fetch fresh positions from Dhan
       const dhanPositions = await dhanService.getPositions();
+      const monitorSignalCache = new Map<string, any>();
+      const getMonitorSignal = async (indexName: SupportedIndex) => {
+        if (monitorSignalCache.has(indexName)) return monitorSignalCache.get(indexName);
+        const securityIdMap: Record<string, string> = { NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' };
+        try {
+          const ohlcData = await dhanService.getOHLCData(securityIdMap[indexName], String(state.candleInterval || '5'), 50);
+          const signal = ohlcData && ohlcData.length > 0 ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000) : null;
+          monitorSignalCache.set(indexName, signal);
+          return signal;
+        } catch (err: any) {
+          console.error(`❌ Monitor AI signal failed for ${indexName}:`, err?.message || err);
+          monitorSignalCache.set(indexName, null);
+          return null;
+        }
+      };
       
       for (const position of state.activePositions) {
         if (position.status !== 'ACTIVE') continue;
@@ -1641,10 +1656,59 @@ class PersistentTradingEngine {
         const giveBack = Math.max(0, (position.highestPnl || 0) - pnl);
         const giveBackPct = position.highestPnl > 0 ? (giveBack / position.highestPnl) * 100 : 0;
         const heldMinutes = position.entryTime ? (_now - position.entryTime) / 60000 : 0;
-        const marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
+        let marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
         (position as any).momentumScore = Number(momentumScore.toFixed(2));
         (position as any).giveBackPct = Number(giveBackPct.toFixed(1));
         (position as any).heldMinutes = Number(heldMinutes.toFixed(1));
+        (position as any).marketFavorable = marketFavorable;
+
+        // ⚡ Same Engaged engine monitor confirmation: fetch fresh AI signal and exit strong reversal.
+        const monitorIndex = normalizeIndexName(position);
+        const currentSignal = await getMonitorSignal(monitorIndex);
+        const indicators = currentSignal?.indicators || {};
+        let signalShouldExit = false;
+        let signalExitReason = '';
+        let monitorDecision: 'HOLD' | 'WATCH' | 'EXIT' = marketFavorable ? 'HOLD' : 'WATCH';
+        let monitorReasoning = `⏳ Monitoring P&L ₹${pnl.toFixed(2)}`;
+        let marketMomentum: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+        let momentumStrength = 0;
+
+        if (currentSignal) {
+          const trendDirection = Number(indicators.ema9 || 0) > Number(indicators.ema21 || 0) ? 'BULLISH' : 'BEARISH';
+          const rsiStrength = Number(indicators.rsi || 50) > 50 ? 'BULLISH' : 'BEARISH';
+          const macdStrength = indicators.macdBullish ? 'BULLISH' : 'BEARISH';
+          let bullishCount = 0;
+          let bearishCount = 0;
+          if (trendDirection === 'BULLISH') bullishCount++; else bearishCount++;
+          if (indicators.priceAboveVWAP) bullishCount++; else bearishCount++;
+          if (rsiStrength === 'BULLISH') bullishCount++; else bearishCount++;
+          if (macdStrength === 'BULLISH') bullishCount++; else bearishCount++;
+          if (currentSignal.volumeAnalysis?.orderFlow === 'BULLISH') bullishCount++;
+          if (currentSignal.volumeAnalysis?.orderFlow === 'BEARISH') bearishCount++;
+          marketMomentum = bullishCount > bearishCount ? 'BULLISH' : bearishCount > bullishCount ? 'BEARISH' : 'NEUTRAL';
+          momentumStrength = Math.max(bullishCount, bearishCount);
+          const positionDirection = normalizeOptionType(position.optionType || position.symbolName) === 'CE' ? 'BULLISH' : 'BEARISH';
+          const isAlignedWithMarket = positionDirection === marketMomentum;
+          marketFavorable = isAlignedWithMarket && momentumStrength >= 3;
+
+          if (
+            (normalizeOptionType(position.optionType || position.symbolName) === 'CE' && currentSignal.action === 'BUY_PUT' && Number(currentSignal.confidence || 0) >= 90) ||
+            (normalizeOptionType(position.optionType || position.symbolName) === 'PE' && currentSignal.action === 'BUY_CALL' && Number(currentSignal.confidence || 0) >= 90)
+          ) {
+            signalShouldExit = true;
+            signalExitReason = `Strong Market Reversal (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence)`;
+          } else if (!isAlignedWithMarket && pnl < -200) {
+            signalShouldExit = true;
+            signalExitReason = `Market Not Favorable (${marketMomentum} against ${positionDirection}, P&L ₹${pnl.toFixed(2)})`;
+          } else if (isAlignedWithMarket && momentumStrength >= 3) {
+            monitorReasoning = `✅ HOLD - ${marketMomentum} momentum matches ${positionDirection} position (${momentumStrength}/6 confirmations)`;
+          } else {
+            monitorReasoning = `⚠️ WATCH - Market ${marketMomentum}, AI ${currentSignal.action} (${currentSignal.confidence || 0}%), P&L ₹${pnl.toFixed(2)}`;
+          }
+          monitorDecision = signalShouldExit ? 'EXIT' : marketFavorable ? 'HOLD' : 'WATCH';
+        }
+
+        (position as any).monitorDecision = monitorDecision;
         (position as any).marketFavorable = marketFavorable;
 
         // ⚡ Update position in DB (also persist entry_price the first time we see it)
