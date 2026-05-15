@@ -891,21 +891,26 @@ class PersistentTradingEngine {
       for (const indexName of allIndices) {
         try {
           console.log(`\n📊 Analyzing index: ${indexName}`);
-          
-          // ⚡ FIX: analyzeMarket signature is (indexSymbol, interval, accountBalance, dhanClientId, dhanAccessToken)
-          const aiSignal = await AdvancedAI.analyzeMarket(
-            indexName,
-            state.candleInterval,
-            100000,
-            dhanClientId,
-            dhanAccessToken
-          );
-          
+
+          // ⚡ Fetch OHLC candles from Dhan, then run AdvancedAI strategy directly
+          const securityIdMap: Record<string, string> = { NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' };
+          const securityId = securityIdMap[indexName] || '13';
+          let aiSignal: any = null;
+          try {
+            const dhanSvc = new DhanService({ clientId: dhanClientId, accessToken: dhanAccessToken });
+            const ohlcData = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
+            if (ohlcData && ohlcData.length > 0) {
+              const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000);
+              aiSignal = { signal: sig };
+            }
+          } catch (e) {
+            console.error(`❌ ${indexName} OHLC/AI error:`, (e as any)?.message || e);
+          }
+
           analyzedIndices.add(indexName);
-          
+
           if (!aiSignal || !aiSignal.signal) {
-            console.log(`⚠️ No signal generated for ${indexName} (analyzeMarket returned null)`);
-            // Save as WAIT instead of NONE when AI fails
+            console.log(`⚠️ No signal generated for ${indexName} (no OHLC data)`);
             const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
             await this.saveSignalToDB(userId, pseudoSymbol, { signal: { action: 'WAIT', confidence: 0, reasoning: 'AI analysis failed - no data' } });
             continue;
