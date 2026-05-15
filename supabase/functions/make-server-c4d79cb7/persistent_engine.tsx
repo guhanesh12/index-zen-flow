@@ -633,7 +633,10 @@ class PersistentTradingEngine {
               .select('symbol, symbol_id, raw_position')
               .eq('user_id', userId)
               .eq('is_active', true);
-            const trackedKeys = new Set((tracked || []).map((t: any) => getStrikeOptionKey({ ...t.raw_position, symbol: t.symbol, securityId: t.symbol_id })));
+            const trackedKeys = new Set<string>();
+            for (const t of tracked || []) {
+              getComparablePositionKeys({ ...t.raw_position, symbol: t.symbol, securityId: t.symbol_id }).forEach((key) => trackedKeys.add(key));
+            }
 
             // Load user-configured symbols (target/SL/trailing settings) from user_symbols
             const userConfiguredSymbols = await loadUserSymbolsFromDB(userId);
@@ -641,8 +644,8 @@ class PersistentTradingEngine {
             for (const pos of openPositions) {
               const sym = pos.tradingSymbol || pos.symbol || '';
               const sid = String(pos.securityId || '');
-              const key = getStrikeOptionKey({ ...pos, symbol: sym, securityId: sid });
-              if (!sym || trackedKeys.has(key)) continue;
+              const keys = getComparablePositionKeys({ ...pos, symbol: sym, securityId: sid });
+              if (!sym || Array.from(keys).some((key) => trackedKeys.has(key))) continue;
 
               const qty = Math.abs(Number(pos.netQty || 1));
               const entry = parseFloat(pos.buyAvg || pos.avgPrice || pos.costPrice || 0);
@@ -658,7 +661,7 @@ class PersistentTradingEngine {
               const cfgTrailingEnabled = !!cfg.trailingEnabled;
               const cfgTrailingStep = Number(cfg.stopLossJumpAmount ?? cfg.trailingStep ?? 0);
 
-              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || key || sym}`;
+              const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || Array.from(keys)[0] || sym}`;
 
               await supabaseAdmin
                 .from('position_monitor_state')
@@ -690,7 +693,7 @@ class PersistentTradingEngine {
                   },
                 }, { onConflict: 'user_id,order_id' });
 
-              if (key) trackedKeys.add(key);
+              keys.forEach((key) => trackedKeys.add(key));
 
               console.log(`📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss})`);
             }
