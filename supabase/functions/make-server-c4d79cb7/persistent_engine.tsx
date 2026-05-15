@@ -136,6 +136,20 @@ function getSymbolDisplayName(symbol: any): string {
   return symbol?.symbolName || symbol?.name || symbol?.symbol_name || symbol?.displayName || 'UNKNOWN';
 }
 
+function extractStrikePrice(value: any): number | null {
+  const direct = numeric(value?.strikePrice ?? value?.strike_price ?? value?.strike ?? value?.raw_data?.strikePrice ?? value?.raw_data?.strike_price, NaN);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+
+  const compactSymbol = getPositionSymbol(value);
+  const match = compactSymbol.match(/(\d{4,6})(?=(CE|PE)$)/);
+  const parsed = match?.[1] ? Number(match[1]) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getStrikeStep(indexName: SupportedIndex): number {
+  return indexName === 'BANKNIFTY' || indexName === 'SENSEX' ? 100 : 50;
+}
+
 async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
   try {
     const { data, error } = await supabaseAdmin
@@ -1031,6 +1045,14 @@ class PersistentTradingEngine {
             return true;
           });
 
+          const signalEntryPrice = Number(aiSignal?.signal?.riskManagement?.suggestedEntry || aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close || 0);
+          const strikeStep = getStrikeStep(indexName as SupportedIndex);
+          const signalAtmStrike = signalEntryPrice > 0 ? Math.round(signalEntryPrice / strikeStep) * strikeStep : null;
+          const strikeSafeSymbols = matchingSymbols.filter((s: any) => {
+            const symbolStrike = extractStrikePrice(s);
+            return !signalAtmStrike || !symbolStrike || Math.abs(symbolStrike - signalAtmStrike) <= strikeStep;
+          });
+
           console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`);
           if (matchingSymbols.length === 0) {
             console.log(`⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`, JSON.stringify(symbolsForIndex.map(s => ({ name: s.name, optionType: s.optionType || s.option_type, active: s.active, securityId: s.securityId || s.symbolId || s.symbol_id })), null, 2));
@@ -1051,9 +1073,24 @@ class PersistentTradingEngine {
                 })),
               }
             });
+          } else if (strikeSafeSymbols.length === 0) {
+            console.log(`🛑 ${indexName} ${action} skipped - selected ${targetOptionType} symbols are not near signal ATM strike ${signalAtmStrike}`);
+            await this.appendSharedLog(userId, {
+              type: 'WAIT',
+              timestamp: Date.now(),
+              message: `🛑 ${indexName} ${action} skipped — selected ${targetOptionType} strike is not near AI ATM strike ${signalAtmStrike || 'unknown'}`,
+              data: {
+                index: indexName,
+                action,
+                signalEntryPrice,
+                signalAtmStrike,
+                allowedDifference: strikeStep,
+                rejectedSymbols: matchingSymbols.map((s: any) => ({ name: getSymbolDisplayName(s), strike: extractStrikePrice(s), securityId: String(s.securityId || s.symbolId || s.symbol_id || '') })),
+              }
+            });
           }
           
-          for (const symbol of matchingSymbols) {
+          for (const symbol of strikeSafeSymbols) {
             const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
             const normalizedSymbolName = getSymbolDisplayName(symbol);
             const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);
@@ -1891,7 +1928,7 @@ class PersistentTradingEngine {
 
       const targetOptionType = action === 'BUY_CALL' ? 'CE' : action === 'BUY_PUT' ? 'PE' : normalizeOptionType(symbol.optionType || symbol.option_type);
       const currentPrice = Number(aiSignal?.signal?.riskManagement?.suggestedEntry || aiSignal?.signal?.price || aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close || 0);
-      const strikeStep = normalizedIndex === 'BANKNIFTY' ? 100 : 50;
+      const strikeStep = getStrikeStep(normalizedIndex);
       const derivedStrike = currentPrice > 0 ? Math.round(currentPrice / strikeStep) * strikeStep : null;
 
       await supabaseAdmin
