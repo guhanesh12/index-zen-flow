@@ -924,8 +924,15 @@ class PersistentTradingEngine {
           try {
             const dhanSvc = new DhanService({ clientId: dhanClientId, accessToken: dhanAccessToken });
             const ohlcData = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
+            const real15mData = state.candleInterval === '15' ? ohlcData : await dhanSvc.getOHLCData(securityId, '15', 80);
             if (ohlcData && ohlcData.length > 0) {
-              const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000);
+              const lastSignalTimestamp = await kv.get(`last_signal_ts:${userId}:${indexName}`) || 0;
+              const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
+                higherTimeframeData: real15mData,
+                timeframeMinutes: Number(state.candleInterval),
+                lastSignalTimestamp,
+                minimumBarsBetweenSignals: 3,
+              });
               aiSignal = { signal: sig };
             }
           } catch (e) {
