@@ -102,6 +102,21 @@ export interface AdvancedIndicators {
     level_100: number;  // 100%
   };
   nearFibLevel: boolean;
+
+  // ===== Institutional additions (optional, backward compatible) =====
+  rsiBullishDivergence?: boolean;
+  rsiBearishDivergence?: boolean;
+  bbSqueeze?: boolean;
+  bbExpansion?: boolean;
+  bbSqueezeBreakout?: 'BULL' | 'BEAR' | 'NONE';
+  ema9Slope?: number;     // % per bar
+  ema21Slope?: number;
+  ema50Slope?: number;
+  slopeBullish?: boolean;
+  slopeBearish?: boolean;
+  rangeExpansion?: boolean;
+  fibImpulse?: { swingHigh: number; swingLow: number; direction: 'UP' | 'DOWN' };
+  gap?: { type: 'GAP_UP' | 'GAP_DOWN' | 'NONE'; size: number; filled: boolean };
 }
 
 export interface CandlePattern {
@@ -175,6 +190,7 @@ export interface AdvancedSignal {
     positionSize: number;
     maxLoss: number;
     expectedProfit: number;
+    trailingStop?: { initial: number; trigger: number; trailDistance: number; breakeven: number };
   };
   
   // Market regime
@@ -183,7 +199,22 @@ export interface AdvancedSignal {
     strength: number;       // 0-100
     suitable_for_trading: boolean;
   };
-  
+
+  // ===== Institutional additions (optional, backward compatible) =====
+  marketStructure?: {
+    type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE';
+    bos: 'BULL' | 'BEAR' | 'NONE';
+    choch: 'BULL' | 'BEAR' | 'NONE';
+    lastSwingHigh?: number;
+    lastSwingLow?: number;
+  };
+  smartMoneyBias?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  liquidity?: {
+    buySideSweep: boolean;
+    sellSideSweep: boolean;
+    stopHunt: boolean;
+  };
+
   // Performance
   executionTime: number;
   calculationsPerformed: number;
@@ -874,7 +905,190 @@ export class AdvancedAI {
     if (last.close < ema9 && ema9 < ema21 && (ema21 <= ema50 || last.close < vwap) && adxExpanding) return 'bear';
     return 'neutral';
   }
-  
+
+  // ========================================
+  // ⚡ INSTITUTIONAL-GRADE HELPERS
+  // ========================================
+
+  /** RSI series for divergence detection */
+  private static rsiSeries(data: OHLCCandle[], period: number = 14): number[] {
+    if (data.length < period + 1) return [];
+    const out: number[] = new Array(period).fill(NaN);
+    let avgG = 0, avgL = 0;
+    for (let i = 1; i <= period; i++) {
+      const ch = data[i].close - data[i - 1].close;
+      if (ch > 0) avgG += ch; else avgL += -ch;
+    }
+    avgG /= period; avgL /= period;
+    out.push(avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL));
+    for (let i = period + 1; i < data.length; i++) {
+      const ch = data[i].close - data[i - 1].close;
+      const g = ch > 0 ? ch : 0;
+      const l = ch < 0 ? -ch : 0;
+      avgG = (avgG * (period - 1) + g) / period;
+      avgL = (avgL * (period - 1) + l) / period;
+      out.push(avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL));
+    }
+    return out;
+  }
+
+  /** Fractal pivot indexes */
+  private static findPivots(values: number[], left = 2, right = 2, type: 'high' | 'low' = 'high'): number[] {
+    const pivots: number[] = [];
+    for (let i = left; i < values.length - right; i++) {
+      let ok = true;
+      for (let j = i - left; j <= i + right; j++) {
+        if (j === i) continue;
+        if (type === 'high' && values[j] >= values[i]) { ok = false; break; }
+        if (type === 'low' && values[j] <= values[i]) { ok = false; break; }
+      }
+      if (ok) pivots.push(i);
+    }
+    return pivots;
+  }
+
+  /** Real RSI divergence using last two pivots */
+  private static detectRSIDivergence(data: OHLCCandle[], rsiArr: number[]): { bull: boolean; bear: boolean } {
+    if (data.length < 20 || rsiArr.length < 20) return { bull: false, bear: false };
+    const window = 25;
+    const slice = data.slice(-window);
+    const rsiSlice = rsiArr.slice(-window);
+    const lows = slice.map(c => c.low);
+    const highs = slice.map(c => c.high);
+    const lowPivots = this.findPivots(lows, 2, 2, 'low');
+    const highPivots = this.findPivots(highs, 2, 2, 'high');
+    let bull = false, bear = false;
+    if (lowPivots.length >= 2) {
+      const [a, b] = [lowPivots[lowPivots.length - 2], lowPivots[lowPivots.length - 1]];
+      if (lows[b] < lows[a] && !isNaN(rsiSlice[a]) && !isNaN(rsiSlice[b]) && rsiSlice[b] > rsiSlice[a]) bull = true;
+    }
+    if (highPivots.length >= 2) {
+      const [a, b] = [highPivots[highPivots.length - 2], highPivots[highPivots.length - 1]];
+      if (highs[b] > highs[a] && !isNaN(rsiSlice[a]) && !isNaN(rsiSlice[b]) && rsiSlice[b] < rsiSlice[a]) bear = true;
+    }
+    return { bull, bear };
+  }
+
+  /** EMA slope (% per bar over lookback) */
+  private static emaSlope(data: OHLCCandle[], period: number, lookback: number = 5): number {
+    if (data.length < period + lookback) return 0;
+    const now = this.calculateEMA(data, period);
+    const prev = this.calculateEMA(data.slice(0, -lookback), period);
+    if (prev === 0) return 0;
+    return ((now - prev) / prev) * 100 / lookback;
+  }
+
+  /** Last impulse leg for Fibonacci */
+  private static detectImpulseLeg(data: OHLCCandle[]): { swingHigh: number; swingLow: number; direction: 'UP' | 'DOWN' } {
+    const slice = data.slice(-50);
+    const highs = slice.map(c => c.high);
+    const lows = slice.map(c => c.low);
+    const hp = this.findPivots(highs, 2, 2, 'high');
+    const lp = this.findPivots(lows, 2, 2, 'low');
+    const lastHighIdx = hp.length ? hp[hp.length - 1] : highs.indexOf(Math.max(...highs));
+    const lastLowIdx = lp.length ? lp[lp.length - 1] : lows.indexOf(Math.min(...lows));
+    return {
+      swingHigh: highs[lastHighIdx],
+      swingLow: lows[lastLowIdx],
+      direction: lastHighIdx > lastLowIdx ? 'UP' : 'DOWN',
+    };
+  }
+
+  /** Smart-money bias via delta approximation + absorption */
+  private static detectSmartMoney(data: OHLCCandle[]): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
+    const last20 = data.slice(-20);
+    let cumDelta = 0;
+    let absorptionBull = 0, absorptionBear = 0;
+    for (const c of last20) {
+      const range = c.high - c.low;
+      if (range <= 0) continue;
+      const closePos = (c.close - c.low) / range; // 0..1
+      const delta = (closePos - 0.5) * 2 * (c.volume || 0); // signed pressure
+      cumDelta += delta;
+      const body = Math.abs(c.close - c.open);
+      const bodyPct = body / range;
+      // Absorption: wide range, small body, high volume = big players defending a level
+      if (bodyPct < 0.3 && (c.volume || 0) > 0) {
+        if (closePos > 0.6) absorptionBull++;
+        if (closePos < 0.4) absorptionBear++;
+      }
+    }
+    const last = data[data.length - 1];
+    const body = Math.abs(last.close - last.open);
+    const range = last.high - last.low;
+    const imbalance = range > 0 ? body / range : 0;
+    const bullScore = (cumDelta > 0 ? 1 : 0) + absorptionBull + (imbalance > 0.7 && last.close > last.open ? 1 : 0);
+    const bearScore = (cumDelta < 0 ? 1 : 0) + absorptionBear + (imbalance > 0.7 && last.close < last.open ? 1 : 0);
+    if (bullScore >= 2 && bullScore > bearScore) return 'BULLISH';
+    if (bearScore >= 2 && bearScore > bullScore) return 'BEARISH';
+    return 'NEUTRAL';
+  }
+
+  /** BOS / CHoCH market structure */
+  private static detectMarketStructure(data: OHLCCandle[]): {
+    type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE';
+    bos: 'BULL' | 'BEAR' | 'NONE';
+    choch: 'BULL' | 'BEAR' | 'NONE';
+    lastSwingHigh?: number;
+    lastSwingLow?: number;
+  } {
+    const slice = data.slice(-60);
+    if (slice.length < 10) return { type: 'RANGE', bos: 'NONE', choch: 'NONE' };
+    const highs = slice.map(c => c.high);
+    const lows = slice.map(c => c.low);
+    const hp = this.findPivots(highs, 2, 2, 'high');
+    const lp = this.findPivots(lows, 2, 2, 'low');
+    if (hp.length < 2 || lp.length < 2) return { type: 'RANGE', bos: 'NONE', choch: 'NONE' };
+    const hh = highs[hp[hp.length - 1]] > highs[hp[hp.length - 2]];
+    const ll = lows[lp[lp.length - 1]] < lows[lp[lp.length - 2]];
+    const hl = lows[lp[lp.length - 1]] > lows[lp[lp.length - 2]];
+    const lh = highs[hp[hp.length - 1]] < highs[hp[hp.length - 2]];
+    const lastClose = slice[slice.length - 1].close;
+    const lastSwingHigh = highs[hp[hp.length - 1]];
+    const lastSwingLow = lows[lp[lp.length - 1]];
+    let bos: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
+    let choch: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
+    if (lastClose > lastSwingHigh && hh && hl) bos = 'BULL';
+    else if (lastClose < lastSwingLow && ll && lh) bos = 'BEAR';
+    // CHoCH: prior trend opposite + structure break
+    if (ll && lh && lastClose > lastSwingHigh) choch = 'BULL';
+    if (hh && hl && lastClose < lastSwingLow) choch = 'BEAR';
+    let type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE' = 'RANGE';
+    if (choch !== 'NONE') type = 'REVERSAL';
+    else if (hh && hl) type = 'UPTREND';
+    else if (ll && lh) type = 'DOWNTREND';
+    return { type, bos, choch, lastSwingHigh, lastSwingLow };
+  }
+
+  /** Liquidity sweep / stop hunt detection */
+  private static detectLiquiditySweep(data: OHLCCandle[]): { buySideSweep: boolean; sellSideSweep: boolean; stopHunt: boolean } {
+    if (data.length < 12) return { buySideSweep: false, sellSideSweep: false, stopHunt: false };
+    const last = data[data.length - 1];
+    const lookback = data.slice(-11, -1);
+    const priorHigh = Math.max(...lookback.map(c => c.high));
+    const priorLow = Math.min(...lookback.map(c => c.low));
+    const range = last.high - last.low;
+    const body = Math.abs(last.close - last.open);
+    const upperWick = last.high - Math.max(last.open, last.close);
+    const lowerWick = Math.min(last.open, last.close) - last.low;
+    const buySideSweep = last.high > priorHigh && last.close < priorHigh && upperWick > body * 1.5 && range > 0;
+    const sellSideSweep = last.low < priorLow && last.close > priorLow && lowerWick > body * 1.5 && range > 0;
+    return { buySideSweep, sellSideSweep, stopHunt: buySideSweep || sellSideSweep };
+  }
+
+  /** Gap detection at session open */
+  private static detectGap(data: OHLCCandle[]): { type: 'GAP_UP' | 'GAP_DOWN' | 'NONE'; size: number; filled: boolean } {
+    if (data.length < 2) return { type: 'NONE', size: 0, filled: false };
+    const last = data[data.length - 1];
+    const prev = data[data.length - 2];
+    const gap = last.open - prev.close;
+    const threshold = prev.close * 0.0015; // 0.15% gap
+    if (Math.abs(gap) < threshold) return { type: 'NONE', size: 0, filled: false };
+    const type: 'GAP_UP' | 'GAP_DOWN' = gap > 0 ? 'GAP_UP' : 'GAP_DOWN';
+    const filled = type === 'GAP_UP' ? last.low <= prev.close : last.high >= prev.close;
+    return { type, size: Math.abs(gap), filled };
+  }
+
   /**
    * ⚡⚡⚡ MAIN ADVANCED SIGNAL GENERATOR ⚡⚡⚡
    * 
@@ -906,11 +1120,13 @@ export class AdvancedAI {
     const priceAboveVWAP = lastCandle.close > vwap;
     calculationsPerformed += 1;
     
-    // RSI
+    // RSI + real divergence
     const rsi = this.calculateRSI(ohlcData);
+    const rsiArr = this.rsiSeries(ohlcData);
+    const rsiDivergenceObj = this.detectRSIDivergence(ohlcData, rsiArr);
     const rsiOverbought = rsi > 70;
     const rsiOversold = rsi < 30;
-    const rsiDivergence = false; // Simplified for now
+    const rsiDivergence = rsiDivergenceObj.bull || rsiDivergenceObj.bear;
     calculationsPerformed += 1;
     
     // MACD
@@ -922,11 +1138,20 @@ export class AdvancedAI {
     const macdHistogramExpandingBear = macdData.histogram < prevMacdData.histogram;
     calculationsPerformed += 1;
     
-    // Bollinger Bands
+    // Bollinger Bands — adaptive squeeze (ATR-normalized)
     const bollinger = this.calculateBollingerBands(ohlcData);
+    const prevBollinger = ohlcData.length > 25 ? this.calculateBollingerBands(ohlcData.slice(0, -1)) : bollinger;
     const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
     const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
-    const bollingerSqueeze = bollinger.width < 2;
+    // ATR-relative squeeze: width compared to recent volatility, not a fixed threshold
+    const atrPctTmp = this.calculateATR(ohlcData, 14) / Math.max(lastCandle.close, 1) * 100;
+    const squeezeThreshold = atrPctTmp * 1.5;
+    const bollingerSqueeze = bollinger.width < squeezeThreshold;
+    const bbExpansion = bollinger.width > prevBollinger.width * 1.15;
+    const bbSqueezeBreakout: 'BULL' | 'BEAR' | 'NONE' =
+      bbExpansion && lastCandle.close > bollinger.upper ? 'BULL'
+      : bbExpansion && lastCandle.close < bollinger.lower ? 'BEAR'
+      : 'NONE';
     calculationsPerformed += 1;
     
     // ATR
@@ -1004,7 +1229,34 @@ export class AdvancedAI {
     // Order Flow
     const orderFlow = this.analyzeOrderFlow(ohlcData);
     calculationsPerformed += 1;
-    
+
+    // ===== Institutional analytics =====
+    const ema9Slope = this.emaSlope(ohlcData, 9, 5);
+    const ema21Slope = this.emaSlope(ohlcData, 21, 5);
+    const ema50Slope = this.emaSlope(ohlcData, 50, 10);
+    const slopeMin = 0.02; // 0.02% per bar minimum to consider "directional"
+    const slopeBullish = ema9Slope > slopeMin && ema21Slope > slopeMin * 0.5;
+    const slopeBearish = ema9Slope < -slopeMin && ema21Slope < -slopeMin * 0.5;
+
+    const fibImpulse = this.detectImpulseLeg(ohlcData);
+    const smartMoneyBias = this.detectSmartMoney(ohlcData);
+    const marketStructure = this.detectMarketStructure(ohlcData);
+    const liquidity = this.detectLiquiditySweep(ohlcData);
+    const gap = this.detectGap(ohlcData);
+
+    // Range expansion: current candle range vs avg of last 5 (excluding current)
+    const prev5Ranges = ohlcData.slice(-6, -1).map(c => Math.max(0, c.high - c.low));
+    const avgPrev5Range = prev5Ranges.length ? prev5Ranges.reduce((a, b) => a + b, 0) / prev5Ranges.length : 0;
+    const currentRange = Math.max(0, lastCandle.high - lastCandle.low);
+    const rangeExpansion = avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.3;
+
+    // Volume normalization (session-time aware: morning vs afternoon)
+    const istNowForVol = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const istMinForVol = istNowForVol.getUTCHours() * 60 + istNowForVol.getUTCMinutes();
+    const isMorningSession = istMinForVol >= 9 * 60 + 15 && istMinForVol < 11 * 60;
+    const volumeAdjustment = isMorningSession ? 0.85 : 1.0; // morning naturally has higher volume
+    const adjustedVolumeRatio = volumeRatio * volumeAdjustment;
+
     // Combine all indicators
     const indicators: AdvancedIndicators = {
       ema9, ema21, ema50, ema200, sma20,
@@ -1025,7 +1277,18 @@ export class AdvancedAI {
       resistance_levels: { r1: resistance1, r2: resistance2, r3: resistance3 },
       support_levels: { s1: support1, s2: support2, s3: support3 },
       nearResistance, nearSupport,
-      fibLevels, nearFibLevel
+      fibLevels, nearFibLevel,
+      // institutional
+      rsiBullishDivergence: rsiDivergenceObj.bull,
+      rsiBearishDivergence: rsiDivergenceObj.bear,
+      bbSqueeze: bollingerSqueeze,
+      bbExpansion,
+      bbSqueezeBreakout,
+      ema9Slope, ema21Slope, ema50Slope,
+      slopeBullish, slopeBearish,
+      rangeExpansion,
+      fibImpulse,
+      gap,
     };
     
     // Market Regime
@@ -1299,6 +1562,14 @@ export class AdvancedAI {
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
 
+    // ATR trailing stop: move SL to BE after 1 ATR profit, trail by 1.5 ATR after that
+    const trailingStop = {
+      initial: suggestedStopLoss,
+      trigger: isBullish ? currentPrice + atr14 : currentPrice - atr14, // when price hits this, activate trail
+      trailDistance: atr14 * 1.5,
+      breakeven: currentPrice,
+    };
+
     const riskManagement = {
       suggestedEntry: currentPrice,
       suggestedTarget,
@@ -1306,7 +1577,8 @@ export class AdvancedAI {
       riskRewardRatio,
       positionSize,
       maxLoss,
-      expectedProfit
+      expectedProfit,
+      trailingStop,
     };
 
     // ========== FINAL DECISION ==========
@@ -1384,22 +1656,45 @@ export class AdvancedAI {
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [confirmations.macd, confirmations.adx, confirmations.rsi, confirmations.stochastic].filter(Boolean).length;
 
+    // ===== INSTITUTIONAL FILTERS =====
+    // 1) Liquidity sweep BLOCKS counter-direction entries (stop hunts → reversal incoming)
+    const liquidityBlocksBull = liquidity.buySideSweep; // upside sweep ⇒ avoid longs
+    const liquidityBlocksBear = liquidity.sellSideSweep; // downside sweep ⇒ avoid shorts
+    // 2) Range expansion required for breakout entries (rejects weak breakouts)
+    const breakoutQualityBull = breakoutConfirmedBull && (rangeExpansion || bbSqueezeBreakout === 'BULL');
+    const breakoutQualityBear = breakoutConfirmedBear && (rangeExpansion || bbSqueezeBreakout === 'BEAR');
+    // 3) Slope filter: trend must actually be moving
+    const slopeOkBull = slopeBullish || ema9Slope > 0;
+    const slopeOkBear = slopeBearish || ema9Slope < 0;
+    // 4) Market structure must not contradict
+    const structureOkBull = marketStructure.type !== 'DOWNTREND' || marketStructure.choch === 'BULL';
+    const structureOkBear = marketStructure.type !== 'UPTREND' || marketStructure.choch === 'BEAR';
+    // 5) Smart money agreement boost (not a hard block)
+    const smartMoneyAgreesBull = smartMoneyBias !== 'BEARISH';
+    const smartMoneyAgreesBear = smartMoneyBias !== 'BULLISH';
+
     const strongBullish = confirmationBullish
       && htfAgreesBull
       && earlyBullScore >= requiredConfirmations
-      && breakoutConfirmedBull
+      && breakoutQualityBull
       && momentumBull
+      && slopeOkBull
+      && structureOkBull
+      && !liquidityBlocksBull
       && !weakMidSessionTrap
       && !cooldownActive;
     const strongBearish = confirmationBearish
       && htfAgreesBear
       && earlyBearScore >= requiredConfirmations
-      && breakoutConfirmedBear
+      && breakoutQualityBear
       && momentumBear
+      && slopeOkBear
+      && structureOkBear
+      && !liquidityBlocksBear
       && !weakMidSessionTrap
       && !cooldownActive;
 
-    console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, momentum(B/S)=${momentumBull}/${momentumBear}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
+    console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, rangeExp=${rangeExpansion}, liquidity(buy/sell)=${liquidity.buySideSweep}/${liquidity.sellSideSweep}, struct=${marketStructure.type}/BOS=${marketStructure.bos}/CHOCH=${marketStructure.choch}, smartMoney=${smartMoneyBias}, slope9=${ema9Slope.toFixed(3)}%, ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
 
     
     // ⚡ ERROR 10 — Hard NO-TRADE ZONE for sideways markets
@@ -1438,6 +1733,9 @@ export class AdvancedAI {
         })(),
         riskManagement,
         marketRegime,
+        marketStructure,
+        smartMoneyBias,
+        liquidity,
         executionTime: executionTimeNT,
         calculationsPerformed,
       };
@@ -1446,17 +1744,41 @@ export class AdvancedAI {
     if (strongBullish) {
       action = 'BUY_CALL';
       confidence = 62 + (earlyBullScore * 7) + (strongConfirmationScore * 3);
-      confidence = Math.min(confidence, 95);
+      // Institutional boosts
+      if (smartMoneyBias === 'BULLISH') confidence += 5;
+      if (marketStructure.bos === 'BULL' || marketStructure.choch === 'BULL') confidence += 4;
+      if (rsiDivergenceObj.bull) confidence += 3;
+      if (bbSqueezeBreakout === 'BULL') confidence += 3;
+      // Confidence decay
+      if (!rangeExpansion) confidence -= 5;
+      if (!adxRising) confidence -= 3;
+      if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence = Math.max(50, Math.min(confidence, 95));
       bias = 'Bullish';
-      reasoning = `EARLY BUY_CALL: ${earlyBullScore}/4 entry confirmations + ${strongConfirmationScore}/4 momentum confirmations. Real 15m trend: ${htfAlign}. Breakout confirmed. ${smartMoney ? 'Smart money detected!' : ''}`;
-      
+      reasoning = `BUY_CALL: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum. 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${rsiDivergenceObj.bull ? ' Bullish RSI divergence!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
+
     } else if (strongBearish) {
       action = 'BUY_PUT';
       confidence = 62 + (earlyBearScore * 7) + (strongConfirmationScore * 3);
-      confidence = Math.min(confidence, 95);
+      // Institutional boosts
+      if (smartMoneyBias === 'BEARISH') confidence += 5;
+      if (marketStructure.bos === 'BEAR' || marketStructure.choch === 'BEAR') confidence += 4;
+      if (rsiDivergenceObj.bear) confidence += 3;
+      if (bbSqueezeBreakout === 'BEAR') confidence += 3;
+      // Confidence decay
+      if (!rangeExpansion) confidence -= 5;
+      if (!adxRising) confidence -= 3;
+      if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence = Math.max(50, Math.min(confidence, 95));
       bias = 'Bearish';
-      reasoning = `EARLY BUY_PUT: ${earlyBearScore}/4 entry confirmations + ${strongConfirmationScore}/4 momentum confirmations. Real 15m trend: ${htfAlign}. Breakdown confirmed. ${smartMoney ? 'Smart money detected!' : ''}`;
-      
+      reasoning = `BUY_PUT: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum. 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${rsiDivergenceObj.bear ? ' Bearish RSI divergence!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
+
+    } else if (liquidity.stopHunt) {
+      action = 'WAIT';
+      confidence = 32;
+      bias = 'Neutral';
+      reasoning = `⚠️ WAIT: Liquidity ${liquidity.buySideSweep ? 'buy-side' : 'sell-side'} sweep detected (stop hunt). Wait for reversal confirmation.`;
+
     } else if (cooldownActive) {
       action = 'WAIT';
       confidence = 35;
@@ -1605,7 +1927,10 @@ export class AdvancedAI {
       
       riskManagement,
       marketRegime,
-      
+      marketStructure,
+      smartMoneyBias,
+      liquidity,
+
       executionTime,
       calculationsPerformed
     };
