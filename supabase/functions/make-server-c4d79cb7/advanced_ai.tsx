@@ -189,6 +189,13 @@ export interface AdvancedSignal {
   calculationsPerformed: number;
 }
 
+export interface AdvancedSignalOptions {
+  higherTimeframeData?: OHLCCandle[];
+  timeframeMinutes?: number;
+  lastSignalTimestamp?: number;
+  minimumBarsBetweenSignals?: number;
+}
+
 export class AdvancedAI {
   
   // ========================================
