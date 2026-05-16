@@ -144,10 +144,23 @@ export interface AdvancedSignal {
   
   // Volume analysis
   volumeAnalysis: {
+    current_volume: number;
+    average_volume: number;
     ratio: number;
+    raw_ratio: number;
+    is_high: boolean;
+    is_spike: boolean;
+    smart_money_detected: boolean;
+    has_data: boolean;
+    feed_reliable: boolean;
+    coverage: number;
+    body_percent: number;
+    candle_strength: 'STRONG' | 'DECISIVE' | 'MODERATE' | 'WEAK';
     isHigh: boolean;
     isSpike: boolean;
     smartMoney: boolean;
+    bodyPercent: number;
+    candleStrength: 'STRONG' | 'DECISIVE' | 'MODERATE' | 'WEAK';
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
