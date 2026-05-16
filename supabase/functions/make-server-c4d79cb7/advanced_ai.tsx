@@ -215,6 +215,20 @@ export interface AdvancedSignal {
     stopHunt: boolean;
   };
 
+  // Debug / diagnostics (optional, backward compatible)
+  debugInfo?: {
+    blockedReason?: string;
+    failedConfirmations: string[];
+    confidenceDecayReasons: string[];
+    trendStrength: number;
+    breakoutQuality: 'STRONG' | 'WEAK' | 'NONE';
+    smartMoneyScore: number;
+    liquidityWarnings: string[];
+    marketWarnings: string[];
+    requiredConfirmations: number;
+    regime: string;
+  };
+
   // Performance
   executionTime: number;
   calculationsPerformed: number;
@@ -1724,7 +1738,14 @@ export class AdvancedAI {
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
     const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
 
-    const requiredConfirmations = earlyRequiredConfirmations;
+    // ===== ADAPTIVE REQUIRED CONFIRMATIONS BY MARKET REGIME =====
+    // TRENDING → 3 (fast entry, trend bias is reliable)
+    // VOLATILE → 4 (need more proof, noise high)
+    // RANGING/QUIET → 5 (mostly should be blocked by sideways filter anyway)
+    const requiredConfirmations =
+      (marketRegime.type === 'TRENDING_UP' || marketRegime.type === 'TRENDING_DOWN') ? 3
+      : marketRegime.type === 'VOLATILE' ? 4
+      : 5;
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [confirmations.macd, confirmations.adx, confirmations.rsi, confirmations.stochastic].filter(Boolean).length;
 
@@ -2040,6 +2061,42 @@ export class AdvancedAI {
       marketStructure,
       smartMoneyBias,
       liquidity,
+
+      debugInfo: {
+        blockedReason: action === 'WAIT' ? reasoning : undefined,
+        failedConfirmations: [
+          !breakoutConfirmedBull && !breakoutConfirmedBear ? 'breakout' : '',
+          !rangeExpansion ? 'rangeExpansion' : '',
+          !hasAcceptableVolume ? 'volume' : '',
+          !slopeBullish && !slopeBearish ? 'emaSlope' : '',
+          !htfAgreesBull && !htfAgreesBear ? 'htfAlignment' : '',
+        ].filter(Boolean),
+        confidenceDecayReasons: [
+          !rangeExpansion ? 'no-range-expansion' : '',
+          !adxRising ? 'adx-not-rising' : '',
+          liquidity.stopHunt ? 'liquidity-sweep' : '',
+          nearResistance ? 'near-resistance' : '',
+          nearSupport ? 'near-support' : '',
+        ].filter(Boolean),
+        trendStrength: Math.round(adx),
+        breakoutQuality: (breakoutConfirmedBull || breakoutConfirmedBear)
+          ? (rangeExpansion ? 'STRONG' : 'WEAK')
+          : 'NONE',
+        smartMoneyScore: smartMoneyBias === 'BULLISH' ? 75 : smartMoneyBias === 'BEARISH' ? -75 : 0,
+        liquidityWarnings: [
+          liquidity.buySideSweep ? 'buy-side-sweep' : '',
+          liquidity.sellSideSweep ? 'sell-side-sweep' : '',
+          liquidity.stopHunt ? 'stop-hunt' : '',
+        ].filter(Boolean),
+        marketWarnings: [
+          weakMidSessionTrap ? 'mid-session-trap' : '',
+          cooldownActive ? 'cooldown-active' : '',
+          marketRegime.type === 'RANGING' ? 'ranging-market' : '',
+          marketRegime.type === 'QUIET' ? 'quiet-market' : '',
+        ].filter(Boolean),
+        requiredConfirmations,
+        regime: marketRegime.type,
+      },
 
       executionTime,
       calculationsPerformed
