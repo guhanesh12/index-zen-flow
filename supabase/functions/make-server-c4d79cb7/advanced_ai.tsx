@@ -144,10 +144,23 @@ export interface AdvancedSignal {
   
   // Volume analysis
   volumeAnalysis: {
+    current_volume: number;
+    average_volume: number;
     ratio: number;
+    raw_ratio: number;
+    is_high: boolean;
+    is_spike: boolean;
+    smart_money_detected: boolean;
+    has_data: boolean;
+    feed_reliable: boolean;
+    coverage: number;
+    body_percent: number;
+    candle_strength: 'STRONG' | 'DECISIVE' | 'MODERATE' | 'WEAK';
     isHigh: boolean;
     isSpike: boolean;
     smartMoney: boolean;
+    bodyPercent: number;
+    candleStrength: 'STRONG' | 'DECISIVE' | 'MODERATE' | 'WEAK';
     buyPressure: number;    // 0-100
     sellPressure: number;   // 0-100
     orderFlow: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -811,25 +824,29 @@ export class AdvancedAI {
     const patterns = this.detectCandlePatterns(ohlcData);
     calculationsPerformed += 1;
     
-    // Volume Analysis
-    // ⚡ FIX: When the latest bar is still forming (vol=0 or range=0) but the
-    // feed has historical volume, fall back to the previous CLOSED candle so
-    // volume ratio + candle strength aren't reported as 0.
-    const prevCandleVol = ohlcData[ohlcData.length - 2] || lastCandle;
-    const lastBarPartial = (lastCandle.volume || 0) === 0 && (lastCandle.high - lastCandle.low) === 0;
-    const refCandle = lastBarPartial ? prevCandleVol : lastCandle;
-    const last10Candles = ohlcData.slice(-10);
-    const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
-    const refVolume = refCandle.volume || 0;
+    // Volume + Candle Body Analysis
+    // Dhan can return the running candle with flat O/H/L/C or zero body while
+    // it is forming. For body strength, use the newest recent candle with a
+    // real body/range; keep volume on the latest available volume candle.
+    const recentCandles = ohlcData.slice(-10);
+    const fallbackCandle = [...recentCandles]
+      .reverse()
+      .find(c => Math.abs((c.close || 0) - (c.open || 0)) > 0 && ((c.high || 0) - (c.low || 0)) > 0) || lastCandle;
+    const lastCandleBody = Math.abs((lastCandle.close || 0) - (lastCandle.open || 0));
+    const lastCandleRange = (lastCandle.high || 0) - (lastCandle.low || 0);
+    const bodyRefCandle = (lastCandleBody > 0 && lastCandleRange > 0) ? lastCandle : fallbackCandle;
+    const volumeRefCandle = [...recentCandles].reverse().find(c => (c.volume || 0) > 0) || bodyRefCandle;
+    const avgVolume = recentCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / Math.max(recentCandles.length, 1);
+    const refVolume = volumeRefCandle.volume || 0;
     const volumeRatio = avgVolume > 0 ? refVolume / avgVolume : 0;
     const isHighVolume = volumeRatio > 1.5;
     const isVolumeSpike = volumeRatio > 2.0;
-    const bodySize = Math.abs(refCandle.close - refCandle.open);
-    const refRange = refCandle.high - refCandle.low;
+    const bodySize = Math.abs(bodyRefCandle.close - bodyRefCandle.open);
+    const refRange = bodyRefCandle.high - bodyRefCandle.low;
     const bodyPercent = refRange > 0 ? (bodySize / refRange) * 100 : 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
     
-    console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, close=${lastCandle.close}, open=${lastCandle.open}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
+    console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, bodyOpen=${bodyRefCandle.open}, bodyClose=${bodyRefCandle.close}, latestOpen=${lastCandle.open}, latestClose=${lastCandle.close}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
     
     // Order Flow
     const orderFlow = this.analyzeOrderFlow(ohlcData);
@@ -1187,13 +1204,23 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
       
-    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume (1.2x) for consistency
+    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume for consistency
       // ⚡ FIX: Only block if no strong pattern exists
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
-        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
+        const weakBody = bodySize < minimumBodySize;
+        const lowVolume = !hasAcceptableVolume;
+        const bodyText = `body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}`;
+        const volumeText = volumeFeedReliable
+          ? `volume ${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x`
+          : `candle strength ${bodyPercent.toFixed(1)}%, min 35%`;
+        reasoning = weakBody && lowVolume
+          ? `WAIT: Weak candle (${bodyText}) and low ${volumeText}.`
+          : weakBody
+            ? `WAIT: Weak candle (${bodyText}).`
+            : `WAIT: Low ${volumeText}.`;
       }
     } else {
       action = 'WAIT';
