@@ -1268,8 +1268,8 @@ export class AdvancedAI {
 
     const fibImpulse = this.detectImpulseLeg(ohlcData);
     const smartMoneyBias = this.detectSmartMoney(ohlcData);
-    const marketStructure = this.detectMarketStructure(ohlcData);
-    const liquidity = this.detectLiquiditySweep(ohlcData);
+    const marketStructure = this.detectMarketStructure(ohlcData, avgVolume);
+    const liquidity = this.detectLiquiditySweep(ohlcData, safeAtr, avgVolume);
     const gap = this.detectGap(ohlcData);
 
     // Range expansion: current candle range vs avg of last 5 (excluding current)
