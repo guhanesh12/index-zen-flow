@@ -1231,7 +1231,34 @@ export class AdvancedAI {
     // Order Flow
     const orderFlow = this.analyzeOrderFlow(ohlcData);
     calculationsPerformed += 1;
-    
+
+    // ===== Institutional analytics =====
+    const ema9Slope = this.emaSlope(ohlcData, 9, 5);
+    const ema21Slope = this.emaSlope(ohlcData, 21, 5);
+    const ema50Slope = this.emaSlope(ohlcData, 50, 10);
+    const slopeMin = 0.02; // 0.02% per bar minimum to consider "directional"
+    const slopeBullish = ema9Slope > slopeMin && ema21Slope > slopeMin * 0.5;
+    const slopeBearish = ema9Slope < -slopeMin && ema21Slope < -slopeMin * 0.5;
+
+    const fibImpulse = this.detectImpulseLeg(ohlcData);
+    const smartMoneyBias = this.detectSmartMoney(ohlcData);
+    const marketStructure = this.detectMarketStructure(ohlcData);
+    const liquidity = this.detectLiquiditySweep(ohlcData);
+    const gap = this.detectGap(ohlcData);
+
+    // Range expansion: current candle range vs avg of last 5 (excluding current)
+    const prev5Ranges = ohlcData.slice(-6, -1).map(c => Math.max(0, c.high - c.low));
+    const avgPrev5Range = prev5Ranges.length ? prev5Ranges.reduce((a, b) => a + b, 0) / prev5Ranges.length : 0;
+    const currentRange = Math.max(0, lastCandle.high - lastCandle.low);
+    const rangeExpansion = avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.3;
+
+    // Volume normalization (session-time aware: morning vs afternoon)
+    const istNowForVol = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const istMinForVol = istNowForVol.getUTCHours() * 60 + istNowForVol.getUTCMinutes();
+    const isMorningSession = istMinForVol >= 9 * 60 + 15 && istMinForVol < 11 * 60;
+    const volumeAdjustment = isMorningSession ? 0.85 : 1.0; // morning naturally has higher volume
+    const adjustedVolumeRatio = volumeRatio * volumeAdjustment;
+
     // Combine all indicators
     const indicators: AdvancedIndicators = {
       ema9, ema21, ema50, ema200, sma20,
@@ -1252,7 +1279,18 @@ export class AdvancedAI {
       resistance_levels: { r1: resistance1, r2: resistance2, r3: resistance3 },
       support_levels: { s1: support1, s2: support2, s3: support3 },
       nearResistance, nearSupport,
-      fibLevels, nearFibLevel
+      fibLevels, nearFibLevel,
+      // institutional
+      rsiBullishDivergence: rsiDivergenceObj.bull,
+      rsiBearishDivergence: rsiDivergenceObj.bear,
+      bbSqueeze: bollingerSqueeze,
+      bbExpansion,
+      bbSqueezeBreakout,
+      ema9Slope, ema21Slope, ema50Slope,
+      slopeBullish, slopeBearish,
+      rangeExpansion,
+      fibImpulse,
+      gap,
     };
     
     // Market Regime
