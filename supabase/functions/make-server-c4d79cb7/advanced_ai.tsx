@@ -983,12 +983,12 @@ export class AdvancedAI {
     return { bull, bear };
   }
 
-  /** EMA slope (% per bar over lookback) */
-  private static emaSlope(data: OHLCCandle[], period: number, lookback: number = 5): number {
+  /** EMA slope (% per bar over lookback). Pass `currentEma` to reuse cached value. */
+  private static emaSlope(data: OHLCCandle[], period: number, lookback: number = 5, currentEma?: number): number {
     if (data.length < period + lookback) return 0;
-    const now = this.calculateEMA(data, period);
+    const now = (typeof currentEma === 'number' && Number.isFinite(currentEma)) ? currentEma : this.calculateEMA(data, period);
     const prev = this.calculateEMA(data.slice(0, -lookback), period);
-    if (prev === 0) return 0;
+    if (prev === 0 || !Number.isFinite(prev)) return 0;
     return ((now - prev) / prev) * 100 / lookback;
   }
 
@@ -1317,9 +1317,10 @@ export class AdvancedAI {
     calculationsPerformed += 1;
 
     // ===== Institutional analytics =====
-    const ema9Slope = this.emaSlope(ohlcData, 9, 5);
-    const ema21Slope = this.emaSlope(ohlcData, 21, 5);
-    const ema50Slope = this.emaSlope(ohlcData, 50, 10);
+    // ⚡ Reuse already-computed ema9/ema21/ema50 from indicator pipeline (no recompute)
+    const ema9Slope = this.emaSlope(ohlcData, 9, 5, ema9);
+    const ema21Slope = this.emaSlope(ohlcData, 21, 5, ema21);
+    const ema50Slope = this.emaSlope(ohlcData, 50, 10, ema50);
     const slopeMin = 0.02; // 0.02% per bar minimum to consider "directional"
     const slopeBullish = ema9Slope > slopeMin && ema21Slope > slopeMin * 0.5;
     const slopeBearish = ema9Slope < -slopeMin && ema21Slope < -slopeMin * 0.5;
