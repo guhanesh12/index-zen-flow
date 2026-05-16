@@ -1024,8 +1024,8 @@ export class AdvancedAI {
     return 'NEUTRAL';
   }
 
-  /** BOS / CHoCH market structure */
-  private static detectMarketStructure(data: OHLCCandle[]): {
+  /** BOS / CHoCH — requires strong body + volume on the breaking candle */
+  private static detectMarketStructure(data: OHLCCandle[], avgVolume: number = 0): {
     type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE';
     bos: 'BULL' | 'BEAR' | 'NONE';
     choch: 'BULL' | 'BEAR' | 'NONE';
@@ -1043,16 +1043,21 @@ export class AdvancedAI {
     const ll = lows[lp[lp.length - 1]] < lows[lp[lp.length - 2]];
     const hl = lows[lp[lp.length - 1]] > lows[lp[lp.length - 2]];
     const lh = highs[hp[hp.length - 1]] < highs[hp[hp.length - 2]];
-    const lastClose = slice[slice.length - 1].close;
+    const last = slice[slice.length - 1];
+    const lastClose = last.close;
     const lastSwingHigh = highs[hp[hp.length - 1]];
     const lastSwingLow = lows[lp[lp.length - 1]];
+    const range = Math.max(1e-9, last.high - last.low);
+    const bodyPct = Math.abs(last.close - last.open) / range;
+    const strongBody = bodyPct >= 0.55;
+    const volumeOk = avgVolume > 0 ? (last.volume || 0) >= avgVolume * 1.1 : true;
+    const breakOk = strongBody && volumeOk;
     let bos: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
     let choch: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
-    if (lastClose > lastSwingHigh && hh && hl) bos = 'BULL';
-    else if (lastClose < lastSwingLow && ll && lh) bos = 'BEAR';
-    // CHoCH: prior trend opposite + structure break
-    if (ll && lh && lastClose > lastSwingHigh) choch = 'BULL';
-    if (hh && hl && lastClose < lastSwingLow) choch = 'BEAR';
+    if (breakOk && lastClose > lastSwingHigh && hh && hl) bos = 'BULL';
+    else if (breakOk && lastClose < lastSwingLow && ll && lh) bos = 'BEAR';
+    if (breakOk && ll && lh && lastClose > lastSwingHigh) choch = 'BULL';
+    if (breakOk && hh && hl && lastClose < lastSwingLow) choch = 'BEAR';
     let type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE' = 'RANGE';
     if (choch !== 'NONE') type = 'REVERSAL';
     else if (hh && hl) type = 'UPTREND';
@@ -1060,19 +1065,27 @@ export class AdvancedAI {
     return { type, bos, choch, lastSwingHigh, lastSwingLow };
   }
 
-  /** Liquidity sweep / stop hunt detection */
-  private static detectLiquiditySweep(data: OHLCCandle[]): { buySideSweep: boolean; sellSideSweep: boolean; stopHunt: boolean } {
-    if (data.length < 12) return { buySideSweep: false, sellSideSweep: false, stopHunt: false };
+  /** Liquidity sweep / stop hunt detection — wick ≥ 1.5×ATR%, volume spike, strong rejection */
+  private static detectLiquiditySweep(data: OHLCCandle[], atr14: number, avgVolume: number): { buySideSweep: boolean; sellSideSweep: boolean; stopHunt: boolean } {
+    if (data.length < 12 || !isFinite(atr14) || atr14 <= 0) return { buySideSweep: false, sellSideSweep: false, stopHunt: false };
     const last = data[data.length - 1];
     const lookback = data.slice(-11, -1);
     const priorHigh = Math.max(...lookback.map(c => c.high));
     const priorLow = Math.min(...lookback.map(c => c.low));
     const range = last.high - last.low;
+    if (range <= 0) return { buySideSweep: false, sellSideSweep: false, stopHunt: false };
     const body = Math.abs(last.close - last.open);
     const upperWick = last.high - Math.max(last.open, last.close);
     const lowerWick = Math.min(last.open, last.close) - last.low;
-    const buySideSweep = last.high > priorHigh && last.close < priorHigh && upperWick > body * 1.5 && range > 0;
-    const sellSideSweep = last.low < priorLow && last.close > priorLow && lowerWick > body * 1.5 && range > 0;
+    const wickThreshold = atr14 * 0.6; // ~1.5× of typical sub-ATR wick
+    const volumeSpike = avgVolume > 0 ? (last.volume || 0) > avgVolume * 1.3 : true; // if no feed, ignore vol check
+    const bodyToRange = body / range;
+    // Strong rejection: small body relative to range
+    const rejection = bodyToRange < 0.4;
+    const buySideSweep = last.high > priorHigh && last.close < priorHigh
+      && upperWick >= wickThreshold && rejection && volumeSpike;
+    const sellSideSweep = last.low < priorLow && last.close > priorLow
+      && lowerWick >= wickThreshold && rejection && volumeSpike;
     return { buySideSweep, sellSideSweep, stopHunt: buySideSweep || sellSideSweep };
   }
 
@@ -1089,23 +1102,71 @@ export class AdvancedAI {
     return { type, size: Math.abs(gap), filled };
   }
 
+  /** Minimal safe WAIT result used when input data is invalid or insufficient */
+  private static emptyWaitResult(reason: string, startTime: number): AdvancedSignal {
+    const zeroInd = {
+      ema9: 0, ema21: 0, ema50: 0, ema200: 0, sma20: 0,
+      vwap: 0, vwapDistance: 0, priceAboveVWAP: false,
+      rsi: 50, rsiOverbought: false, rsiOversold: false, rsiDivergence: false,
+      macd: 0, macdSignal: 0, macdHistogram: 0, macdBullish: false, macdCrossover: false,
+      bollingerUpper: 0, bollingerMiddle: 0, bollingerLower: 0, bollingerWidth: 0,
+      priceNearUpperBand: false, priceNearLowerBand: false, bollingerSqueeze: false,
+      atr: 0, atr14: 0, volatilityHigh: false, volatilityLow: false,
+      adx: 0, adxStrong: false, adxVeryStrong: false, trending: false,
+      stochK: 50, stochD: 50, stochOverbought: false, stochOversold: false,
+      resistance_levels: { r1: 0, r2: 0, r3: 0 },
+      support_levels: { s1: 0, s2: 0, s3: 0 },
+      nearResistance: false, nearSupport: false,
+      fibLevels: { level_0: 0, level_236: 0, level_382: 0, level_50: 0, level_618: 0, level_100: 0 },
+      nearFibLevel: false,
+    } as AdvancedIndicators;
+    return {
+      action: 'WAIT', confidence: 25, reasoning: reason, market_state: 'QUIET', bias: 'Neutral',
+      indicators: zeroInd, patterns: [],
+      confirmations: { total: 0, required: 3, details: [reason], vwap: false, ema: false, rsi: false, macd: false, bollinger: false, volume: false, adx: false, stochastic: false, pattern: false, priceAction: false },
+      volumeAnalysis: {
+        current_volume: 0, average_volume: 0, ratio: 0, raw_ratio: 0,
+        is_high: false, is_spike: false, smart_money_detected: false,
+        has_data: false, feed_reliable: false, coverage: 0,
+        body_percent: 0, candle_strength: 'WEAK',
+        isHigh: false, isSpike: false, smartMoney: false, bodyPercent: 0, candleStrength: 'WEAK',
+        buyPressure: 50, sellPressure: 50, orderFlow: 'NEUTRAL',
+      },
+      riskManagement: { suggestedEntry: 0, suggestedTarget: 0, suggestedStopLoss: 0, riskRewardRatio: 0, positionSize: 0, maxLoss: 0, expectedProfit: 0 },
+      marketRegime: { type: 'QUIET', strength: 0, suitable_for_trading: false },
+      executionTime: performance.now() - startTime,
+      calculationsPerformed: 0,
+    };
+  }
+
   /**
    * ⚡⚡⚡ MAIN ADVANCED SIGNAL GENERATOR ⚡⚡⚡
-   * 
-   * USES ALL 15+ INDICATORS!
-   * EXECUTION TIME: < 100ms
    */
   public static generateAdvancedSignal(ohlcData: OHLCCandle[], accountBalance: number = 100000, options: AdvancedSignalOptions = {}): AdvancedSignal {
     const startTime = performance.now();
     let calculationsPerformed = 0;
-    
-    // Last candle
+
+    // ===== SAFETY: validate input data =====
+    if (!Array.isArray(ohlcData) || ohlcData.length < 30) {
+      return this.emptyWaitResult(`WAIT: Insufficient candle data (${ohlcData?.length ?? 0}/30 minimum).`, startTime);
+    }
+    // Drop any malformed candles defensively
+    const cleanData = ohlcData.filter(c =>
+      c && isFinite(c.open) && isFinite(c.high) && isFinite(c.low) && isFinite(c.close)
+      && c.high >= c.low && c.high > 0 && c.low > 0
+    );
+    if (cleanData.length < 30) {
+      return this.emptyWaitResult(`WAIT: Too many invalid candles (clean ${cleanData.length}/30).`, startTime);
+    }
+    ohlcData = cleanData;
+
     const lastCandle = ohlcData[ohlcData.length - 1];
     const prevCandle = ohlcData[ohlcData.length - 2];
-    
+    const safeClose = Math.max(lastCandle.close, 1e-9);
+
     // ========== CALCULATE ALL INDICATORS ==========
     calculationsPerformed++;
-    
+
     // Moving Averages
     const ema9 = this.calculateEMA(ohlcData, 9);
     const ema21 = this.calculateEMA(ohlcData, 21);
@@ -1113,13 +1174,14 @@ export class AdvancedAI {
     const ema200 = this.calculateEMA(ohlcData, 200);
     const sma20 = this.calculateSMA(ohlcData, 20);
     calculationsPerformed += 5;
-    
+
     // VWAP
     const vwap = this.calculateVWAP(ohlcData);
-    const vwapDistance = ((lastCandle.close - vwap) / vwap) * 100;
+    const safeVwap = Math.max(vwap, 1e-9);
+    const vwapDistance = ((lastCandle.close - safeVwap) / safeVwap) * 100;
     const priceAboveVWAP = lastCandle.close > vwap;
     calculationsPerformed += 1;
-    
+
     // RSI + real divergence
     const rsi = this.calculateRSI(ohlcData);
     const rsiArr = this.rsiSeries(ohlcData);
@@ -1128,7 +1190,7 @@ export class AdvancedAI {
     const rsiOversold = rsi < 30;
     const rsiDivergence = rsiDivergenceObj.bull || rsiDivergenceObj.bear;
     calculationsPerformed += 1;
-    
+
     // MACD
     const macdData = this.calculateMACD(ohlcData);
     const prevMacdData = ohlcData.length > 30 ? this.calculateMACD(ohlcData.slice(0, -1)) : macdData;
@@ -1137,28 +1199,28 @@ export class AdvancedAI {
     const macdHistogramExpandingBull = macdData.histogram > prevMacdData.histogram;
     const macdHistogramExpandingBear = macdData.histogram < prevMacdData.histogram;
     calculationsPerformed += 1;
-    
-    // Bollinger Bands — adaptive squeeze (ATR-normalized)
+
+    // ATR — compute ONCE, reuse everywhere (perf)
+    const atr14 = this.calculateATR(ohlcData, 14);
+    const atr = atr14;
+    const safeAtr = Math.max(atr14, safeClose * 0.0005);
+    const volatilityHigh = atr > safeClose * 0.02;
+    const volatilityLow = atr < safeClose * 0.01;
+    calculationsPerformed += 1;
+
+    // Bollinger Bands — adaptive squeeze (ATR-normalized, uses cached ATR)
     const bollinger = this.calculateBollingerBands(ohlcData);
     const prevBollinger = ohlcData.length > 25 ? this.calculateBollingerBands(ohlcData.slice(0, -1)) : bollinger;
     const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
     const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
-    // ATR-relative squeeze: width compared to recent volatility, not a fixed threshold
-    const atrPctTmp = this.calculateATR(ohlcData, 14) / Math.max(lastCandle.close, 1) * 100;
-    const squeezeThreshold = atrPctTmp * 1.5;
+    const atrPct = (safeAtr / safeClose) * 100;
+    const squeezeThreshold = atrPct * 1.5;
     const bollingerSqueeze = bollinger.width < squeezeThreshold;
     const bbExpansion = bollinger.width > prevBollinger.width * 1.15;
     const bbSqueezeBreakout: 'BULL' | 'BEAR' | 'NONE' =
       bbExpansion && lastCandle.close > bollinger.upper ? 'BULL'
       : bbExpansion && lastCandle.close < bollinger.lower ? 'BEAR'
       : 'NONE';
-    calculationsPerformed += 1;
-    
-    // ATR
-    const atr = this.calculateATR(ohlcData);
-    const atr14 = this.calculateATR(ohlcData, 14);
-    const volatilityHigh = atr > lastCandle.close * 0.02;
-    const volatilityLow = atr < lastCandle.close * 0.01;
     calculationsPerformed += 1;
     
     // ADX
@@ -1188,7 +1250,7 @@ export class AdvancedAI {
     const support2 = swing.supports[1] ?? sortedLows[Math.floor(sortedLows.length * 0.2)];
     const support3 = swing.supports[2] ?? sortedLows[Math.floor(sortedLows.length * 0.4)];
     // "Near" tolerance scaled by ATR (~0.5 ATR) so it adapts to volatility instead of fixed 2%
-    const nearTol = Math.max(lastCandle.close * 0.003, (this.calculateATR(ohlcData, 14) || 0) * 0.5);
+    const nearTol = Math.max(lastCandle.close * 0.003, safeAtr * 0.5);
     const nearResistance = resistance1 ? (resistance1 - lastCandle.close) <= nearTol && lastCandle.close <= resistance1 + nearTol : false;
     const nearSupport = support1 ? (lastCandle.close - support1) <= nearTol && lastCandle.close >= support1 - nearTol : false;
     calculationsPerformed += 1;
@@ -1240,8 +1302,8 @@ export class AdvancedAI {
 
     const fibImpulse = this.detectImpulseLeg(ohlcData);
     const smartMoneyBias = this.detectSmartMoney(ohlcData);
-    const marketStructure = this.detectMarketStructure(ohlcData);
-    const liquidity = this.detectLiquiditySweep(ohlcData);
+    const marketStructure = this.detectMarketStructure(ohlcData, avgVolume);
+    const liquidity = this.detectLiquiditySweep(ohlcData, safeAtr, avgVolume);
     const gap = this.detectGap(ohlcData);
 
     // Range expansion: current candle range vs avg of last 5 (excluding current)
@@ -1697,18 +1759,21 @@ export class AdvancedAI {
     console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, rangeExp=${rangeExpansion}, liquidity(buy/sell)=${liquidity.buySideSweep}/${liquidity.sellSideSweep}, struct=${marketStructure.type}/BOS=${marketStructure.bos}/CHOCH=${marketStructure.choch}, smartMoney=${smartMoneyBias}, slope9=${ema9Slope.toFixed(3)}%, ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
 
     
-    // ⚡ ERROR 10 — Hard NO-TRADE ZONE for sideways markets
-    // Block trades when: ADX<18 AND ATR low AND VWAP flat AND EMAs mixed
+    // ⚡ SIDEWAYS / NO-TRADE ZONE (tightened): block trades when market lacks any directional energy
     const emaMixed = !((ema9 > ema21 && ema21 > ema50) || (ema9 < ema21 && ema21 < ema50));
-    const atrLow = atr14 < lastCandle.close * 0.0035; // < 0.35% of price
-    const noTradeZone = adx < 18 && atrLow && vwapFlat && emaMixed;
+    const atrLow = atr14 < safeClose * 0.0035; // < 0.35% of price
+    const slopesFlat = Math.abs(ema9Slope) < 0.015 && Math.abs(ema21Slope) < 0.01;
+    const squeezeWithoutExpansion = bollingerSqueeze && !bbExpansion;
+    // Any 3 of 5 signals → sideways
+    const sidewaysSignals = [adx < 18, atrLow, vwapFlat, emaMixed || slopesFlat, squeezeWithoutExpansion].filter(Boolean).length;
+    const noTradeZone = sidewaysSignals >= 3;
 
     if (noTradeZone) {
       const executionTimeNT = performance.now() - startTime;
       return {
         action: 'WAIT',
         confidence: 30,
-        reasoning: `⛔ NO-TRADE ZONE: Sideways market (ADX ${adx.toFixed(1)}<18, ATR low, VWAP flat, EMAs mixed). Avoid fake entries.`,
+        reasoning: `⛔ SIDEWAYS MARKET: ${sidewaysSignals}/5 stagnation signals (ADX ${adx.toFixed(1)}, ATR ${(atrPct).toFixed(2)}%, VWAP flat=${vwapFlat}, slopes flat=${slopesFlat}, squeeze-no-expansion=${squeezeWithoutExpansion}). No trade.`,
         market_state: marketRegime.type,
         bias: 'Neutral',
         indicators,
