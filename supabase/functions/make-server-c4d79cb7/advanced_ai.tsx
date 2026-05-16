@@ -1365,22 +1365,38 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
       
-    } else if (confirmations.total < 6) {
+    } else if (confirmations.total < requiredConfirmations) {
       action = 'WAIT';
       confidence = 40;
-      // ⚡ FIX BUG #8: Use trend bias in strong trends, not current candle color
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
-      
-    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume for consistency
-      // ⚡ FIX: Only block if no strong pattern exists
+      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations (need ${requiredConfirmations}${inMidSessionTrap ? ' — mid-session trap window' : ''}).`;
+
+    } else if (counterToLongTerm) {
+      action = 'WAIT';
+      confidence = 35;
+      bias = 'Neutral';
+      reasoning = `WAIT: Signal counter to long-term bias (EMA200 ${ema200Bias}, ADX ${adx.toFixed(1)}).`;
+
+    } else if (confirmationBullish ? !htfAgreesBull : confirmationBearish ? !htfAgreesBear : false) {
+      action = 'WAIT';
+      confidence = 38;
+      bias = 'Neutral';
+      reasoning = `WAIT: Higher-timeframe (MTF) bias disagrees (HTF=${htfAlign}).`;
+
+    } else if (inMidSessionTrap && !midSessionAdxOk) {
+      action = 'WAIT';
+      confidence = 35;
+      bias = 'Neutral';
+      reasoning = `WAIT: Mid-session trap window (11:00–13:30 IST) — ADX ${adx.toFixed(1)} too weak (>25 required).`;
+
+    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
         const weakBody = bodySize < minimumBodySize;
         const lowVolume = !hasAcceptableVolume;
-        const bodyText = `body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}`;
+        const bodyText = `body ${bodySize.toFixed(1)}pts, min ${minimumBodySize.toFixed(1)} (ATR-relative)`;
         const volumeText = volumeFeedReliable
           ? `volume ${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x`
           : `candle strength ${bodyPercent.toFixed(1)}%, min 35%`;
@@ -1396,7 +1412,7 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Conditions not met for high-confidence entry.`;
     }
-    
+
     // ⚡ PHASE 1: REGIME ALIGNMENT CHECK (CRITICAL!) ⚡
     // Block counter-trend trades unless at key S/R levels or squeeze
     if (action !== 'WAIT') {
