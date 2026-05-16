@@ -1137,7 +1137,11 @@ export class AdvancedAI {
     const minimumBodySize = 10; // Points (was 15)
     const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
     const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
-    const hasAcceptableVolume = volumeRatio >= minimumVolumeRatio;  // ⚡ FIX: Use >= instead of >
+    // ⚡ Index feeds (NIFTY/BANKNIFTY/SENSEX) often ship 0 volume. If feed is
+    // unreliable, do NOT block on volume — fall back to candle-strength gating
+    // (body% / pattern). Only enforce volume threshold when feed is reliable.
+    const volumeFeedReliable = avgVolume > 0 && lastCandle.volume > 0 && isFinite(volumeRatio);
+    const hasAcceptableVolume = !volumeFeedReliable ? (bodyPercent >= 35) : (volumeRatio >= minimumVolumeRatio);
     
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
