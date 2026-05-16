@@ -812,13 +812,21 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Volume Analysis
+    // ⚡ FIX: When the latest bar is still forming (vol=0 or range=0) but the
+    // feed has historical volume, fall back to the previous CLOSED candle so
+    // volume ratio + candle strength aren't reported as 0.
+    const prevCandle = ohlcData[ohlcData.length - 2] || lastCandle;
+    const lastBarPartial = (lastCandle.volume || 0) === 0 && (lastCandle.high - lastCandle.low) === 0;
+    const refCandle = lastBarPartial ? prevCandle : lastCandle;
     const last10Candles = ohlcData.slice(-10);
     const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
-    const volumeRatio = lastCandle.volume / avgVolume;
+    const refVolume = refCandle.volume || 0;
+    const volumeRatio = avgVolume > 0 ? refVolume / avgVolume : 0;
     const isHighVolume = volumeRatio > 1.5;
     const isVolumeSpike = volumeRatio > 2.0;
-    const bodySize = Math.abs(lastCandle.close - lastCandle.open);
-    const bodyPercent = ((bodySize / (lastCandle.high - lastCandle.low)) * 100) || 0;
+    const bodySize = Math.abs(refCandle.close - refCandle.open);
+    const refRange = refCandle.high - refCandle.low;
+    const bodyPercent = refRange > 0 ? (bodySize / refRange) * 100 : 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
     
     console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, close=${lastCandle.close}, open=${lastCandle.open}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
