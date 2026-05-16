@@ -1106,14 +1106,14 @@ export class AdvancedAI {
     // ⚡ FIX BUG #3: In ranging markets (ADX < 20), RSI is unreliable!
     const isRangingMarket = adx < 20;
     
-    if (!isRangingMarket && confirmationBullish && rsi > 40 && rsi < 70 && rsi > 50) {
+    if (!isRangingMarket && confirmationBullish && rsi > 45 && rsi < 75) {
       confirmations.rsi = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ RSI: Bullish momentum (50-70)');
-    } else if (!isRangingMarket && confirmationBearish && rsi < 60 && rsi > 30 && rsi < 50) {
+      confirmationDetails.push('✅ RSI: Bullish momentum (>45, flexible trend start)');
+    } else if (!isRangingMarket && confirmationBearish && rsi < 55 && rsi > 25) {
       confirmations.rsi = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ RSI: Bearish momentum (30-50)');
+      confirmationDetails.push('✅ RSI: Bearish momentum (<55, flexible trend start)');
     } else if (rsiOversold && confirmationBearish && (emaDowntrend || marketRegime.type === 'TRENDING_DOWN')) {
       // ⚡ FIX: RSI oversold in strong downtrend = continuation, not reversal!
       confirmations.rsi = true;
@@ -1138,14 +1138,14 @@ export class AdvancedAI {
     // 4. MACD Confirmation (Weight: 1)
     // ⚡ FIX BUG #10: Use confirmationBullish/Bearish instead of candle color
     // ⚡ FIX BUG #3: In ranging markets (ADX < 20), MACD gives false signals!
-    if (!isRangingMarket && confirmationBullish && macdBullish && macdData.histogram > 0) {
+    if (!isRangingMarket && confirmationBullish && macdHistogramExpandingBull) {
       confirmations.macd = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ MACD: Bullish crossover');
-    } else if (!isRangingMarket && confirmationBearish && !macdBullish && macdData.histogram < 0) {
+      confirmationDetails.push(`✅ MACD: Histogram expanding bullish (${prevMacdData.histogram.toFixed(2)} → ${macdData.histogram.toFixed(2)})`);
+    } else if (!isRangingMarket && confirmationBearish && macdHistogramExpandingBear) {
       confirmations.macd = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ MACD: Bearish crossover');
+      confirmationDetails.push(`✅ MACD: Histogram expanding bearish (${prevMacdData.histogram.toFixed(2)} → ${macdData.histogram.toFixed(2)})`);
     } else if (isRangingMarket) {
       // ⚡ FIX BUG #3: In ranging markets, MACD doesn't count!
       confirmationDetails.push(`❌ MACD: Unreliable in ranging market (ADX ${adx.toFixed(1)} < 20)`);
@@ -1184,7 +1184,7 @@ export class AdvancedAI {
     if (trending && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend))) {
       confirmations.adx = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ ADX: Strong trend (${adx.toFixed(1)})`);
+      confirmationDetails.push(`✅ ADX: ${adxStrong ? 'Strong' : 'Rising'} trend (${prevAdx.toFixed(1)} → ${adx.toFixed(1)})`);
     } else {
       // ⚡ FIX: Show correct ADX interpretation
       const adxInterpretation = this.getADXInterpretation(adx);
@@ -1196,7 +1196,9 @@ export class AdvancedAI {
     // Extreme readings reverse fast in expiry trading; chasing them creates trap entries.
     const stochRising = stoch.k > stoch.d;
     const stochFalling = stoch.k < stoch.d;
-    if (isBullish && stochOversold) {
+    if (adx > 30) {
+      confirmationDetails.push(`➖ Stochastic: Ignored in strong trend (ADX ${adx.toFixed(1)})`);
+    } else if (isBullish && stochOversold) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
       confirmationDetails.push(`✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + bullish reversal`);
