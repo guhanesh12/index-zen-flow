@@ -815,7 +815,7 @@ export class AdvancedAI {
     // ⚡ FIX: When the latest bar is still forming (vol=0 or range=0) but the
     // feed has historical volume, fall back to the previous CLOSED candle so
     // volume ratio + candle strength aren't reported as 0.
-    const prevCandle = ohlcData[ohlcData.length - 2] || lastCandle;
+    const prevCandleVol = ohlcData[ohlcData.length - 2] || lastCandle;
     const lastBarPartial = (lastCandle.volume || 0) === 0 && (lastCandle.high - lastCandle.low) === 0;
     const refCandle = lastBarPartial ? prevCandle : lastCandle;
     const last10Candles = ohlcData.slice(-10);
