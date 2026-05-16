@@ -457,58 +457,140 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate ADX (Average Directional Index) - Trend Strength
+   * Calculate ADX with proper Wilder's smoothing of +DI, -DI and DX
    */
   private static calculateADX(data: OHLCCandle[], period: number = 14): number {
-    if (data.length < period + 1) return 0;
-    
-    let plusDM = 0;
-    let minusDM = 0;
-    let tr = 0;
-    
-    for (let i = data.length - period; i < data.length; i++) {
-      const highDiff = data[i].high - data[i - 1].high;
-      const lowDiff = data[i - 1].low - data[i].low;
-      
-      plusDM += (highDiff > lowDiff && highDiff > 0) ? highDiff : 0;
-      minusDM += (lowDiff > highDiff && lowDiff > 0) ? lowDiff : 0;
-      
-      const trueRange = Math.max(
-        data[i].high - data[i].low,
-        Math.abs(data[i].high - data[i - 1].close),
-        Math.abs(data[i].low - data[i - 1].close)
-      );
-      tr += trueRange;
+    if (data.length < period * 2 + 1) {
+      // fallback to simple version when not enough data
+      if (data.length < period + 1) return 0;
+      let pDM = 0, mDM = 0, tr = 0;
+      for (let i = data.length - period; i < data.length; i++) {
+        const hd = data[i].high - data[i - 1].high;
+        const ld = data[i - 1].low - data[i].low;
+        pDM += (hd > ld && hd > 0) ? hd : 0;
+        mDM += (ld > hd && ld > 0) ? ld : 0;
+        tr += Math.max(data[i].high - data[i].low,
+          Math.abs(data[i].high - data[i - 1].close),
+          Math.abs(data[i].low - data[i - 1].close));
+      }
+      if (tr === 0) return 0;
+      const pDI = (pDM / tr) * 100, mDI = (mDM / tr) * 100;
+      const sum = pDI + mDI;
+      return sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0;
     }
-    
-    const plusDI = (plusDM / tr) * 100;
-    const minusDI = (minusDM / tr) * 100;
-    
-    const dx = Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100;
-    
-    return dx;
+
+    const trArr: number[] = [];
+    const pDMArr: number[] = [];
+    const mDMArr: number[] = [];
+    for (let i = 1; i < data.length; i++) {
+      const hd = data[i].high - data[i - 1].high;
+      const ld = data[i - 1].low - data[i].low;
+      pDMArr.push((hd > ld && hd > 0) ? hd : 0);
+      mDMArr.push((ld > hd && ld > 0) ? ld : 0);
+      trArr.push(Math.max(data[i].high - data[i].low,
+        Math.abs(data[i].high - data[i - 1].close),
+        Math.abs(data[i].low - data[i - 1].close)));
+    }
+
+    // Wilder's smoothing: first = sum of first `period`, then prev - prev/period + current
+    const smooth = (arr: number[]): number[] => {
+      const out: number[] = [];
+      let s = 0;
+      for (let i = 0; i < period; i++) s += arr[i];
+      out.push(s);
+      for (let i = period; i < arr.length; i++) {
+        s = s - s / period + arr[i];
+        out.push(s);
+      }
+      return out;
+    };
+
+    const trS = smooth(trArr);
+    const pS = smooth(pDMArr);
+    const mS = smooth(mDMArr);
+    const dxArr: number[] = [];
+    for (let i = 0; i < trS.length; i++) {
+      if (trS[i] === 0) { dxArr.push(0); continue; }
+      const pDI = (pS[i] / trS[i]) * 100;
+      const mDI = (mS[i] / trS[i]) * 100;
+      const sum = pDI + mDI;
+      dxArr.push(sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0);
+    }
+    if (dxArr.length < period) {
+      return dxArr.length ? dxArr[dxArr.length - 1] : 0;
+    }
+    // ADX = Wilder smoothing of DX
+    let adx = 0;
+    for (let i = 0; i < period; i++) adx += dxArr[i];
+    adx = adx / period;
+    for (let i = period; i < dxArr.length; i++) {
+      adx = (adx * (period - 1) + dxArr[i]) / period;
+    }
+    return adx;
   }
-  
+
   /**
-   * Calculate Stochastic Oscillator
+   * Stochastic with proper %D = 3-period SMA of %K
    */
   private static calculateStochastic(data: OHLCCandle[], period: number = 14): { k: number; d: number } {
     if (data.length < period) return { k: 50, d: 50 };
-    
-    const slice = data.slice(-period);
-    const currentClose = data[data.length - 1].close;
-    
-    const lowestLow = Math.min(...slice.map(c => c.low));
-    const highestHigh = Math.max(...slice.map(c => c.high));
-    
-    const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
-    
-    // D is 3-period SMA of K (simplified to K for now)
-    const d = k;
-    
+    const kVals: number[] = [];
+    const start = Math.max(period, data.length - (period + 3));
+    for (let end = start; end <= data.length; end++) {
+      const slice = data.slice(end - period, end);
+      const close = slice[slice.length - 1].close;
+      const lo = Math.min(...slice.map(c => c.low));
+      const hi = Math.max(...slice.map(c => c.high));
+      const k = hi === lo ? 50 : ((close - lo) / (hi - lo)) * 100;
+      kVals.push(k);
+    }
+    const k = kVals[kVals.length - 1];
+    const last3 = kVals.slice(-3);
+    const d = last3.reduce((a, b) => a + b, 0) / last3.length;
     return { k, d };
   }
-  
+
+  /**
+   * Swing-pivot based Support/Resistance (last N bars, fractal pivots)
+   */
+  private static calculateSwingLevels(data: OHLCCandle[], lookback: number = 80, left: number = 2, right: number = 2): { resistances: number[]; supports: number[] } {
+    const slice = data.slice(-lookback);
+    const highs: number[] = [];
+    const lows: number[] = [];
+    for (let i = left; i < slice.length - right; i++) {
+      let isPivotHigh = true, isPivotLow = true;
+      for (let j = i - left; j <= i + right; j++) {
+        if (j === i) continue;
+        if (slice[j].high >= slice[i].high) isPivotHigh = false;
+        if (slice[j].low <= slice[i].low) isPivotLow = false;
+      }
+      if (isPivotHigh) highs.push(slice[i].high);
+      if (isPivotLow) lows.push(slice[i].low);
+    }
+    const last = slice[slice.length - 1].close;
+    // Cluster close levels (within 0.15%)
+    const cluster = (vals: number[]): number[] => {
+      if (!vals.length) return [];
+      const sorted = [...vals].sort((a, b) => a - b);
+      const tol = last * 0.0015;
+      const groups: number[][] = [[sorted[0]]];
+      for (let i = 1; i < sorted.length; i++) {
+        const g = groups[groups.length - 1];
+        if (sorted[i] - g[g.length - 1] <= tol) g.push(sorted[i]);
+        else groups.push([sorted[i]]);
+      }
+      // weight by touches (group length) — keep multi-touch zones
+      return groups
+        .map(g => ({ price: g.reduce((a, b) => a + b, 0) / g.length, touches: g.length }))
+        .sort((a, b) => b.touches - a.touches || Math.abs(a.price - last) - Math.abs(b.price - last))
+        .map(x => x.price);
+    };
+    const resistances = cluster(highs.filter(h => h > last));
+    const supports = cluster(lows.filter(l => l < last));
+    return { resistances, supports };
+  }
+
+
   /**
    * Calculate Fibonacci Retracement Levels
    */
