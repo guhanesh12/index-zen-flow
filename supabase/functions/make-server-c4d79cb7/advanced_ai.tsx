@@ -1122,11 +1122,13 @@ export class AdvancedAI {
     const priceAboveVWAP = lastCandle.close > vwap;
     calculationsPerformed += 1;
     
-    // RSI
+    // RSI + real divergence
     const rsi = this.calculateRSI(ohlcData);
+    const rsiArr = this.rsiSeries(ohlcData);
+    const rsiDivergenceObj = this.detectRSIDivergence(ohlcData, rsiArr);
     const rsiOverbought = rsi > 70;
     const rsiOversold = rsi < 30;
-    const rsiDivergence = false; // Simplified for now
+    const rsiDivergence = rsiDivergenceObj.bull || rsiDivergenceObj.bear;
     calculationsPerformed += 1;
     
     // MACD
@@ -1138,11 +1140,20 @@ export class AdvancedAI {
     const macdHistogramExpandingBear = macdData.histogram < prevMacdData.histogram;
     calculationsPerformed += 1;
     
-    // Bollinger Bands
+    // Bollinger Bands — adaptive squeeze (ATR-normalized)
     const bollinger = this.calculateBollingerBands(ohlcData);
+    const prevBollinger = ohlcData.length > 25 ? this.calculateBollingerBands(ohlcData.slice(0, -1)) : bollinger;
     const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
     const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
-    const bollingerSqueeze = bollinger.width < 2;
+    // ATR-relative squeeze: width compared to recent volatility, not a fixed threshold
+    const atrPctTmp = this.calculateATR(ohlcData, 14) / Math.max(lastCandle.close, 1) * 100;
+    const squeezeThreshold = atrPctTmp * 1.5;
+    const bollingerSqueeze = bollinger.width < squeezeThreshold;
+    const bbExpansion = bollinger.width > prevBollinger.width * 1.15;
+    const bbSqueezeBreakout: 'BULL' | 'BEAR' | 'NONE' =
+      bbExpansion && lastCandle.close > bollinger.upper ? 'BULL'
+      : bbExpansion && lastCandle.close < bollinger.lower ? 'BEAR'
+      : 'NONE';
     calculationsPerformed += 1;
     
     // ATR
