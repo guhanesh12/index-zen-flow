@@ -1487,7 +1487,12 @@ class PersistentTradingEngine {
         const securityIdMap: Record<string, string> = { NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' };
         try {
           const ohlcData = await dhanService.getOHLCData(securityIdMap[indexName], String(state.candleInterval || '5'), 50);
-          const signal = ohlcData && ohlcData.length > 0 ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000) : null;
+          const real15mData = state.candleInterval === '15' ? ohlcData : await dhanService.getOHLCData(securityIdMap[indexName], '15', 80);
+          const signal = ohlcData && ohlcData.length > 0 ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
+            higherTimeframeData: real15mData,
+            timeframeMinutes: Number(state.candleInterval || '5'),
+            minimumBarsBetweenSignals: 3,
+          }) : null;
           monitorSignalCache.set(indexName, signal);
           return signal;
         } catch (err: any) {
