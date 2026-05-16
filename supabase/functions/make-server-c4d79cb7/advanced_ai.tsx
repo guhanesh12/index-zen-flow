@@ -911,22 +911,23 @@ export class AdvancedAI {
     const stochOversold = stoch.k < 20;
     calculationsPerformed += 1;
     
-    // Support/Resistance
-    const highs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
-    const lows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
-    
-    const resistance1 = highs[0];
-    const resistance2 = highs[Math.floor(highs.length * 0.2)];
-    const resistance3 = highs[Math.floor(highs.length * 0.4)];
-    
-    const support1 = lows[0];
-    const support2 = lows[Math.floor(lows.length * 0.2)];
-    const support3 = lows[Math.floor(lows.length * 0.4)];
-    
-    const nearResistance = lastCandle.close > resistance1 * 0.98;
-    const nearSupport = lastCandle.close < support1 * 1.02;
+    // Support/Resistance — proper swing-pivot detection (fractal pivots + clustering by touches)
+    const swing = this.calculateSwingLevels(ohlcData, 80, 2, 2);
+    // Fallback to extremes if no pivots found yet (early warm-up)
+    const sortedHighs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
+    const sortedLows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
+    const resistance1 = swing.resistances[0] ?? sortedHighs[0];
+    const resistance2 = swing.resistances[1] ?? sortedHighs[Math.floor(sortedHighs.length * 0.2)];
+    const resistance3 = swing.resistances[2] ?? sortedHighs[Math.floor(sortedHighs.length * 0.4)];
+    const support1 = swing.supports[0] ?? sortedLows[0];
+    const support2 = swing.supports[1] ?? sortedLows[Math.floor(sortedLows.length * 0.2)];
+    const support3 = swing.supports[2] ?? sortedLows[Math.floor(sortedLows.length * 0.4)];
+    // "Near" tolerance scaled by ATR (~0.5 ATR) so it adapts to volatility instead of fixed 2%
+    const nearTol = Math.max(lastCandle.close * 0.003, (this.calculateATR(ohlcData, 14) || 0) * 0.5);
+    const nearResistance = resistance1 ? (resistance1 - lastCandle.close) <= nearTol && lastCandle.close <= resistance1 + nearTol : false;
+    const nearSupport = support1 ? (lastCandle.close - support1) <= nearTol && lastCandle.close >= support1 - nearTol : false;
     calculationsPerformed += 1;
-    
+
     // Fibonacci
     const fibLevels = this.calculateFibonacci(ohlcData);
     const nearFibLevel = Math.abs(lastCandle.close - fibLevels.level_618) < lastCandle.close * 0.005;
