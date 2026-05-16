@@ -1327,64 +1327,79 @@ export class AdvancedAI {
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 &&
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
 
-    // FIX PROBLEM #8: EMA200 long-term bias filter (only block counter-trend in clearly trending markets)
-    const ema200Bias: 'bull' | 'bear' | 'neutral' =
-      currentPrice > ema200 * 1.001 ? 'bull' : currentPrice < ema200 * 0.999 ? 'bear' : 'neutral';
-    const counterToLongTerm =
-      (confirmationBullish && ema200Bias === 'bear' && adx > 30) ||
-      (confirmationBearish && ema200Bias === 'bull' && adx > 30);
+    // Professional MTF: use REAL 15m candles passed by caller. Never resample 5m candles into fake 15m.
+    const htfDataProvided = Boolean(options.higherTimeframeData && options.higherTimeframeData.length >= 25);
+    const htfAlign = htfDataProvided ? this.detectHigherTimeframeTrend(options.higherTimeframeData) : 'neutral';
+    const htfAgreesBull = htfDataProvided ? htfAlign === 'bull' : true;
+    const htfAgreesBear = htfDataProvided ? htfAlign === 'bear' : true;
 
-    // FIX PROBLEM #5: Higher-timeframe (MTF) confirmation by resampling current TF × 3
-    // (e.g. 5m → 15m, 15m → 45m). EMA9/EMA21 alignment + slope must agree with trade direction.
-    const htfAlign = ((): 'bull' | 'bear' | 'neutral' => {
-      if (ohlcData.length < 90) return 'neutral';
-      const grouped: OHLCCandle[] = [];
-      for (let i = 0; i + 3 <= ohlcData.length; i += 3) {
-        const g = ohlcData.slice(i, i + 3);
-        grouped.push({
-          open: g[0].open,
-          high: Math.max(...g.map(x => x.high)),
-          low: Math.min(...g.map(x => x.low)),
-          close: g[g.length - 1].close,
-          volume: g.reduce((a, b) => a + (b.volume || 0), 0),
-          timestamp: g[g.length - 1].timestamp,
-        });
-      }
-      if (grouped.length < 25) return 'neutral';
-      const e9 = this.calculateEMA(grouped, 9);
-      const e21 = this.calculateEMA(grouped, 21);
-      const lastHTF = grouped[grouped.length - 1].close;
-      if (lastHTF > e9 && e9 > e21) return 'bull';
-      if (lastHTF < e9 && e9 < e21) return 'bear';
-      return 'neutral';
-    })();
-    const htfAgreesBull = htfAlign === 'bull' || htfAlign === 'neutral';
-    const htfAgreesBear = htfAlign === 'bear' || htfAlign === 'neutral';
+    // Breakout confirmation: close beyond level, or previous breakout + current candle holds the level.
+    const breakoutLookback = Math.min(12, Math.max(5, ohlcData.length - 2));
+    const breakoutBase = ohlcData.slice(-(breakoutLookback + 2), -2);
+    const fallbackBase = ohlcData.slice(-Math.min(12, ohlcData.length - 1), -1);
+    const levelCandles = breakoutBase.length >= 5 ? breakoutBase : fallbackBase;
+    const breakoutHigh = Math.max(...levelCandles.map(c => c.high));
+    const breakoutLow = Math.min(...levelCandles.map(c => c.low));
+    const breakoutHoldTol = atr14 * 0.15;
+    const bullishBreakoutClose = lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
+    const bearishBreakdownClose = lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
+    const bullishBreakoutHold = prevCandle.close > breakoutHigh && lastCandle.close > breakoutHigh && lastCandle.low >= breakoutHigh - breakoutHoldTol;
+    const bearishBreakdownHold = prevCandle.close < breakoutLow && lastCandle.close < breakoutLow && lastCandle.high <= breakoutLow + breakoutHoldTol;
+    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold;
+    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold;
 
-    // FIX (MID-SESSION TRAP): 11:00–13:30 IST is institutional fake-move window.
-    // Require stronger conviction during these hours: +1 confirmation AND ADX > 25.
+    const earlyBullChecks = [
+      breakoutConfirmedBull,
+      ema9 > ema21 && lastCandle.close >= ema9 - atr14 * 0.2,
+      lastCandle.close > vwap,
+      hasAcceptableVolume && (bodySize >= minimumBodySize * 0.6 || bodyPercent >= 35),
+    ];
+    const earlyBearChecks = [
+      breakoutConfirmedBear,
+      ema9 < ema21 && lastCandle.close <= ema9 + atr14 * 0.2,
+      lastCandle.close < vwap,
+      hasAcceptableVolume && (bodySize >= minimumBodySize * 0.6 || bodyPercent >= 35),
+    ];
+    const earlyBullScore = earlyBullChecks.filter(Boolean).length;
+    const earlyBearScore = earlyBearChecks.filter(Boolean).length;
+    const earlyRequiredConfirmations = 3;
+    const momentumBull = macdHistogramExpandingBull || adxRising;
+    const momentumBear = macdHistogramExpandingBear || adxRising;
+
     const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
     const istMinutes = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
-    const inMidSessionTrap = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
-    const requiredConfirmations = inMidSessionTrap ? 7 : 6;
-    const midSessionAdxOk = !inMidSessionTrap || adx > 25;
+    const inMidSessionTrapWindow = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
+    const prevVwap = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
+    const vwapFlat = Math.abs(vwap - prevVwap) <= Math.max(1, atr14 * 0.05);
+    const weakMidSessionTrap = inMidSessionTrapWindow && (adx < 22 && !adxRising) && !hasAcceptableVolume && vwapFlat;
 
-    const strongBullish = confirmations.total >= requiredConfirmations
-      && confirmationBullish
-      && (bodySize >= minimumBodySize || hasStrongPattern)
-      && hasAcceptableVolume
-      && !counterToLongTerm
+    const timeframeMinutes = options.timeframeMinutes || 5;
+    const currentTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const lastSignalTsMs = options.lastSignalTimestamp ? (options.lastSignalTimestamp < 1e12 ? options.lastSignalTimestamp * 1000 : options.lastSignalTimestamp) : 0;
+    const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 3;
+    const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
+    const cooldownActive = barsSinceLastSignal >= 0 && barsSinceLastSignal < minimumBarsBetweenSignals;
+
+    const requiredConfirmations = earlyRequiredConfirmations;
+    confirmations.required = requiredConfirmations;
+    const strongConfirmationScore = [confirmations.macd, confirmations.adx, confirmations.rsi, confirmations.stochastic].filter(Boolean).length;
+
+    const strongBullish = confirmationBullish
       && htfAgreesBull
-      && midSessionAdxOk;
-    const strongBearish = confirmations.total >= requiredConfirmations
-      && confirmationBearish
-      && (bodySize >= minimumBodySize || hasStrongPattern)
-      && hasAcceptableVolume
-      && !counterToLongTerm
+      && earlyBullScore >= requiredConfirmations
+      && breakoutConfirmedBull
+      && momentumBull
+      && !weakMidSessionTrap
+      && !cooldownActive;
+    const strongBearish = confirmationBearish
       && htfAgreesBear
-      && midSessionAdxOk;
+      && earlyBearScore >= requiredConfirmations
+      && breakoutConfirmedBear
+      && momentumBear
+      && !weakMidSessionTrap
+      && !cooldownActive;
 
-    console.log(`🎯 SIGNAL CHECK: conf=${confirmations.total}/${requiredConfirmations}, bull=${confirmationBullish}, bear=${confirmationBearish}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), pattern=${hasStrongPattern}, vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, ema200=${ema200Bias}, htf=${htfAlign}, midTrap=${inMidSessionTrap}, counterLT=${counterToLongTerm}`);
+    console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, momentum(B/S)=${momentumBull}/${momentumBear}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
 
     
     if (strongBullish && marketRegime.suitable_for_trading) {
