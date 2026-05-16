@@ -1743,17 +1743,35 @@ export class AdvancedAI {
     if (strongBullish) {
       action = 'BUY_CALL';
       confidence = 62 + (earlyBullScore * 7) + (strongConfirmationScore * 3);
-      confidence = Math.min(confidence, 95);
+      // Institutional boosts
+      if (smartMoneyBias === 'BULLISH') confidence += 5;
+      if (marketStructure.bos === 'BULL' || marketStructure.choch === 'BULL') confidence += 4;
+      if (rsiDivergenceObj.bull) confidence += 3;
+      if (bbSqueezeBreakout === 'BULL') confidence += 3;
+      // Confidence decay
+      if (!rangeExpansion) confidence -= 5;
+      if (!adxRising) confidence -= 3;
+      if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence = Math.max(50, Math.min(confidence, 95));
       bias = 'Bullish';
-      reasoning = `EARLY BUY_CALL: ${earlyBullScore}/4 entry confirmations + ${strongConfirmationScore}/4 momentum confirmations. Real 15m trend: ${htfAlign}. Breakout confirmed. ${smartMoney ? 'Smart money detected!' : ''}`;
-      
+      reasoning = `BUY_CALL: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum. 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${rsiDivergenceObj.bull ? ' Bullish RSI divergence!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
+
     } else if (strongBearish) {
       action = 'BUY_PUT';
       confidence = 62 + (earlyBearScore * 7) + (strongConfirmationScore * 3);
-      confidence = Math.min(confidence, 95);
+      // Institutional boosts
+      if (smartMoneyBias === 'BEARISH') confidence += 5;
+      if (marketStructure.bos === 'BEAR' || marketStructure.choch === 'BEAR') confidence += 4;
+      if (rsiDivergenceObj.bear) confidence += 3;
+      if (bbSqueezeBreakout === 'BEAR') confidence += 3;
+      // Confidence decay
+      if (!rangeExpansion) confidence -= 5;
+      if (!adxRising) confidence -= 3;
+      if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence = Math.max(50, Math.min(confidence, 95));
       bias = 'Bearish';
-      reasoning = `EARLY BUY_PUT: ${earlyBearScore}/4 entry confirmations + ${strongConfirmationScore}/4 momentum confirmations. Real 15m trend: ${htfAlign}. Breakdown confirmed. ${smartMoney ? 'Smart money detected!' : ''}`;
-      
+      reasoning = `BUY_PUT: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum. 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${rsiDivergenceObj.bear ? ' Bearish RSI divergence!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
+
     } else if (cooldownActive) {
       action = 'WAIT';
       confidence = 35;
