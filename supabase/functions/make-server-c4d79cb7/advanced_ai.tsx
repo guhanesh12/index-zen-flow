@@ -1111,14 +1111,28 @@ export class AdvancedAI {
   public static generateAdvancedSignal(ohlcData: OHLCCandle[], accountBalance: number = 100000, options: AdvancedSignalOptions = {}): AdvancedSignal {
     const startTime = performance.now();
     let calculationsPerformed = 0;
-    
-    // Last candle
+
+    // ===== SAFETY: validate input data =====
+    if (!Array.isArray(ohlcData) || ohlcData.length < 30) {
+      return this.emptyWaitResult(`WAIT: Insufficient candle data (${ohlcData?.length ?? 0}/30 minimum).`, startTime);
+    }
+    // Drop any malformed candles defensively
+    const cleanData = ohlcData.filter(c =>
+      c && isFinite(c.open) && isFinite(c.high) && isFinite(c.low) && isFinite(c.close)
+      && c.high >= c.low && c.high > 0 && c.low > 0
+    );
+    if (cleanData.length < 30) {
+      return this.emptyWaitResult(`WAIT: Too many invalid candles (clean ${cleanData.length}/30).`, startTime);
+    }
+    ohlcData = cleanData;
+
     const lastCandle = ohlcData[ohlcData.length - 1];
     const prevCandle = ohlcData[ohlcData.length - 2];
-    
+    const safeClose = Math.max(lastCandle.close, 1e-9);
+
     // ========== CALCULATE ALL INDICATORS ==========
     calculationsPerformed++;
-    
+
     // Moving Averages
     const ema9 = this.calculateEMA(ohlcData, 9);
     const ema21 = this.calculateEMA(ohlcData, 21);
@@ -1126,13 +1140,14 @@ export class AdvancedAI {
     const ema200 = this.calculateEMA(ohlcData, 200);
     const sma20 = this.calculateSMA(ohlcData, 20);
     calculationsPerformed += 5;
-    
+
     // VWAP
     const vwap = this.calculateVWAP(ohlcData);
-    const vwapDistance = ((lastCandle.close - vwap) / vwap) * 100;
+    const safeVwap = Math.max(vwap, 1e-9);
+    const vwapDistance = ((lastCandle.close - safeVwap) / safeVwap) * 100;
     const priceAboveVWAP = lastCandle.close > vwap;
     calculationsPerformed += 1;
-    
+
     // RSI + real divergence
     const rsi = this.calculateRSI(ohlcData);
     const rsiArr = this.rsiSeries(ohlcData);
@@ -1141,7 +1156,7 @@ export class AdvancedAI {
     const rsiOversold = rsi < 30;
     const rsiDivergence = rsiDivergenceObj.bull || rsiDivergenceObj.bear;
     calculationsPerformed += 1;
-    
+
     // MACD
     const macdData = this.calculateMACD(ohlcData);
     const prevMacdData = ohlcData.length > 30 ? this.calculateMACD(ohlcData.slice(0, -1)) : macdData;
@@ -1150,28 +1165,28 @@ export class AdvancedAI {
     const macdHistogramExpandingBull = macdData.histogram > prevMacdData.histogram;
     const macdHistogramExpandingBear = macdData.histogram < prevMacdData.histogram;
     calculationsPerformed += 1;
-    
-    // Bollinger Bands — adaptive squeeze (ATR-normalized)
+
+    // ATR — compute ONCE, reuse everywhere (perf)
+    const atr14 = this.calculateATR(ohlcData, 14);
+    const atr = atr14;
+    const safeAtr = Math.max(atr14, safeClose * 0.0005);
+    const volatilityHigh = atr > safeClose * 0.02;
+    const volatilityLow = atr < safeClose * 0.01;
+    calculationsPerformed += 1;
+
+    // Bollinger Bands — adaptive squeeze (ATR-normalized, uses cached ATR)
     const bollinger = this.calculateBollingerBands(ohlcData);
     const prevBollinger = ohlcData.length > 25 ? this.calculateBollingerBands(ohlcData.slice(0, -1)) : bollinger;
     const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
     const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
-    // ATR-relative squeeze: width compared to recent volatility, not a fixed threshold
-    const atrPctTmp = this.calculateATR(ohlcData, 14) / Math.max(lastCandle.close, 1) * 100;
-    const squeezeThreshold = atrPctTmp * 1.5;
+    const atrPct = (safeAtr / safeClose) * 100;
+    const squeezeThreshold = atrPct * 1.5;
     const bollingerSqueeze = bollinger.width < squeezeThreshold;
     const bbExpansion = bollinger.width > prevBollinger.width * 1.15;
     const bbSqueezeBreakout: 'BULL' | 'BEAR' | 'NONE' =
       bbExpansion && lastCandle.close > bollinger.upper ? 'BULL'
       : bbExpansion && lastCandle.close < bollinger.lower ? 'BEAR'
       : 'NONE';
-    calculationsPerformed += 1;
-    
-    // ATR
-    const atr = this.calculateATR(ohlcData);
-    const atr14 = this.calculateATR(ohlcData, 14);
-    const volatilityHigh = atr > lastCandle.close * 0.02;
-    const volatilityLow = atr < lastCandle.close * 0.01;
     calculationsPerformed += 1;
     
     // ADX
