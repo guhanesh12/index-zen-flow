@@ -1061,8 +1061,8 @@ export class AdvancedAI {
   }
 
   /** Liquidity sweep / stop hunt detection */
-  private static detectLiquiditySweep(data: OHLCCandle[]): { buySide: boolean; sellSide: boolean; stopHunt: boolean } {
-    if (data.length < 12) return { buySide: false, sellSide: false, stopHunt: false };
+  private static detectLiquiditySweep(data: OHLCCandle[]): { buySideSweep: boolean; sellSideSweep: boolean; stopHunt: boolean } {
+    if (data.length < 12) return { buySideSweep: false, sellSideSweep: false, stopHunt: false };
     const last = data[data.length - 1];
     const lookback = data.slice(-11, -1);
     const priorHigh = Math.max(...lookback.map(c => c.high));
@@ -1071,11 +1071,9 @@ export class AdvancedAI {
     const body = Math.abs(last.close - last.open);
     const upperWick = last.high - Math.max(last.open, last.close);
     const lowerWick = Math.min(last.open, last.close) - last.low;
-    // Buy-side sweep: spiked above prior high then closed back inside with long upper wick
-    const buySide = last.high > priorHigh && last.close < priorHigh && upperWick > body * 1.5 && range > 0;
-    // Sell-side sweep: spiked below prior low then closed back inside with long lower wick
-    const sellSide = last.low < priorLow && last.close > priorLow && lowerWick > body * 1.5 && range > 0;
-    return { buySide, sellSide, stopHunt: buySide || sellSide };
+    const buySideSweep = last.high > priorHigh && last.close < priorHigh && upperWick > body * 1.5 && range > 0;
+    const sellSideSweep = last.low < priorLow && last.close > priorLow && lowerWick > body * 1.5 && range > 0;
+    return { buySideSweep, sellSideSweep, stopHunt: buySideSweep || sellSideSweep };
   }
 
   /** Gap detection at session open */
