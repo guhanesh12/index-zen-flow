@@ -1216,7 +1216,7 @@ export class AdvancedAI {
     const support2 = swing.supports[1] ?? sortedLows[Math.floor(sortedLows.length * 0.2)];
     const support3 = swing.supports[2] ?? sortedLows[Math.floor(sortedLows.length * 0.4)];
     // "Near" tolerance scaled by ATR (~0.5 ATR) so it adapts to volatility instead of fixed 2%
-    const nearTol = Math.max(lastCandle.close * 0.003, (this.calculateATR(ohlcData, 14) || 0) * 0.5);
+    const nearTol = Math.max(lastCandle.close * 0.003, safeAtr * 0.5);
     const nearResistance = resistance1 ? (resistance1 - lastCandle.close) <= nearTol && lastCandle.close <= resistance1 + nearTol : false;
     const nearSupport = support1 ? (lastCandle.close - support1) <= nearTol && lastCandle.close >= support1 - nearTol : false;
     calculationsPerformed += 1;
