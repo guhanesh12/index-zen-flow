@@ -1402,49 +1402,51 @@ export class AdvancedAI {
     console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, momentum(B/S)=${momentumBull}/${momentumBear}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
 
     
-    if (strongBullish && marketRegime.suitable_for_trading) {
+    if (strongBullish) {
       action = 'BUY_CALL';
-      confidence = 60 + (confirmations.total * 5); // 60-110%
+      confidence = 62 + (earlyBullScore * 7) + (strongConfirmationScore * 3);
       confidence = Math.min(confidence, 95);
       bias = 'Bullish';
-      reasoning = `STRONG BUY: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
+      reasoning = `EARLY BUY_CALL: ${earlyBullScore}/4 entry confirmations + ${strongConfirmationScore}/4 momentum confirmations. Real 15m trend: ${htfAlign}. Breakout confirmed. ${smartMoney ? 'Smart money detected!' : ''}`;
       
-    } else if (strongBearish && marketRegime.suitable_for_trading) {
+    } else if (strongBearish) {
       action = 'BUY_PUT';
-      confidence = 60 + (confirmations.total * 5);
+      confidence = 62 + (earlyBearScore * 7) + (strongConfirmationScore * 3);
       confidence = Math.min(confidence, 95);
       bias = 'Bearish';
-      reasoning = `STRONG SELL: ${confirmations.total}/10 confirmations! Market: ${marketRegime.type}. ${smartMoney ? 'Smart money detected!' : ''}`;
+      reasoning = `EARLY BUY_PUT: ${earlyBearScore}/4 entry confirmations + ${strongConfirmationScore}/4 momentum confirmations. Real 15m trend: ${htfAlign}. Breakdown confirmed. ${smartMoney ? 'Smart money detected!' : ''}`;
       
-    } else if (!marketRegime.suitable_for_trading) {
-      action = 'WAIT';
-      confidence = 30;
-      bias = 'Neutral';
-      reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
-      
-    } else if (confirmations.total < requiredConfirmations) {
-      action = 'WAIT';
-      confidence = 40;
-      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations (need ${requiredConfirmations}${inMidSessionTrap ? ' — mid-session trap window' : ''}).`;
-
-    } else if (counterToLongTerm) {
+    } else if (cooldownActive) {
       action = 'WAIT';
       confidence = 35;
       bias = 'Neutral';
-      reasoning = `WAIT: Signal counter to long-term bias (EMA200 ${ema200Bias}, ADX ${adx.toFixed(1)}).`;
-
+      reasoning = `WAIT: Signal cooldown active (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars since last trade).`;
+      
     } else if (confirmationBullish ? !htfAgreesBull : confirmationBearish ? !htfAgreesBear : false) {
       action = 'WAIT';
       confidence = 38;
       bias = 'Neutral';
-      reasoning = `WAIT: Higher-timeframe (MTF) bias disagrees (HTF=${htfAlign}).`;
+      reasoning = htfDataProvided
+        ? `WAIT: Real 15m trend disagrees (15m=${htfAlign}).`
+        : `WAIT: Real 15m candles not supplied, so MTF filter is neutral only.`;
 
-    } else if (inMidSessionTrap && !midSessionAdxOk) {
+    } else if (weakMidSessionTrap) {
       action = 'WAIT';
       confidence = 35;
       bias = 'Neutral';
-      reasoning = `WAIT: Mid-session trap window (11:00–13:30 IST) — ADX ${adx.toFixed(1)} too weak (>25 required).`;
+      reasoning = `WAIT: Mid-session trap only because ADX is weak/not rising, volume is weak, and VWAP is flat.`;
+
+    } else if (!breakoutConfirmedBull && !breakoutConfirmedBear) {
+      action = 'WAIT';
+      confidence = 40;
+      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
+      reasoning = `WAIT: Breakout close/hold not confirmed yet (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
+
+    } else if ((confirmationBullish && earlyBullScore < requiredConfirmations) || (confirmationBearish && earlyBearScore < requiredConfirmations)) {
+      action = 'WAIT';
+      confidence = 40;
+      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
+      reasoning = `WAIT: Early entry confirmations incomplete (bull ${earlyBullScore}/4, bear ${earlyBearScore}/4; need ${requiredConfirmations}).`;
 
     } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {
       if (!hasStrongPattern) {
