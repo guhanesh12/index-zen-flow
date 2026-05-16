@@ -1845,35 +1845,43 @@ export class AdvancedAI {
 
     if (strongBullish) {
       action = 'BUY_CALL';
-      confidence = 62 + (earlyBullScore * 7) + (strongConfirmationScore * 3);
+      // Tier-based base + ceiling: FAST stays conservative, HIGH can run hot.
+      const tierBase = bullTier === 'HIGH' ? 70 : bullTier === 'STRONG' ? 64 : 58;
+      const tierCeiling = bullTier === 'HIGH' ? 95 : bullTier === 'STRONG' ? 88 : 78;
+      confidence = tierBase + (earlyBullScore * 5) + (strongConfirmationScore * 3);
       // Institutional boosts
       if (smartMoneyBias === 'BULLISH') confidence += 5;
-      if (marketStructure.bos === 'BULL' || marketStructure.choch === 'BULL') confidence += 4;
-      if (rsiDivergenceObj.bull) confidence += 3;
+      if (marketStructure.bos === 'BULL') confidence += 4;
+      // CHoCH / RSI divergence only boosts AFTER follow-through + volume confirms
+      if (reversalBullValid && marketStructure.choch === 'BULL') confidence += 4;
+      if (reversalBullValid && rsiDivergenceObj.bull) confidence += 3;
       if (bbSqueezeBreakout === 'BULL') confidence += 3;
       // Confidence decay
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      confidence = Math.max(50, Math.min(confidence, 95));
+      confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bullish';
-      reasoning = `BUY_CALL: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum. 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${rsiDivergenceObj.bull ? ' Bullish RSI divergence!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
+      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBullValid && rsiDivergenceObj.bull ? ' Bullish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
 
     } else if (strongBearish) {
       action = 'BUY_PUT';
-      confidence = 62 + (earlyBearScore * 7) + (strongConfirmationScore * 3);
+      const tierBase = bearTier === 'HIGH' ? 70 : bearTier === 'STRONG' ? 64 : 58;
+      const tierCeiling = bearTier === 'HIGH' ? 95 : bearTier === 'STRONG' ? 88 : 78;
+      confidence = tierBase + (earlyBearScore * 5) + (strongConfirmationScore * 3);
       // Institutional boosts
       if (smartMoneyBias === 'BEARISH') confidence += 5;
-      if (marketStructure.bos === 'BEAR' || marketStructure.choch === 'BEAR') confidence += 4;
-      if (rsiDivergenceObj.bear) confidence += 3;
+      if (marketStructure.bos === 'BEAR') confidence += 4;
+      if (reversalBearValid && marketStructure.choch === 'BEAR') confidence += 4;
+      if (reversalBearValid && rsiDivergenceObj.bear) confidence += 3;
       if (bbSqueezeBreakout === 'BEAR') confidence += 3;
       // Confidence decay
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      confidence = Math.max(50, Math.min(confidence, 95));
+      confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bearish';
-      reasoning = `BUY_PUT: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum. 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${rsiDivergenceObj.bear ? ' Bearish RSI divergence!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
+      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBearValid && rsiDivergenceObj.bear ? ' Bearish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
 
     } else if (liquidity.stopHunt) {
       action = 'WAIT';
