@@ -983,12 +983,12 @@ export class AdvancedAI {
     return { bull, bear };
   }
 
-  /** EMA slope (% per bar over lookback) */
-  private static emaSlope(data: OHLCCandle[], period: number, lookback: number = 5): number {
+  /** EMA slope (% per bar over lookback). Pass `currentEma` to reuse cached value. */
+  private static emaSlope(data: OHLCCandle[], period: number, lookback: number = 5, currentEma?: number): number {
     if (data.length < period + lookback) return 0;
-    const now = this.calculateEMA(data, period);
+    const now = (typeof currentEma === 'number' && Number.isFinite(currentEma)) ? currentEma : this.calculateEMA(data, period);
     const prev = this.calculateEMA(data.slice(0, -lookback), period);
-    if (prev === 0) return 0;
+    if (prev === 0 || !Number.isFinite(prev)) return 0;
     return ((now - prev) / prev) * 100 / lookback;
   }
 
