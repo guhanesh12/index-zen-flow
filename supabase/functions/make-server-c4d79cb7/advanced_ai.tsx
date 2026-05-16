@@ -1728,6 +1728,33 @@ export class AdvancedAI {
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [confirmations.macd, confirmations.adx, confirmations.rsi, confirmations.stochastic].filter(Boolean).length;
 
+    // ===== DYNAMIC CONFIRMATION TIERS =====
+    // FAST_ENTRY  = 3 confirmations  (early entry, lower confidence ceiling)
+    // STRONG      = 5 confirmations  (early + momentum, normal confidence)
+    // HIGH_CONF   = 6+ confirmations (everything aligned, boosted confidence)
+    const totalBullScore = earlyBullScore + strongConfirmationScore;
+    const totalBearScore = earlyBearScore + strongConfirmationScore;
+    const bullTier: 'NONE' | 'FAST' | 'STRONG' | 'HIGH' =
+      totalBullScore >= 6 ? 'HIGH' : totalBullScore >= 5 ? 'STRONG' : totalBullScore >= 3 ? 'FAST' : 'NONE';
+    const bearTier: 'NONE' | 'FAST' | 'STRONG' | 'HIGH' =
+      totalBearScore >= 6 ? 'HIGH' : totalBearScore >= 5 ? 'STRONG' : totalBearScore >= 3 ? 'FAST' : 'NONE';
+
+    // ===== REVERSAL FOLLOW-THROUGH GATE =====
+    // CHoCH + RSI divergence may only boost confidence if follow-through candle
+    // closes in the reversal direction AND volume confirms.
+    const reversalBullFollowThrough =
+      lastCandle.close > lastCandle.open &&
+      prevCandle.close > prevCandle.open &&
+      lastCandle.close > prevCandle.close &&
+      hasAcceptableVolume;
+    const reversalBearFollowThrough =
+      lastCandle.close < lastCandle.open &&
+      prevCandle.close < prevCandle.open &&
+      lastCandle.close < prevCandle.close &&
+      hasAcceptableVolume;
+    const reversalBullValid = reversalBullFollowThrough && (marketStructure.choch === 'BULL' || rsiDivergenceObj.bull);
+    const reversalBearValid = reversalBearFollowThrough && (marketStructure.choch === 'BEAR' || rsiDivergenceObj.bear);
+
     // ===== INSTITUTIONAL FILTERS =====
     // 1) Liquidity sweep BLOCKS counter-direction entries (stop hunts → reversal incoming)
     const liquidityBlocksBull = liquidity.buySideSweep; // upside sweep ⇒ avoid longs
