@@ -190,6 +190,7 @@ export interface AdvancedSignal {
     positionSize: number;
     maxLoss: number;
     expectedProfit: number;
+    trailingStop?: { initial: number; trigger: number; trailDistance: number; breakeven: number };
   };
   
   // Market regime
