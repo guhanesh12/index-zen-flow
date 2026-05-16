@@ -1908,7 +1908,7 @@ export class AdvancedAI {
       bias = 'Bullish';
       reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBullValid && rsiDivergenceObj.bull ? ' Bullish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
 
-    } else if (strongBearish) {
+    } else if (allowBearish) {
       action = 'BUY_PUT';
       const tierBase = bearTier === 'HIGH' ? 70 : bearTier === 'STRONG' ? 64 : 58;
       const tierCeiling = bearTier === 'HIGH' ? 95 : bearTier === 'STRONG' ? 88 : 78;
