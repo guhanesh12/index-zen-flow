@@ -1137,7 +1137,11 @@ export class AdvancedAI {
     const minimumBodySize = 10; // Points (was 15)
     const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
     const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
-    const hasAcceptableVolume = volumeRatio >= minimumVolumeRatio;  // ⚡ FIX: Use >= instead of >
+    // ⚡ Index feeds (NIFTY/BANKNIFTY/SENSEX) often ship 0 volume. If feed is
+    // unreliable, do NOT block on volume — fall back to candle-strength gating
+    // (body% / pattern). Only enforce volume threshold when feed is reliable.
+    const volumeFeedReliable = avgVolume > 0 && lastCandle.volume > 0 && isFinite(volumeRatio);
+    const hasAcceptableVolume = !volumeFeedReliable ? (bodyPercent >= 35) : (volumeRatio >= minimumVolumeRatio);
     
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
     const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
@@ -1237,15 +1241,46 @@ export class AdvancedAI {
       
       confirmations,
       
-      volumeAnalysis: {
-        ratio: volumeRatio,
-        isHigh: isHighVolume,
-        isSpike: isVolumeSpike,
-        smartMoney,
-        buyPressure: orderFlow.buyPressure,
-        sellPressure: orderFlow.sellPressure,
-        orderFlow: orderFlow.orderFlow
-      },
+      volumeAnalysis: (() => {
+        // Always-available candle metrics (independent of volume feed)
+        const candleStrength = bodyPercent >= 60 ? 'STRONG'
+          : bodyPercent >= 35 ? 'DECISIVE'
+          : bodyPercent >= 25 ? 'MODERATE'
+          : 'WEAK';
+
+        // Volume feed reliability: index feeds (NIFTY/BANKNIFTY/SENSEX) often
+        // ship 0 volume. Detect that and surface candle-based confirmation
+        // instead of blocking/erasing the panel.
+        const candlesWithVolume = ohlcData.slice(-10).filter(c => (c.volume || 0) > 0).length;
+        const volumeCoverage = candlesWithVolume / 10;
+        const hasVolumeData = avgVolume > 0 && lastCandle.volume > 0 && volumeCoverage >= 0.5;
+        const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
+
+        return {
+          // Display-friendly snake_case (preferred by UI normalizer)
+          current_volume: lastCandle.volume || 0,
+          average_volume: avgVolume || 0,
+          ratio: safeRatio,
+          raw_ratio: safeRatio,
+          is_high: hasVolumeData && isHighVolume,
+          is_spike: hasVolumeData && isVolumeSpike,
+          smart_money_detected: hasVolumeData ? smartMoney : (bodyPercent > 60),
+          has_data: hasVolumeData,
+          feed_reliable: hasVolumeData,
+          coverage: volumeCoverage,
+          body_percent: bodyPercent,
+          candle_strength: candleStrength,
+          buyPressure: orderFlow.buyPressure,
+          sellPressure: orderFlow.sellPressure,
+          orderFlow: orderFlow.orderFlow,
+          // Back-compat camelCase
+          isHigh: hasVolumeData && isHighVolume,
+          isSpike: hasVolumeData && isVolumeSpike,
+          smartMoney: hasVolumeData ? smartMoney : (bodyPercent > 60),
+          bodyPercent,
+          candleStrength,
+        };
+      })(),
       
       riskManagement,
       marketRegime,
