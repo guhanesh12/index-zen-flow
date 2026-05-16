@@ -1310,7 +1310,7 @@ export class AdvancedAI {
     const bodyPercent = refRange > 0 ? Math.min(100, (bodySize / refRange) * 100) : 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
 
-    console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, bodyOpen=${bodyRefCandle.open}, bodyClose=${bodyRefCandle.close}, latestOpen=${lastCandle.open}, latestClose=${lastCandle.close}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
+    
     
     // Order Flow
     const orderFlow = this.analyzeOrderFlow(ohlcData);
