@@ -905,7 +905,192 @@ export class AdvancedAI {
     if (last.close < ema9 && ema9 < ema21 && (ema21 <= ema50 || last.close < vwap) && adxExpanding) return 'bear';
     return 'neutral';
   }
-  
+
+  // ========================================
+  // ⚡ INSTITUTIONAL-GRADE HELPERS
+  // ========================================
+
+  /** RSI series for divergence detection */
+  private static rsiSeries(data: OHLCCandle[], period: number = 14): number[] {
+    if (data.length < period + 1) return [];
+    const out: number[] = new Array(period).fill(NaN);
+    let avgG = 0, avgL = 0;
+    for (let i = 1; i <= period; i++) {
+      const ch = data[i].close - data[i - 1].close;
+      if (ch > 0) avgG += ch; else avgL += -ch;
+    }
+    avgG /= period; avgL /= period;
+    out.push(avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL));
+    for (let i = period + 1; i < data.length; i++) {
+      const ch = data[i].close - data[i - 1].close;
+      const g = ch > 0 ? ch : 0;
+      const l = ch < 0 ? -ch : 0;
+      avgG = (avgG * (period - 1) + g) / period;
+      avgL = (avgL * (period - 1) + l) / period;
+      out.push(avgL === 0 ? 100 : 100 - 100 / (1 + avgG / avgL));
+    }
+    return out;
+  }
+
+  /** Fractal pivot indexes */
+  private static findPivots(values: number[], left = 2, right = 2, type: 'high' | 'low' = 'high'): number[] {
+    const pivots: number[] = [];
+    for (let i = left; i < values.length - right; i++) {
+      let ok = true;
+      for (let j = i - left; j <= i + right; j++) {
+        if (j === i) continue;
+        if (type === 'high' && values[j] >= values[i]) { ok = false; break; }
+        if (type === 'low' && values[j] <= values[i]) { ok = false; break; }
+      }
+      if (ok) pivots.push(i);
+    }
+    return pivots;
+  }
+
+  /** Real RSI divergence using last two pivots */
+  private static detectRSIDivergence(data: OHLCCandle[], rsiArr: number[]): { bull: boolean; bear: boolean } {
+    if (data.length < 20 || rsiArr.length < 20) return { bull: false, bear: false };
+    const window = 25;
+    const slice = data.slice(-window);
+    const rsiSlice = rsiArr.slice(-window);
+    const lows = slice.map(c => c.low);
+    const highs = slice.map(c => c.high);
+    const lowPivots = this.findPivots(lows, 2, 2, 'low');
+    const highPivots = this.findPivots(highs, 2, 2, 'high');
+    let bull = false, bear = false;
+    if (lowPivots.length >= 2) {
+      const [a, b] = [lowPivots[lowPivots.length - 2], lowPivots[lowPivots.length - 1]];
+      if (lows[b] < lows[a] && !isNaN(rsiSlice[a]) && !isNaN(rsiSlice[b]) && rsiSlice[b] > rsiSlice[a]) bull = true;
+    }
+    if (highPivots.length >= 2) {
+      const [a, b] = [highPivots[highPivots.length - 2], highPivots[highPivots.length - 1]];
+      if (highs[b] > highs[a] && !isNaN(rsiSlice[a]) && !isNaN(rsiSlice[b]) && rsiSlice[b] < rsiSlice[a]) bear = true;
+    }
+    return { bull, bear };
+  }
+
+  /** EMA slope (% per bar over lookback) */
+  private static emaSlope(data: OHLCCandle[], period: number, lookback: number = 5): number {
+    if (data.length < period + lookback) return 0;
+    const now = this.calculateEMA(data, period);
+    const prev = this.calculateEMA(data.slice(0, -lookback), period);
+    if (prev === 0) return 0;
+    return ((now - prev) / prev) * 100 / lookback;
+  }
+
+  /** Last impulse leg for Fibonacci */
+  private static detectImpulseLeg(data: OHLCCandle[]): { swingHigh: number; swingLow: number; direction: 'UP' | 'DOWN' } {
+    const slice = data.slice(-50);
+    const highs = slice.map(c => c.high);
+    const lows = slice.map(c => c.low);
+    const hp = this.findPivots(highs, 2, 2, 'high');
+    const lp = this.findPivots(lows, 2, 2, 'low');
+    const lastHighIdx = hp.length ? hp[hp.length - 1] : highs.indexOf(Math.max(...highs));
+    const lastLowIdx = lp.length ? lp[lp.length - 1] : lows.indexOf(Math.min(...lows));
+    return {
+      swingHigh: highs[lastHighIdx],
+      swingLow: lows[lastLowIdx],
+      direction: lastHighIdx > lastLowIdx ? 'UP' : 'DOWN',
+    };
+  }
+
+  /** Smart-money bias via delta approximation + absorption */
+  private static detectSmartMoney(data: OHLCCandle[]): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
+    const last20 = data.slice(-20);
+    let cumDelta = 0;
+    let absorptionBull = 0, absorptionBear = 0;
+    for (const c of last20) {
+      const range = c.high - c.low;
+      if (range <= 0) continue;
+      const closePos = (c.close - c.low) / range; // 0..1
+      const delta = (closePos - 0.5) * 2 * (c.volume || 0); // signed pressure
+      cumDelta += delta;
+      const body = Math.abs(c.close - c.open);
+      const bodyPct = body / range;
+      // Absorption: wide range, small body, high volume = big players defending a level
+      if (bodyPct < 0.3 && (c.volume || 0) > 0) {
+        if (closePos > 0.6) absorptionBull++;
+        if (closePos < 0.4) absorptionBear++;
+      }
+    }
+    const last = data[data.length - 1];
+    const body = Math.abs(last.close - last.open);
+    const range = last.high - last.low;
+    const imbalance = range > 0 ? body / range : 0;
+    const bullScore = (cumDelta > 0 ? 1 : 0) + absorptionBull + (imbalance > 0.7 && last.close > last.open ? 1 : 0);
+    const bearScore = (cumDelta < 0 ? 1 : 0) + absorptionBear + (imbalance > 0.7 && last.close < last.open ? 1 : 0);
+    if (bullScore >= 2 && bullScore > bearScore) return 'BULLISH';
+    if (bearScore >= 2 && bearScore > bullScore) return 'BEARISH';
+    return 'NEUTRAL';
+  }
+
+  /** BOS / CHoCH market structure */
+  private static detectMarketStructure(data: OHLCCandle[]): {
+    type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE';
+    bos: 'BULL' | 'BEAR' | 'NONE';
+    choch: 'BULL' | 'BEAR' | 'NONE';
+    lastSwingHigh?: number;
+    lastSwingLow?: number;
+  } {
+    const slice = data.slice(-60);
+    if (slice.length < 10) return { type: 'RANGE', bos: 'NONE', choch: 'NONE' };
+    const highs = slice.map(c => c.high);
+    const lows = slice.map(c => c.low);
+    const hp = this.findPivots(highs, 2, 2, 'high');
+    const lp = this.findPivots(lows, 2, 2, 'low');
+    if (hp.length < 2 || lp.length < 2) return { type: 'RANGE', bos: 'NONE', choch: 'NONE' };
+    const hh = highs[hp[hp.length - 1]] > highs[hp[hp.length - 2]];
+    const ll = lows[lp[lp.length - 1]] < lows[lp[lp.length - 2]];
+    const hl = lows[lp[lp.length - 1]] > lows[lp[lp.length - 2]];
+    const lh = highs[hp[hp.length - 1]] < highs[hp[hp.length - 2]];
+    const lastClose = slice[slice.length - 1].close;
+    const lastSwingHigh = highs[hp[hp.length - 1]];
+    const lastSwingLow = lows[lp[lp.length - 1]];
+    let bos: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
+    let choch: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
+    if (lastClose > lastSwingHigh && hh && hl) bos = 'BULL';
+    else if (lastClose < lastSwingLow && ll && lh) bos = 'BEAR';
+    // CHoCH: prior trend opposite + structure break
+    if (ll && lh && lastClose > lastSwingHigh) choch = 'BULL';
+    if (hh && hl && lastClose < lastSwingLow) choch = 'BEAR';
+    let type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE' = 'RANGE';
+    if (choch !== 'NONE') type = 'REVERSAL';
+    else if (hh && hl) type = 'UPTREND';
+    else if (ll && lh) type = 'DOWNTREND';
+    return { type, bos, choch, lastSwingHigh, lastSwingLow };
+  }
+
+  /** Liquidity sweep / stop hunt detection */
+  private static detectLiquiditySweep(data: OHLCCandle[]): { buySide: boolean; sellSide: boolean; stopHunt: boolean } {
+    if (data.length < 12) return { buySide: false, sellSide: false, stopHunt: false };
+    const last = data[data.length - 1];
+    const lookback = data.slice(-11, -1);
+    const priorHigh = Math.max(...lookback.map(c => c.high));
+    const priorLow = Math.min(...lookback.map(c => c.low));
+    const range = last.high - last.low;
+    const body = Math.abs(last.close - last.open);
+    const upperWick = last.high - Math.max(last.open, last.close);
+    const lowerWick = Math.min(last.open, last.close) - last.low;
+    // Buy-side sweep: spiked above prior high then closed back inside with long upper wick
+    const buySide = last.high > priorHigh && last.close < priorHigh && upperWick > body * 1.5 && range > 0;
+    // Sell-side sweep: spiked below prior low then closed back inside with long lower wick
+    const sellSide = last.low < priorLow && last.close > priorLow && lowerWick > body * 1.5 && range > 0;
+    return { buySide, sellSide, stopHunt: buySide || sellSide };
+  }
+
+  /** Gap detection at session open */
+  private static detectGap(data: OHLCCandle[]): { type: 'GAP_UP' | 'GAP_DOWN' | 'NONE'; size: number; filled: boolean } {
+    if (data.length < 2) return { type: 'NONE', size: 0, filled: false };
+    const last = data[data.length - 1];
+    const prev = data[data.length - 2];
+    const gap = last.open - prev.close;
+    const threshold = prev.close * 0.0015; // 0.15% gap
+    if (Math.abs(gap) < threshold) return { type: 'NONE', size: 0, filled: false };
+    const type: 'GAP_UP' | 'GAP_DOWN' = gap > 0 ? 'GAP_UP' : 'GAP_DOWN';
+    const filled = type === 'GAP_UP' ? last.low <= prev.close : last.high >= prev.close;
+    return { type, size: Math.abs(gap), filled };
+  }
+
   /**
    * ⚡⚡⚡ MAIN ADVANCED SIGNAL GENERATOR ⚡⚡⚡
    * 
