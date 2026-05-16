@@ -466,10 +466,10 @@ export class AdvancedAI {
   /**
    * Calculate ADX with proper Wilder's smoothing of +DI, -DI and DX
    */
-  private static calculateADX(data: OHLCCandle[], period: number = 14): number {
+  private static calculateADXSeries(data: OHLCCandle[], period: number = 14): number[] {
     if (data.length < period * 2 + 1) {
       // fallback to simple version when not enough data
-      if (data.length < period + 1) return 0;
+      if (data.length < period + 1) return [0];
       let pDM = 0, mDM = 0, tr = 0;
       for (let i = data.length - period; i < data.length; i++) {
         const hd = data[i].high - data[i - 1].high;
@@ -480,10 +480,10 @@ export class AdvancedAI {
           Math.abs(data[i].high - data[i - 1].close),
           Math.abs(data[i].low - data[i - 1].close));
       }
-      if (tr === 0) return 0;
+      if (tr === 0) return [0];
       const pDI = (pDM / tr) * 100, mDI = (mDM / tr) * 100;
       const sum = pDI + mDI;
-      return sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0;
+      return [sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0];
     }
 
     const trArr: number[] = [];
@@ -524,16 +524,24 @@ export class AdvancedAI {
       dxArr.push(sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0);
     }
     if (dxArr.length < period) {
-      return dxArr.length ? dxArr[dxArr.length - 1] : 0;
+      return dxArr.length ? [dxArr[dxArr.length - 1]] : [0];
     }
     // ADX = Wilder smoothing of DX
+    const adxSeries: number[] = [];
     let adx = 0;
     for (let i = 0; i < period; i++) adx += dxArr[i];
     adx = adx / period;
+    adxSeries.push(adx);
     for (let i = period; i < dxArr.length; i++) {
       adx = (adx * (period - 1) + dxArr[i]) / period;
+      adxSeries.push(adx);
     }
-    return adx;
+    return adxSeries;
+  }
+
+  private static calculateADX(data: OHLCCandle[], period: number = 14): number {
+    const series = this.calculateADXSeries(data, period);
+    return series[series.length - 1] || 0;
   }
 
   /**
