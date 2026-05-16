@@ -1865,7 +1865,29 @@ export class AdvancedAI {
       };
     }
 
-    if (strongBullish) {
+    // ===== NEWS / EXPIRY VOLATILITY BLOCKER =====
+    // Block trades when last bar's true-range explodes (RBI/Fed/CPI/expiry spikes).
+    const lastTR = Math.max(
+      lastCandle.high - lastCandle.low,
+      Math.abs(lastCandle.high - prevCandle.close),
+      Math.abs(lastCandle.low - prevCandle.close)
+    );
+    const volatilitySpike = safeAtr > 0 && lastTR > safeAtr * 2.5;
+
+    // ===== TREND-CONTINUATION FILTER =====
+    // In strong trends (ADX > 35), block counter-trend reversal signals
+    // unless market structure has already flipped (CHoCH confirmed).
+    const blockBearByTrend = adx > 35 && marketStructure.type === 'UPTREND' && marketStructure.choch !== 'BEAR';
+    const blockBullByTrend = adx > 35 && marketStructure.type === 'DOWNTREND' && marketStructure.choch !== 'BULL';
+    const allowBullish = strongBullish && !volatilitySpike && !blockBullByTrend;
+    const allowBearish = strongBearish && !volatilitySpike && !blockBearByTrend;
+
+    if (volatilitySpike) {
+      action = 'WAIT';
+      confidence = 28;
+      bias = 'Neutral';
+      reasoning = `⚠️ WAIT: News/expiry volatility spike (last bar TR ${lastTR.toFixed(1)} > 2.5× ATR ${safeAtr.toFixed(1)}). Avoid whipsaws.`;
+    } else if (allowBullish) {
       action = 'BUY_CALL';
       // Tier-based base + ceiling: FAST stays conservative, HIGH can run hot.
       const tierBase = bullTier === 'HIGH' ? 70 : bullTier === 'STRONG' ? 64 : 58;
