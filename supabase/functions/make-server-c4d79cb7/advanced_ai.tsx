@@ -1997,11 +1997,6 @@ export class AdvancedAI {
     
     const executionTime = performance.now() - startTime;
     
-    // ⚡ FIX BUG #2: Log warning if risk management is shown during WAIT
-    if (action === 'WAIT') {
-      console.log(`⚠️ WARNING: Risk management values shown during WAIT action. Frontend should ignore these values when action='WAIT'.`);
-    }
-    
     return {
       action,
       confidence,
