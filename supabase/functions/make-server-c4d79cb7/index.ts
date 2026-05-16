@@ -4280,7 +4280,9 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
         
+        // Professional MTF: fetch entry timeframe and REAL 15m trend candles separately.
         const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 50);
+        const real15mData = interval === '15' ? ohlcData : await dhanService.getOHLCData(securityId, '15', 80);
         
         if (!ohlcData || ohlcData.length === 0) {
           console.error(`❌ CRITICAL: No OHLC data for ${idx} (security ID: ${securityId})`);
@@ -4326,7 +4328,16 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         
         // Generate AI signal for this index
         const aiStart = performance.now();
-        const signal = AdvancedAI.generateAdvancedSignal(analysisCandles, accountBalance || 100000);
+        const lastSignalTimestamp = await safeKVGet(`last_signal_ts:${effectiveUserId}:${idx}`, 0);
+        const signal = AdvancedAI.generateAdvancedSignal(analysisCandles, accountBalance || 100000, {
+          higherTimeframeData: real15mData,
+          timeframeMinutes: Number(interval),
+          lastSignalTimestamp,
+          minimumBarsBetweenSignals: 3,
+        });
+        if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
+          await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
+        }
         const aiEnd = performance.now();
         
         console.log(`\n⚡ ${idx} SIGNAL: ${signal.action} | Confidence: ${signal.confidence}%`);

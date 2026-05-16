@@ -924,8 +924,15 @@ class PersistentTradingEngine {
           try {
             const dhanSvc = new DhanService({ clientId: dhanClientId, accessToken: dhanAccessToken });
             const ohlcData = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
+            const real15mData = state.candleInterval === '15' ? ohlcData : await dhanSvc.getOHLCData(securityId, '15', 80);
             if (ohlcData && ohlcData.length > 0) {
-              const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000);
+              const lastSignalTimestamp = await kv.get(`last_signal_ts:${userId}:${indexName}`) || 0;
+              const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
+                higherTimeframeData: real15mData,
+                timeframeMinutes: Number(state.candleInterval),
+                lastSignalTimestamp,
+                minimumBarsBetweenSignals: 3,
+              });
               aiSignal = { signal: sig };
             }
           } catch (e) {
@@ -953,6 +960,7 @@ class PersistentTradingEngine {
           await this.incrementSignalStats(userId, 'signal');
           if (action !== 'WAIT') {
             await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
+            await kv.set(`last_signal_ts:${userId}:${indexName}`, aiSignal.signal?.riskManagement?.suggestedEntry ? (aiSignal.signal?.timestamp || Date.now()) : Date.now());
           }
 
           latestSignalsSnapshot[indexName] = {
@@ -1479,7 +1487,12 @@ class PersistentTradingEngine {
         const securityIdMap: Record<string, string> = { NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' };
         try {
           const ohlcData = await dhanService.getOHLCData(securityIdMap[indexName], String(state.candleInterval || '5'), 50);
-          const signal = ohlcData && ohlcData.length > 0 ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000) : null;
+          const real15mData = state.candleInterval === '15' ? ohlcData : await dhanService.getOHLCData(securityIdMap[indexName], '15', 80);
+          const signal = ohlcData && ohlcData.length > 0 ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
+            higherTimeframeData: real15mData,
+            timeframeMinutes: Number(state.candleInterval || '5'),
+            minimumBarsBetweenSignals: 3,
+          }) : null;
           monitorSignalCache.set(indexName, signal);
           return signal;
         } catch (err: any) {
