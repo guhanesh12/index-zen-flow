@@ -1402,6 +1402,47 @@ export class AdvancedAI {
     console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, momentum(B/S)=${momentumBull}/${momentumBear}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
 
     
+    // ⚡ ERROR 10 — Hard NO-TRADE ZONE for sideways markets
+    // Block trades when: ADX<18 AND ATR low AND VWAP flat AND EMAs mixed
+    const emaMixed = !((ema9 > ema21 && ema21 > ema50) || (ema9 < ema21 && ema21 < ema50));
+    const atrLow = atr14 < lastCandle.close * 0.0035; // < 0.35% of price
+    const noTradeZone = adx < 18 && atrLow && vwapFlat && emaMixed;
+
+    if (noTradeZone) {
+      const executionTimeNT = performance.now() - startTime;
+      return {
+        action: 'WAIT',
+        confidence: 30,
+        reasoning: `⛔ NO-TRADE ZONE: Sideways market (ADX ${adx.toFixed(1)}<18, ATR low, VWAP flat, EMAs mixed). Avoid fake entries.`,
+        market_state: marketRegime.type,
+        bias: 'Neutral',
+        indicators,
+        patterns,
+        confirmations,
+        volumeAnalysis: (() => {
+          const candleStrength = bodyPercent >= 60 ? 'STRONG' : bodyPercent >= 35 ? 'DECISIVE' : bodyPercent >= 25 ? 'MODERATE' : 'WEAK';
+          const candlesWithVolume = ohlcData.slice(-10).filter(c => (c.volume || 0) > 0).length;
+          const volumeCoverage = candlesWithVolume / 10;
+          const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
+          const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
+          return {
+            current_volume: refVolume, average_volume: avgVolume || 0, ratio: safeRatio, raw_ratio: safeRatio,
+            is_high: hasVolumeData && isHighVolume, is_spike: hasVolumeData && isVolumeSpike,
+            smart_money_detected: hasVolumeData ? smartMoney : (bodyPercent > 60),
+            has_data: hasVolumeData, feed_reliable: hasVolumeData, coverage: volumeCoverage,
+            body_percent: bodyPercent, candle_strength: candleStrength,
+            buyPressure: orderFlow.buyPressure, sellPressure: orderFlow.sellPressure, orderFlow: orderFlow.orderFlow,
+            isHigh: hasVolumeData && isHighVolume, isSpike: hasVolumeData && isVolumeSpike,
+            smartMoney: hasVolumeData ? smartMoney : (bodyPercent > 60), bodyPercent, candleStrength,
+          };
+        })(),
+        riskManagement,
+        marketRegime,
+        executionTime: executionTimeNT,
+        calculationsPerformed,
+      };
+    }
+
     if (strongBullish) {
       action = 'BUY_CALL';
       confidence = 62 + (earlyBullScore * 7) + (strongConfirmationScore * 3);
