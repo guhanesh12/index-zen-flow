@@ -1378,7 +1378,7 @@ export class AdvancedAI {
     const lastSignalTsMs = options.lastSignalTimestamp ? (options.lastSignalTimestamp < 1e12 ? options.lastSignalTimestamp * 1000 : options.lastSignalTimestamp) : 0;
     const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 3;
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
-    const cooldownActive = barsSinceLastSignal >= 0 && barsSinceLastSignal < minimumBarsBetweenSignals;
+    const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
 
     const requiredConfirmations = earlyRequiredConfirmations;
     confirmations.required = requiredConfirmations;
