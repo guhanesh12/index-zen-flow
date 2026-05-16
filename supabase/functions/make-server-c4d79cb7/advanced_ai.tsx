@@ -2062,6 +2062,42 @@ export class AdvancedAI {
       smartMoneyBias,
       liquidity,
 
+      debugInfo: {
+        blockedReason: action === 'WAIT' ? reasoning : undefined,
+        failedConfirmations: [
+          !breakoutConfirmedBull && !breakoutConfirmedBear ? 'breakout' : '',
+          !rangeExpansion ? 'rangeExpansion' : '',
+          !hasAcceptableVolume ? 'volume' : '',
+          !slopeBullish && !slopeBearish ? 'emaSlope' : '',
+          !htfAgreesBull && !htfAgreesBear ? 'htfAlignment' : '',
+        ].filter(Boolean),
+        confidenceDecayReasons: [
+          !rangeExpansion ? 'no-range-expansion' : '',
+          !adxRising ? 'adx-not-rising' : '',
+          liquidity.stopHunt ? 'liquidity-sweep' : '',
+          nearResistance ? 'near-resistance' : '',
+          nearSupport ? 'near-support' : '',
+        ].filter(Boolean),
+        trendStrength: Math.round(adx),
+        breakoutQuality: (breakoutConfirmedBull || breakoutConfirmedBear)
+          ? (rangeExpansion ? 'STRONG' : 'WEAK')
+          : 'NONE',
+        smartMoneyScore: smartMoneyBias === 'BULLISH' ? 75 : smartMoneyBias === 'BEARISH' ? -75 : 0,
+        liquidityWarnings: [
+          liquidity.buySideSweep ? 'buy-side-sweep' : '',
+          liquidity.sellSideSweep ? 'sell-side-sweep' : '',
+          liquidity.stopHunt ? 'stop-hunt' : '',
+        ].filter(Boolean),
+        marketWarnings: [
+          weakMidSessionTrap ? 'mid-session-trap' : '',
+          cooldownActive ? 'cooldown-active' : '',
+          marketRegime.type === 'RANGING' ? 'ranging-market' : '',
+          marketRegime.type === 'QUIET' ? 'quiet-market' : '',
+        ].filter(Boolean),
+        requiredConfirmations,
+        regime: marketRegime.type,
+      },
+
       executionTime,
       calculationsPerformed
     };
