@@ -1261,12 +1261,14 @@ export class AdvancedAI {
         // instead of blocking/erasing the panel.
         const candlesWithVolume = ohlcData.slice(-10).filter(c => (c.volume || 0) > 0).length;
         const volumeCoverage = candlesWithVolume / 10;
-        const hasVolumeData = avgVolume > 0 && lastCandle.volume > 0 && volumeCoverage >= 0.5;
+        // Feed is reliable when historical coverage is good, even if the
+        // current bar is still forming (volume=0 mid-candle).
+        const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
         const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
 
         return {
           // Display-friendly snake_case (preferred by UI normalizer)
-          current_volume: lastCandle.volume || 0,
+          current_volume: refVolume,
           average_volume: avgVolume || 0,
           ratio: safeRatio,
           raw_ratio: safeRatio,
