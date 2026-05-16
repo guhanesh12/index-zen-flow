@@ -1658,22 +1658,45 @@ export class AdvancedAI {
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [confirmations.macd, confirmations.adx, confirmations.rsi, confirmations.stochastic].filter(Boolean).length;
 
+    // ===== INSTITUTIONAL FILTERS =====
+    // 1) Liquidity sweep BLOCKS counter-direction entries (stop hunts → reversal incoming)
+    const liquidityBlocksBull = liquidity.buySideSweep; // upside sweep ⇒ avoid longs
+    const liquidityBlocksBear = liquidity.sellSideSweep; // downside sweep ⇒ avoid shorts
+    // 2) Range expansion required for breakout entries (rejects weak breakouts)
+    const breakoutQualityBull = breakoutConfirmedBull && (rangeExpansion || bbSqueezeBreakout === 'BULL');
+    const breakoutQualityBear = breakoutConfirmedBear && (rangeExpansion || bbSqueezeBreakout === 'BEAR');
+    // 3) Slope filter: trend must actually be moving
+    const slopeOkBull = slopeBullish || ema9Slope > 0;
+    const slopeOkBear = slopeBearish || ema9Slope < 0;
+    // 4) Market structure must not contradict
+    const structureOkBull = marketStructure.type !== 'DOWNTREND' || marketStructure.choch === 'BULL';
+    const structureOkBear = marketStructure.type !== 'UPTREND' || marketStructure.choch === 'BEAR';
+    // 5) Smart money agreement boost (not a hard block)
+    const smartMoneyAgreesBull = smartMoneyBias !== 'BEARISH';
+    const smartMoneyAgreesBear = smartMoneyBias !== 'BULLISH';
+
     const strongBullish = confirmationBullish
       && htfAgreesBull
       && earlyBullScore >= requiredConfirmations
-      && breakoutConfirmedBull
+      && breakoutQualityBull
       && momentumBull
+      && slopeOkBull
+      && structureOkBull
+      && !liquidityBlocksBull
       && !weakMidSessionTrap
       && !cooldownActive;
     const strongBearish = confirmationBearish
       && htfAgreesBear
       && earlyBearScore >= requiredConfirmations
-      && breakoutConfirmedBear
+      && breakoutQualityBear
       && momentumBear
+      && slopeOkBear
+      && structureOkBear
+      && !liquidityBlocksBear
       && !weakMidSessionTrap
       && !cooldownActive;
 
-    console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, momentum(B/S)=${momentumBull}/${momentumBear}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
+    console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, rangeExp=${rangeExpansion}, liquidity(buy/sell)=${liquidity.buySideSweep}/${liquidity.sellSideSweep}, struct=${marketStructure.type}/BOS=${marketStructure.bos}/CHOCH=${marketStructure.choch}, smartMoney=${smartMoneyBias}, slope9=${ema9Slope.toFixed(3)}%, ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
 
     
     // ⚡ ERROR 10 — Hard NO-TRADE ZONE for sideways markets
