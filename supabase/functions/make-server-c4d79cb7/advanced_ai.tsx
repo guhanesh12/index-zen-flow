@@ -215,6 +215,20 @@ export interface AdvancedSignal {
     stopHunt: boolean;
   };
 
+  // Debug / diagnostics (optional, backward compatible)
+  debugInfo?: {
+    blockedReason?: string;
+    failedConfirmations: string[];
+    confidenceDecayReasons: string[];
+    trendStrength: number;
+    breakoutQuality: 'STRONG' | 'WEAK' | 'NONE';
+    smartMoneyScore: number;
+    liquidityWarnings: string[];
+    marketWarnings: string[];
+    requiredConfirmations: number;
+    regime: string;
+  };
+
   // Performance
   executionTime: number;
   calculationsPerformed: number;
