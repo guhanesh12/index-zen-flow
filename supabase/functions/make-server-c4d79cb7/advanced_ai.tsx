@@ -348,26 +348,56 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate MACD (Moving Average Convergence Divergence)
+   * Compute EMA over a numeric series (used for proper MACD signal line)
+   */
+  private static emaSeries(values: number[], period: number): number[] {
+    if (values.length === 0) return [];
+    const k = 2 / (period + 1);
+    const out: number[] = [];
+    // seed with SMA of first `period` values (or first value if not enough)
+    let ema: number;
+    if (values.length >= period) {
+      let sum = 0;
+      for (let i = 0; i < period; i++) sum += values[i];
+      ema = sum / period;
+      for (let i = 0; i < period - 1; i++) out.push(NaN);
+      out.push(ema);
+      for (let i = period; i < values.length; i++) {
+        ema = values[i] * k + ema * (1 - k);
+        out.push(ema);
+      }
+    } else {
+      ema = values[0];
+      out.push(ema);
+      for (let i = 1; i < values.length; i++) {
+        ema = values[i] * k + ema * (1 - k);
+        out.push(ema);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Calculate MACD with TRUE EMA-of-MACD-series signal line
    */
   private static calculateMACD(data: OHLCCandle[]): { macd: number; signal: number; histogram: number } {
-    const ema12 = this.calculateEMA(data, 12);
-    const ema26 = this.calculateEMA(data, 26);
-    const macd = ema12 - ema26;
-    
-    // For signal line, we'd need to calculate EMA of MACD values
-    // Simplified: use 9-period approximation
-    const recentData = data.slice(-9);
-    const signalSum = recentData.reduce((sum, candle) => {
-      const ema12_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 12);
-      const ema26_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 26);
-      return sum + (ema12_temp - ema26_temp);
-    }, 0);
-    
-    const signal = signalSum / 9;
-    const histogram = macd - signal;
-    
-    return { macd, signal, histogram };
+    if (data.length < 26) {
+      const macd = this.calculateEMA(data, 12) - this.calculateEMA(data, 26);
+      return { macd, signal: macd, histogram: 0 };
+    }
+    const closes = data.map(c => c.close);
+    const ema12s = this.emaSeries(closes, 12);
+    const ema26s = this.emaSeries(closes, 26);
+    const macdSeries: number[] = [];
+    for (let i = 0; i < closes.length; i++) {
+      if (!isNaN(ema12s[i]) && !isNaN(ema26s[i])) macdSeries.push(ema12s[i] - ema26s[i]);
+    }
+    if (macdSeries.length === 0) return { macd: 0, signal: 0, histogram: 0 };
+    const signalSeries = this.emaSeries(macdSeries, 9);
+    const macd = macdSeries[macdSeries.length - 1];
+    const signal = signalSeries[signalSeries.length - 1];
+    const safeSignal = isNaN(signal) ? macd : signal;
+    return { macd, signal: safeSignal, histogram: macd - safeSignal };
   }
   
   /**
