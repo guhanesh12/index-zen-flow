@@ -1310,7 +1310,7 @@ export class AdvancedAI {
     const bodyPercent = refRange > 0 ? Math.min(100, (bodySize / refRange) * 100) : 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
 
-    console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, bodyOpen=${bodyRefCandle.open}, bodyClose=${bodyRefCandle.close}, latestOpen=${lastCandle.open}, latestClose=${lastCandle.close}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
+    
     
     // Order Flow
     const orderFlow = this.analyzeOrderFlow(ohlcData);
@@ -1815,7 +1815,7 @@ export class AdvancedAI {
       && !weakMidSessionTrap
       && !cooldownActive;
 
-    console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, rangeExp=${rangeExpansion}, liquidity(buy/sell)=${liquidity.buySideSweep}/${liquidity.sellSideSweep}, struct=${marketStructure.type}/BOS=${marketStructure.bos}/CHOCH=${marketStructure.choch}, smartMoney=${smartMoneyBias}, slope9=${ema9Slope.toFixed(3)}%, ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
+    
 
     
     // ⚡ SIDEWAYS / NO-TRADE ZONE (tightened): block trades when market lacks any directional energy
@@ -1865,7 +1865,29 @@ export class AdvancedAI {
       };
     }
 
-    if (strongBullish) {
+    // ===== NEWS / EXPIRY VOLATILITY BLOCKER =====
+    // Block trades when last bar's true-range explodes (RBI/Fed/CPI/expiry spikes).
+    const lastTR = Math.max(
+      lastCandle.high - lastCandle.low,
+      Math.abs(lastCandle.high - prevCandle.close),
+      Math.abs(lastCandle.low - prevCandle.close)
+    );
+    const volatilitySpike = safeAtr > 0 && lastTR > safeAtr * 2.5;
+
+    // ===== TREND-CONTINUATION FILTER =====
+    // In strong trends (ADX > 35), block counter-trend reversal signals
+    // unless market structure has already flipped (CHoCH confirmed).
+    const blockBearByTrend = adx > 35 && marketStructure.type === 'UPTREND' && marketStructure.choch !== 'BEAR';
+    const blockBullByTrend = adx > 35 && marketStructure.type === 'DOWNTREND' && marketStructure.choch !== 'BULL';
+    const allowBullish = strongBullish && !volatilitySpike && !blockBullByTrend;
+    const allowBearish = strongBearish && !volatilitySpike && !blockBearByTrend;
+
+    if (volatilitySpike) {
+      action = 'WAIT';
+      confidence = 28;
+      bias = 'Neutral';
+      reasoning = `⚠️ WAIT: News/expiry volatility spike (last bar TR ${lastTR.toFixed(1)} > 2.5× ATR ${safeAtr.toFixed(1)}). Avoid whipsaws.`;
+    } else if (allowBullish) {
       action = 'BUY_CALL';
       // Tier-based base + ceiling: FAST stays conservative, HIGH can run hot.
       const tierBase = bullTier === 'HIGH' ? 70 : bullTier === 'STRONG' ? 64 : 58;
@@ -1886,7 +1908,7 @@ export class AdvancedAI {
       bias = 'Bullish';
       reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBullValid && rsiDivergenceObj.bull ? ' Bullish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
 
-    } else if (strongBearish) {
+    } else if (allowBearish) {
       action = 'BUY_PUT';
       const tierBase = bearTier === 'HIGH' ? 70 : bearTier === 'STRONG' ? 64 : 58;
       const tierCeiling = bearTier === 'HIGH' ? 95 : bearTier === 'STRONG' ? 88 : 78;
@@ -1996,11 +2018,6 @@ export class AdvancedAI {
     }
     
     const executionTime = performance.now() - startTime;
-    
-    // ⚡ FIX BUG #2: Log warning if risk management is shown during WAIT
-    if (action === 'WAIT') {
-      console.log(`⚠️ WARNING: Risk management values shown during WAIT action. Frontend should ignore these values when action='WAIT'.`);
-    }
     
     return {
       action,
