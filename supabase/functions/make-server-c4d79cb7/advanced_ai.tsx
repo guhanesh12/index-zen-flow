@@ -1772,6 +1772,12 @@ export class AdvancedAI {
       bias = 'Bearish';
       reasoning = `BUY_PUT: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum. 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${rsiDivergenceObj.bear ? ' Bearish RSI divergence!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
 
+    } else if (liquidity.stopHunt) {
+      action = 'WAIT';
+      confidence = 32;
+      bias = 'Neutral';
+      reasoning = `⚠️ WAIT: Liquidity ${liquidity.buySideSweep ? 'buy-side' : 'sell-side'} sweep detected (stop hunt). Wait for reversal confirmation.`;
+
     } else if (cooldownActive) {
       action = 'WAIT';
       confidence = 35;
