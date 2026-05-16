@@ -858,6 +858,22 @@ export class AdvancedAI {
     // Default to ranging
     return { type: 'RANGING', strength: 50, suitable_for_trading: false };
   }
+
+  private static detectHigherTimeframeTrend(data?: OHLCCandle[]): 'bull' | 'bear' | 'neutral' {
+    if (!data || data.length < 25) return 'neutral';
+    const last = data[data.length - 1];
+    const ema9 = this.calculateEMA(data, 9);
+    const ema21 = this.calculateEMA(data, 21);
+    const ema50 = this.calculateEMA(data, Math.min(50, data.length));
+    const vwap = this.calculateVWAP(data);
+    const adxNow = this.calculateADX(data);
+    const adxPrev = data.length > 30 ? this.calculateADX(data.slice(0, -1)) : adxNow;
+    const adxExpanding = adxNow >= 18 && adxNow >= adxPrev;
+
+    if (last.close > ema9 && ema9 > ema21 && (ema21 >= ema50 || last.close > vwap) && adxExpanding) return 'bull';
+    if (last.close < ema9 && ema9 < ema21 && (ema21 <= ema50 || last.close < vwap) && adxExpanding) return 'bear';
+    return 'neutral';
+  }
   
   /**
    * ⚡⚡⚡ MAIN ADVANCED SIGNAL GENERATOR ⚡⚡⚡
@@ -865,7 +881,7 @@ export class AdvancedAI {
    * USES ALL 15+ INDICATORS!
    * EXECUTION TIME: < 100ms
    */
-  public static generateAdvancedSignal(ohlcData: OHLCCandle[], accountBalance: number = 100000): AdvancedSignal {
+  public static generateAdvancedSignal(ohlcData: OHLCCandle[], accountBalance: number = 100000, options: AdvancedSignalOptions = {}): AdvancedSignal {
     const startTime = performance.now();
     let calculationsPerformed = 0;
     
