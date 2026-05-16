@@ -915,8 +915,11 @@ export class AdvancedAI {
     
     // MACD
     const macdData = this.calculateMACD(ohlcData);
+    const prevMacdData = ohlcData.length > 30 ? this.calculateMACD(ohlcData.slice(0, -1)) : macdData;
     const macdBullish = macdData.macd > macdData.signal;
     const macdCrossover = macdData.histogram > 0;
+    const macdHistogramExpandingBull = macdData.histogram > prevMacdData.histogram;
+    const macdHistogramExpandingBear = macdData.histogram < prevMacdData.histogram;
     calculationsPerformed += 1;
     
     // Bollinger Bands
@@ -935,9 +938,11 @@ export class AdvancedAI {
     
     // ADX
     const adx = this.calculateADX(ohlcData);
+    const prevAdx = ohlcData.length > 30 ? this.calculateADX(ohlcData.slice(0, -1)) : adx;
+    const adxRising = adx > prevAdx;
     const adxStrong = adx > 25;
     const adxVeryStrong = adx > 50;
-    const trending = adxStrong;
+    const trending = adxStrong || (adx >= 18 && adxRising);
     calculationsPerformed += 1;
     
     // Stochastic
