@@ -1234,25 +1234,29 @@ export class AdvancedAI {
     confirmations.details = confirmationDetails;
     confirmations.total = totalWeightedScore; // Set the total to the weighted score
     
-    // ========== RISK MANAGEMENT ==========
+    // ========== RISK MANAGEMENT ========== (FIX PROBLEM #10: dynamic RR)
     const currentPrice = lastCandle.close;
-    
+
     // ATR-based stop loss (2x ATR)
     const stopLossDistance = atr14 * 2;
     const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
-    
-    // Target (3x risk for 1:3 RR)
-    const targetDistance = stopLossDistance * 3;
+
+    // Dynamic RR based on regime and trend strength:
+    //   - Strong trend (ADX>40) + suitable regime → 3.0  (let winners run)
+    //   - Normal trending market                  → 2.0
+    //   - Ranging / volatile / unsuitable         → 1.5  (book quicker)
+    let riskRewardRatio = 2.0;
+    if (adx > 40 && marketRegime.suitable_for_trading) riskRewardRatio = 3.0;
+    else if (!marketRegime.suitable_for_trading || marketRegime.type === 'RANGING' || marketRegime.type === 'VOLATILE' || marketRegime.type === 'QUIET') riskRewardRatio = 1.5;
+
+    const targetDistance = stopLossDistance * riskRewardRatio;
     const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
-    
-    // Position sizing (risk 2% of account)
+
     const riskAmount = accountBalance * 0.02;
-    const positionSize = Math.floor(riskAmount / stopLossDistance);
-    
-    const riskRewardRatio = 3.0;
+    const positionSize = Math.floor(riskAmount / Math.max(stopLossDistance, 1));
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
-    
+
     const riskManagement = {
       suggestedEntry: currentPrice,
       suggestedTarget,
@@ -1262,34 +1266,84 @@ export class AdvancedAI {
       maxLoss,
       expectedProfit
     };
-    
+
     // ========== FINAL DECISION ==========
     let action: 'BUY_CALL' | 'BUY_PUT' | 'WAIT' = 'WAIT';
     let confidence = 0;
     let reasoning = '';
     let bias: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
-    
-    // MUST have 6+ confirmations AND suitable market regime
-    // ADJUSTED FOR REAL TRADING: Lower body size requirement from 15 to 10 points
-    // ADJUSTED FOR REAL TRADING: Lower volume requirement from 1.5x to 0.8x (real market conditions)
-    // ⚡ NEW FIX: In very strong trends (ADX > 50), reduce volume requirement to 0.5x
-    const minimumBodySize = 10; // Points (was 15)
-    const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
-    // ⚡ Index feeds (NIFTY/BANKNIFTY/SENSEX) often ship 0 volume. If feed is
-    // unreliable, do NOT block on volume — fall back to candle-strength gating
-    // (body% / pattern). Only enforce volume threshold when feed is reliable.
+
+    // FIX PROBLEM #7: ATR-relative body strength (relative to current volatility)
+    // Body must be ≥ max(10 pts, 0.4 × ATR14). In low-volatility sessions ATR is small so 10pts dominates,
+    // in high-volatility ATR-derived floor scales up so a relatively weak 12pt candle isn't enough.
+    const minimumBodySize = Math.max(10, atr14 * 0.4);
+    const isVeryStrongTrend = adx > 50;
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
     const volumeFeedReliable = avgVolume > 0 && refVolume > 0 && isFinite(volumeRatio) && volumeRatio > 0;
     const hasAcceptableVolume = !volumeFeedReliable ? (bodyPercent >= 35) : (volumeRatio >= minimumVolumeRatio);
-    
-    // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
-    const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
+
+    const hasStrongPattern = patterns.some(p => p.confidence >= 80 &&
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
-    
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
-    
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), isVeryStrongTrend=${isVeryStrongTrend} (ADX=${adx.toFixed(1)}), regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+
+    // FIX PROBLEM #8: EMA200 long-term bias filter (only block counter-trend in clearly trending markets)
+    const ema200Bias: 'bull' | 'bear' | 'neutral' =
+      currentPrice > ema200 * 1.001 ? 'bull' : currentPrice < ema200 * 0.999 ? 'bear' : 'neutral';
+    const counterToLongTerm =
+      (confirmationBullish && ema200Bias === 'bear' && adx > 30) ||
+      (confirmationBearish && ema200Bias === 'bull' && adx > 30);
+
+    // FIX PROBLEM #5: Higher-timeframe (MTF) confirmation by resampling current TF × 3
+    // (e.g. 5m → 15m, 15m → 45m). EMA9/EMA21 alignment + slope must agree with trade direction.
+    const htfAlign = ((): 'bull' | 'bear' | 'neutral' => {
+      if (ohlcData.length < 90) return 'neutral';
+      const grouped: OHLCCandle[] = [];
+      for (let i = 0; i + 3 <= ohlcData.length; i += 3) {
+        const g = ohlcData.slice(i, i + 3);
+        grouped.push({
+          open: g[0].open,
+          high: Math.max(...g.map(x => x.high)),
+          low: Math.min(...g.map(x => x.low)),
+          close: g[g.length - 1].close,
+          volume: g.reduce((a, b) => a + (b.volume || 0), 0),
+          timestamp: g[g.length - 1].timestamp,
+        });
+      }
+      if (grouped.length < 25) return 'neutral';
+      const e9 = this.calculateEMA(grouped, 9);
+      const e21 = this.calculateEMA(grouped, 21);
+      const lastHTF = grouped[grouped.length - 1].close;
+      if (lastHTF > e9 && e9 > e21) return 'bull';
+      if (lastHTF < e9 && e9 < e21) return 'bear';
+      return 'neutral';
+    })();
+    const htfAgreesBull = htfAlign === 'bull' || htfAlign === 'neutral';
+    const htfAgreesBear = htfAlign === 'bear' || htfAlign === 'neutral';
+
+    // FIX (MID-SESSION TRAP): 11:00–13:30 IST is institutional fake-move window.
+    // Require stronger conviction during these hours: +1 confirmation AND ADX > 25.
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const istMinutes = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+    const inMidSessionTrap = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
+    const requiredConfirmations = inMidSessionTrap ? 7 : 6;
+    const midSessionAdxOk = !inMidSessionTrap || adx > 25;
+
+    const strongBullish = confirmations.total >= requiredConfirmations
+      && confirmationBullish
+      && (bodySize >= minimumBodySize || hasStrongPattern)
+      && hasAcceptableVolume
+      && !counterToLongTerm
+      && htfAgreesBull
+      && midSessionAdxOk;
+    const strongBearish = confirmations.total >= requiredConfirmations
+      && confirmationBearish
+      && (bodySize >= minimumBodySize || hasStrongPattern)
+      && hasAcceptableVolume
+      && !counterToLongTerm
+      && htfAgreesBear
+      && midSessionAdxOk;
+
+    console.log(`🎯 SIGNAL CHECK: conf=${confirmations.total}/${requiredConfirmations}, bull=${confirmationBullish}, bear=${confirmationBearish}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), pattern=${hasStrongPattern}, vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, ema200=${ema200Bias}, htf=${htfAlign}, midTrap=${inMidSessionTrap}, counterLT=${counterToLongTerm}`);
+
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
