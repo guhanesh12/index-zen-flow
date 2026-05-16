@@ -1148,7 +1148,7 @@ export class AdvancedAI {
     // ⚡ Index feeds (NIFTY/BANKNIFTY/SENSEX) often ship 0 volume. If feed is
     // unreliable, do NOT block on volume — fall back to candle-strength gating
     // (body% / pattern). Only enforce volume threshold when feed is reliable.
-    const volumeFeedReliable = avgVolume > 0 && lastCandle.volume > 0 && isFinite(volumeRatio);
+    const volumeFeedReliable = avgVolume > 0 && refVolume > 0 && isFinite(volumeRatio) && volumeRatio > 0;
     const hasAcceptableVolume = !volumeFeedReliable ? (bodyPercent >= 35) : (volumeRatio >= minimumVolumeRatio);
     
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
