@@ -1926,7 +1926,10 @@ export class AdvancedAI {
       
       riskManagement,
       marketRegime,
-      
+      marketStructure,
+      smartMoneyBias,
+      liquidity,
+
       executionTime,
       calculationsPerformed
     };
