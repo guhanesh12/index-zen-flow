@@ -817,7 +817,7 @@ export class AdvancedAI {
     // volume ratio + candle strength aren't reported as 0.
     const prevCandleVol = ohlcData[ohlcData.length - 2] || lastCandle;
     const lastBarPartial = (lastCandle.volume || 0) === 0 && (lastCandle.high - lastCandle.low) === 0;
-    const refCandle = lastBarPartial ? prevCandle : lastCandle;
+    const refCandle = lastBarPartial ? prevCandleVol : lastCandle;
     const last10Candles = ohlcData.slice(-10);
     const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
     const refVolume = refCandle.volume || 0;
