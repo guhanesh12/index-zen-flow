@@ -1739,7 +1739,7 @@ export class AdvancedAI {
       return {
         action: 'WAIT',
         confidence: 30,
-        reasoning: `⛔ NO-TRADE ZONE: Sideways market (ADX ${adx.toFixed(1)}<18, ATR low, VWAP flat, EMAs mixed). Avoid fake entries.`,
+        reasoning: `⛔ SIDEWAYS MARKET: ${sidewaysSignals}/5 stagnation signals (ADX ${adx.toFixed(1)}, ATR ${(atrPct).toFixed(2)}%, VWAP flat=${vwapFlat}, slopes flat=${slopesFlat}, squeeze-no-expansion=${squeezeWithoutExpansion}). No trade.`,
         market_state: marketRegime.type,
         bias: 'Neutral',
         indicators,
