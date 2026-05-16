@@ -102,6 +102,21 @@ export interface AdvancedIndicators {
     level_100: number;  // 100%
   };
   nearFibLevel: boolean;
+
+  // ===== Institutional additions (optional, backward compatible) =====
+  rsiBullishDivergence?: boolean;
+  rsiBearishDivergence?: boolean;
+  bbSqueeze?: boolean;
+  bbExpansion?: boolean;
+  bbSqueezeBreakout?: 'BULL' | 'BEAR' | 'NONE';
+  ema9Slope?: number;     // % per bar
+  ema21Slope?: number;
+  ema50Slope?: number;
+  slopeBullish?: boolean;
+  slopeBearish?: boolean;
+  rangeExpansion?: boolean;
+  fibImpulse?: { swingHigh: number; swingLow: number; direction: 'UP' | 'DOWN' };
+  gap?: { type: 'GAP_UP' | 'GAP_DOWN' | 'NONE'; size: number; filled: boolean };
 }
 
 export interface CandlePattern {
