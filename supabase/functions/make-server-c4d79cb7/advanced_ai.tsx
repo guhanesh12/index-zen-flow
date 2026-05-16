@@ -1815,7 +1815,7 @@ export class AdvancedAI {
       && !weakMidSessionTrap
       && !cooldownActive;
 
-    console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, rangeExp=${rangeExpansion}, liquidity(buy/sell)=${liquidity.buySideSweep}/${liquidity.sellSideSweep}, struct=${marketStructure.type}/BOS=${marketStructure.bos}/CHOCH=${marketStructure.choch}, smartMoney=${smartMoneyBias}, slope9=${ema9Slope.toFixed(3)}%, ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
+    
 
     
     // ⚡ SIDEWAYS / NO-TRADE ZONE (tightened): block trades when market lacks any directional energy
