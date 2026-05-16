@@ -1024,8 +1024,8 @@ export class AdvancedAI {
     return 'NEUTRAL';
   }
 
-  /** BOS / CHoCH market structure */
-  private static detectMarketStructure(data: OHLCCandle[]): {
+  /** BOS / CHoCH — requires strong body + volume on the breaking candle */
+  private static detectMarketStructure(data: OHLCCandle[], avgVolume: number = 0): {
     type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE';
     bos: 'BULL' | 'BEAR' | 'NONE';
     choch: 'BULL' | 'BEAR' | 'NONE';
@@ -1043,16 +1043,21 @@ export class AdvancedAI {
     const ll = lows[lp[lp.length - 1]] < lows[lp[lp.length - 2]];
     const hl = lows[lp[lp.length - 1]] > lows[lp[lp.length - 2]];
     const lh = highs[hp[hp.length - 1]] < highs[hp[hp.length - 2]];
-    const lastClose = slice[slice.length - 1].close;
+    const last = slice[slice.length - 1];
+    const lastClose = last.close;
     const lastSwingHigh = highs[hp[hp.length - 1]];
     const lastSwingLow = lows[lp[lp.length - 1]];
+    const range = Math.max(1e-9, last.high - last.low);
+    const bodyPct = Math.abs(last.close - last.open) / range;
+    const strongBody = bodyPct >= 0.55;
+    const volumeOk = avgVolume > 0 ? (last.volume || 0) >= avgVolume * 1.1 : true;
+    const breakOk = strongBody && volumeOk;
     let bos: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
     let choch: 'BULL' | 'BEAR' | 'NONE' = 'NONE';
-    if (lastClose > lastSwingHigh && hh && hl) bos = 'BULL';
-    else if (lastClose < lastSwingLow && ll && lh) bos = 'BEAR';
-    // CHoCH: prior trend opposite + structure break
-    if (ll && lh && lastClose > lastSwingHigh) choch = 'BULL';
-    if (hh && hl && lastClose < lastSwingLow) choch = 'BEAR';
+    if (breakOk && lastClose > lastSwingHigh && hh && hl) bos = 'BULL';
+    else if (breakOk && lastClose < lastSwingLow && ll && lh) bos = 'BEAR';
+    if (breakOk && ll && lh && lastClose > lastSwingHigh) choch = 'BULL';
+    if (breakOk && hh && hl && lastClose < lastSwingLow) choch = 'BEAR';
     let type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE' = 'RANGE';
     if (choch !== 'NONE') type = 'REVERSAL';
     else if (hh && hl) type = 'UPTREND';
