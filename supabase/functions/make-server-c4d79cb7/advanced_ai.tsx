@@ -1102,11 +1102,45 @@ export class AdvancedAI {
     return { type, size: Math.abs(gap), filled };
   }
 
+  /** Minimal safe WAIT result used when input data is invalid or insufficient */
+  private static emptyWaitResult(reason: string, startTime: number): AdvancedSignal {
+    const zeroInd = {
+      ema9: 0, ema21: 0, ema50: 0, ema200: 0, sma20: 0,
+      vwap: 0, vwapDistance: 0, priceAboveVWAP: false,
+      rsi: 50, rsiOverbought: false, rsiOversold: false, rsiDivergence: false,
+      macd: 0, macdSignal: 0, macdHistogram: 0, macdBullish: false, macdCrossover: false,
+      bollingerUpper: 0, bollingerMiddle: 0, bollingerLower: 0, bollingerWidth: 0,
+      priceNearUpperBand: false, priceNearLowerBand: false, bollingerSqueeze: false,
+      atr: 0, atr14: 0, volatilityHigh: false, volatilityLow: false,
+      adx: 0, adxStrong: false, adxVeryStrong: false, trending: false,
+      stochK: 50, stochD: 50, stochOverbought: false, stochOversold: false,
+      resistance_levels: { r1: 0, r2: 0, r3: 0 },
+      support_levels: { s1: 0, s2: 0, s3: 0 },
+      nearResistance: false, nearSupport: false,
+      fibLevels: { level_0: 0, level_236: 0, level_382: 0, level_50: 0, level_618: 0, level_100: 0 },
+      nearFibLevel: false,
+    } as AdvancedIndicators;
+    return {
+      action: 'WAIT', confidence: 25, reasoning: reason, market_state: 'QUIET', bias: 'Neutral',
+      indicators: zeroInd, patterns: [],
+      confirmations: { total: 0, required: 3, details: [reason], vwap: false, ema: false, rsi: false, macd: false, bollinger: false, volume: false, adx: false, stochastic: false, pattern: false, priceAction: false },
+      volumeAnalysis: {
+        current_volume: 0, average_volume: 0, ratio: 0, raw_ratio: 0,
+        is_high: false, is_spike: false, smart_money_detected: false,
+        has_data: false, feed_reliable: false, coverage: 0,
+        body_percent: 0, candle_strength: 'WEAK',
+        isHigh: false, isSpike: false, smartMoney: false, bodyPercent: 0, candleStrength: 'WEAK',
+        buyPressure: 50, sellPressure: 50, orderFlow: 'NEUTRAL',
+      },
+      riskManagement: { suggestedEntry: 0, suggestedTarget: 0, suggestedStopLoss: 0, riskRewardRatio: 0, positionSize: 0, maxLoss: 0, expectedProfit: 0 },
+      marketRegime: { type: 'QUIET', strength: 0, suitable_for_trading: false },
+      executionTime: performance.now() - startTime,
+      calculationsPerformed: 0,
+    };
+  }
+
   /**
    * ⚡⚡⚡ MAIN ADVANCED SIGNAL GENERATOR ⚡⚡⚡
-   * 
-   * USES ALL 15+ INDICATORS!
-   * EXECUTION TIME: < 100ms
    */
   public static generateAdvancedSignal(ohlcData: OHLCCandle[], accountBalance: number = 100000, options: AdvancedSignalOptions = {}): AdvancedSignal {
     const startTime = performance.now();
