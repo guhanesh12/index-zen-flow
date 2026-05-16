@@ -638,12 +638,15 @@ export class AdvancedAI {
     
     const prevBody = Math.abs(prev.close - prev.open);
     const prevRange = prev.high - prev.low;
-    
-    // 1. BULLISH ENGULFING
+
+    // FIX PROBLEM #9: small tolerance for engulfing (gaps/spread shouldn't disqualify pattern)
+    const tol = Math.max(currentRange, prevRange) * 0.05; // 5% of range tolerance
+
+    // 1. BULLISH ENGULFING (with tolerance)
     if (prev.close < prev.open && // Prev bearish
         current.close > current.open && // Current bullish
-        current.open < prev.close &&
-        current.close > prev.open) {
+        current.open <= prev.close + tol &&
+        current.close >= prev.open - tol) {
       patterns.push({
         type: 'BULLISH_ENGULFING',
         strength: 'STRONG',
@@ -651,12 +654,12 @@ export class AdvancedAI {
         confidence: 85
       });
     }
-    
-    // 2. BEARISH ENGULFING
+
+    // 2. BEARISH ENGULFING (with tolerance)
     if (prev.close > prev.open && // Prev bullish
         current.close < current.open && // Current bearish
-        current.open > prev.close &&
-        current.close < prev.open) {
+        current.open >= prev.close - tol &&
+        current.close <= prev.open + tol) {
       patterns.push({
         type: 'BEARISH_ENGULFING',
         strength: 'STRONG',
@@ -664,6 +667,7 @@ export class AdvancedAI {
         confidence: 85
       });
     }
+
     
     // 3. HAMMER (Bullish reversal)
     const lowerWick = Math.min(current.open, current.close) - current.low;
