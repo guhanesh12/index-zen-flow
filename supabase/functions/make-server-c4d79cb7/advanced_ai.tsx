@@ -198,7 +198,22 @@ export interface AdvancedSignal {
     strength: number;       // 0-100
     suitable_for_trading: boolean;
   };
-  
+
+  // ===== Institutional additions (optional, backward compatible) =====
+  marketStructure?: {
+    type: 'UPTREND' | 'DOWNTREND' | 'REVERSAL' | 'RANGE';
+    bos: 'BULL' | 'BEAR' | 'NONE';
+    choch: 'BULL' | 'BEAR' | 'NONE';
+    lastSwingHigh?: number;
+    lastSwingLow?: number;
+  };
+  smartMoneyBias?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  liquidity?: {
+    buySideSweep: boolean;
+    sellSideSweep: boolean;
+    stopHunt: boolean;
+  };
+
   // Performance
   executionTime: number;
   calculationsPerformed: number;
