@@ -1564,6 +1564,14 @@ export class AdvancedAI {
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
 
+    // ATR trailing stop: move SL to BE after 1 ATR profit, trail by 1.5 ATR after that
+    const trailingStop = {
+      initial: suggestedStopLoss,
+      trigger: isBullish ? currentPrice + atr14 : currentPrice - atr14, // when price hits this, activate trail
+      trailDistance: atr14 * 1.5,
+      breakeven: currentPrice,
+    };
+
     const riskManagement = {
       suggestedEntry: currentPrice,
       suggestedTarget,
@@ -1571,7 +1579,8 @@ export class AdvancedAI {
       riskRewardRatio,
       positionSize,
       maxLoss,
-      expectedProfit
+      expectedProfit,
+      trailingStop,
     };
 
     // ========== FINAL DECISION ==========
