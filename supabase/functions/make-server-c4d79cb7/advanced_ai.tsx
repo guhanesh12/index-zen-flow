@@ -1151,34 +1151,35 @@ export class AdvancedAI {
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)}) - ${trending ? 'Strong but' : 'Weak,'} EMAs not aligned`);
     }
     
-    // 8. Stochastic Confirmation (Weight: 1)
+    // 8. Stochastic Confirmation (Weight: 1) — FIX PROBLEM #4
+    // Removed dangerous "oversold + downtrend continuation" and "overbought + uptrend continuation" branches.
+    // Extreme readings reverse fast in expiry trading; chasing them creates trap entries.
+    const stochRising = stoch.k > stoch.d;
+    const stochFalling = stoch.k < stoch.d;
     if (isBullish && stochOversold) {
       confirmations.stochastic = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ Stochastic: Oversold + bullish reversal');
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + bullish reversal`);
     } else if (isBearish && stochOverbought) {
       confirmations.stochastic = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ Stochastic: Overbought + bearish reversal');
-    } else if (isBearish && stochOversold && (emaDowntrend || marketRegime.type === 'TRENDING_DOWN')) {
-      // ⚡ FIX: Use market regime OR EMA (more flexible!)
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Overbought (${stoch.k.toFixed(1)}) + bearish reversal`);
+    } else if (confirmationBullish && stochRising && stoch.k > 20 && stoch.k < 80) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + downtrend continuation`);
-    } else if (isBullish && stochOverbought && (emaUptrend || marketRegime.type === 'TRENDING_UP')) {
-      // ⚡ FIX: Use market regime OR EMA (more flexible!)
+      confirmationDetails.push(`✅ Stochastic: %K(${stoch.k.toFixed(1)}) > %D(${stoch.d.toFixed(1)}) rising in trend`);
+    } else if (confirmationBearish && stochFalling && stoch.k > 20 && stoch.k < 80) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Overbought (${stoch.k.toFixed(1)}) + uptrend continuation`);
+      confirmationDetails.push(`✅ Stochastic: %K(${stoch.k.toFixed(1)}) < %D(${stoch.d.toFixed(1)}) falling in trend`);
     } else if (stochOverbought) {
-      // ⚡ FIX BUG #1: Show overbought warning instead of "Neutral"!
-      confirmationDetails.push(`⚠️ Stochastic: EXTREME Overbought (${stoch.k.toFixed(1)}) - reversal risk HIGH!`);
+      confirmationDetails.push(`⚠️ Stochastic: Overbought (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`);
     } else if (stochOversold) {
-      // ⚡ FIX BUG #1: Show oversold warning instead of "Neutral"!
-      confirmationDetails.push(`⚠️ Stochastic: EXTREME Oversold (${stoch.k.toFixed(1)}) - reversal risk HIGH!`);
+      confirmationDetails.push(`⚠️ Stochastic: Oversold (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`);
     } else {
-      confirmationDetails.push(`❌ Stochastic: Neutral (${stoch.k.toFixed(1)})`);
+      confirmationDetails.push(`❌ Stochastic: Neutral (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)})`);
     }
+
     
     // 9. Pattern Confirmation with Validation (Weight: 1-2 based on context)
     const bullishPatterns = patterns.filter(p => p.direction === 'BULLISH');
