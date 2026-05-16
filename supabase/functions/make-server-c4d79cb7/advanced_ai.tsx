@@ -348,26 +348,56 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate MACD (Moving Average Convergence Divergence)
+   * Compute EMA over a numeric series (used for proper MACD signal line)
+   */
+  private static emaSeries(values: number[], period: number): number[] {
+    if (values.length === 0) return [];
+    const k = 2 / (period + 1);
+    const out: number[] = [];
+    // seed with SMA of first `period` values (or first value if not enough)
+    let ema: number;
+    if (values.length >= period) {
+      let sum = 0;
+      for (let i = 0; i < period; i++) sum += values[i];
+      ema = sum / period;
+      for (let i = 0; i < period - 1; i++) out.push(NaN);
+      out.push(ema);
+      for (let i = period; i < values.length; i++) {
+        ema = values[i] * k + ema * (1 - k);
+        out.push(ema);
+      }
+    } else {
+      ema = values[0];
+      out.push(ema);
+      for (let i = 1; i < values.length; i++) {
+        ema = values[i] * k + ema * (1 - k);
+        out.push(ema);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Calculate MACD with TRUE EMA-of-MACD-series signal line
    */
   private static calculateMACD(data: OHLCCandle[]): { macd: number; signal: number; histogram: number } {
-    const ema12 = this.calculateEMA(data, 12);
-    const ema26 = this.calculateEMA(data, 26);
-    const macd = ema12 - ema26;
-    
-    // For signal line, we'd need to calculate EMA of MACD values
-    // Simplified: use 9-period approximation
-    const recentData = data.slice(-9);
-    const signalSum = recentData.reduce((sum, candle) => {
-      const ema12_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 12);
-      const ema26_temp = this.calculateEMA(data.slice(0, data.indexOf(candle) + 1), 26);
-      return sum + (ema12_temp - ema26_temp);
-    }, 0);
-    
-    const signal = signalSum / 9;
-    const histogram = macd - signal;
-    
-    return { macd, signal, histogram };
+    if (data.length < 26) {
+      const macd = this.calculateEMA(data, 12) - this.calculateEMA(data, 26);
+      return { macd, signal: macd, histogram: 0 };
+    }
+    const closes = data.map(c => c.close);
+    const ema12s = this.emaSeries(closes, 12);
+    const ema26s = this.emaSeries(closes, 26);
+    const macdSeries: number[] = [];
+    for (let i = 0; i < closes.length; i++) {
+      if (!isNaN(ema12s[i]) && !isNaN(ema26s[i])) macdSeries.push(ema12s[i] - ema26s[i]);
+    }
+    if (macdSeries.length === 0) return { macd: 0, signal: 0, histogram: 0 };
+    const signalSeries = this.emaSeries(macdSeries, 9);
+    const macd = macdSeries[macdSeries.length - 1];
+    const signal = signalSeries[signalSeries.length - 1];
+    const safeSignal = isNaN(signal) ? macd : signal;
+    return { macd, signal: safeSignal, histogram: macd - safeSignal };
   }
   
   /**
@@ -427,58 +457,140 @@ export class AdvancedAI {
   }
   
   /**
-   * Calculate ADX (Average Directional Index) - Trend Strength
+   * Calculate ADX with proper Wilder's smoothing of +DI, -DI and DX
    */
   private static calculateADX(data: OHLCCandle[], period: number = 14): number {
-    if (data.length < period + 1) return 0;
-    
-    let plusDM = 0;
-    let minusDM = 0;
-    let tr = 0;
-    
-    for (let i = data.length - period; i < data.length; i++) {
-      const highDiff = data[i].high - data[i - 1].high;
-      const lowDiff = data[i - 1].low - data[i].low;
-      
-      plusDM += (highDiff > lowDiff && highDiff > 0) ? highDiff : 0;
-      minusDM += (lowDiff > highDiff && lowDiff > 0) ? lowDiff : 0;
-      
-      const trueRange = Math.max(
-        data[i].high - data[i].low,
-        Math.abs(data[i].high - data[i - 1].close),
-        Math.abs(data[i].low - data[i - 1].close)
-      );
-      tr += trueRange;
+    if (data.length < period * 2 + 1) {
+      // fallback to simple version when not enough data
+      if (data.length < period + 1) return 0;
+      let pDM = 0, mDM = 0, tr = 0;
+      for (let i = data.length - period; i < data.length; i++) {
+        const hd = data[i].high - data[i - 1].high;
+        const ld = data[i - 1].low - data[i].low;
+        pDM += (hd > ld && hd > 0) ? hd : 0;
+        mDM += (ld > hd && ld > 0) ? ld : 0;
+        tr += Math.max(data[i].high - data[i].low,
+          Math.abs(data[i].high - data[i - 1].close),
+          Math.abs(data[i].low - data[i - 1].close));
+      }
+      if (tr === 0) return 0;
+      const pDI = (pDM / tr) * 100, mDI = (mDM / tr) * 100;
+      const sum = pDI + mDI;
+      return sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0;
     }
-    
-    const plusDI = (plusDM / tr) * 100;
-    const minusDI = (minusDM / tr) * 100;
-    
-    const dx = Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100;
-    
-    return dx;
+
+    const trArr: number[] = [];
+    const pDMArr: number[] = [];
+    const mDMArr: number[] = [];
+    for (let i = 1; i < data.length; i++) {
+      const hd = data[i].high - data[i - 1].high;
+      const ld = data[i - 1].low - data[i].low;
+      pDMArr.push((hd > ld && hd > 0) ? hd : 0);
+      mDMArr.push((ld > hd && ld > 0) ? ld : 0);
+      trArr.push(Math.max(data[i].high - data[i].low,
+        Math.abs(data[i].high - data[i - 1].close),
+        Math.abs(data[i].low - data[i - 1].close)));
+    }
+
+    // Wilder's smoothing: first = sum of first `period`, then prev - prev/period + current
+    const smooth = (arr: number[]): number[] => {
+      const out: number[] = [];
+      let s = 0;
+      for (let i = 0; i < period; i++) s += arr[i];
+      out.push(s);
+      for (let i = period; i < arr.length; i++) {
+        s = s - s / period + arr[i];
+        out.push(s);
+      }
+      return out;
+    };
+
+    const trS = smooth(trArr);
+    const pS = smooth(pDMArr);
+    const mS = smooth(mDMArr);
+    const dxArr: number[] = [];
+    for (let i = 0; i < trS.length; i++) {
+      if (trS[i] === 0) { dxArr.push(0); continue; }
+      const pDI = (pS[i] / trS[i]) * 100;
+      const mDI = (mS[i] / trS[i]) * 100;
+      const sum = pDI + mDI;
+      dxArr.push(sum > 0 ? (Math.abs(pDI - mDI) / sum) * 100 : 0);
+    }
+    if (dxArr.length < period) {
+      return dxArr.length ? dxArr[dxArr.length - 1] : 0;
+    }
+    // ADX = Wilder smoothing of DX
+    let adx = 0;
+    for (let i = 0; i < period; i++) adx += dxArr[i];
+    adx = adx / period;
+    for (let i = period; i < dxArr.length; i++) {
+      adx = (adx * (period - 1) + dxArr[i]) / period;
+    }
+    return adx;
   }
-  
+
   /**
-   * Calculate Stochastic Oscillator
+   * Stochastic with proper %D = 3-period SMA of %K
    */
   private static calculateStochastic(data: OHLCCandle[], period: number = 14): { k: number; d: number } {
     if (data.length < period) return { k: 50, d: 50 };
-    
-    const slice = data.slice(-period);
-    const currentClose = data[data.length - 1].close;
-    
-    const lowestLow = Math.min(...slice.map(c => c.low));
-    const highestHigh = Math.max(...slice.map(c => c.high));
-    
-    const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
-    
-    // D is 3-period SMA of K (simplified to K for now)
-    const d = k;
-    
+    const kVals: number[] = [];
+    const start = Math.max(period, data.length - (period + 3));
+    for (let end = start; end <= data.length; end++) {
+      const slice = data.slice(end - period, end);
+      const close = slice[slice.length - 1].close;
+      const lo = Math.min(...slice.map(c => c.low));
+      const hi = Math.max(...slice.map(c => c.high));
+      const k = hi === lo ? 50 : ((close - lo) / (hi - lo)) * 100;
+      kVals.push(k);
+    }
+    const k = kVals[kVals.length - 1];
+    const last3 = kVals.slice(-3);
+    const d = last3.reduce((a, b) => a + b, 0) / last3.length;
     return { k, d };
   }
-  
+
+  /**
+   * Swing-pivot based Support/Resistance (last N bars, fractal pivots)
+   */
+  private static calculateSwingLevels(data: OHLCCandle[], lookback: number = 80, left: number = 2, right: number = 2): { resistances: number[]; supports: number[] } {
+    const slice = data.slice(-lookback);
+    const highs: number[] = [];
+    const lows: number[] = [];
+    for (let i = left; i < slice.length - right; i++) {
+      let isPivotHigh = true, isPivotLow = true;
+      for (let j = i - left; j <= i + right; j++) {
+        if (j === i) continue;
+        if (slice[j].high >= slice[i].high) isPivotHigh = false;
+        if (slice[j].low <= slice[i].low) isPivotLow = false;
+      }
+      if (isPivotHigh) highs.push(slice[i].high);
+      if (isPivotLow) lows.push(slice[i].low);
+    }
+    const last = slice[slice.length - 1].close;
+    // Cluster close levels (within 0.15%)
+    const cluster = (vals: number[]): number[] => {
+      if (!vals.length) return [];
+      const sorted = [...vals].sort((a, b) => a - b);
+      const tol = last * 0.0015;
+      const groups: number[][] = [[sorted[0]]];
+      for (let i = 1; i < sorted.length; i++) {
+        const g = groups[groups.length - 1];
+        if (sorted[i] - g[g.length - 1] <= tol) g.push(sorted[i]);
+        else groups.push([sorted[i]]);
+      }
+      // weight by touches (group length) — keep multi-touch zones
+      return groups
+        .map(g => ({ price: g.reduce((a, b) => a + b, 0) / g.length, touches: g.length }))
+        .sort((a, b) => b.touches - a.touches || Math.abs(a.price - last) - Math.abs(b.price - last))
+        .map(x => x.price);
+    };
+    const resistances = cluster(highs.filter(h => h > last));
+    const supports = cluster(lows.filter(l => l < last));
+    return { resistances, supports };
+  }
+
+
   /**
    * Calculate Fibonacci Retracement Levels
    */
@@ -526,12 +638,15 @@ export class AdvancedAI {
     
     const prevBody = Math.abs(prev.close - prev.open);
     const prevRange = prev.high - prev.low;
-    
-    // 1. BULLISH ENGULFING
+
+    // FIX PROBLEM #9: small tolerance for engulfing (gaps/spread shouldn't disqualify pattern)
+    const tol = Math.max(currentRange, prevRange) * 0.05; // 5% of range tolerance
+
+    // 1. BULLISH ENGULFING (with tolerance)
     if (prev.close < prev.open && // Prev bearish
         current.close > current.open && // Current bullish
-        current.open < prev.close &&
-        current.close > prev.open) {
+        current.open <= prev.close + tol &&
+        current.close >= prev.open - tol) {
       patterns.push({
         type: 'BULLISH_ENGULFING',
         strength: 'STRONG',
@@ -539,12 +654,12 @@ export class AdvancedAI {
         confidence: 85
       });
     }
-    
-    // 2. BEARISH ENGULFING
+
+    // 2. BEARISH ENGULFING (with tolerance)
     if (prev.close > prev.open && // Prev bullish
         current.close < current.open && // Current bearish
-        current.open > prev.close &&
-        current.close < prev.open) {
+        current.open >= prev.close - tol &&
+        current.close <= prev.open + tol) {
       patterns.push({
         type: 'BEARISH_ENGULFING',
         strength: 'STRONG',
@@ -552,6 +667,7 @@ export class AdvancedAI {
         confidence: 85
       });
     }
+
     
     // 3. HAMMER (Bullish reversal)
     const lowerWick = Math.min(current.open, current.close) - current.low;
@@ -799,22 +915,23 @@ export class AdvancedAI {
     const stochOversold = stoch.k < 20;
     calculationsPerformed += 1;
     
-    // Support/Resistance
-    const highs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
-    const lows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
-    
-    const resistance1 = highs[0];
-    const resistance2 = highs[Math.floor(highs.length * 0.2)];
-    const resistance3 = highs[Math.floor(highs.length * 0.4)];
-    
-    const support1 = lows[0];
-    const support2 = lows[Math.floor(lows.length * 0.2)];
-    const support3 = lows[Math.floor(lows.length * 0.4)];
-    
-    const nearResistance = lastCandle.close > resistance1 * 0.98;
-    const nearSupport = lastCandle.close < support1 * 1.02;
+    // Support/Resistance — proper swing-pivot detection (fractal pivots + clustering by touches)
+    const swing = this.calculateSwingLevels(ohlcData, 80, 2, 2);
+    // Fallback to extremes if no pivots found yet (early warm-up)
+    const sortedHighs = ohlcData.slice(-50).map(c => c.high).sort((a, b) => b - a);
+    const sortedLows = ohlcData.slice(-50).map(c => c.low).sort((a, b) => a - b);
+    const resistance1 = swing.resistances[0] ?? sortedHighs[0];
+    const resistance2 = swing.resistances[1] ?? sortedHighs[Math.floor(sortedHighs.length * 0.2)];
+    const resistance3 = swing.resistances[2] ?? sortedHighs[Math.floor(sortedHighs.length * 0.4)];
+    const support1 = swing.supports[0] ?? sortedLows[0];
+    const support2 = swing.supports[1] ?? sortedLows[Math.floor(sortedLows.length * 0.2)];
+    const support3 = swing.supports[2] ?? sortedLows[Math.floor(sortedLows.length * 0.4)];
+    // "Near" tolerance scaled by ATR (~0.5 ATR) so it adapts to volatility instead of fixed 2%
+    const nearTol = Math.max(lastCandle.close * 0.003, (this.calculateATR(ohlcData, 14) || 0) * 0.5);
+    const nearResistance = resistance1 ? (resistance1 - lastCandle.close) <= nearTol && lastCandle.close <= resistance1 + nearTol : false;
+    const nearSupport = support1 ? (lastCandle.close - support1) <= nearTol && lastCandle.close >= support1 - nearTol : false;
     calculationsPerformed += 1;
-    
+
     // Fibonacci
     const fibLevels = this.calculateFibonacci(ohlcData);
     const nearFibLevel = Math.abs(lastCandle.close - fibLevels.level_618) < lastCandle.close * 0.005;
@@ -1038,34 +1155,35 @@ export class AdvancedAI {
       confirmationDetails.push(`❌ ADX: ${adxInterpretation} (${adx.toFixed(1)}) - ${trending ? 'Strong but' : 'Weak,'} EMAs not aligned`);
     }
     
-    // 8. Stochastic Confirmation (Weight: 1)
+    // 8. Stochastic Confirmation (Weight: 1) — FIX PROBLEM #4
+    // Removed dangerous "oversold + downtrend continuation" and "overbought + uptrend continuation" branches.
+    // Extreme readings reverse fast in expiry trading; chasing them creates trap entries.
+    const stochRising = stoch.k > stoch.d;
+    const stochFalling = stoch.k < stoch.d;
     if (isBullish && stochOversold) {
       confirmations.stochastic = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ Stochastic: Oversold + bullish reversal');
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + bullish reversal`);
     } else if (isBearish && stochOverbought) {
       confirmations.stochastic = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ Stochastic: Overbought + bearish reversal');
-    } else if (isBearish && stochOversold && (emaDowntrend || marketRegime.type === 'TRENDING_DOWN')) {
-      // ⚡ FIX: Use market regime OR EMA (more flexible!)
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ Stochastic: Overbought (${stoch.k.toFixed(1)}) + bearish reversal`);
+    } else if (confirmationBullish && stochRising && stoch.k > 20 && stoch.k < 80) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + downtrend continuation`);
-    } else if (isBullish && stochOverbought && (emaUptrend || marketRegime.type === 'TRENDING_UP')) {
-      // ⚡ FIX: Use market regime OR EMA (more flexible!)
+      confirmationDetails.push(`✅ Stochastic: %K(${stoch.k.toFixed(1)}) > %D(${stoch.d.toFixed(1)}) rising in trend`);
+    } else if (confirmationBearish && stochFalling && stoch.k > 20 && stoch.k < 80) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Overbought (${stoch.k.toFixed(1)}) + uptrend continuation`);
+      confirmationDetails.push(`✅ Stochastic: %K(${stoch.k.toFixed(1)}) < %D(${stoch.d.toFixed(1)}) falling in trend`);
     } else if (stochOverbought) {
-      // ⚡ FIX BUG #1: Show overbought warning instead of "Neutral"!
-      confirmationDetails.push(`⚠️ Stochastic: EXTREME Overbought (${stoch.k.toFixed(1)}) - reversal risk HIGH!`);
+      confirmationDetails.push(`⚠️ Stochastic: Overbought (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`);
     } else if (stochOversold) {
-      // ⚡ FIX BUG #1: Show oversold warning instead of "Neutral"!
-      confirmationDetails.push(`⚠️ Stochastic: EXTREME Oversold (${stoch.k.toFixed(1)}) - reversal risk HIGH!`);
+      confirmationDetails.push(`⚠️ Stochastic: Oversold (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`);
     } else {
-      confirmationDetails.push(`❌ Stochastic: Neutral (${stoch.k.toFixed(1)})`);
+      confirmationDetails.push(`❌ Stochastic: Neutral (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)})`);
     }
+
     
     // 9. Pattern Confirmation with Validation (Weight: 1-2 based on context)
     const bullishPatterns = patterns.filter(p => p.direction === 'BULLISH');
@@ -1120,25 +1238,29 @@ export class AdvancedAI {
     confirmations.details = confirmationDetails;
     confirmations.total = totalWeightedScore; // Set the total to the weighted score
     
-    // ========== RISK MANAGEMENT ==========
+    // ========== RISK MANAGEMENT ========== (FIX PROBLEM #10: dynamic RR)
     const currentPrice = lastCandle.close;
-    
+
     // ATR-based stop loss (2x ATR)
     const stopLossDistance = atr14 * 2;
     const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
-    
-    // Target (3x risk for 1:3 RR)
-    const targetDistance = stopLossDistance * 3;
+
+    // Dynamic RR based on regime and trend strength:
+    //   - Strong trend (ADX>40) + suitable regime → 3.0  (let winners run)
+    //   - Normal trending market                  → 2.0
+    //   - Ranging / volatile / unsuitable         → 1.5  (book quicker)
+    let riskRewardRatio = 2.0;
+    if (adx > 40 && marketRegime.suitable_for_trading) riskRewardRatio = 3.0;
+    else if (!marketRegime.suitable_for_trading || marketRegime.type === 'RANGING' || marketRegime.type === 'VOLATILE' || marketRegime.type === 'QUIET') riskRewardRatio = 1.5;
+
+    const targetDistance = stopLossDistance * riskRewardRatio;
     const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
-    
-    // Position sizing (risk 2% of account)
+
     const riskAmount = accountBalance * 0.02;
-    const positionSize = Math.floor(riskAmount / stopLossDistance);
-    
-    const riskRewardRatio = 3.0;
+    const positionSize = Math.floor(riskAmount / Math.max(stopLossDistance, 1));
     const maxLoss = riskAmount;
     const expectedProfit = riskAmount * riskRewardRatio;
-    
+
     const riskManagement = {
       suggestedEntry: currentPrice,
       suggestedTarget,
@@ -1148,34 +1270,84 @@ export class AdvancedAI {
       maxLoss,
       expectedProfit
     };
-    
+
     // ========== FINAL DECISION ==========
     let action: 'BUY_CALL' | 'BUY_PUT' | 'WAIT' = 'WAIT';
     let confidence = 0;
     let reasoning = '';
     let bias: 'Bullish' | 'Bearish' | 'Neutral' = 'Neutral';
-    
-    // MUST have 6+ confirmations AND suitable market regime
-    // ADJUSTED FOR REAL TRADING: Lower body size requirement from 15 to 10 points
-    // ADJUSTED FOR REAL TRADING: Lower volume requirement from 1.5x to 0.8x (real market conditions)
-    // ⚡ NEW FIX: In very strong trends (ADX > 50), reduce volume requirement to 0.5x
-    const minimumBodySize = 10; // Points (was 15)
-    const isVeryStrongTrend = adx > 50;  // ADX > 50 = very strong/climax trend
-    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8; // Reduce to 0.5x in very strong trends
-    // ⚡ Index feeds (NIFTY/BANKNIFTY/SENSEX) often ship 0 volume. If feed is
-    // unreliable, do NOT block on volume — fall back to candle-strength gating
-    // (body% / pattern). Only enforce volume threshold when feed is reliable.
+
+    // FIX PROBLEM #7: ATR-relative body strength (relative to current volatility)
+    // Body must be ≥ max(10 pts, 0.4 × ATR14). In low-volatility sessions ATR is small so 10pts dominates,
+    // in high-volatility ATR-derived floor scales up so a relatively weak 12pt candle isn't enough.
+    const minimumBodySize = Math.max(10, atr14 * 0.4);
+    const isVeryStrongTrend = adx > 50;
+    const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
     const volumeFeedReliable = avgVolume > 0 && refVolume > 0 && isFinite(volumeRatio) && volumeRatio > 0;
     const hasAcceptableVolume = !volumeFeedReliable ? (bodyPercent >= 35) : (volumeRatio >= minimumVolumeRatio);
-    
-    // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
-    const hasStrongPattern = patterns.some(p => p.confidence >= 80 && 
+
+    const hasStrongPattern = patterns.some(p => p.confidence >= 80 &&
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
-    
-    const strongBullish = confirmations.total >= 6 && confirmationBullish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
-    const strongBearish = confirmations.total >= 6 && confirmationBearish && (bodySize >= minimumBodySize || hasStrongPattern) && hasAcceptableVolume;
-    
-    console.log(`🎯 SIGNAL CHECK: confirmations=${confirmations.total}, confirmationBullish=${confirmationBullish}, confirmationBearish=${confirmationBearish}, bodySize=${bodySize.toFixed(2)} (min=${minimumBodySize}), hasStrongPattern=${hasStrongPattern}, volumeRatio=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), isVeryStrongTrend=${isVeryStrongTrend} (ADX=${adx.toFixed(1)}), regime=${marketRegime.type}, suitable=${marketRegime.suitable_for_trading}`);
+
+    // FIX PROBLEM #8: EMA200 long-term bias filter (only block counter-trend in clearly trending markets)
+    const ema200Bias: 'bull' | 'bear' | 'neutral' =
+      currentPrice > ema200 * 1.001 ? 'bull' : currentPrice < ema200 * 0.999 ? 'bear' : 'neutral';
+    const counterToLongTerm =
+      (confirmationBullish && ema200Bias === 'bear' && adx > 30) ||
+      (confirmationBearish && ema200Bias === 'bull' && adx > 30);
+
+    // FIX PROBLEM #5: Higher-timeframe (MTF) confirmation by resampling current TF × 3
+    // (e.g. 5m → 15m, 15m → 45m). EMA9/EMA21 alignment + slope must agree with trade direction.
+    const htfAlign = ((): 'bull' | 'bear' | 'neutral' => {
+      if (ohlcData.length < 90) return 'neutral';
+      const grouped: OHLCCandle[] = [];
+      for (let i = 0; i + 3 <= ohlcData.length; i += 3) {
+        const g = ohlcData.slice(i, i + 3);
+        grouped.push({
+          open: g[0].open,
+          high: Math.max(...g.map(x => x.high)),
+          low: Math.min(...g.map(x => x.low)),
+          close: g[g.length - 1].close,
+          volume: g.reduce((a, b) => a + (b.volume || 0), 0),
+          timestamp: g[g.length - 1].timestamp,
+        });
+      }
+      if (grouped.length < 25) return 'neutral';
+      const e9 = this.calculateEMA(grouped, 9);
+      const e21 = this.calculateEMA(grouped, 21);
+      const lastHTF = grouped[grouped.length - 1].close;
+      if (lastHTF > e9 && e9 > e21) return 'bull';
+      if (lastHTF < e9 && e9 < e21) return 'bear';
+      return 'neutral';
+    })();
+    const htfAgreesBull = htfAlign === 'bull' || htfAlign === 'neutral';
+    const htfAgreesBear = htfAlign === 'bear' || htfAlign === 'neutral';
+
+    // FIX (MID-SESSION TRAP): 11:00–13:30 IST is institutional fake-move window.
+    // Require stronger conviction during these hours: +1 confirmation AND ADX > 25.
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const istMinutes = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+    const inMidSessionTrap = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
+    const requiredConfirmations = inMidSessionTrap ? 7 : 6;
+    const midSessionAdxOk = !inMidSessionTrap || adx > 25;
+
+    const strongBullish = confirmations.total >= requiredConfirmations
+      && confirmationBullish
+      && (bodySize >= minimumBodySize || hasStrongPattern)
+      && hasAcceptableVolume
+      && !counterToLongTerm
+      && htfAgreesBull
+      && midSessionAdxOk;
+    const strongBearish = confirmations.total >= requiredConfirmations
+      && confirmationBearish
+      && (bodySize >= minimumBodySize || hasStrongPattern)
+      && hasAcceptableVolume
+      && !counterToLongTerm
+      && htfAgreesBear
+      && midSessionAdxOk;
+
+    console.log(`🎯 SIGNAL CHECK: conf=${confirmations.total}/${requiredConfirmations}, bull=${confirmationBullish}, bear=${confirmationBearish}, body=${bodySize.toFixed(2)} (min=${minimumBodySize.toFixed(1)}), pattern=${hasStrongPattern}, vol=${volumeRatio.toFixed(2)} (min=${minimumVolumeRatio}), ADX=${adx.toFixed(1)}, regime=${marketRegime.type}, ema200=${ema200Bias}, htf=${htfAlign}, midTrap=${inMidSessionTrap}, counterLT=${counterToLongTerm}`);
+
     
     if (strongBullish && marketRegime.suitable_for_trading) {
       action = 'BUY_CALL';
@@ -1197,22 +1369,38 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Market regime unsuitable (${marketRegime.type}). Need trending market for trades.`;
       
-    } else if (confirmations.total < 6) {
+    } else if (confirmations.total < requiredConfirmations) {
       action = 'WAIT';
       confidence = 40;
-      // ⚡ FIX BUG #8: Use trend bias in strong trends, not current candle color
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
-      
-    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume for consistency
-      // ⚡ FIX: Only block if no strong pattern exists
+      reasoning = `WAIT: Only ${confirmations.total}/10 confirmations (need ${requiredConfirmations}${inMidSessionTrap ? ' — mid-session trap window' : ''}).`;
+
+    } else if (counterToLongTerm) {
+      action = 'WAIT';
+      confidence = 35;
+      bias = 'Neutral';
+      reasoning = `WAIT: Signal counter to long-term bias (EMA200 ${ema200Bias}, ADX ${adx.toFixed(1)}).`;
+
+    } else if (confirmationBullish ? !htfAgreesBull : confirmationBearish ? !htfAgreesBear : false) {
+      action = 'WAIT';
+      confidence = 38;
+      bias = 'Neutral';
+      reasoning = `WAIT: Higher-timeframe (MTF) bias disagrees (HTF=${htfAlign}).`;
+
+    } else if (inMidSessionTrap && !midSessionAdxOk) {
+      action = 'WAIT';
+      confidence = 35;
+      bias = 'Neutral';
+      reasoning = `WAIT: Mid-session trap window (11:00–13:30 IST) — ADX ${adx.toFixed(1)} too weak (>25 required).`;
+
+    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
         const weakBody = bodySize < minimumBodySize;
         const lowVolume = !hasAcceptableVolume;
-        const bodyText = `body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}`;
+        const bodyText = `body ${bodySize.toFixed(1)}pts, min ${minimumBodySize.toFixed(1)} (ATR-relative)`;
         const volumeText = volumeFeedReliable
           ? `volume ${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x`
           : `candle strength ${bodyPercent.toFixed(1)}%, min 35%`;
@@ -1228,7 +1416,7 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Conditions not met for high-confidence entry.`;
     }
-    
+
     // ⚡ PHASE 1: REGIME ALIGNMENT CHECK (CRITICAL!) ⚡
     // Block counter-trend trades unless at key S/R levels or squeeze
     if (action !== 'WAIT') {
