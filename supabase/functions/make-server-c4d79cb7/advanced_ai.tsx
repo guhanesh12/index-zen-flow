@@ -1725,11 +1725,14 @@ export class AdvancedAI {
     console.log(`🎯 SIGNAL CHECK: earlyBull=${earlyBullScore}/${requiredConfirmations}, earlyBear=${earlyBearScore}/${requiredConfirmations}, strongConf=${strongConfirmationScore}/4, breakout(B/S)=${breakoutConfirmedBull}/${breakoutConfirmedBear}, rangeExp=${rangeExpansion}, liquidity(buy/sell)=${liquidity.buySideSweep}/${liquidity.sellSideSweep}, struct=${marketStructure.type}/BOS=${marketStructure.bos}/CHOCH=${marketStructure.choch}, smartMoney=${smartMoneyBias}, slope9=${ema9Slope.toFixed(3)}%, ADX=${prevAdx.toFixed(1)}→${adx.toFixed(1)}, regime=${marketRegime.type}, real15m=${htfAlign}${htfDataProvided ? '' : ':not-provided'}, midTrap=${weakMidSessionTrap}, cooldown=${cooldownActive}`);
 
     
-    // ⚡ ERROR 10 — Hard NO-TRADE ZONE for sideways markets
-    // Block trades when: ADX<18 AND ATR low AND VWAP flat AND EMAs mixed
+    // ⚡ SIDEWAYS / NO-TRADE ZONE (tightened): block trades when market lacks any directional energy
     const emaMixed = !((ema9 > ema21 && ema21 > ema50) || (ema9 < ema21 && ema21 < ema50));
-    const atrLow = atr14 < lastCandle.close * 0.0035; // < 0.35% of price
-    const noTradeZone = adx < 18 && atrLow && vwapFlat && emaMixed;
+    const atrLow = atr14 < safeClose * 0.0035; // < 0.35% of price
+    const slopesFlat = Math.abs(ema9Slope) < 0.015 && Math.abs(ema21Slope) < 0.01;
+    const squeezeWithoutExpansion = bollingerSqueeze && !bbExpansion;
+    // Any 3 of 5 signals → sideways
+    const sidewaysSignals = [adx < 18, atrLow, vwapFlat, emaMixed || slopesFlat, squeezeWithoutExpansion].filter(Boolean).length;
+    const noTradeZone = sidewaysSignals >= 3;
 
     if (noTradeZone) {
       const executionTimeNT = performance.now() - startTime;
