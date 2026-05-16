@@ -1204,13 +1204,23 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = `WAIT: Only ${confirmations.total}/10 confirmations. Need at least 6 for high-confidence signal.`;
       
-    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume (1.2x) for consistency
+    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {  // ⚡ FIX: Use minimumBodySize (10) and hasAcceptableVolume for consistency
       // ⚡ FIX: Only block if no strong pattern exists
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
         bias = 'Neutral';
-        reasoning = `WAIT: Weak candle (body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}) or low volume (${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x).`;
+        const weakBody = bodySize < minimumBodySize;
+        const lowVolume = !hasAcceptableVolume;
+        const bodyText = `body ${bodySize.toFixed(1)}pts, min ${minimumBodySize}`;
+        const volumeText = volumeFeedReliable
+          ? `volume ${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x`
+          : `candle strength ${bodyPercent.toFixed(1)}%, min 35%`;
+        reasoning = weakBody && lowVolume
+          ? `WAIT: Weak candle (${bodyText}) and low ${volumeText}.`
+          : weakBody
+            ? `WAIT: Weak candle (${bodyText}).`
+            : `WAIT: Low ${volumeText}.`;
       }
     } else {
       action = 'WAIT';
