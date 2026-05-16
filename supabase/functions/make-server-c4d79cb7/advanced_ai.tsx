@@ -812,13 +812,21 @@ export class AdvancedAI {
     calculationsPerformed += 1;
     
     // Volume Analysis
+    // ⚡ FIX: When the latest bar is still forming (vol=0 or range=0) but the
+    // feed has historical volume, fall back to the previous CLOSED candle so
+    // volume ratio + candle strength aren't reported as 0.
+    const prevCandleVol = ohlcData[ohlcData.length - 2] || lastCandle;
+    const lastBarPartial = (lastCandle.volume || 0) === 0 && (lastCandle.high - lastCandle.low) === 0;
+    const refCandle = lastBarPartial ? prevCandleVol : lastCandle;
     const last10Candles = ohlcData.slice(-10);
     const avgVolume = last10Candles.reduce((sum, c) => sum + c.volume, 0) / 10;
-    const volumeRatio = lastCandle.volume / avgVolume;
+    const refVolume = refCandle.volume || 0;
+    const volumeRatio = avgVolume > 0 ? refVolume / avgVolume : 0;
     const isHighVolume = volumeRatio > 1.5;
     const isVolumeSpike = volumeRatio > 2.0;
-    const bodySize = Math.abs(lastCandle.close - lastCandle.open);
-    const bodyPercent = ((bodySize / (lastCandle.high - lastCandle.low)) * 100) || 0;
+    const bodySize = Math.abs(refCandle.close - refCandle.open);
+    const refRange = refCandle.high - refCandle.low;
+    const bodyPercent = refRange > 0 ? (bodySize / refRange) * 100 : 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
     
     console.log(`🔍 BODYSIZE DEBUG: bodySize=${bodySize.toFixed(2)}, close=${lastCandle.close}, open=${lastCandle.open}, bodyPercent=${bodyPercent.toFixed(1)}%, volumeRatio=${volumeRatio.toFixed(2)}`);
@@ -1140,7 +1148,7 @@ export class AdvancedAI {
     // ⚡ Index feeds (NIFTY/BANKNIFTY/SENSEX) often ship 0 volume. If feed is
     // unreliable, do NOT block on volume — fall back to candle-strength gating
     // (body% / pattern). Only enforce volume threshold when feed is reliable.
-    const volumeFeedReliable = avgVolume > 0 && lastCandle.volume > 0 && isFinite(volumeRatio);
+    const volumeFeedReliable = avgVolume > 0 && refVolume > 0 && isFinite(volumeRatio) && volumeRatio > 0;
     const hasAcceptableVolume = !volumeFeedReliable ? (bodyPercent >= 35) : (volumeRatio >= minimumVolumeRatio);
     
     // ⚡ FIX: Bypass body size check if we have STRONG pattern (confidence > 80)
@@ -1253,12 +1261,14 @@ export class AdvancedAI {
         // instead of blocking/erasing the panel.
         const candlesWithVolume = ohlcData.slice(-10).filter(c => (c.volume || 0) > 0).length;
         const volumeCoverage = candlesWithVolume / 10;
-        const hasVolumeData = avgVolume > 0 && lastCandle.volume > 0 && volumeCoverage >= 0.5;
+        // Feed is reliable when historical coverage is good, even if the
+        // current bar is still forming (volume=0 mid-candle).
+        const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
         const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
 
         return {
           // Display-friendly snake_case (preferred by UI normalizer)
-          current_volume: lastCandle.volume || 0,
+          current_volume: refVolume,
           average_volume: avgVolume || 0,
           ratio: safeRatio,
           raw_ratio: safeRatio,
