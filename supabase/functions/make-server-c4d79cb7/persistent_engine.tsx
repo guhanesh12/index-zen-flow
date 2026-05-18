@@ -943,6 +943,8 @@ class PersistentTradingEngine {
               const lastSignalDirection = await kv.get(`last_signal_dir:${userId}:${indexName}`) || 'WAIT';
               const lastStopLossTimestamp = await kv.get(`last_sl_ts:${userId}:${indexName}`) || 0;
               const lastStopLossDirection = await kv.get(`last_sl_dir:${userId}:${indexName}`) || null;
+              const consecutiveLossCount = Number(await kv.get(`loss_streak:${userId}:${indexName}`) || 0);
+              const lastLossTimestamp = Number(await kv.get(`last_loss_ts:${userId}:${indexName}`) || 0);
               const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                 higherTimeframeData: real15mData,
                 hourlyTimeframeData: real1hDataClosed,
@@ -952,6 +954,10 @@ class PersistentTradingEngine {
                 lastStopLossTimestamp,
                 lastStopLossDirection,
                 stopLossCooldownBars: 2,
+                consecutiveLossCount,
+                lastLossTimestamp,
+                consecutiveLossThreshold: 3,
+                consecutiveLossCooldownMs: 30 * 60 * 1000,
                 minimumBarsBetweenSignals: 2,
               });
               if (sig.action === 'BUY_CALL' || sig.action === 'BUY_PUT') {
