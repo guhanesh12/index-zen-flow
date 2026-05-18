@@ -4321,7 +4321,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         
         console.log(`✅ ${idx}: ${ohlcData.length} candles fetched`);
         const latestCandle = ohlcData[ohlcData.length - 1];
-        const analysisCandles = ohlcData;
+        // FIX 4: drop the trailing forming candle so the engine analyzes the most-recently CLOSED bar.
+        const _tfMs = Number(interval) * 60 * 1000;
+        const _lastTs = (ohlcData[ohlcData.length - 1]?.timestamp ?? 0);
+        const _lastTsMs = _lastTs < 1e12 ? _lastTs * 1000 : _lastTs;
+        const _isFormingLive = Date.now() < _lastTsMs + _tfMs;
+        const analysisCandles = _isFormingLive && ohlcData.length > 1 ? ohlcData.slice(0, -1) : ohlcData;
         const analyzedCandle = analysisCandles[analysisCandles.length - 1];
         const firstCandle = ohlcData[0];
         console.log(`   First candle: O:${firstCandle?.open} C:${firstCandle?.close} (timestamp: ${new Date(firstCandle?.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })})`);
