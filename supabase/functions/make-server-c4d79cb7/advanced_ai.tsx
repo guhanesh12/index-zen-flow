@@ -2317,6 +2317,25 @@ export class AdvancedAI {
       bias = 'Bearish';
       reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? ' OVEREXPANDED!' : ''}${pullbackQualityBear ? ' Sniper pullback!' : ''}${reversalBearEntry ? ' Reversal entry!' : ''}${continuationBear ? ' Continuation!' : ''}${h1AlignedBear ? ' 1H aligned!' : ''}`;
 
+    } else if (consecutiveLossLockout) {
+      action = 'WAIT';
+      confidence = 30;
+      bias = 'Neutral';
+      const minsLeft = Math.max(0, Math.ceil((lossCooldownMs - msSinceLastLoss) / 60000));
+      reasoning = `WAIT: Consecutive-loss lockout — ${lossCount} losses in a row. Cooldown ${minsLeft}m remaining (avoid revenge trades).`;
+
+    } else if (newsVolatilityShock) {
+      action = 'WAIT';
+      confidence = 30;
+      bias = 'Neutral';
+      reasoning = `WAIT: News/event volatility shock — ATR ${atr14.toFixed(2)} vs avg ${avgAtr20.toFixed(2)} (${(atr14 / avgAtr20).toFixed(2)}x > 2.5x). Likely RBI/Fed/Budget/expiry spike.`;
+
+    } else if (noiseFilter5m) {
+      action = 'WAIT';
+      confidence = 34;
+      bias = 'Neutral';
+      reasoning = `WAIT: 5m noise filter — candle range ${currentRange.toFixed(2)} < 40% of ATR14 ${atr14.toFixed(2)}. Insufficient volatility for entry.`;
+
     } else if (liquidity.stopHunt) {
       action = 'WAIT';
       confidence = 32;
