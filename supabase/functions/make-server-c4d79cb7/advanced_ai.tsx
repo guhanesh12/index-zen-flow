@@ -2033,7 +2033,9 @@ export class AdvancedAI {
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
       reasoning = `WAIT: Early entry confirmations incomplete (bull ${earlyBullScore}/4, bear ${earlyBearScore}/4; need ${requiredConfirmations}).`;
 
-    } else if (bodySize < minimumBodySize || !hasAcceptableVolume) {
+    } else if ((bodySize < minimumBodySize || !hasAcceptableVolume) && adx < 25) {
+      // FIX 3 + 10: Volume / body only hard-blocks when ADX < 25 (no trend energy).
+      // In trending markets (ADX >= 25), low volume / weak body should NOT block continuation entries.
       if (!hasStrongPattern) {
         action = 'WAIT';
         confidence = 35;
@@ -2045,10 +2047,10 @@ export class AdvancedAI {
           ? `volume ${volumeRatio.toFixed(2)}x, min ${minimumVolumeRatio}x`
           : `candle strength ${bodyPercent.toFixed(1)}%, min 35%`;
         reasoning = weakBody && lowVolume
-          ? `WAIT: Weak candle (${bodyText}) and low ${volumeText}.`
+          ? `WAIT: Weak candle (${bodyText}) and low ${volumeText}, ADX ${adx.toFixed(1)} < 25.`
           : weakBody
-            ? `WAIT: Weak candle (${bodyText}).`
-            : `WAIT: Low ${volumeText}.`;
+            ? `WAIT: Weak candle (${bodyText}), ADX ${adx.toFixed(1)} < 25.`
+            : `WAIT: Low ${volumeText}, ADX ${adx.toFixed(1)} < 25.`;
       }
     } else {
       action = 'WAIT';
