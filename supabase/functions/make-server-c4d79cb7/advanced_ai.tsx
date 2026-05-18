@@ -1860,6 +1860,37 @@ export class AdvancedAI {
     const continuationBear = adx > 25 && ema9 < ema21 && priceTouchedEmaZoneBear
       && (bearishRejectionCandle || strongBearishClose) && macdHistWeakeningBear;
 
+    // ===== FIX 3: REVERSAL CONTINUATION ENTRY MODEL =====
+    // Bearish: shooting star / evening star / bearish engulfing + MACD weakening + below VWAP + ADX>25
+    // Bullish: hammer / morning star / bullish engulfing + MACD improving + above VWAP + ADX>25
+    const hasBearReversalPattern = patterns.some(p =>
+      p.direction === 'BEARISH' &&
+      (p.name === 'SHOOTING_STAR' || p.name === 'EVENING_STAR' || p.name === 'BEARISH_ENGULFING')
+    );
+    const hasBullReversalPattern = patterns.some(p =>
+      p.direction === 'BULLISH' &&
+      (p.name === 'HAMMER' || p.name === 'MORNING_STAR' || p.name === 'BULLISH_ENGULFING')
+    );
+    const reversalBearEntry = hasBearReversalPattern && adx > 25 && !priceAboveVWAP
+      && macdHistWeakeningBear && lastCandle.close < lastCandle.open;
+    const reversalBullEntry = hasBullReversalPattern && adx > 25 && priceAboveVWAP
+      && macdHistImprovingBull && lastCandle.close > lastCandle.open;
+
+    // ===== FIX 6: TREND EXHAUSTION GUARD =====
+    // Block chasing entries when price is > 4 ATR away from EMA21 (overextended).
+    const distFromEma21Atr = Math.abs(lastCandle.close - ema21) / Math.max(atr14, 1e-6);
+    const trendExhausted = distFromEma21Atr > 4;
+
+    // ===== FIX 7: SESSION-AWARE CONFIDENCE MODIFIER =====
+    // High-priority: 09:20–11:15 and 13:45–15:00. Lunch chop 11:45–13:15 = penalty.
+    const _istNowSess = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const _istMinSess = _istNowSess.getUTCHours() * 60 + _istNowSess.getUTCMinutes();
+    const inHighPrioritySession =
+      (_istMinSess >= 9 * 60 + 20 && _istMinSess <= 11 * 60 + 15) ||
+      (_istMinSess >= 13 * 60 + 45 && _istMinSess <= 15 * 60);
+    const inLunchChopSession = _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
+    const sessionConfidenceModifier = inHighPrioritySession ? +4 : inLunchChopSession ? -8 : 0;
+
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
     const strongBullish = confirmationBullish
