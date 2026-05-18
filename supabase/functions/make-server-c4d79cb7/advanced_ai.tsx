@@ -2041,9 +2041,10 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence += sessionConfidenceModifier; // FIX 7: session-aware
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bullish';
-      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBullValid && rsiDivergenceObj.bull ? ' Bullish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
+      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}, vwapSlope=${vwapSlopeStrength.toFixed(2)}, sessionMod=${sessionConfidenceModifier}.${reversalBullEntry ? ' Reversal entry!' : ''}${continuationBull ? ' Continuation pullback!' : ''}${reversalBullValid && rsiDivergenceObj.bull ? ' RSI divergence!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB breakout!' : ''}`;
 
     } else if (allowBearish) {
       action = 'BUY_PUT';
