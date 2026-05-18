@@ -2091,6 +2091,36 @@ export class AdvancedAI {
       ? -Math.min(10, Math.round(((_istMinSess - afternoonStartMin) / (afternoonEndMin - afternoonStartMin)) * 10))
       : 0;
 
+    // ===== NEW FIX E: 5M NOISE FILTER =====
+    // On 5m timeframe, candles whose range < 40% of ATR14 are noise — skip entries.
+    const noiseFilter5m = timeframeMinutes === 5 && currentRange > 0 && currentRange < atr14 * 0.4;
+
+    // ===== NEW FIX F: NEWS / EVENT VOLATILITY FILTER =====
+    // Compute average ATR over previous 20 bars (excluding latest). If atr14 spikes > 2.5x avg → likely
+    // RBI / Fed / Budget / expiry shock. Stand aside until volatility normalises.
+    let avgAtr20 = atr14;
+    if (ohlcData.length >= 25) {
+      const slice = ohlcData.slice(-25, -5); // 20 bars ending 5 bars ago — pre-shock baseline
+      let trSum = 0, trCount = 0;
+      for (let i = 1; i < slice.length; i++) {
+        const h = slice[i].high, l = slice[i].low, pc = slice[i - 1].close;
+        const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+        trSum += tr; trCount++;
+      }
+      if (trCount > 0) avgAtr20 = trSum / trCount;
+    }
+    const newsVolatilityShock = avgAtr20 > 0 && atr14 > avgAtr20 * 2.5;
+
+    // ===== NEW FIX G: CONSECUTIVE-LOSS PROTECTION (30-min cooldown) =====
+    const lossThreshold = options.consecutiveLossThreshold ?? 3;
+    const lossCooldownMs = options.consecutiveLossCooldownMs ?? 30 * 60 * 1000;
+    const lossCount = options.consecutiveLossCount ?? 0;
+    const lastLossMs = options.lastLossTimestamp
+      ? (options.lastLossTimestamp < 1e12 ? options.lastLossTimestamp * 1000 : options.lastLossTimestamp)
+      : 0;
+    const msSinceLastLoss = lastLossMs > 0 ? (currentTsMs - lastLossMs) : Infinity;
+    const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
+
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
