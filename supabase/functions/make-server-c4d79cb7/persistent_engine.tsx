@@ -1810,16 +1810,25 @@ class PersistentTradingEngine {
         if (!shouldExit && effectiveTarget > 0 && pnl >= effectiveTarget) {
           shouldExit = true;
           exitReason = `Target Achieved (Target: ₹${effectiveTarget.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          // FIX G: winning exit resets consecutive-loss streak.
+          try {
+            await kv.set(`loss_streak:${userId}:${position.index}`, 0);
+          } catch (_e) { /* non-fatal */ }
         }
 
         if (!shouldExit && effectiveSL > 0 && pnl <= -effectiveSL) {
           shouldExit = true;
           exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
           // FIX D: persist last SL hit so AdvancedAI applies the 2-bar revenge-trade cooldown.
+          // FIX G: increment consecutive-loss streak for 30-min lockout after 3 in a row.
           try {
             const slDir = position.action === 'BUY_CALL' || /CE$/i.test(position.symbolName || '') ? 'BUY_CALL' : 'BUY_PUT';
-            await kv.set(`last_sl_ts:${userId}:${position.index}`, Date.now());
+            const now = Date.now();
+            await kv.set(`last_sl_ts:${userId}:${position.index}`, now);
             await kv.set(`last_sl_dir:${userId}:${position.index}`, slDir);
+            const prevStreak = Number(await kv.get(`loss_streak:${userId}:${position.index}`) || 0);
+            await kv.set(`loss_streak:${userId}:${position.index}`, prevStreak + 1);
+            await kv.set(`last_loss_ts:${userId}:${position.index}`, now);
           } catch (_e) { /* non-fatal */ }
         }
 
