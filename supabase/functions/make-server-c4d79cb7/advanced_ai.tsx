@@ -2606,6 +2606,13 @@ export class AdvancedAI {
           barsSince: isFinite(barsSinceSl) ? +barsSinceSl.toFixed(1) : null,
           requiredBars: slCooldownBars,
         },
+        noiseFilter5m,
+        newsVolatilityShock,
+        atrVsAvg: avgAtr20 > 0 ? +(atr14 / avgAtr20).toFixed(2) : null,
+        avgAtr20: +avgAtr20.toFixed(2),
+        consecutiveLossLockout,
+        consecutiveLossCount: lossCount,
+        msSinceLastLoss: isFinite(msSinceLastLoss) ? msSinceLastLoss : null,
         confirmationBreakdown: {
           earlyBull: earlyBullChecks.map(Boolean),
           earlyBear: earlyBearChecks.map(Boolean),
