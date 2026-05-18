@@ -1803,7 +1803,7 @@ export class AdvancedAI {
     // Disagreement only deducts score; agreement boosts. Strong intra-trend ADX bypasses HTF entirely.
     const htfDisagreeBull = htfDataProvided && htfAlign === 'bear';
     const htfDisagreeBear = htfDataProvided && htfAlign === 'bull';
-    const adxStrong = adx > 30;
+    const htfAdxStrong = adx > 30;
 
     const strongBullish = confirmationBullish
       && earlyBullScore >= requiredConfirmations
@@ -1814,7 +1814,7 @@ export class AdvancedAI {
       && !liquidityBlocksBull
       && !weakMidSessionTrap
       && !cooldownActive
-      && !(htfDisagreeBull && !adxStrong);          // only block HTF disagree if trend is weak
+      && !(htfDisagreeBull && !htfAdxStrong);          // only block HTF disagree if trend is weak
     const strongBearish = confirmationBearish
       && earlyBearScore >= requiredConfirmations
       && (breakoutQualityBear || adxStrong)
@@ -1824,7 +1824,7 @@ export class AdvancedAI {
       && !liquidityBlocksBear
       && !weakMidSessionTrap
       && !cooldownActive
-      && !(htfDisagreeBear && !adxStrong);
+      && !(htfDisagreeBear && !htfAdxStrong);
 
     
 
