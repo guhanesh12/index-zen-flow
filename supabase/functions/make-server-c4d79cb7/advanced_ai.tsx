@@ -1747,14 +1747,11 @@ export class AdvancedAI {
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
     const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
 
-    // ===== ADAPTIVE REQUIRED CONFIRMATIONS BY MARKET REGIME =====
-    // TRENDING → 3 (fast entry, trend bias is reliable)
-    // VOLATILE → 4 (need more proof, noise high)
-    // RANGING/QUIET → 5 (mostly should be blocked by sideways filter anyway)
-    const requiredConfirmations =
-      (marketRegime.type === 'TRENDING_UP' || marketRegime.type === 'TRENDING_DOWN') ? 3
-      : marketRegime.type === 'VOLATILE' ? 4
-      : 5;
+    // ===== FIX 5: ADX-BASED REQUIRED CONFIRMATIONS =====
+    // ADX > 35 → 4 (strong trend, few confirmations needed)
+    // ADX 25-35 → 5
+    // ADX < 25 → 7 (weak/ranging — need overwhelming proof)
+    const requiredConfirmations = adx > 35 ? 4 : adx >= 25 ? 5 : 7;
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [confirmations.macd, confirmations.adx, confirmations.rsi, confirmations.stochastic].filter(Boolean).length;
 
