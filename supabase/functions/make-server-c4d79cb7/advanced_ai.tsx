@@ -2097,6 +2097,8 @@ export class AdvancedAI {
       && !cooldownBlocksBull
       && !exhaustionBlocksContinuationBull
       && !overExpandedBlocksBull
+      && !climaxExhaustionBull
+      && !slBlocksBull
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
@@ -2110,6 +2112,8 @@ export class AdvancedAI {
       && !cooldownBlocksBear
       && !exhaustionBlocksContinuationBear
       && !overExpandedBlocksBear
+      && !climaxExhaustionBear
+      && !slBlocksBear
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
