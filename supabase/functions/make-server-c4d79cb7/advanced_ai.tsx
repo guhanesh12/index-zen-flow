@@ -1353,7 +1353,9 @@ export class AdvancedAI {
     const prev5Ranges = ohlcData.slice(-6, -1).map(c => Math.max(0, c.high - c.low));
     const avgPrev5Range = prev5Ranges.length ? prev5Ranges.reduce((a, b) => a + b, 0) / prev5Ranges.length : 0;
     const currentRange = Math.max(0, lastCandle.high - lastCandle.low);
-    const rangeExpansion = avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.3;
+    // FIX 2: relaxed expansion threshold (1.3 → 1.1) so afternoon/grinding trends pass.
+    // Strong (1.3x) still tracked separately for breakoutQuality scoring below.
+    const rangeExpansion = avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.1;
 
     // Volume normalization (session-time aware: morning vs afternoon)
     const istNowForVol = new Date(Date.now() + 5.5 * 3600 * 1000);
