@@ -2046,6 +2046,46 @@ export class AdvancedAI {
     const overExpandedBlocksBull = overExpandedCandle && !continuationBull && !reversalBullEntry && !pullbackQualityBull;
     const overExpandedBlocksBear = overExpandedCandle && !continuationBear && !reversalBearEntry && !pullbackQualityBear;
 
+    // ===== NEW FIX C: MOMENTUM-CLIMAX EXHAUSTION =====
+    // 3 consecutive expansion candles + RSI extreme + ATR spike + climax volume = blow-off top/bottom.
+    const last3Bars = ohlcData.slice(-3);
+    let expansionStreakBull = 0, expansionStreakBear = 0;
+    if (last3Bars.length === 3) {
+      const refRange = atr14;
+      for (const c of last3Bars) {
+        const r = c.high - c.low;
+        if (r > refRange * 1.2 && c.close > c.open) expansionStreakBull++;
+        if (r > refRange * 1.2 && c.close < c.open) expansionStreakBear++;
+      }
+    }
+    const atrSpike = currentRange > atr14 * 1.8;
+    const volRatio = (indicators as any).volumeRatio ?? 1;
+    const climaxVolume = volumeFeedReliable && volRatio >= 2.0;
+    const climaxExhaustionBull = expansionStreakBull >= 3 && rsi > 78 && atrSpike && climaxVolume;
+    const climaxExhaustionBear = expansionStreakBear >= 3 && rsi < 22 && atrSpike && climaxVolume;
+
+    // ===== NEW FIX D: POST-SL COOLDOWN (revenge-trade guard) =====
+    const slCooldownBars = options.stopLossCooldownBars ?? 2;
+    const lastSlMs = options.lastStopLossTimestamp
+      ? (options.lastStopLossTimestamp < 1e12 ? options.lastStopLossTimestamp * 1000 : options.lastStopLossTimestamp)
+      : 0;
+    const barsSinceSl = lastSlMs > 0
+      ? (currentTsMs - lastSlMs) / (timeframeMinutes * 60 * 1000)
+      : Infinity;
+    const slCooldownActive = isFinite(barsSinceSl) && barsSinceSl < slCooldownBars;
+    const slBlocksBull = slCooldownActive && options.lastStopLossDirection === 'BUY_CALL';
+    const slBlocksBear = slCooldownActive && options.lastStopLossDirection === 'BUY_PUT';
+
+    // ===== NEW FIX B: AFTERNOON CONFIDENCE DECAY =====
+    // After 13:30 IST, low-volume continuation candles get a graded penalty (up to -10).
+    const afternoonStartMin = 13 * 60 + 30;
+    const afternoonEndMin = 15 * 60;
+    const inAfternoonWindow = _istMinSess >= afternoonStartMin && _istMinSess <= afternoonEndMin;
+    const lowVolumeAfternoon = inAfternoonWindow && (!volumeFeedReliable ? bodyPercent < 50 : volRatio < 0.9);
+    const afternoonDecay = lowVolumeAfternoon
+      ? -Math.min(10, Math.round(((_istMinSess - afternoonStartMin) / (afternoonEndMin - afternoonStartMin)) * 10))
+      : 0;
+
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
