@@ -923,16 +923,36 @@ class PersistentTradingEngine {
           let aiSignal: any = null;
           try {
             const dhanSvc = new DhanService({ clientId: dhanClientId, accessToken: dhanAccessToken });
-            const ohlcData = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
-            const real15mData = state.candleInterval === '15' ? ohlcData : await dhanSvc.getOHLCData(securityId, '15', 80);
+            const ohlcDataRaw = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
+            const real15mDataRaw = state.candleInterval === '15' ? ohlcDataRaw : await dhanSvc.getOHLCData(securityId, '15', 80);
+            let real1hData: any[] = [];
+            try { real1hData = await dhanSvc.getOHLCData(securityId, '60', 40); } catch (_e) { real1hData = []; }
+            // ⚡ FIX: strip the still-forming candle so the engine analyses only CLOSED bars (critical on 15m).
+            const stripForming = (arr: any[], tfMin: number) => {
+              if (!arr || arr.length < 2) return arr;
+              const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
+              const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
+              return Date.now() < lastTsMs + tfMin * 60 * 1000 ? arr.slice(0, -1) : arr;
+            };
+            const tfMin = Number(state.candleInterval);
+            const ohlcData = stripForming(ohlcDataRaw, tfMin);
+            const real15mData = stripForming(real15mDataRaw, 15);
+            const real1hDataClosed = stripForming(real1hData, 60);
             if (ohlcData && ohlcData.length > 0) {
               const lastSignalTimestamp = await kv.get(`last_signal_ts:${userId}:${indexName}`) || 0;
+              const lastSignalDirection = await kv.get(`last_signal_dir:${userId}:${indexName}`) || 'WAIT';
               const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                 higherTimeframeData: real15mData,
-                timeframeMinutes: Number(state.candleInterval),
+                hourlyTimeframeData: real1hDataClosed,
+                timeframeMinutes: tfMin,
                 lastSignalTimestamp,
-                minimumBarsBetweenSignals: 3,
+                lastSignalDirection,
+                minimumBarsBetweenSignals: 2,
               });
+              if (sig.action === 'BUY_CALL' || sig.action === 'BUY_PUT') {
+                await kv.set(`last_signal_ts:${userId}:${indexName}`, ohlcData[ohlcData.length - 1].timestamp || Date.now());
+                await kv.set(`last_signal_dir:${userId}:${indexName}`, sig.action);
+              }
               aiSignal = { signal: sig };
             }
           } catch (e) {
