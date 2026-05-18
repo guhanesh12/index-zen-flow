@@ -2059,7 +2059,7 @@ export class AdvancedAI {
       }
     }
     const atrSpike = currentRange > atr14 * 1.8;
-    const volRatio = (indicators as any).volumeRatio ?? 1;
+    const volRatio = volumeRatio || 1;
     const climaxVolume = volumeFeedReliable && volRatio >= 2.0;
     const climaxExhaustionBull = expansionStreakBull >= 3 && rsi > 78 && atrSpike && climaxVolume;
     const climaxExhaustionBear = expansionStreakBear >= 3 && rsi < 22 && atrSpike && climaxVolume;
