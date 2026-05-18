@@ -1894,24 +1894,26 @@ export class AdvancedAI {
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
     const strongBullish = confirmationBullish
-      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30))
-      && (breakoutQualityBull || adxStrong || continuationBull)
-      && (momentumBull || adxStrong || continuationBull)
-      && (slopeOkBull || adxStrong || continuationBull)
+      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry)
+      && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
+      && (momentumBull || adxStrong || continuationBull || reversalBullEntry)
+      && (slopeOkBull || adxStrong || continuationBull || reversalBullEntry)
       && structureOkBull
       && !liquidityBlocksBull
       && !weakMidSessionTrap
       && !cooldownActive
+      && !trendExhausted
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
-      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30))
-      && (breakoutQualityBear || adxStrong || continuationBear)
-      && (momentumBear || adxStrong || continuationBear)
-      && (slopeOkBear || adxStrong || continuationBear)
+      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry)
+      && (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry)
+      && (momentumBear || adxStrong || continuationBear || reversalBearEntry)
+      && (slopeOkBear || adxStrong || continuationBear || reversalBearEntry)
       && structureOkBear
       && !liquidityBlocksBear
       && !weakMidSessionTrap
       && !cooldownActive
+      && !trendExhausted
       && !(htfDisagreeBear && !htfAdxStrong);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
