@@ -1799,38 +1799,52 @@ export class AdvancedAI {
     const smartMoneyAgreesBull = smartMoneyBias !== 'BEARISH';
     const smartMoneyAgreesBear = smartMoneyBias !== 'BULLISH';
 
+    // ⚡ HTF is SOFT FILTER ONLY — never a hard block.
+    // Disagreement only deducts score; agreement boosts. Strong intra-trend ADX bypasses HTF entirely.
+    const htfDisagreeBull = htfDataProvided && htfAlign === 'bear';
+    const htfDisagreeBear = htfDataProvided && htfAlign === 'bull';
+    const adxStrong = adx > 30;
+
     const strongBullish = confirmationBullish
-      && htfAgreesBull
       && earlyBullScore >= requiredConfirmations
-      && breakoutQualityBull
-      && momentumBull
-      && slopeOkBull
+      && (breakoutQualityBull || adxStrong)        // strong ADX overrides breakout requirement
+      && (momentumBull || adxStrong)
+      && (slopeOkBull || adxStrong)                 // strong ADX overrides slope
       && structureOkBull
       && !liquidityBlocksBull
       && !weakMidSessionTrap
-      && !cooldownActive;
+      && !cooldownActive
+      && !(htfDisagreeBull && !adxStrong);          // only block HTF disagree if trend is weak
     const strongBearish = confirmationBearish
-      && htfAgreesBear
       && earlyBearScore >= requiredConfirmations
-      && breakoutQualityBear
-      && momentumBear
-      && slopeOkBear
+      && (breakoutQualityBear || adxStrong)
+      && (momentumBear || adxStrong)
+      && (slopeOkBear || adxStrong)
       && structureOkBear
       && !liquidityBlocksBear
       && !weakMidSessionTrap
-      && !cooldownActive;
+      && !cooldownActive
+      && !(htfDisagreeBear && !adxStrong);
 
     
 
     
-    // ⚡ SIDEWAYS / NO-TRADE ZONE (tightened): block trades when market lacks any directional energy
+    // ⚡ SIDEWAYS / NO-TRADE ZONE (STRICT): only block when market clearly has no direction.
+    // Require ALL key conditions: weak ADX + flat slopes + low ATR + (VWAP flat OR squeeze).
+    // NEVER block when ADX confirms a trending regime.
     const emaMixed = !((ema9 > ema21 && ema21 > ema50) || (ema9 < ema21 && ema21 < ema50));
     const atrLow = atr14 < safeClose * 0.0035; // < 0.35% of price
     const slopesFlat = Math.abs(ema9Slope) < 0.015 && Math.abs(ema21Slope) < 0.01;
     const squeezeWithoutExpansion = bollingerSqueeze && !bbExpansion;
-    // Any 3 of 5 signals → sideways
-    const sidewaysSignals = [adx < 18, atrLow, vwapFlat, emaMixed || slopesFlat, squeezeWithoutExpansion].filter(Boolean).length;
-    const noTradeZone = sidewaysSignals >= 3;
+    const inTrendingRegime = marketRegime.type === 'TRENDING_UP' || marketRegime.type === 'TRENDING_DOWN';
+    // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
+    const noTradeZone = !inTrendingRegime
+      && adx < 22
+      && slopesFlat
+      && atrLow
+      && (vwapFlat || squeezeWithoutExpansion)
+      && emaMixed;
+    const sidewaysSignals = [adx < 22, atrLow, vwapFlat, slopesFlat, squeezeWithoutExpansion, emaMixed].filter(Boolean).length;
 
     if (noTradeZone) {
       const executionTimeNT = performance.now() - startTime;
