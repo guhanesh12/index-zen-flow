@@ -912,10 +912,11 @@ export class AdvancedAI {
         c2.high < c0.high &&
         c2.close < indicators.ema9 &&
         (c2.open - c2.close) > (c2.high - c2.low) * 0.55;
-      if (strongBullSequence && adx >= 20) {
+      // FIX: require ADX >= 25 so we don't flag TRENDING in ranging markets (ADX 20-24)
+      if (strongBullSequence && adx >= 25) {
         return { type: 'TRENDING_UP', strength: Math.max(adx, 28), suitable_for_trading: true };
       }
-      if (strongBearSequence && adx >= 20) {
+      if (strongBearSequence && adx >= 25) {
         return { type: 'TRENDING_DOWN', strength: Math.max(adx, 28), suitable_for_trading: true };
       }
     }
