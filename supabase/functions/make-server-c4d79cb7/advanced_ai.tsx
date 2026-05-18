@@ -1637,8 +1637,15 @@ export class AdvancedAI {
     // ========== RISK MANAGEMENT ========== (FIX PROBLEM #10: dynamic RR)
     const currentPrice = lastCandle.close;
 
-    // ATR-based stop loss (2x ATR)
-    const stopLossDistance = atr14 * 2;
+    // ATR-based stop loss combined with swing structure (FIX 9: smarter stoploss)
+    const atrStop = atr14 * 2;
+    const swingLookback = ohlcData.slice(-15);
+    const swingLow = swingLookback.length ? Math.min(...swingLookback.map(c => c.low)) : currentPrice - atrStop;
+    const swingHigh = swingLookback.length ? Math.max(...swingLookback.map(c => c.high)) : currentPrice + atrStop;
+    const swingStopBull = currentPrice - swingLow + atr14 * 0.2;        // give 0.2 ATR buffer below swing low
+    const swingStopBear = swingHigh - currentPrice + atr14 * 0.2;
+    // Use the WIDER of ATR-stop vs swing-stop (more protective) — but cap at 3.5x ATR to keep RR sane.
+    const stopLossDistance = Math.min(atr14 * 3.5, Math.max(atrStop, isBullish ? swingStopBull : swingStopBear));
     const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
 
     // Dynamic RR based on regime and trend strength:
