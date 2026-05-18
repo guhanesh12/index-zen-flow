@@ -1435,21 +1435,33 @@ export class AdvancedAI {
     const confirmationBullish = useTrendBias ? (trendBias === 'bullish') : isBullish;
     const confirmationBearish = useTrendBias ? (trendBias === 'bearish') : isBearish;
     
-    // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
-    const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
-    
-    if (confirmationBullish && priceAboveVWAP && vwapNormalized.interpretation === 'ACCEPTABLE') {
+    // ⚡ FIX 1: VWAP Confirmation — SLOPE-AWARE (Weight: 2)
+    // Real trends often hug VWAP. Don't reject just because price is close — check VWAP slope.
+    const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);
+    const _prevVwapForSlope = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
+    const vwapSlopeStrength = (vwap - _prevVwapForSlope) / Math.max(atr14, 1e-6); // ATR-normalized slope
+    const vwapSlopingUp = vwapSlopeStrength > 0.04;
+    const vwapSlopingDown = vwapSlopeStrength < -0.04;
+    const vwapSlopeFlat = !vwapSlopingUp && !vwapSlopingDown;
+
+    const vwapBullOK = priceAboveVWAP && (vwapNormalized.interpretation === 'ACCEPTABLE' || vwapSlopingUp);
+    const vwapBearOK = !priceAboveVWAP && (vwapNormalized.interpretation === 'ACCEPTABLE' || vwapSlopingDown);
+
+    if (confirmationBullish && vwapBullOK) {
       confirmations.vwap = true;
-      totalWeightedScore += 2; // Weight: 2
-      confirmationDetails.push(`✅ VWAP: Price above VWAP (${vwapNormalized.distanceATR.toFixed(2)} ATR, ${vwapNormalized.distancePercent.toFixed(2)}%)`);
-    } else if (confirmationBearish && !priceAboveVWAP && vwapNormalized.interpretation === 'ACCEPTABLE') {
+      totalWeightedScore += 2;
+      confirmationDetails.push(`✅ VWAP: Above VWAP, slope=${vwapSlopeStrength.toFixed(2)} (${vwapNormalized.distanceATR.toFixed(2)} ATR)`);
+    } else if (confirmationBearish && vwapBearOK) {
       confirmations.vwap = true;
-      totalWeightedScore += 2; // Weight: 2
-      confirmationDetails.push(`✅ VWAP: Price below VWAP (${vwapNormalized.distanceATR.toFixed(2)} ATR, ${vwapNormalized.distancePercent.toFixed(2)}%)`);
+      totalWeightedScore += 2;
+      confirmationDetails.push(`✅ VWAP: Below VWAP, slope=${vwapSlopeStrength.toFixed(2)} (${vwapNormalized.distanceATR.toFixed(2)} ATR)`);
     } else if (vwapNormalized.interpretation === 'EXTENDED') {
       confirmationDetails.push(`⚠️ VWAP: Extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`);
+    } else if (vwapSlopeFlat && Math.abs(ema9Slope) < 0.015) {
+      confirmationDetails.push('❌ VWAP: Flat + EMA flat (no directional bias)');
     } else {
-      confirmationDetails.push('❌ VWAP: Neutral (too close)');
+      // Soft pass — slope agrees but price wrong side, or other mismatch. Don't credit but don't shout.
+      confirmationDetails.push(`⚪ VWAP: Neutral (slope=${vwapSlopeStrength.toFixed(2)})`);
     }
     
     // 2. EMA Confirmation (Weight: 1) — RELAXED in strong trends
