@@ -1437,22 +1437,25 @@ export class AdvancedAI {
       confirmationDetails.push('❌ VWAP: Neutral (too close)');
     }
     
-    // 2. EMA Confirmation (Weight: 1)
+    // 2. EMA Confirmation (Weight: 1) — RELAXED in strong trends
     const emaUptrend = ema9 > ema21 && ema21 > ema50;
     const emaDowntrend = ema9 < ema21 && ema21 < ema50;
-    
-    // ⚡ FIX BUG #9: In strong trends (ADX > 40), allow minor pullbacks (price within 0.5 ATR of EMA9)
+    // ⚡ FIX 1: When ADX > 30, require only ema9/ema21 alignment + price within 0.75 ATR of EMA21
+    // (allows pullback / retest entries without losing full ema50 alignment requirement)
+    const emaStrongTrend = adx > 30;
+    const emaBullRelaxed = emaStrongTrend && ema9 > ema21 && lastCandle.close >= ema21 - atr14 * 0.75;
+    const emaBearRelaxed = emaStrongTrend && ema9 < ema21 && lastCandle.close <= ema21 + atr14 * 0.75;
     const priceNearEma9Bullish = lastCandle.close > ema9 || (lastCandle.close > ema9 - atr14 * 0.5);
     const priceNearEma9Bearish = lastCandle.close < ema9 || (lastCandle.close < ema9 + atr14 * 0.5);
-    
-    if (confirmationBullish && emaUptrend && priceNearEma9Bullish) {
+
+    if (confirmationBullish && (emaUptrend && priceNearEma9Bullish || emaBullRelaxed)) {
       confirmations.ema = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ EMA: Bullish trend (9>21>50)');
-    } else if (confirmationBearish && emaDowntrend && priceNearEma9Bearish) {
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ EMA: Bullish trend (${emaBullRelaxed && !emaUptrend ? '9>21 relaxed, ADX strong' : '9>21>50'})`);
+    } else if (confirmationBearish && (emaDowntrend && priceNearEma9Bearish || emaBearRelaxed)) {
       confirmations.ema = true;
-      totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push('✅ EMA: Bearish trend (9<21<50)');
+      totalWeightedScore += 1;
+      confirmationDetails.push(`✅ EMA: Bearish trend (${emaBearRelaxed && !emaDowntrend ? '9<21 relaxed, ADX strong' : '9<21<50'})`);
     } else {
       confirmationDetails.push('❌ EMA: Neutral or mixed');
     }
