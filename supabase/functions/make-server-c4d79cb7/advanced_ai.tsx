@@ -2171,7 +2171,7 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      if (overExpandedCandle) confidence -= 10;          // FIX 1: avoid chasing vertical bars
+      if (overExpandedCandle) confidence -= 15;          // FIX 1: avoid chasing vertical bars
       if (pullbackQualityBull) confidence += 8;          // FIX 2: sniper pullback boost
       if (h1AlignedBull) confidence += 15;               // FIX 3: 1H trend alignment
       else if (h1Align === 'bear') confidence -= 6;
@@ -2195,7 +2195,7 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      if (overExpandedCandle) confidence -= 10;          // FIX 1
+      if (overExpandedCandle) confidence -= 15;          // FIX 1
       if (pullbackQualityBear) confidence += 8;          // FIX 2
       if (h1AlignedBear) confidence += 15;               // FIX 3
       else if (h1Align === 'bull') confidence -= 6;
