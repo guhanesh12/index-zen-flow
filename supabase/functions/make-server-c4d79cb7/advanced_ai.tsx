@@ -2132,10 +2132,14 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      confidence += sessionConfidenceModifier; // FIX 7: session-aware
+      if (overExpandedCandle) confidence -= 10;          // FIX 1: avoid chasing vertical bars
+      if (pullbackQualityBull) confidence += 8;          // FIX 2: sniper pullback boost
+      if (h1AlignedBull) confidence += 15;               // FIX 3: 1H trend alignment
+      else if (h1Align === 'bear') confidence -= 6;
+      confidence += sessionConfidenceModifier;            // FIX 4: session-aware
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bullish';
-      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}, vwapSlope=${vwapSlopeStrength.toFixed(2)}, sessionMod=${sessionConfidenceModifier}.${reversalBullEntry ? ' Reversal entry!' : ''}${continuationBull ? ' Continuation pullback!' : ''}${reversalBullValid && rsiDivergenceObj.bull ? ' RSI divergence!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB breakout!' : ''}`;
+      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? ' OVEREXPANDED!' : ''}${pullbackQualityBull ? ' Sniper pullback!' : ''}${reversalBullEntry ? ' Reversal entry!' : ''}${continuationBull ? ' Continuation!' : ''}${h1AlignedBull ? ' 1H aligned!' : ''}`;
 
     } else if (allowBearish) {
       action = 'BUY_PUT';
