@@ -1388,7 +1388,8 @@ export class AdvancedAI {
     // ⚡ Reuse already-computed ema9/ema21/ema50 from indicator pipeline (no recompute)
     const ema9Slope = this.emaSlope(ohlcData, 9, 5, ema9);
     const ema21Slope = this.emaSlope(ohlcData, 21, 5, ema21);
-    const ema50Slope = this.emaSlope(ohlcData, 50, 10, ema50);
+    // FIX: use lookback=5 (same as ema9/21) so ema50Slope updates with limited history instead of returning 0
+    const ema50Slope = this.emaSlope(ohlcData, 50, 5, ema50);
     const slopeMin = 0.02; // 0.02% per bar minimum to consider "directional"
     const slopeBullish = ema9Slope > slopeMin && ema21Slope > slopeMin * 0.5;
     const slopeBearish = ema9Slope < -slopeMin && ema21Slope < -slopeMin * 0.5;
