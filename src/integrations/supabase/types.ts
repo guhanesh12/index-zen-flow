@@ -619,6 +619,7 @@ export type Database = {
       }
       trading_engine_state: {
         Row: {
+          auto_resume: boolean
           created_at: string
           id: string
           is_running: boolean
@@ -626,11 +627,13 @@ export type Database = {
           selected_symbols: Json | null
           started_at: string | null
           stopped_at: string | null
+          stopped_reason: string | null
           strategy_settings: Json | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          auto_resume?: boolean
           created_at?: string
           id?: string
           is_running?: boolean
@@ -638,11 +641,13 @@ export type Database = {
           selected_symbols?: Json | null
           started_at?: string | null
           stopped_at?: string | null
+          stopped_reason?: string | null
           strategy_settings?: Json | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          auto_resume?: boolean
           created_at?: string
           id?: string
           is_running?: boolean
@@ -650,6 +655,7 @@ export type Database = {
           selected_symbols?: Json | null
           started_at?: string | null
           stopped_at?: string | null
+          stopped_reason?: string | null
           strategy_settings?: Json | null
           updated_at?: string
           user_id?: string
