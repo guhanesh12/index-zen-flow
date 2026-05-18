@@ -248,7 +248,8 @@ export interface AdvancedSignal {
 }
 
 export interface AdvancedSignalOptions {
-  higherTimeframeData?: OHLCCandle[];
+  higherTimeframeData?: OHLCCandle[];      // 15m
+  hourlyTimeframeData?: OHLCCandle[];      // 1H — NEW (FIX 3: HTF weight boost)
   timeframeMinutes?: number;
   lastSignalTimestamp?: number;
   lastSignalDirection?: 'BUY_CALL' | 'BUY_PUT' | 'WAIT';
@@ -1748,6 +1749,24 @@ export class AdvancedAI {
     const htfAgreesBull = htfDataProvided ? htfAlign === 'bull' : true;
     const htfAgreesBear = htfDataProvided ? htfAlign === 'bear' : true;
 
+    // ===== FIX 3: 1H HIGHER TIMEFRAME WEIGHT =====
+    // Align with 1H EMA21 direction AND 1H ADX > 20 → +15 confidence boost
+    const h1Data = options.hourlyTimeframeData;
+    const h1Provided = Boolean(h1Data && h1Data.length >= 25);
+    let h1Align: 'bull' | 'bear' | 'neutral' = 'neutral';
+    let h1Adx = 0;
+    if (h1Provided && h1Data) {
+      const h1Last = h1Data[h1Data.length - 1];
+      const h1Ema21 = this.calculateEMA(h1Data, 21);
+      h1Adx = this.calculateADX(h1Data);
+      if (h1Adx > 20) {
+        if (h1Last.close > h1Ema21) h1Align = 'bull';
+        else if (h1Last.close < h1Ema21) h1Align = 'bear';
+      }
+    }
+    const h1AlignedBull = h1Align === 'bull';
+    const h1AlignedBear = h1Align === 'bear';
+
     // Breakout confirmation: close beyond level, or previous breakout + current candle holds the level.
     const breakoutLookback = Math.min(12, Math.max(5, ohlcData.length - 2));
     const breakoutBase = ohlcData.slice(-(breakoutLookback + 2), -2);
@@ -1921,7 +1940,40 @@ export class AdvancedAI {
       (_istMinSess >= 9 * 60 + 20 && _istMinSess <= 11 * 60 + 15) ||
       (_istMinSess >= 13 * 60 + 45 && _istMinSess <= 15 * 60);
     const inLunchChopSession = _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
-    const sessionConfidenceModifier = inHighPrioritySession ? +4 : inLunchChopSession ? -8 : 0;
+
+    // ===== FIX 4: SESSION-BASED MARKET BEHAVIOR =====
+    // 09:15–10:30 volatile breakout | 10:30–13:00 trend continuation
+    // 13:00–14:15 sideways          | 14:15–15:30 trend expansion
+    type SessionBehavior = 'VOLATILE_BREAKOUT' | 'TREND_CONTINUATION' | 'SIDEWAYS' | 'TREND_EXPANSION' | 'OFF_HOURS';
+    let sessionBehavior: SessionBehavior = 'OFF_HOURS';
+    let sessionBehaviorModifier = 0;
+    if (_istMinSess >= 9 * 60 + 15 && _istMinSess < 10 * 60 + 30) {
+      sessionBehavior = 'VOLATILE_BREAKOUT';
+      sessionBehaviorModifier = 3;            // breakout-friendly
+    } else if (_istMinSess >= 10 * 60 + 30 && _istMinSess < 13 * 60) {
+      sessionBehavior = 'TREND_CONTINUATION';
+      sessionBehaviorModifier = 5;            // best for continuation entries
+    } else if (_istMinSess >= 13 * 60 && _istMinSess < 14 * 60 + 15) {
+      sessionBehavior = 'SIDEWAYS';
+      sessionBehaviorModifier = -6;           // chop penalty
+    } else if (_istMinSess >= 14 * 60 + 15 && _istMinSess <= 15 * 60 + 30) {
+      sessionBehavior = 'TREND_EXPANSION';
+      sessionBehaviorModifier = 4;            // late-day expansion
+    }
+    const sessionConfidenceModifier =
+      (inHighPrioritySession ? 4 : inLunchChopSession ? -8 : 0) + sessionBehaviorModifier;
+
+    // ===== FIX 1: OVER-EXPANDED CANDLE FILTER =====
+    // Avoid chasing vertical candles; range > 2.5 × ATR14 = exhaustion bar.
+    const candleExpansion = currentRange / Math.max(atr14, 1e-6);
+    const overExpandedCandle = candleExpansion > 2.5;
+
+    // ===== FIX 2: TREND PULLBACK QUALITY BOOST =====
+    // Sniper continuation: EMA9/21 retest + rejection wick OR engulfing pattern.
+    const hasBullEngulfing = patterns.some(p => p.name === 'BULLISH_ENGULFING' && p.direction === 'BULLISH');
+    const hasBearEngulfing = patterns.some(p => p.name === 'BEARISH_ENGULFING' && p.direction === 'BEARISH');
+    const pullbackQualityBull = continuationBull && (bullishRejectionCandle || hasBullEngulfing) && priceTouchedEmaZoneBull;
+    const pullbackQualityBear = continuationBear && (bearishRejectionCandle || hasBearEngulfing) && priceTouchedEmaZoneBear;
 
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
@@ -2080,10 +2132,14 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      confidence += sessionConfidenceModifier; // FIX 7: session-aware
+      if (overExpandedCandle) confidence -= 10;          // FIX 1: avoid chasing vertical bars
+      if (pullbackQualityBull) confidence += 8;          // FIX 2: sniper pullback boost
+      if (h1AlignedBull) confidence += 15;               // FIX 3: 1H trend alignment
+      else if (h1Align === 'bear') confidence -= 6;
+      confidence += sessionConfidenceModifier;            // FIX 4: session-aware
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bullish';
-      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}, vwapSlope=${vwapSlopeStrength.toFixed(2)}, sessionMod=${sessionConfidenceModifier}.${reversalBullEntry ? ' Reversal entry!' : ''}${continuationBull ? ' Continuation pullback!' : ''}${reversalBullValid && rsiDivergenceObj.bull ? ' RSI divergence!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB breakout!' : ''}`;
+      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? ' OVEREXPANDED!' : ''}${pullbackQualityBull ? ' Sniper pullback!' : ''}${reversalBullEntry ? ' Reversal entry!' : ''}${continuationBull ? ' Continuation!' : ''}${h1AlignedBull ? ' 1H aligned!' : ''}`;
 
     } else if (allowBearish) {
       action = 'BUY_PUT';
@@ -2100,10 +2156,14 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      confidence += sessionConfidenceModifier; // FIX 7: session-aware
+      if (overExpandedCandle) confidence -= 10;          // FIX 1
+      if (pullbackQualityBear) confidence += 8;          // FIX 2
+      if (h1AlignedBear) confidence += 15;               // FIX 3
+      else if (h1Align === 'bull') confidence -= 6;
+      confidence += sessionConfidenceModifier;            // FIX 4
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bearish';
-      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}, vwapSlope=${vwapSlopeStrength.toFixed(2)}, sessionMod=${sessionConfidenceModifier}.${reversalBearEntry ? ' Reversal entry!' : ''}${continuationBear ? ' Continuation pullback!' : ''}${reversalBearValid && rsiDivergenceObj.bear ? ' RSI divergence!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
+      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? ' OVEREXPANDED!' : ''}${pullbackQualityBear ? ' Sniper pullback!' : ''}${reversalBearEntry ? ' Reversal entry!' : ''}${continuationBear ? ' Continuation!' : ''}${h1AlignedBear ? ' 1H aligned!' : ''}`;
 
     } else if (liquidity.stopHunt) {
       action = 'WAIT';
@@ -2320,6 +2380,15 @@ export class AdvancedAI {
         vwapSlopeStrength: +vwapSlopeStrength.toFixed(3),
         distFromEma21Atr: +distFromEma21Atr.toFixed(2),
         sessionPriority: inHighPrioritySession ? 'HIGH' : inLunchChopSession ? 'LOW' : 'NORMAL',
+        sessionBehavior,
+        sessionBehaviorModifier,
+        candleExpansion: +candleExpansion.toFixed(2),
+        overExpandedCandle,
+        pullbackQualityBull,
+        pullbackQualityBear,
+        h1Align,
+        h1Adx: +h1Adx.toFixed(1),
+        h1Provided,
         sessionConfidenceModifier,
         cooldownBars: isFinite(barsSinceLastSignal) ? +barsSinceLastSignal.toFixed(1) : null,
         scoreBreakdown: {

@@ -4280,9 +4280,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
         
-        // Professional MTF: fetch entry timeframe and REAL 15m trend candles separately.
+        // Professional MTF: entry timeframe + REAL 15m + REAL 1H trend candles.
         const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 50);
         const real15mData = interval === '15' ? ohlcData : await dhanService.getOHLCData(securityId, '15', 80);
+        // FIX 3: 1H higher timeframe (best-effort, non-blocking on failure)
+        let real1hData: any[] = [];
+        try { real1hData = await dhanService.getOHLCData(securityId, '60', 40); } catch (_e) { real1hData = []; }
         
         if (!ohlcData || ohlcData.length === 0) {
           console.error(`❌ CRITICAL: No OHLC data for ${idx} (security ID: ${securityId})`);
@@ -4318,7 +4321,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         
         console.log(`✅ ${idx}: ${ohlcData.length} candles fetched`);
         const latestCandle = ohlcData[ohlcData.length - 1];
-        const analysisCandles = ohlcData;
+        // FIX 4: drop the trailing forming candle so the engine analyzes the most-recently CLOSED bar.
+        const _tfMs = Number(interval) * 60 * 1000;
+        const _lastTs = (ohlcData[ohlcData.length - 1]?.timestamp ?? 0);
+        const _lastTsMs = _lastTs < 1e12 ? _lastTs * 1000 : _lastTs;
+        const _isFormingLive = Date.now() < _lastTsMs + _tfMs;
+        const analysisCandles = _isFormingLive && ohlcData.length > 1 ? ohlcData.slice(0, -1) : ohlcData;
         const analyzedCandle = analysisCandles[analysisCandles.length - 1];
         const firstCandle = ohlcData[0];
         console.log(`   First candle: O:${firstCandle?.open} C:${firstCandle?.close} (timestamp: ${new Date(firstCandle?.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })})`);
@@ -4329,14 +4337,18 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         // Generate AI signal for this index
         const aiStart = performance.now();
         const lastSignalTimestamp = await safeKVGet(`last_signal_ts:${effectiveUserId}:${idx}`, 0);
+        const lastSignalDirection = await safeKVGet(`last_signal_dir:${effectiveUserId}:${idx}`, 'WAIT');
         const signal = AdvancedAI.generateAdvancedSignal(analysisCandles, accountBalance || 100000, {
           higherTimeframeData: real15mData,
+          hourlyTimeframeData: real1hData,           // FIX 3
           timeframeMinutes: Number(interval),
           lastSignalTimestamp,
-          minimumBarsBetweenSignals: 3,
+          lastSignalDirection,                        // FIX 3 (directional cooldown)
+          minimumBarsBetweenSignals: 2,
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
+          await kv.set(`last_signal_dir:${effectiveUserId}:${idx}`, signal.action);
         }
         const aiEnd = performance.now();
         
