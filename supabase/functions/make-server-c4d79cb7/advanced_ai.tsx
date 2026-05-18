@@ -255,6 +255,10 @@ export interface AdvancedSignalOptions {
   lastSignalDirection?: 'BUY_CALL' | 'BUY_PUT' | 'WAIT';
   minimumBarsBetweenSignals?: number;
   enforceClosedCandle?: boolean;
+  // ⚡ NEW: post-SL cooldown protection (revenge-trade guard)
+  lastStopLossTimestamp?: number;            // ms epoch of last SL hit
+  lastStopLossDirection?: 'BUY_CALL' | 'BUY_PUT' | null;
+  stopLossCooldownBars?: number;             // default 2
 }
 
 export class AdvancedAI {
