@@ -2021,7 +2021,10 @@ class PersistentTradingEngine {
             totalPnL: state.stats.totalPnL
           },
           started_at: state.isRunning ? new Date(state.startTime).toISOString() : null,
-          last_heartbeat: new Date().toISOString()
+          last_heartbeat: new Date().toISOString(),
+          // ⚡ BUG FIX 2/3: mark auto_resume on every start so pre-market cron can re-arm the engine
+          auto_resume: state.isRunning ? true : undefined,
+          stopped_reason: state.isRunning ? null : undefined,
         }, { onConflict: 'user_id' });
     } catch (err) {
       console.error('❌ Failed to save engine state to DB:', err);
@@ -2030,20 +2033,82 @@ class PersistentTradingEngine {
 
   /**
    * Mark engine as stopped in DB
+   * @param reason 'user' (explicit) | 'transient' (network/error) | 'market_close'
    */
-  private static async markEngineStoppedInDB(userId: string): Promise<void> {
+  private static async markEngineStoppedInDB(userId: string, reason: 'user' | 'transient' | 'market_close' = 'user'): Promise<void> {
     try {
       await supabaseAdmin
         .from('trading_engine_state')
         .update({
           is_running: false,
           stopped_at: new Date().toISOString(),
-          last_heartbeat: new Date().toISOString()
+          last_heartbeat: new Date().toISOString(),
+          stopped_reason: reason,
         })
         .eq('user_id', userId);
     } catch (err) {
       console.error('❌ Failed to mark engine stopped in DB:', err);
     }
+  }
+
+  /**
+   * ⚡⚡⚡ BUG FIX 2 & 3: AUTO-RESUME ENGINES ⚡⚡⚡
+   * Called by pg_cron at 09:10 IST daily AND inside each cron tick.
+   * Re-arms any engine that:
+   *   - has auto_resume = true
+   *   - is currently is_running = false
+   *   - was NOT stopped explicitly by user (stopped_reason != 'user')
+   * This catches: pre-market start (Bug 2) + intraday disconnect recovery (Bug 3).
+   */
+  static async autoResumeEngines(): Promise<{ resumed: number; skipped: number }> {
+    let resumed = 0;
+    let skipped = 0;
+    try {
+      // Only auto-resume during market hours (or just before open)
+      const now = new Date();
+      const istTime = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      const dow = istTime.getUTCDay();
+      if (dow === 0 || dow === 6) return { resumed: 0, skipped: 0 };
+      const mins = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
+      if (mins < 9 * 60 + 10 || mins > 15 * 60 + 30) return { resumed: 0, skipped: 0 };
+
+      const { data: candidates } = await supabaseAdmin
+        .from('trading_engine_state')
+        .select('user_id, auto_resume, stopped_reason, selected_symbols, strategy_settings')
+        .eq('is_running', false)
+        .eq('auto_resume', true);
+
+      for (const row of (candidates || [])) {
+        // Never auto-resume engines the user explicitly stopped
+        if (row.stopped_reason === 'user') { skipped++; continue; }
+        if (!row.selected_symbols || (row.selected_symbols as any[]).length === 0) { skipped++; continue; }
+        try {
+          await supabaseAdmin
+            .from('trading_engine_state')
+            .update({
+              is_running: true,
+              started_at: new Date().toISOString(),
+              last_heartbeat: new Date().toISOString(),
+              stopped_at: null,
+              stopped_reason: null,
+            })
+            .eq('user_id', row.user_id);
+          await this.appendSharedLog(row.user_id, {
+            id: `engine_auto_resume_${Date.now()}`,
+            timestamp: Date.now(),
+            type: 'ENGINE_START',
+            message: `🔄 AI Trading Engine AUTO-RESUMED (pre-market / disconnect recovery)`,
+          });
+          resumed++;
+          console.log(`🔄 [AUTO-RESUME] User ${row.user_id} engine re-armed`);
+        } catch (e) {
+          console.error(`❌ [AUTO-RESUME] Failed for ${row.user_id}:`, e);
+        }
+      }
+    } catch (e) {
+      console.error('❌ [AUTO-RESUME] Scan failed:', e);
+    }
+    return { resumed, skipped };
   }
 
   private static async saveUserNotification(userId: string, notification: any): Promise<void> {
