@@ -259,6 +259,11 @@ export interface AdvancedSignalOptions {
   lastStopLossTimestamp?: number;            // ms epoch of last SL hit
   lastStopLossDirection?: 'BUY_CALL' | 'BUY_PUT' | null;
   stopLossCooldownBars?: number;             // default 2
+  // ⚡ NEW: consecutive-loss protection (30-min cooldown after 3 losses in a row)
+  consecutiveLossCount?: number;             // running streak (resets on a winning exit)
+  lastLossTimestamp?: number;                // ms epoch of most recent loss
+  consecutiveLossThreshold?: number;         // default 3
+  consecutiveLossCooldownMs?: number;        // default 30 * 60 * 1000
 }
 
 export class AdvancedAI {
@@ -2086,6 +2091,36 @@ export class AdvancedAI {
       ? -Math.min(10, Math.round(((_istMinSess - afternoonStartMin) / (afternoonEndMin - afternoonStartMin)) * 10))
       : 0;
 
+    // ===== NEW FIX E: 5M NOISE FILTER =====
+    // On 5m timeframe, candles whose range < 40% of ATR14 are noise — skip entries.
+    const noiseFilter5m = timeframeMinutes === 5 && currentRange > 0 && currentRange < atr14 * 0.4;
+
+    // ===== NEW FIX F: NEWS / EVENT VOLATILITY FILTER =====
+    // Compute average ATR over previous 20 bars (excluding latest). If atr14 spikes > 2.5x avg → likely
+    // RBI / Fed / Budget / expiry shock. Stand aside until volatility normalises.
+    let avgAtr20 = atr14;
+    if (ohlcData.length >= 25) {
+      const slice = ohlcData.slice(-25, -5); // 20 bars ending 5 bars ago — pre-shock baseline
+      let trSum = 0, trCount = 0;
+      for (let i = 1; i < slice.length; i++) {
+        const h = slice[i].high, l = slice[i].low, pc = slice[i - 1].close;
+        const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+        trSum += tr; trCount++;
+      }
+      if (trCount > 0) avgAtr20 = trSum / trCount;
+    }
+    const newsVolatilityShock = avgAtr20 > 0 && atr14 > avgAtr20 * 2.5;
+
+    // ===== NEW FIX G: CONSECUTIVE-LOSS PROTECTION (30-min cooldown) =====
+    const lossThreshold = options.consecutiveLossThreshold ?? 3;
+    const lossCooldownMs = options.consecutiveLossCooldownMs ?? 30 * 60 * 1000;
+    const lossCount = options.consecutiveLossCount ?? 0;
+    const lastLossMs = options.lastLossTimestamp
+      ? (options.lastLossTimestamp < 1e12 ? options.lastLossTimestamp * 1000 : options.lastLossTimestamp)
+      : 0;
+    const msSinceLastLoss = lastLossMs > 0 ? (currentTsMs - lastLossMs) : Infinity;
+    const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
+
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
@@ -2099,6 +2134,9 @@ export class AdvancedAI {
       && !overExpandedBlocksBull
       && !climaxExhaustionBull
       && !slBlocksBull
+      && !noiseFilter5m
+      && !newsVolatilityShock
+      && !consecutiveLossLockout
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
@@ -2114,6 +2152,9 @@ export class AdvancedAI {
       && !overExpandedBlocksBear
       && !climaxExhaustionBear
       && !slBlocksBear
+      && !noiseFilter5m
+      && !newsVolatilityShock
+      && !consecutiveLossLockout
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
@@ -2275,6 +2316,25 @@ export class AdvancedAI {
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bearish';
       reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? ' OVEREXPANDED!' : ''}${pullbackQualityBear ? ' Sniper pullback!' : ''}${reversalBearEntry ? ' Reversal entry!' : ''}${continuationBear ? ' Continuation!' : ''}${h1AlignedBear ? ' 1H aligned!' : ''}`;
+
+    } else if (consecutiveLossLockout) {
+      action = 'WAIT';
+      confidence = 30;
+      bias = 'Neutral';
+      const minsLeft = Math.max(0, Math.ceil((lossCooldownMs - msSinceLastLoss) / 60000));
+      reasoning = `WAIT: Consecutive-loss lockout — ${lossCount} losses in a row. Cooldown ${minsLeft}m remaining (avoid revenge trades).`;
+
+    } else if (newsVolatilityShock) {
+      action = 'WAIT';
+      confidence = 30;
+      bias = 'Neutral';
+      reasoning = `WAIT: News/event volatility shock — ATR ${atr14.toFixed(2)} vs avg ${avgAtr20.toFixed(2)} (${(atr14 / avgAtr20).toFixed(2)}x > 2.5x). Likely RBI/Fed/Budget/expiry spike.`;
+
+    } else if (noiseFilter5m) {
+      action = 'WAIT';
+      confidence = 34;
+      bias = 'Neutral';
+      reasoning = `WAIT: 5m noise filter — candle range ${currentRange.toFixed(2)} < 40% of ATR14 ${atr14.toFixed(2)}. Insufficient volatility for entry.`;
 
     } else if (liquidity.stopHunt) {
       action = 'WAIT';
@@ -2529,6 +2589,9 @@ export class AdvancedAI {
           weakMidSessionTrap ? 'mid-session-trap' : '',
           (totalBullScore < requiredConfirmations && totalBearScore < requiredConfirmations) ? 'insufficient-confirmations' : '',
           (htfDisagreeBull || htfDisagreeBear) && !htfAdxStrong ? 'htf-disagree' : '',
+          noiseFilter5m ? '5m-noise' : '',
+          newsVolatilityShock ? 'news-volatility' : '',
+          consecutiveLossLockout ? 'consecutive-loss-lockout' : '',
         ].filter(Boolean) : [],
         finalDecisionReason: reasoning,
         climaxExhaustion: climaxExhaustionBull ? 'BULL' : climaxExhaustionBear ? 'BEAR' : null,
@@ -2543,6 +2606,13 @@ export class AdvancedAI {
           barsSince: isFinite(barsSinceSl) ? +barsSinceSl.toFixed(1) : null,
           requiredBars: slCooldownBars,
         },
+        noiseFilter5m,
+        newsVolatilityShock,
+        atrVsAvg: avgAtr20 > 0 ? +(atr14 / avgAtr20).toFixed(2) : null,
+        avgAtr20: +avgAtr20.toFixed(2),
+        consecutiveLossLockout,
+        consecutiveLossCount: lossCount,
+        msSinceLastLoss: isFinite(msSinceLastLoss) ? msSinceLastLoss : null,
         confirmationBreakdown: {
           earlyBull: earlyBullChecks.map(Boolean),
           earlyBear: earlyBearChecks.map(Boolean),

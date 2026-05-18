@@ -4340,6 +4340,8 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         const lastSignalDirection = await safeKVGet(`last_signal_dir:${effectiveUserId}:${idx}`, 'WAIT');
         const lastStopLossTimestamp = await safeKVGet(`last_sl_ts:${effectiveUserId}:${idx}`, 0);
         const lastStopLossDirection = await safeKVGet(`last_sl_dir:${effectiveUserId}:${idx}`, null);
+        const consecutiveLossCount = Number(await safeKVGet(`loss_streak:${effectiveUserId}:${idx}`, 0));
+        const lastLossTimestamp = Number(await safeKVGet(`last_loss_ts:${effectiveUserId}:${idx}`, 0));
         const signal = AdvancedAI.generateAdvancedSignal(analysisCandles, accountBalance || 100000, {
           higherTimeframeData: real15mData,
           hourlyTimeframeData: real1hData,           // FIX 3
@@ -4349,6 +4351,10 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           lastStopLossTimestamp,                      // FIX D: post-SL cooldown
           lastStopLossDirection,
           stopLossCooldownBars: 2,
+          consecutiveLossCount,                       // FIX G: 30-min loss-streak lockout
+          lastLossTimestamp,
+          consecutiveLossThreshold: 3,
+          consecutiveLossCooldownMs: 30 * 60 * 1000,
           minimumBarsBetweenSignals: 2,
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
