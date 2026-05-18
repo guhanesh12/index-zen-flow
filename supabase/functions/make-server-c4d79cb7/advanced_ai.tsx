@@ -1353,7 +1353,9 @@ export class AdvancedAI {
     const prev5Ranges = ohlcData.slice(-6, -1).map(c => Math.max(0, c.high - c.low));
     const avgPrev5Range = prev5Ranges.length ? prev5Ranges.reduce((a, b) => a + b, 0) / prev5Ranges.length : 0;
     const currentRange = Math.max(0, lastCandle.high - lastCandle.low);
-    const rangeExpansion = avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.3;
+    // FIX 2: relaxed expansion threshold (1.3 → 1.1) so afternoon/grinding trends pass.
+    // Strong (1.3x) still tracked separately for breakoutQuality scoring below.
+    const rangeExpansion = avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.1;
 
     // Volume normalization (session-time aware: morning vs afternoon)
     const istNowForVol = new Date(Date.now() + 5.5 * 3600 * 1000);
@@ -1433,21 +1435,33 @@ export class AdvancedAI {
     const confirmationBullish = useTrendBias ? (trendBias === 'bullish') : isBullish;
     const confirmationBearish = useTrendBias ? (trendBias === 'bearish') : isBearish;
     
-    // ⚡ PHASE 2: VWAP Confirmation with ATR Normalization (Weight: 2)
-    const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);  // Pass ADX!
-    
-    if (confirmationBullish && priceAboveVWAP && vwapNormalized.interpretation === 'ACCEPTABLE') {
+    // ⚡ FIX 1: VWAP Confirmation — SLOPE-AWARE (Weight: 2)
+    // Real trends often hug VWAP. Don't reject just because price is close — check VWAP slope.
+    const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);
+    const _prevVwapForSlope = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
+    const vwapSlopeStrength = (vwap - _prevVwapForSlope) / Math.max(atr14, 1e-6); // ATR-normalized slope
+    const vwapSlopingUp = vwapSlopeStrength > 0.04;
+    const vwapSlopingDown = vwapSlopeStrength < -0.04;
+    const vwapSlopeFlat = !vwapSlopingUp && !vwapSlopingDown;
+
+    const vwapBullOK = priceAboveVWAP && (vwapNormalized.interpretation === 'ACCEPTABLE' || vwapSlopingUp);
+    const vwapBearOK = !priceAboveVWAP && (vwapNormalized.interpretation === 'ACCEPTABLE' || vwapSlopingDown);
+
+    if (confirmationBullish && vwapBullOK) {
       confirmations.vwap = true;
-      totalWeightedScore += 2; // Weight: 2
-      confirmationDetails.push(`✅ VWAP: Price above VWAP (${vwapNormalized.distanceATR.toFixed(2)} ATR, ${vwapNormalized.distancePercent.toFixed(2)}%)`);
-    } else if (confirmationBearish && !priceAboveVWAP && vwapNormalized.interpretation === 'ACCEPTABLE') {
+      totalWeightedScore += 2;
+      confirmationDetails.push(`✅ VWAP: Above VWAP, slope=${vwapSlopeStrength.toFixed(2)} (${vwapNormalized.distanceATR.toFixed(2)} ATR)`);
+    } else if (confirmationBearish && vwapBearOK) {
       confirmations.vwap = true;
-      totalWeightedScore += 2; // Weight: 2
-      confirmationDetails.push(`✅ VWAP: Price below VWAP (${vwapNormalized.distanceATR.toFixed(2)} ATR, ${vwapNormalized.distancePercent.toFixed(2)}%)`);
+      totalWeightedScore += 2;
+      confirmationDetails.push(`✅ VWAP: Below VWAP, slope=${vwapSlopeStrength.toFixed(2)} (${vwapNormalized.distanceATR.toFixed(2)} ATR)`);
     } else if (vwapNormalized.interpretation === 'EXTENDED') {
       confirmationDetails.push(`⚠️ VWAP: Extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`);
+    } else if (vwapSlopeFlat && Math.abs(ema9Slope) < 0.015) {
+      confirmationDetails.push('❌ VWAP: Flat + EMA flat (no directional bias)');
     } else {
-      confirmationDetails.push('❌ VWAP: Neutral (too close)');
+      // Soft pass — slope agrees but price wrong side, or other mismatch. Don't credit but don't shout.
+      confirmationDetails.push(`⚪ VWAP: Neutral (slope=${vwapSlopeStrength.toFixed(2)})`);
     }
     
     // 2. EMA Confirmation (Weight: 1) — RELAXED in strong trends
@@ -1763,7 +1777,7 @@ export class AdvancedAI {
     const timeframeMinutes = options.timeframeMinutes || 5;
     const currentTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
     const lastSignalTsMs = options.lastSignalTimestamp ? (options.lastSignalTimestamp < 1e12 ? options.lastSignalTimestamp * 1000 : options.lastSignalTimestamp) : 0;
-    const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 3;
+    const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 2;
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
     const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
 
@@ -1846,27 +1860,60 @@ export class AdvancedAI {
     const continuationBear = adx > 25 && ema9 < ema21 && priceTouchedEmaZoneBear
       && (bearishRejectionCandle || strongBearishClose) && macdHistWeakeningBear;
 
+    // ===== FIX 3: REVERSAL CONTINUATION ENTRY MODEL =====
+    // Bearish: shooting star / evening star / bearish engulfing + MACD weakening + below VWAP + ADX>25
+    // Bullish: hammer / morning star / bullish engulfing + MACD improving + above VWAP + ADX>25
+    const hasBearReversalPattern = patterns.some(p =>
+      p.direction === 'BEARISH' &&
+      (p.name === 'SHOOTING_STAR' || p.name === 'EVENING_STAR' || p.name === 'BEARISH_ENGULFING')
+    );
+    const hasBullReversalPattern = patterns.some(p =>
+      p.direction === 'BULLISH' &&
+      (p.name === 'HAMMER' || p.name === 'MORNING_STAR' || p.name === 'BULLISH_ENGULFING')
+    );
+    const reversalBearEntry = hasBearReversalPattern && adx > 25 && !priceAboveVWAP
+      && macdHistWeakeningBear && lastCandle.close < lastCandle.open;
+    const reversalBullEntry = hasBullReversalPattern && adx > 25 && priceAboveVWAP
+      && macdHistImprovingBull && lastCandle.close > lastCandle.open;
+
+    // ===== FIX 6: TREND EXHAUSTION GUARD =====
+    // Block chasing entries when price is > 4 ATR away from EMA21 (overextended).
+    const distFromEma21Atr = Math.abs(lastCandle.close - ema21) / Math.max(atr14, 1e-6);
+    const trendExhausted = distFromEma21Atr > 4;
+
+    // ===== FIX 7: SESSION-AWARE CONFIDENCE MODIFIER =====
+    // High-priority: 09:20–11:15 and 13:45–15:00. Lunch chop 11:45–13:15 = penalty.
+    const _istNowSess = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const _istMinSess = _istNowSess.getUTCHours() * 60 + _istNowSess.getUTCMinutes();
+    const inHighPrioritySession =
+      (_istMinSess >= 9 * 60 + 20 && _istMinSess <= 11 * 60 + 15) ||
+      (_istMinSess >= 13 * 60 + 45 && _istMinSess <= 15 * 60);
+    const inLunchChopSession = _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
+    const sessionConfidenceModifier = inHighPrioritySession ? +4 : inLunchChopSession ? -8 : 0;
+
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
     const strongBullish = confirmationBullish
-      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30))
-      && (breakoutQualityBull || adxStrong || continuationBull)
-      && (momentumBull || adxStrong || continuationBull)
-      && (slopeOkBull || adxStrong || continuationBull)
+      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry)
+      && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
+      && (momentumBull || adxStrong || continuationBull || reversalBullEntry)
+      && (slopeOkBull || adxStrong || continuationBull || reversalBullEntry)
       && structureOkBull
       && !liquidityBlocksBull
       && !weakMidSessionTrap
       && !cooldownActive
+      && !trendExhausted
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
-      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30))
-      && (breakoutQualityBear || adxStrong || continuationBear)
-      && (momentumBear || adxStrong || continuationBear)
-      && (slopeOkBear || adxStrong || continuationBear)
+      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry)
+      && (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry)
+      && (momentumBear || adxStrong || continuationBear || reversalBearEntry)
+      && (slopeOkBear || adxStrong || continuationBear || reversalBearEntry)
       && structureOkBear
       && !liquidityBlocksBear
       && !weakMidSessionTrap
       && !cooldownActive
+      && !trendExhausted
       && !(htfDisagreeBear && !htfAdxStrong);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
@@ -1994,9 +2041,10 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence += sessionConfidenceModifier; // FIX 7: session-aware
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bullish';
-      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBullValid && rsiDivergenceObj.bull ? ' Bullish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB squeeze breakout!' : ''}`;
+      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}, vwapSlope=${vwapSlopeStrength.toFixed(2)}, sessionMod=${sessionConfidenceModifier}.${reversalBullEntry ? ' Reversal entry!' : ''}${continuationBull ? ' Continuation pullback!' : ''}${reversalBullValid && rsiDivergenceObj.bull ? ' RSI divergence!' : ''}${bbSqueezeBreakout === 'BULL' ? ' BB breakout!' : ''}`;
 
     } else if (allowBearish) {
       action = 'BUY_PUT';
@@ -2013,9 +2061,10 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence += sessionConfidenceModifier; // FIX 7: session-aware
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bearish';
-      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBearValid && rsiDivergenceObj.bear ? ' Bearish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
+      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}, vwapSlope=${vwapSlopeStrength.toFixed(2)}, sessionMod=${sessionConfidenceModifier}.${reversalBearEntry ? ' Reversal entry!' : ''}${continuationBear ? ' Continuation pullback!' : ''}${reversalBearValid && rsiDivergenceObj.bear ? ' RSI divergence!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
 
     } else if (liquidity.stopHunt) {
       action = 'WAIT';
@@ -2041,18 +2090,28 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Mid-session trap only because ADX is weak/not rising, volume is weak, and VWAP is flat.`;
 
-    } else if (!breakoutConfirmedBull && !breakoutConfirmedBear && !continuationBull && !continuationBear) {
-      // FIX 4: continuation pullback bypasses breakout requirement
+    } else if (trendExhausted) {
+      // FIX 6: trend exhaustion guard
       action = 'WAIT';
-      confidence = 40;
-      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: No breakout close/hold and no continuation pullback (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
+      confidence = 35;
+      bias = 'Neutral';
+      reasoning = `WAIT: Trend exhausted — price ${distFromEma21Atr.toFixed(2)} ATR from EMA21 (>4). Avoid chasing.`;
 
-    } else if ((confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull) || (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear)) {
+    } else if (!breakoutConfirmedBull && !breakoutConfirmedBear && !continuationBull && !continuationBear && !reversalBullEntry && !reversalBearEntry) {
+      // FIX 4 + 3: continuation pullback or reversal-entry pattern bypasses breakout requirement
       action = 'WAIT';
       confidence = 40;
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Confirmations incomplete (bull ${totalBullScore}/8, bear ${totalBearScore}/8; need ${requiredConfirmations}, ADX ${adx.toFixed(1)}). No continuation setup.`;
+      reasoning = `WAIT: No breakout, no continuation pullback, no reversal pattern (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
+
+    } else if (
+      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry) ||
+      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry)
+    ) {
+      action = 'WAIT';
+      confidence = 40;
+      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
+      reasoning = `WAIT: Confirmations incomplete (bull ${totalBullScore}/8, bear ${totalBearScore}/8; need ${requiredConfirmations}, ADX ${adx.toFixed(1)}). No continuation/reversal setup.`;
 
     } else if ((bodySize < minimumBodySize || !hasAcceptableVolume) && adx < 25) {
       // FIX 3 + 10: Volume / body only hard-blocks when ADX < 25 (no trend energy).
@@ -2198,6 +2257,8 @@ export class AdvancedAI {
         marketWarnings: [
           weakMidSessionTrap ? 'mid-session-trap' : '',
           cooldownActive ? 'cooldown-active' : '',
+          trendExhausted ? 'trend-exhausted' : '',
+          inLunchChopSession ? 'lunch-chop-session' : '',
           marketRegime.type === 'RANGING' ? 'ranging-market' : '',
           marketRegime.type === 'QUIET' ? 'quiet-market' : '',
         ].filter(Boolean),
@@ -2208,6 +2269,14 @@ export class AdvancedAI {
         entryQualityTier,
         continuationBull,
         continuationBear,
+        reversalBullEntry,
+        reversalBearEntry,
+        trendExhausted,
+        vwapSlopeStrength: +vwapSlopeStrength.toFixed(3),
+        distFromEma21Atr: +distFromEma21Atr.toFixed(2),
+        sessionPriority: inHighPrioritySession ? 'HIGH' : inLunchChopSession ? 'LOW' : 'NORMAL',
+        sessionConfidenceModifier,
+        cooldownBars: isFinite(barsSinceLastSignal) ? +barsSinceLastSignal.toFixed(1) : null,
         scoreBreakdown: {
           totalBullScore,
           totalBearScore,
