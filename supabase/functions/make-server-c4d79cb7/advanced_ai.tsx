@@ -248,7 +248,8 @@ export interface AdvancedSignal {
 }
 
 export interface AdvancedSignalOptions {
-  higherTimeframeData?: OHLCCandle[];
+  higherTimeframeData?: OHLCCandle[];      // 15m
+  hourlyTimeframeData?: OHLCCandle[];      // 1H — NEW (FIX 3: HTF weight boost)
   timeframeMinutes?: number;
   lastSignalTimestamp?: number;
   lastSignalDirection?: 'BUY_CALL' | 'BUY_PUT' | 'WAIT';
