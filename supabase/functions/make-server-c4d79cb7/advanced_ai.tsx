@@ -2257,6 +2257,8 @@ export class AdvancedAI {
         marketWarnings: [
           weakMidSessionTrap ? 'mid-session-trap' : '',
           cooldownActive ? 'cooldown-active' : '',
+          trendExhausted ? 'trend-exhausted' : '',
+          inLunchChopSession ? 'lunch-chop-session' : '',
           marketRegime.type === 'RANGING' ? 'ranging-market' : '',
           marketRegime.type === 'QUIET' ? 'quiet-market' : '',
         ].filter(Boolean),
@@ -2267,6 +2269,14 @@ export class AdvancedAI {
         entryQualityTier,
         continuationBull,
         continuationBear,
+        reversalBullEntry,
+        reversalBearEntry,
+        trendExhausted,
+        vwapSlopeStrength: +vwapSlopeStrength.toFixed(3),
+        distFromEma21Atr: +distFromEma21Atr.toFixed(2),
+        sessionPriority: inHighPrioritySession ? 'HIGH' : inLunchChopSession ? 'LOW' : 'NORMAL',
+        sessionConfidenceModifier,
+        cooldownBars: isFinite(barsSinceLastSignal) ? +barsSinceLastSignal.toFixed(1) : null,
         scoreBreakdown: {
           totalBullScore,
           totalBearScore,
