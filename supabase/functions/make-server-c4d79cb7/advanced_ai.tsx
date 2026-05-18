@@ -2061,9 +2061,10 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      confidence += sessionConfidenceModifier; // FIX 7: session-aware
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bearish';
-      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}.${reversalBearValid && rsiDivergenceObj.bear ? ' Bearish RSI divergence confirmed!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
+      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, structure=${marketStructure.type}, smartMoney=${smartMoneyBias}, rangeExp=${rangeExpansion}, vwapSlope=${vwapSlopeStrength.toFixed(2)}, sessionMod=${sessionConfidenceModifier}.${reversalBearEntry ? ' Reversal entry!' : ''}${continuationBear ? ' Continuation pullback!' : ''}${reversalBearValid && rsiDivergenceObj.bear ? ' RSI divergence!' : ''}${bbSqueezeBreakout === 'BEAR' ? ' BB breakdown!' : ''}`;
 
     } else if (liquidity.stopHunt) {
       action = 'WAIT';
