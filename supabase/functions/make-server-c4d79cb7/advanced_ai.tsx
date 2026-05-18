@@ -1975,11 +1975,48 @@ export class AdvancedAI {
     const pullbackQualityBull = continuationBull && (bullishRejectionCandle || hasBullEngulfing) && priceTouchedEmaZoneBull;
     const pullbackQualityBear = continuationBear && (bearishRejectionCandle || hasBearEngulfing) && priceTouchedEmaZoneBear;
 
+    // ===== FIX 7: MOMENTUM SCORING (0-6) =====
+    const _bodyPct = bodyPercent;
+    const momentumPointsBull =
+      (_bodyPct >= 60 && lastCandle.close > lastCandle.open ? 1 : 0) +
+      (rangeExpansion ? 1 : 0) +
+      (macdHistogramExpandingBull ? 1 : 0) +
+      (rsi > 50 && rsi > (indicators as any).prevRsi ? 1 : 0) +
+      (hasAcceptableVolume ? 1 : 0) +
+      (breakoutConfirmedBull && (lastCandle.close - lastCandle.low) / Math.max(currentRange, 1e-6) > 0.6 ? 1 : 0);
+    const momentumPointsBear =
+      (_bodyPct >= 60 && lastCandle.close < lastCandle.open ? 1 : 0) +
+      (rangeExpansion ? 1 : 0) +
+      (macdHistogramExpandingBear ? 1 : 0) +
+      (rsi < 50 ? 1 : 0) +
+      (hasAcceptableVolume ? 1 : 0) +
+      (breakoutConfirmedBear && (lastCandle.high - lastCandle.close) / Math.max(currentRange, 1e-6) > 0.6 ? 1 : 0);
+    const momentumScore = Math.max(momentumPointsBull, momentumPointsBear);
+    const momentumStrong = momentumScore >= 4;
+
+    // ===== FIX 4: REAL TREND REVERSAL DETECTION =====
+    const last3 = ohlcData.slice(-3);
+    const macdHist3RisingBull = last3.length === 3
+      && (indicators as any).macdHist3 ? false : macdHistogramExpandingBull;
+    const higherLowsForming = last3.length === 3 && last3[2].low > last3[1].low && last3[1].low > last3[0].low;
+    const lowerHighsForming = last3.length === 3 && last3[2].high < last3[1].high && last3[1].high < last3[0].high;
+    const reclaimsEma9Bull = lastCandle.close > ema9 && prevCandle.close <= ema9;
+    const reclaimsEma9Bear = lastCandle.close < ema9 && prevCandle.close >= ema9;
+    const trendReversalBull = macdHistogramExpandingBull && rsi > 30 && rsi < 55 && higherLowsForming && reclaimsEma9Bull;
+    const trendReversalBear = macdHistogramExpandingBear && rsi < 70 && rsi > 45 && lowerHighsForming && reclaimsEma9Bear;
+    const trendReversalDetected = trendReversalBull ? 'BULL_REVERSAL'
+      : trendReversalBear ? 'BEAR_REVERSAL'
+      : null;
+
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
     // Trend exhausted: block continuation, allow only reversal entries (institutional rule)
     const exhaustionBlocksContinuationBull = trendExhausted && !reversalBullEntry;
     const exhaustionBlocksContinuationBear = trendExhausted && !reversalBearEntry;
+
+    // FIX 1 reinforcement: overexpanded fresh breakouts blocked unless continuation/reversal/pullback present.
+    const overExpandedBlocksBull = overExpandedCandle && !continuationBull && !reversalBullEntry && !pullbackQualityBull;
+    const overExpandedBlocksBear = overExpandedCandle && !continuationBear && !reversalBearEntry && !pullbackQualityBear;
 
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry)
