@@ -240,6 +240,8 @@ export interface AdvancedSignal {
       requiredConfirmations: number;
       adx: number;
     };
+    // Extended diagnostic fields (open shape — populated by signal generator)
+    [key: string]: any;
   };
 
   // Performance
