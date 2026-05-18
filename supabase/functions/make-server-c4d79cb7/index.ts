@@ -10479,6 +10479,7 @@ app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
     console.error("❌ [AUTO-RESUME] Failed:", error);
     return c.json({ success: false, error: error.message }, 500);
   }
+});
 
 // 📧 Daily 09:08 IST premarket email — sent only on NSE trading days
 app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
