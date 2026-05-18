@@ -909,14 +909,19 @@ export class AdvancedAI {
     const last = data[data.length - 1];
     const ema9 = this.calculateEMA(data, 9);
     const ema21 = this.calculateEMA(data, 21);
-    const ema50 = this.calculateEMA(data, Math.min(50, data.length));
-    const vwap = this.calculateVWAP(data);
     const adxNow = this.calculateADX(data);
-    const adxPrev = data.length > 30 ? this.calculateADX(data.slice(0, -1)) : adxNow;
-    const adxExpanding = adxNow >= 18 && adxNow >= adxPrev;
 
-    if (last.close > ema9 && ema9 > ema21 && (ema21 >= ema50 || last.close > vwap) && adxExpanding) return 'bull';
-    if (last.close < ema9 && ema9 < ema21 && (ema21 <= ema50 || last.close < vwap) && adxExpanding) return 'bear';
+    // ⚡ FLEXIBLE HTF: ADX > 25 with EMA9/21 alignment OR price/EMA9 agreement is enough.
+    // VWAP flat or EMA50 mismatch should NOT block continuation trades.
+    if (adxNow > 25) {
+      const bullVotes = [last.close > ema9, ema9 > ema21, last.close > ema21].filter(Boolean).length;
+      const bearVotes = [last.close < ema9, ema9 < ema21, last.close < ema21].filter(Boolean).length;
+      if (bullVotes >= 2) return 'bull';
+      if (bearVotes >= 2) return 'bear';
+    }
+    // Fallback: only fully aligned setups count as directional
+    if (last.close > ema9 && ema9 > ema21) return 'bull';
+    if (last.close < ema9 && ema9 < ema21) return 'bear';
     return 'neutral';
   }
 
