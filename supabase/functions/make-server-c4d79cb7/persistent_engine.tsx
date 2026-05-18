@@ -934,10 +934,39 @@ class PersistentTradingEngine {
               const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
               return Date.now() < lastTsMs + tfMin * 60 * 1000 ? arr.slice(0, -1) : arr;
             };
+            // ⚡ BUG FIX 1: Resample primary lower-TF candles into 15m if separate 15m feed is sparse/stale.
+            const resampleTo15m = (arr: any[], srcTfMin: number) => {
+              if (!arr || arr.length < 3 || srcTfMin >= 15) return arr;
+              const ratio = Math.round(15 / srcTfMin);
+              if (ratio < 2) return arr;
+              const out: any[] = [];
+              for (let i = 0; i + ratio <= arr.length; i += ratio) {
+                const chunk = arr.slice(i, i + ratio);
+                out.push({
+                  timestamp: chunk[0].timestamp,
+                  open: chunk[0].open,
+                  high: Math.max(...chunk.map((c: any) => c.high)),
+                  low: Math.min(...chunk.map((c: any) => c.low)),
+                  close: chunk[chunk.length - 1].close,
+                  volume: chunk.reduce((s: number, c: any) => s + (c.volume || 0), 0),
+                });
+              }
+              return out;
+            };
             const tfMin = Number(state.candleInterval);
             const ohlcData = stripForming(ohlcDataRaw, tfMin);
-            const real15mData = stripForming(real15mDataRaw, 15);
+            let real15mData = stripForming(real15mDataRaw, 15);
             const real1hDataClosed = stripForming(real1hData, 60);
+            // Fallback: if separate 15m feed is sparse, resample primary
+            if ((!real15mData || real15mData.length < 15) && ohlcData && ohlcData.length >= 15 && tfMin < 15) {
+              const resampled = resampleTo15m(ohlcData, tfMin);
+              console.log(`⚠️ [HTF] ${indexName} separate 15m sparse (${real15mData?.length || 0} bars) — using resampled ${resampled.length} bars from ${tfMin}m`);
+              real15mData = resampled;
+            }
+            const lastHtfTs = real15mData?.[real15mData.length - 1]?.timestamp;
+            const lastHtfMs = lastHtfTs ? (lastHtfTs < 1e12 ? lastHtfTs * 1000 : lastHtfTs) : 0;
+            const htfAgeMin = lastHtfMs ? Math.round((Date.now() - lastHtfMs) / 60000) : -1;
+            console.log(`📊 [HTF] ${indexName} 15m bars=${real15mData?.length || 0}, lastBarAge=${htfAgeMin}min`);
             if (ohlcData && ohlcData.length > 0) {
               const lastSignalTimestamp = await kv.get(`last_signal_ts:${userId}:${indexName}`) || 0;
               const lastSignalDirection = await kv.get(`last_signal_dir:${userId}:${indexName}`) || 'WAIT';
