@@ -1975,14 +1975,51 @@ export class AdvancedAI {
     const pullbackQualityBull = continuationBull && (bullishRejectionCandle || hasBullEngulfing) && priceTouchedEmaZoneBull;
     const pullbackQualityBear = continuationBear && (bearishRejectionCandle || hasBearEngulfing) && priceTouchedEmaZoneBear;
 
+    // ===== FIX 7: MOMENTUM SCORING (0-6) =====
+    const _bodyPct = bodyPercent;
+    const momentumPointsBull =
+      (_bodyPct >= 60 && lastCandle.close > lastCandle.open ? 1 : 0) +
+      (rangeExpansion ? 1 : 0) +
+      (macdHistogramExpandingBull ? 1 : 0) +
+      (rsi > 50 && rsi > (indicators as any).prevRsi ? 1 : 0) +
+      (hasAcceptableVolume ? 1 : 0) +
+      (breakoutConfirmedBull && (lastCandle.close - lastCandle.low) / Math.max(currentRange, 1e-6) > 0.6 ? 1 : 0);
+    const momentumPointsBear =
+      (_bodyPct >= 60 && lastCandle.close < lastCandle.open ? 1 : 0) +
+      (rangeExpansion ? 1 : 0) +
+      (macdHistogramExpandingBear ? 1 : 0) +
+      (rsi < 50 ? 1 : 0) +
+      (hasAcceptableVolume ? 1 : 0) +
+      (breakoutConfirmedBear && (lastCandle.high - lastCandle.close) / Math.max(currentRange, 1e-6) > 0.6 ? 1 : 0);
+    const momentumScore = Math.max(momentumPointsBull, momentumPointsBear);
+    const momentumStrong = momentumScore >= 4;
+
+    // ===== FIX 4: REAL TREND REVERSAL DETECTION =====
+    const last3 = ohlcData.slice(-3);
+    const macdHist3RisingBull = last3.length === 3
+      && (indicators as any).macdHist3 ? false : macdHistogramExpandingBull;
+    const higherLowsForming = last3.length === 3 && last3[2].low > last3[1].low && last3[1].low > last3[0].low;
+    const lowerHighsForming = last3.length === 3 && last3[2].high < last3[1].high && last3[1].high < last3[0].high;
+    const reclaimsEma9Bull = lastCandle.close > ema9 && prevCandle.close <= ema9;
+    const reclaimsEma9Bear = lastCandle.close < ema9 && prevCandle.close >= ema9;
+    const trendReversalBull = macdHistogramExpandingBull && rsi > 30 && rsi < 55 && higherLowsForming && reclaimsEma9Bull;
+    const trendReversalBear = macdHistogramExpandingBear && rsi < 70 && rsi > 45 && lowerHighsForming && reclaimsEma9Bear;
+    const trendReversalDetected = trendReversalBull ? 'BULL_REVERSAL'
+      : trendReversalBear ? 'BEAR_REVERSAL'
+      : null;
+
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
     // Trend exhausted: block continuation, allow only reversal entries (institutional rule)
     const exhaustionBlocksContinuationBull = trendExhausted && !reversalBullEntry;
     const exhaustionBlocksContinuationBear = trendExhausted && !reversalBearEntry;
 
+    // FIX 1 reinforcement: overexpanded fresh breakouts blocked unless continuation/reversal/pullback present.
+    const overExpandedBlocksBull = overExpandedCandle && !continuationBull && !reversalBullEntry && !pullbackQualityBull;
+    const overExpandedBlocksBear = overExpandedCandle && !continuationBear && !reversalBearEntry && !pullbackQualityBear;
+
     const strongBullish = confirmationBullish
-      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry)
+      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
       && (momentumBull || adxStrong || continuationBull || reversalBullEntry)
       && (slopeOkBull || adxStrong || continuationBull || reversalBullEntry)
@@ -1991,10 +2028,11 @@ export class AdvancedAI {
       && !weakMidSessionTrap
       && !cooldownBlocksBull
       && !exhaustionBlocksContinuationBull
+      && !overExpandedBlocksBull
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
-      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry)
+      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry)
       && (momentumBear || adxStrong || continuationBear || reversalBearEntry)
       && (slopeOkBear || adxStrong || continuationBear || reversalBearEntry)
@@ -2003,6 +2041,7 @@ export class AdvancedAI {
       && !weakMidSessionTrap
       && !cooldownBlocksBear
       && !exhaustionBlocksContinuationBear
+      && !overExpandedBlocksBear
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
@@ -2132,7 +2171,7 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_UP' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      if (overExpandedCandle) confidence -= 10;          // FIX 1: avoid chasing vertical bars
+      if (overExpandedCandle) confidence -= 15;          // FIX 1: avoid chasing vertical bars
       if (pullbackQualityBull) confidence += 8;          // FIX 2: sniper pullback boost
       if (h1AlignedBull) confidence += 15;               // FIX 3: 1H trend alignment
       else if (h1Align === 'bear') confidence -= 6;
@@ -2156,7 +2195,7 @@ export class AdvancedAI {
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
       if (gap.type === 'GAP_DOWN' && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
-      if (overExpandedCandle) confidence -= 10;          // FIX 1
+      if (overExpandedCandle) confidence -= 15;          // FIX 1
       if (pullbackQualityBear) confidence += 8;          // FIX 2
       if (h1AlignedBear) confidence += 15;               // FIX 3
       else if (h1Align === 'bull') confidence -= 6;
@@ -2399,6 +2438,30 @@ export class AdvancedAI {
           strongConfirmationScore,
           requiredConfirmations,
           adx: +adx.toFixed(1),
+        },
+        momentumScore,
+        momentumStrong,
+        momentumPointsBull,
+        momentumPointsBear,
+        trendReversalDetected,
+        sessionType: sessionBehavior,
+        overExtended: overExpandedCandle,
+        continuationSetup: continuationBull ? 'BULL' : continuationBear ? 'BEAR' : null,
+        blockedBy: action === 'WAIT' ? [
+          overExpandedBlocksBull || overExpandedBlocksBear ? 'over-expanded' : '',
+          exhaustionBlocksContinuationBull || exhaustionBlocksContinuationBear ? 'trend-exhausted' : '',
+          cooldownActive ? 'cooldown' : '',
+          fakeBreakout ? 'fake-breakout' : '',
+          weakMidSessionTrap ? 'mid-session-trap' : '',
+          (totalBullScore < requiredConfirmations && totalBearScore < requiredConfirmations) ? 'insufficient-confirmations' : '',
+          (htfDisagreeBull || htfDisagreeBear) && !htfAdxStrong ? 'htf-disagree' : '',
+        ].filter(Boolean) : [],
+        finalDecisionReason: reasoning,
+        confirmationBreakdown: {
+          earlyBull: earlyBullChecks.map(Boolean),
+          earlyBear: earlyBearChecks.map(Boolean),
+          required: requiredConfirmations,
+          adxBand: adx > 35 ? 'STRONG(4)' : adx >= 25 ? 'MODERATE(5)' : 'WEAK(7)',
         },
       },
 
