@@ -1925,6 +1925,10 @@ export class AdvancedAI {
 
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
+    // Trend exhausted: block continuation, allow only reversal entries (institutional rule)
+    const exhaustionBlocksContinuationBull = trendExhausted && !reversalBullEntry;
+    const exhaustionBlocksContinuationBear = trendExhausted && !reversalBearEntry;
+
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry)
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
@@ -1933,8 +1937,9 @@ export class AdvancedAI {
       && structureOkBull
       && !liquidityBlocksBull
       && !weakMidSessionTrap
-      && !cooldownActive
-      && !trendExhausted
+      && !cooldownBlocksBull
+      && !exhaustionBlocksContinuationBull
+      && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
       && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry)
@@ -1944,8 +1949,9 @@ export class AdvancedAI {
       && structureOkBear
       && !liquidityBlocksBear
       && !weakMidSessionTrap
-      && !cooldownActive
-      && !trendExhausted
+      && !cooldownBlocksBear
+      && !exhaustionBlocksContinuationBear
+      && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
