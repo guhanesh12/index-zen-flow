@@ -2174,9 +2174,7 @@ export class AdvancedAI {
           nearSupport ? 'near-support' : '',
         ].filter(Boolean),
         trendStrength: Math.round(adx),
-        breakoutQuality: (breakoutConfirmedBull || breakoutConfirmedBear)
-          ? (rangeExpansion ? 'STRONG' : 'WEAK')
-          : 'NONE',
+        breakoutQuality,
         smartMoneyScore: smartMoneyBias === 'BULLISH' ? 75 : smartMoneyBias === 'BEARISH' ? -75 : 0,
         liquidityWarnings: [
           liquidity.buySideSweep ? 'buy-side-sweep' : '',
@@ -2191,6 +2189,20 @@ export class AdvancedAI {
         ].filter(Boolean),
         requiredConfirmations,
         regime: marketRegime.type,
+        // FIX 8/12: entry quality + continuation diagnostics
+        entryQualityScore,
+        entryQualityTier,
+        continuationBull,
+        continuationBear,
+        scoreBreakdown: {
+          totalBullScore,
+          totalBearScore,
+          earlyBullScore,
+          earlyBearScore,
+          strongConfirmationScore,
+          requiredConfirmations,
+          adx: +adx.toFixed(1),
+        },
       },
 
       executionTime,
