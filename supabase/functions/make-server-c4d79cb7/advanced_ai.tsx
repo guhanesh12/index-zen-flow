@@ -957,21 +957,27 @@ export class AdvancedAI {
   }
 
   private static detectHigherTimeframeTrend(data?: OHLCCandle[]): 'bull' | 'bear' | 'neutral' {
-    if (!data || data.length < 25) return 'neutral';
+    if (!data || data.length < 15) return 'neutral';
     const last = data[data.length - 1];
     const ema9 = this.calculateEMA(data, 9);
     const ema21 = this.calculateEMA(data, 21);
     const adxNow = this.calculateADX(data);
 
-    // ⚡ FLEXIBLE HTF: ADX > 25 with EMA9/21 alignment OR price/EMA9 agreement is enough.
-    // VWAP flat or EMA50 mismatch should NOT block continuation trades.
-    if (adxNow > 25) {
-      const bullVotes = [last.close > ema9, ema9 > ema21, last.close > ema21].filter(Boolean).length;
-      const bearVotes = [last.close < ema9, ema9 < ema21, last.close < ema21].filter(Boolean).length;
-      if (bullVotes >= 2) return 'bull';
-      if (bearVotes >= 2) return 'bear';
+    // ⚡ BUG FIX 1: HTF was returning 'neutral' on clearly trending markets (ADX 45+ bearish).
+    // Strong ADX (>=25) with ANY clear EMA9/EMA21 alignment is sufficient — no need for 2/3 vote.
+    if (adxNow >= 25) {
+      if (ema9 > ema21 && last.close > ema21) return 'bull';
+      if (ema9 < ema21 && last.close < ema21) return 'bear';
+      // Very strong trend: EMA alignment alone is enough even if price retraced slightly
+      if (adxNow >= 35 && ema9 > ema21) return 'bull';
+      if (adxNow >= 35 && ema9 < ema21) return 'bear';
     }
-    // Fallback: only fully aligned setups count as directional
+    // Vote-based fallback for mid-strength trends
+    const bullVotes = [last.close > ema9, ema9 > ema21, last.close > ema21].filter(Boolean).length;
+    const bearVotes = [last.close < ema9, ema9 < ema21, last.close < ema21].filter(Boolean).length;
+    if (adxNow >= 20 && bullVotes >= 2) return 'bull';
+    if (adxNow >= 20 && bearVotes >= 2) return 'bear';
+    // Strict fallback
     if (last.close > ema9 && ema9 > ema21) return 'bull';
     if (last.close < ema9 && ema9 < ema21) return 'bear';
     return 'neutral';
@@ -1782,7 +1788,7 @@ export class AdvancedAI {
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
 
     // Professional MTF: use REAL 15m candles passed by caller. Never resample 5m candles into fake 15m.
-    const htfDataProvided = Boolean(options.higherTimeframeData && options.higherTimeframeData.length >= 25);
+    const htfDataProvided = Boolean(options.higherTimeframeData && options.higherTimeframeData.length >= 15);
     const htfAlign = htfDataProvided ? this.detectHigherTimeframeTrend(options.higherTimeframeData) : 'neutral';
     const htfAgreesBull = htfDataProvided ? htfAlign === 'bull' : true;
     const htfAgreesBear = htfDataProvided ? htfAlign === 'bear' : true;

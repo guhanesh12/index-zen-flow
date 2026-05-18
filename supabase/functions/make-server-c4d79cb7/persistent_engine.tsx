@@ -450,6 +450,13 @@ class PersistentTradingEngine {
     this.cronLockUntil = now + 4_500; // Short lock: position monitor now runs every 1 second
     
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
+
+    // ⚡ BUG FIX 2 & 3: auto-resume engines that were stopped non-explicitly (pre-market + disconnect recovery)
+    try {
+      const ar = await this.autoResumeEngines();
+      if (ar.resumed > 0) console.log(`🔄 [CRON] Auto-resumed ${ar.resumed} engine(s), skipped ${ar.skipped}`);
+    } catch (_e) { /* non-fatal */ }
+
     
     try {
       // ⚡ Load active engines from Supabase DB table (more reliable than KV)
@@ -934,10 +941,39 @@ class PersistentTradingEngine {
               const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
               return Date.now() < lastTsMs + tfMin * 60 * 1000 ? arr.slice(0, -1) : arr;
             };
+            // ⚡ BUG FIX 1: Resample primary lower-TF candles into 15m if separate 15m feed is sparse/stale.
+            const resampleTo15m = (arr: any[], srcTfMin: number) => {
+              if (!arr || arr.length < 3 || srcTfMin >= 15) return arr;
+              const ratio = Math.round(15 / srcTfMin);
+              if (ratio < 2) return arr;
+              const out: any[] = [];
+              for (let i = 0; i + ratio <= arr.length; i += ratio) {
+                const chunk = arr.slice(i, i + ratio);
+                out.push({
+                  timestamp: chunk[0].timestamp,
+                  open: chunk[0].open,
+                  high: Math.max(...chunk.map((c: any) => c.high)),
+                  low: Math.min(...chunk.map((c: any) => c.low)),
+                  close: chunk[chunk.length - 1].close,
+                  volume: chunk.reduce((s: number, c: any) => s + (c.volume || 0), 0),
+                });
+              }
+              return out;
+            };
             const tfMin = Number(state.candleInterval);
             const ohlcData = stripForming(ohlcDataRaw, tfMin);
-            const real15mData = stripForming(real15mDataRaw, 15);
+            let real15mData = stripForming(real15mDataRaw, 15);
             const real1hDataClosed = stripForming(real1hData, 60);
+            // Fallback: if separate 15m feed is sparse, resample primary
+            if ((!real15mData || real15mData.length < 15) && ohlcData && ohlcData.length >= 15 && tfMin < 15) {
+              const resampled = resampleTo15m(ohlcData, tfMin);
+              console.log(`⚠️ [HTF] ${indexName} separate 15m sparse (${real15mData?.length || 0} bars) — using resampled ${resampled.length} bars from ${tfMin}m`);
+              real15mData = resampled;
+            }
+            const lastHtfTs = real15mData?.[real15mData.length - 1]?.timestamp;
+            const lastHtfMs = lastHtfTs ? (lastHtfTs < 1e12 ? lastHtfTs * 1000 : lastHtfTs) : 0;
+            const htfAgeMin = lastHtfMs ? Math.round((Date.now() - lastHtfMs) / 60000) : -1;
+            console.log(`📊 [HTF] ${indexName} 15m bars=${real15mData?.length || 0}, lastBarAge=${htfAgeMin}min`);
             if (ohlcData && ohlcData.length > 0) {
               const lastSignalTimestamp = await kv.get(`last_signal_ts:${userId}:${indexName}`) || 0;
               const lastSignalDirection = await kv.get(`last_signal_dir:${userId}:${indexName}`) || 'WAIT';
@@ -1992,7 +2028,10 @@ class PersistentTradingEngine {
             totalPnL: state.stats.totalPnL
           },
           started_at: state.isRunning ? new Date(state.startTime).toISOString() : null,
-          last_heartbeat: new Date().toISOString()
+          last_heartbeat: new Date().toISOString(),
+          // ⚡ BUG FIX 2/3: mark auto_resume on every start so pre-market cron can re-arm the engine
+          auto_resume: state.isRunning ? true : undefined,
+          stopped_reason: state.isRunning ? null : undefined,
         }, { onConflict: 'user_id' });
     } catch (err) {
       console.error('❌ Failed to save engine state to DB:', err);
@@ -2001,20 +2040,82 @@ class PersistentTradingEngine {
 
   /**
    * Mark engine as stopped in DB
+   * @param reason 'user' (explicit) | 'transient' (network/error) | 'market_close'
    */
-  private static async markEngineStoppedInDB(userId: string): Promise<void> {
+  private static async markEngineStoppedInDB(userId: string, reason: 'user' | 'transient' | 'market_close' = 'user'): Promise<void> {
     try {
       await supabaseAdmin
         .from('trading_engine_state')
         .update({
           is_running: false,
           stopped_at: new Date().toISOString(),
-          last_heartbeat: new Date().toISOString()
+          last_heartbeat: new Date().toISOString(),
+          stopped_reason: reason,
         })
         .eq('user_id', userId);
     } catch (err) {
       console.error('❌ Failed to mark engine stopped in DB:', err);
     }
+  }
+
+  /**
+   * ⚡⚡⚡ BUG FIX 2 & 3: AUTO-RESUME ENGINES ⚡⚡⚡
+   * Called by pg_cron at 09:10 IST daily AND inside each cron tick.
+   * Re-arms any engine that:
+   *   - has auto_resume = true
+   *   - is currently is_running = false
+   *   - was NOT stopped explicitly by user (stopped_reason != 'user')
+   * This catches: pre-market start (Bug 2) + intraday disconnect recovery (Bug 3).
+   */
+  static async autoResumeEngines(): Promise<{ resumed: number; skipped: number }> {
+    let resumed = 0;
+    let skipped = 0;
+    try {
+      // Only auto-resume during market hours (or just before open)
+      const now = new Date();
+      const istTime = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      const dow = istTime.getUTCDay();
+      if (dow === 0 || dow === 6) return { resumed: 0, skipped: 0 };
+      const mins = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
+      if (mins < 9 * 60 + 10 || mins > 15 * 60 + 30) return { resumed: 0, skipped: 0 };
+
+      const { data: candidates } = await supabaseAdmin
+        .from('trading_engine_state')
+        .select('user_id, auto_resume, stopped_reason, selected_symbols, strategy_settings')
+        .eq('is_running', false)
+        .eq('auto_resume', true);
+
+      for (const row of (candidates || [])) {
+        // Never auto-resume engines the user explicitly stopped
+        if (row.stopped_reason === 'user') { skipped++; continue; }
+        if (!row.selected_symbols || (row.selected_symbols as any[]).length === 0) { skipped++; continue; }
+        try {
+          await supabaseAdmin
+            .from('trading_engine_state')
+            .update({
+              is_running: true,
+              started_at: new Date().toISOString(),
+              last_heartbeat: new Date().toISOString(),
+              stopped_at: null,
+              stopped_reason: null,
+            })
+            .eq('user_id', row.user_id);
+          await this.appendSharedLog(row.user_id, {
+            id: `engine_auto_resume_${Date.now()}`,
+            timestamp: Date.now(),
+            type: 'ENGINE_START',
+            message: `🔄 AI Trading Engine AUTO-RESUMED (pre-market / disconnect recovery)`,
+          });
+          resumed++;
+          console.log(`🔄 [AUTO-RESUME] User ${row.user_id} engine re-armed`);
+        } catch (e) {
+          console.error(`❌ [AUTO-RESUME] Failed for ${row.user_id}:`, e);
+        }
+      }
+    } catch (e) {
+      console.error('❌ [AUTO-RESUME] Scan failed:', e);
+    }
+    return { resumed, skipped };
   }
 
   private static async saveUserNotification(userId: string, notification: any): Promise<void> {
