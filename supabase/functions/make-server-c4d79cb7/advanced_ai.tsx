@@ -1292,8 +1292,9 @@ export class AdvancedAI {
     // Bollinger Bands — adaptive squeeze (ATR-normalized, uses cached ATR)
     const bollinger = this.calculateBollingerBands(ohlcData);
     const prevBollinger = ohlcData.length > 25 ? this.calculateBollingerBands(ohlcData.slice(0, -1)) : bollinger;
-    const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
-    const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
+    // FIX: stricter BB proximity (0.5% instead of 2%) to avoid both bands triggering simultaneously
+    const priceNearUpperBand = lastCandle.close >= bollinger.upper * 0.995;
+    const priceNearLowerBand = lastCandle.close <= bollinger.lower * 1.005;
     const atrPct = (safeAtr / safeClose) * 100;
     const squeezeThreshold = atrPct * 1.5;
     const bollingerSqueeze = bollinger.width < squeezeThreshold;
