@@ -1962,8 +1962,9 @@ export class AdvancedAI {
     const rangeExpansionStrong = _range > avgPrevRange * 1.3;
     const closeNearHigh = (breakoutClose - lastCandle.low) / _range > 0.7;
     const closeNearLow = (lastCandle.high - breakoutClose) / _range > 0.7;
-    const breakoutQuality: 'STRONG' | 'WEAK' | 'NONE' =
-      ((breakoutConfirmedBull && closeNearHigh) || (breakoutConfirmedBear && closeNearLow))
+    const breakoutQuality: 'STRONG' | 'WEAK' | 'NONE' | 'FAKE_BREAKOUT' =
+      fakeBreakout ? 'FAKE_BREAKOUT'
+      : ((breakoutConfirmedBull && closeNearHigh) || (breakoutConfirmedBear && closeNearLow))
         && rangeExpansionStrong && bbExpansion ? 'STRONG'
       : (breakoutConfirmedBull || breakoutConfirmedBear) ? 'WEAK'
       : 'NONE';
