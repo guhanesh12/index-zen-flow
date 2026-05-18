@@ -2134,6 +2134,9 @@ export class AdvancedAI {
       && !overExpandedBlocksBull
       && !climaxExhaustionBull
       && !slBlocksBull
+      && !noiseFilter5m
+      && !newsVolatilityShock
+      && !consecutiveLossLockout
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
@@ -2149,6 +2152,9 @@ export class AdvancedAI {
       && !overExpandedBlocksBear
       && !climaxExhaustionBear
       && !slBlocksBear
+      && !noiseFilter5m
+      && !newsVolatilityShock
+      && !consecutiveLossLockout
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
