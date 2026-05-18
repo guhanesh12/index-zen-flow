@@ -259,6 +259,11 @@ export interface AdvancedSignalOptions {
   lastStopLossTimestamp?: number;            // ms epoch of last SL hit
   lastStopLossDirection?: 'BUY_CALL' | 'BUY_PUT' | null;
   stopLossCooldownBars?: number;             // default 2
+  // ⚡ NEW: consecutive-loss protection (30-min cooldown after 3 losses in a row)
+  consecutiveLossCount?: number;             // running streak (resets on a winning exit)
+  lastLossTimestamp?: number;                // ms epoch of most recent loss
+  consecutiveLossThreshold?: number;         // default 3
+  consecutiveLossCooldownMs?: number;        // default 30 * 60 * 1000
 }
 
 export class AdvancedAI {
