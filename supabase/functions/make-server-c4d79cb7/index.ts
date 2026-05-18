@@ -4338,12 +4338,17 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         const aiStart = performance.now();
         const lastSignalTimestamp = await safeKVGet(`last_signal_ts:${effectiveUserId}:${idx}`, 0);
         const lastSignalDirection = await safeKVGet(`last_signal_dir:${effectiveUserId}:${idx}`, 'WAIT');
+        const lastStopLossTimestamp = await safeKVGet(`last_sl_ts:${effectiveUserId}:${idx}`, 0);
+        const lastStopLossDirection = await safeKVGet(`last_sl_dir:${effectiveUserId}:${idx}`, null);
         const signal = AdvancedAI.generateAdvancedSignal(analysisCandles, accountBalance || 100000, {
           higherTimeframeData: real15mData,
           hourlyTimeframeData: real1hData,           // FIX 3
           timeframeMinutes: Number(interval),
           lastSignalTimestamp,
-          lastSignalDirection,                        // FIX 3 (directional cooldown)
+          lastSignalDirection,                        // directional cooldown
+          lastStopLossTimestamp,                      // FIX D: post-SL cooldown
+          lastStopLossDirection,
+          stopLossCooldownBars: 2,
           minimumBarsBetweenSignals: 2,
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {

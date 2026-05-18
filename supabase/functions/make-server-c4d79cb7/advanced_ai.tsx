@@ -255,6 +255,10 @@ export interface AdvancedSignalOptions {
   lastSignalDirection?: 'BUY_CALL' | 'BUY_PUT' | 'WAIT';
   minimumBarsBetweenSignals?: number;
   enforceClosedCandle?: boolean;
+  // ⚡ NEW: post-SL cooldown protection (revenge-trade guard)
+  lastStopLossTimestamp?: number;            // ms epoch of last SL hit
+  lastStopLossDirection?: 'BUY_CALL' | 'BUY_PUT' | null;
+  stopLossCooldownBars?: number;             // default 2
 }
 
 export class AdvancedAI {
@@ -886,6 +890,30 @@ export class AdvancedAI {
     // Check EMA alignment for trend direction
     const emaUptrend = indicators.ema9 > indicators.ema21 && indicators.ema21 > indicators.ema50;
     const emaDowntrend = indicators.ema9 < indicators.ema21 && indicators.ema21 < indicators.ema50;
+
+    // ===== PRICE-ACTION OVERRIDE (FIX A: fast reversal detection) =====
+    // If the last 3 closes form a clean stair-step against EMA50, classify by price action FIRST,
+    // so a fast intraday flip is not held back 1-2 bars by lagging EMA structure.
+    const last3 = data.slice(-3);
+    if (last3.length === 3) {
+      const c0 = last3[0], c1 = last3[1], c2 = last3[2];
+      const strongBullSequence =
+        c2.close > c1.close && c1.close > c0.close &&
+        c2.low > c0.low &&
+        c2.close > indicators.ema9 &&
+        (c2.close - c2.open) > (c2.high - c2.low) * 0.55;
+      const strongBearSequence =
+        c2.close < c1.close && c1.close < c0.close &&
+        c2.high < c0.high &&
+        c2.close < indicators.ema9 &&
+        (c2.open - c2.close) > (c2.high - c2.low) * 0.55;
+      if (strongBullSequence && adx >= 20) {
+        return { type: 'TRENDING_UP', strength: Math.max(adx, 28), suitable_for_trading: true };
+      }
+      if (strongBearSequence && adx >= 20) {
+        return { type: 'TRENDING_DOWN', strength: Math.max(adx, 28), suitable_for_trading: true };
+      }
+    }
     
     // ⚡ FIX: Strong ADX means trending even if EMAs are mixed (price action overrides)
     if (isTrending) {
@@ -2018,6 +2046,46 @@ export class AdvancedAI {
     const overExpandedBlocksBull = overExpandedCandle && !continuationBull && !reversalBullEntry && !pullbackQualityBull;
     const overExpandedBlocksBear = overExpandedCandle && !continuationBear && !reversalBearEntry && !pullbackQualityBear;
 
+    // ===== NEW FIX C: MOMENTUM-CLIMAX EXHAUSTION =====
+    // 3 consecutive expansion candles + RSI extreme + ATR spike + climax volume = blow-off top/bottom.
+    const last3Bars = ohlcData.slice(-3);
+    let expansionStreakBull = 0, expansionStreakBear = 0;
+    if (last3Bars.length === 3) {
+      const refRange = atr14;
+      for (const c of last3Bars) {
+        const r = c.high - c.low;
+        if (r > refRange * 1.2 && c.close > c.open) expansionStreakBull++;
+        if (r > refRange * 1.2 && c.close < c.open) expansionStreakBear++;
+      }
+    }
+    const atrSpike = currentRange > atr14 * 1.8;
+    const volRatio = volumeRatio || 1;
+    const climaxVolume = volumeFeedReliable && volRatio >= 2.0;
+    const climaxExhaustionBull = expansionStreakBull >= 3 && rsi > 78 && atrSpike && climaxVolume;
+    const climaxExhaustionBear = expansionStreakBear >= 3 && rsi < 22 && atrSpike && climaxVolume;
+
+    // ===== NEW FIX D: POST-SL COOLDOWN (revenge-trade guard) =====
+    const slCooldownBars = options.stopLossCooldownBars ?? 2;
+    const lastSlMs = options.lastStopLossTimestamp
+      ? (options.lastStopLossTimestamp < 1e12 ? options.lastStopLossTimestamp * 1000 : options.lastStopLossTimestamp)
+      : 0;
+    const barsSinceSl = lastSlMs > 0
+      ? (currentTsMs - lastSlMs) / (timeframeMinutes * 60 * 1000)
+      : Infinity;
+    const slCooldownActive = isFinite(barsSinceSl) && barsSinceSl < slCooldownBars;
+    const slBlocksBull = slCooldownActive && options.lastStopLossDirection === 'BUY_CALL';
+    const slBlocksBear = slCooldownActive && options.lastStopLossDirection === 'BUY_PUT';
+
+    // ===== NEW FIX B: AFTERNOON CONFIDENCE DECAY =====
+    // After 13:30 IST, low-volume continuation candles get a graded penalty (up to -10).
+    const afternoonStartMin = 13 * 60 + 30;
+    const afternoonEndMin = 15 * 60;
+    const inAfternoonWindow = _istMinSess >= afternoonStartMin && _istMinSess <= afternoonEndMin;
+    const lowVolumeAfternoon = inAfternoonWindow && (!volumeFeedReliable ? bodyPercent < 50 : volRatio < 0.9);
+    const afternoonDecay = lowVolumeAfternoon
+      ? -Math.min(10, Math.round(((_istMinSess - afternoonStartMin) / (afternoonEndMin - afternoonStartMin)) * 10))
+      : 0;
+
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
@@ -2029,6 +2097,8 @@ export class AdvancedAI {
       && !cooldownBlocksBull
       && !exhaustionBlocksContinuationBull
       && !overExpandedBlocksBull
+      && !climaxExhaustionBull
+      && !slBlocksBull
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
@@ -2042,6 +2112,8 @@ export class AdvancedAI {
       && !cooldownBlocksBear
       && !exhaustionBlocksContinuationBear
       && !overExpandedBlocksBear
+      && !climaxExhaustionBear
+      && !slBlocksBear
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
@@ -2175,7 +2247,7 @@ export class AdvancedAI {
       if (pullbackQualityBull) confidence += 8;          // FIX 2: sniper pullback boost
       if (h1AlignedBull) confidence += 15;               // FIX 3: 1H trend alignment
       else if (h1Align === 'bear') confidence -= 6;
-      confidence += sessionConfidenceModifier;            // FIX 4: session-aware
+      confidence += sessionConfidenceModifier; confidence += afternoonDecay;            // FIX 4 + afternoon decay
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bullish';
       reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? ' OVEREXPANDED!' : ''}${pullbackQualityBull ? ' Sniper pullback!' : ''}${reversalBullEntry ? ' Reversal entry!' : ''}${continuationBull ? ' Continuation!' : ''}${h1AlignedBull ? ' 1H aligned!' : ''}`;
@@ -2199,7 +2271,7 @@ export class AdvancedAI {
       if (pullbackQualityBear) confidence += 8;          // FIX 2
       if (h1AlignedBear) confidence += 15;               // FIX 3
       else if (h1Align === 'bull') confidence -= 6;
-      confidence += sessionConfidenceModifier;            // FIX 4
+      confidence += sessionConfidenceModifier; confidence += afternoonDecay;            // FIX 4 + afternoon decay
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = 'Bearish';
       reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? ' OVEREXPANDED!' : ''}${pullbackQualityBear ? ' Sniper pullback!' : ''}${reversalBearEntry ? ' Reversal entry!' : ''}${continuationBear ? ' Continuation!' : ''}${h1AlignedBear ? ' 1H aligned!' : ''}`;
@@ -2451,12 +2523,26 @@ export class AdvancedAI {
           overExpandedBlocksBull || overExpandedBlocksBear ? 'over-expanded' : '',
           exhaustionBlocksContinuationBull || exhaustionBlocksContinuationBear ? 'trend-exhausted' : '',
           cooldownActive ? 'cooldown' : '',
+          slCooldownActive ? 'sl-cooldown' : '',
+          climaxExhaustionBull || climaxExhaustionBear ? 'climax-exhaustion' : '',
           fakeBreakout ? 'fake-breakout' : '',
           weakMidSessionTrap ? 'mid-session-trap' : '',
           (totalBullScore < requiredConfirmations && totalBearScore < requiredConfirmations) ? 'insufficient-confirmations' : '',
           (htfDisagreeBull || htfDisagreeBear) && !htfAdxStrong ? 'htf-disagree' : '',
         ].filter(Boolean) : [],
         finalDecisionReason: reasoning,
+        climaxExhaustion: climaxExhaustionBull ? 'BULL' : climaxExhaustionBear ? 'BEAR' : null,
+        expansionStreak: { bull: expansionStreakBull, bear: expansionStreakBear },
+        atrSpike,
+        climaxVolume,
+        afternoonDecay,
+        lowVolumeAfternoon,
+        slCooldown: {
+          active: slCooldownActive,
+          direction: options.lastStopLossDirection ?? null,
+          barsSince: isFinite(barsSinceSl) ? +barsSinceSl.toFixed(1) : null,
+          requiredBars: slCooldownBars,
+        },
         confirmationBreakdown: {
           earlyBull: earlyBullChecks.map(Boolean),
           earlyBear: earlyBearChecks.map(Boolean),

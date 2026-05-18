@@ -941,12 +941,17 @@ class PersistentTradingEngine {
             if (ohlcData && ohlcData.length > 0) {
               const lastSignalTimestamp = await kv.get(`last_signal_ts:${userId}:${indexName}`) || 0;
               const lastSignalDirection = await kv.get(`last_signal_dir:${userId}:${indexName}`) || 'WAIT';
+              const lastStopLossTimestamp = await kv.get(`last_sl_ts:${userId}:${indexName}`) || 0;
+              const lastStopLossDirection = await kv.get(`last_sl_dir:${userId}:${indexName}`) || null;
               const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                 higherTimeframeData: real15mData,
                 hourlyTimeframeData: real1hDataClosed,
                 timeframeMinutes: tfMin,
                 lastSignalTimestamp,
                 lastSignalDirection,
+                lastStopLossTimestamp,
+                lastStopLossDirection,
+                stopLossCooldownBars: 2,
                 minimumBarsBetweenSignals: 2,
               });
               if (sig.action === 'BUY_CALL' || sig.action === 'BUY_PUT') {
@@ -1810,6 +1815,12 @@ class PersistentTradingEngine {
         if (!shouldExit && effectiveSL > 0 && pnl <= -effectiveSL) {
           shouldExit = true;
           exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          // FIX D: persist last SL hit so AdvancedAI applies the 2-bar revenge-trade cooldown.
+          try {
+            const slDir = position.action === 'BUY_CALL' || /CE$/i.test(position.symbolName || '') ? 'BUY_CALL' : 'BUY_PUT';
+            await kv.set(`last_sl_ts:${userId}:${position.index}`, Date.now());
+            await kv.set(`last_sl_dir:${userId}:${position.index}`, slDir);
+          } catch (_e) { /* non-fatal */ }
         }
 
         if (!shouldExit && effectiveSL <= 0 && position.trailingEnabled) {
