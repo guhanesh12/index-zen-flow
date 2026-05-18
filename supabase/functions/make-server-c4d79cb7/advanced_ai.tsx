@@ -1794,6 +1794,24 @@ export class AdvancedAI {
     const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 2;
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
     const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
+    // FIX 3: directional cooldown — block only same-direction repeats; allow opposite reversal.
+    const cooldownBlocksBull = cooldownActive && options.lastSignalDirection === 'BUY_CALL';
+    const cooldownBlocksBear = cooldownActive && options.lastSignalDirection === 'BUY_PUT';
+
+    // ===== FIX 6: FAKE BREAKOUT DETECTION =====
+    // Breakout candle but weak close, dominant wick, no volume expansion, no BB expansion.
+    const _fbBody = Math.abs(lastCandle.close - lastCandle.open);
+    const _fbRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
+    const _fbUpperWick = lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
+    const _fbLowerWick = Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
+    const _fbWickDominant = Math.max(_fbUpperWick, _fbLowerWick) > _fbBody * 1.2;
+    const _fbWeakClose = (_fbBody / _fbRange) < 0.45;
+    const fakeBreakout =
+      ((bullishBreakoutClose || bearishBreakdownClose) || (bullishBreakoutHold || bearishBreakdownHold))
+      && _fbWickDominant && _fbWeakClose && !hasAcceptableVolume && !bbExpansion;
+
+    // FIX 5: Lunch session = require +1 extra confirmation
+    const lunchExtraConfirmation = inMidSessionTrapWindow ? 1 : 0;
 
     // ===== FIX 5: ADX-BASED REQUIRED CONFIRMATIONS =====
     // ADX > 35 → 4 (strong trend, few confirmations needed)
