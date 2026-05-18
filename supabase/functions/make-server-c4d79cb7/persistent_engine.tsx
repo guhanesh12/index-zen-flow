@@ -941,12 +941,17 @@ class PersistentTradingEngine {
             if (ohlcData && ohlcData.length > 0) {
               const lastSignalTimestamp = await kv.get(`last_signal_ts:${userId}:${indexName}`) || 0;
               const lastSignalDirection = await kv.get(`last_signal_dir:${userId}:${indexName}`) || 'WAIT';
+              const lastStopLossTimestamp = await kv.get(`last_sl_ts:${userId}:${indexName}`) || 0;
+              const lastStopLossDirection = await kv.get(`last_sl_dir:${userId}:${indexName}`) || null;
               const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                 higherTimeframeData: real15mData,
                 hourlyTimeframeData: real1hDataClosed,
                 timeframeMinutes: tfMin,
                 lastSignalTimestamp,
                 lastSignalDirection,
+                lastStopLossTimestamp,
+                lastStopLossDirection,
+                stopLossCooldownBars: 2,
                 minimumBarsBetweenSignals: 2,
               });
               if (sig.action === 'BUY_CALL' || sig.action === 'BUY_PUT') {
