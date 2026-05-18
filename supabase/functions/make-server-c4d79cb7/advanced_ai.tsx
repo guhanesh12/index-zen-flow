@@ -912,10 +912,11 @@ export class AdvancedAI {
         c2.high < c0.high &&
         c2.close < indicators.ema9 &&
         (c2.open - c2.close) > (c2.high - c2.low) * 0.55;
-      if (strongBullSequence && adx >= 20) {
+      // FIX: require ADX >= 25 so we don't flag TRENDING in ranging markets (ADX 20-24)
+      if (strongBullSequence && adx >= 25) {
         return { type: 'TRENDING_UP', strength: Math.max(adx, 28), suitable_for_trading: true };
       }
-      if (strongBearSequence && adx >= 20) {
+      if (strongBearSequence && adx >= 25) {
         return { type: 'TRENDING_DOWN', strength: Math.max(adx, 28), suitable_for_trading: true };
       }
     }
@@ -1291,8 +1292,9 @@ export class AdvancedAI {
     // Bollinger Bands — adaptive squeeze (ATR-normalized, uses cached ATR)
     const bollinger = this.calculateBollingerBands(ohlcData);
     const prevBollinger = ohlcData.length > 25 ? this.calculateBollingerBands(ohlcData.slice(0, -1)) : bollinger;
-    const priceNearUpperBand = lastCandle.close > bollinger.upper * 0.98;
-    const priceNearLowerBand = lastCandle.close < bollinger.lower * 1.02;
+    // FIX: stricter BB proximity (0.5% instead of 2%) to avoid both bands triggering simultaneously
+    const priceNearUpperBand = lastCandle.close >= bollinger.upper * 0.995;
+    const priceNearLowerBand = lastCandle.close <= bollinger.lower * 1.005;
     const atrPct = (safeAtr / safeClose) * 100;
     const squeezeThreshold = atrPct * 1.5;
     const bollingerSqueeze = bollinger.width < squeezeThreshold;
@@ -1386,7 +1388,8 @@ export class AdvancedAI {
     // ⚡ Reuse already-computed ema9/ema21/ema50 from indicator pipeline (no recompute)
     const ema9Slope = this.emaSlope(ohlcData, 9, 5, ema9);
     const ema21Slope = this.emaSlope(ohlcData, 21, 5, ema21);
-    const ema50Slope = this.emaSlope(ohlcData, 50, 10, ema50);
+    // FIX: use lookback=5 (same as ema9/21) so ema50Slope updates with limited history instead of returning 0
+    const ema50Slope = this.emaSlope(ohlcData, 50, 5, ema50);
     const slopeMin = 0.02; // 0.02% per bar minimum to consider "directional"
     const slopeBullish = ema9Slope > slopeMin && ema21Slope > slopeMin * 0.5;
     const slopeBearish = ema9Slope < -slopeMin && ema21Slope < -slopeMin * 0.5;
