@@ -2111,11 +2111,11 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `⚠️ WAIT: Liquidity ${liquidity.buySideSweep ? 'buy-side' : 'sell-side'} sweep detected (stop hunt). Wait for reversal confirmation.`;
 
-    } else if (cooldownActive) {
+    } else if (cooldownActive && (cooldownBlocksBull || cooldownBlocksBear)) {
       action = 'WAIT';
       confidence = 35;
       bias = 'Neutral';
-      reasoning = `WAIT: Signal cooldown active (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars since last trade).`;
+      reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
       
     } else if (false /* HTF disagreement is now soft-scored, never a hard WAIT */) {
       action = 'WAIT';
