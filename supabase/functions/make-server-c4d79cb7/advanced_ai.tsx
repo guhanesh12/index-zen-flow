@@ -890,6 +890,30 @@ export class AdvancedAI {
     // Check EMA alignment for trend direction
     const emaUptrend = indicators.ema9 > indicators.ema21 && indicators.ema21 > indicators.ema50;
     const emaDowntrend = indicators.ema9 < indicators.ema21 && indicators.ema21 < indicators.ema50;
+
+    // ===== PRICE-ACTION OVERRIDE (FIX A: fast reversal detection) =====
+    // If the last 3 closes form a clean stair-step against EMA50, classify by price action FIRST,
+    // so a fast intraday flip is not held back 1-2 bars by lagging EMA structure.
+    const last3 = data.slice(-3);
+    if (last3.length === 3) {
+      const c0 = last3[0], c1 = last3[1], c2 = last3[2];
+      const strongBullSequence =
+        c2.close > c1.close && c1.close > c0.close &&
+        c2.low > c0.low &&
+        c2.close > indicators.ema9 &&
+        (c2.close - c2.open) > (c2.high - c2.low) * 0.55;
+      const strongBearSequence =
+        c2.close < c1.close && c1.close < c0.close &&
+        c2.high < c0.high &&
+        c2.close < indicators.ema9 &&
+        (c2.open - c2.close) > (c2.high - c2.low) * 0.55;
+      if (strongBullSequence && adx >= 20) {
+        return { type: 'TRENDING_UP', strength: Math.max(adx, 28), suitable_for_trading: true };
+      }
+      if (strongBearSequence && adx >= 20) {
+        return { type: 'TRENDING_DOWN', strength: Math.max(adx, 28), suitable_for_trading: true };
+      }
+    }
     
     // ⚡ FIX: Strong ADX means trending even if EMAs are mixed (price action overrides)
     if (isTrending) {
