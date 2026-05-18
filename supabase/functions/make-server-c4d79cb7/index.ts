@@ -10470,6 +10470,16 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   }
 });
 
+// ⚡ BUG FIX 2/3: Pre-market auto-resume — re-arms engines that auto-stopped
+app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
+  try {
+    const result = await PersistentTradingEngine.autoResumeEngines();
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error("❌ [AUTO-RESUME] Failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+
 // 📧 Daily 09:08 IST premarket email — sent only on NSE trading days
 app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
   try {
