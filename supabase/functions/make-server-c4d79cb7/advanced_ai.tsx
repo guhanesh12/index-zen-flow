@@ -1788,7 +1788,7 @@ export class AdvancedAI {
       ((confirmationBullish && p.direction === 'BULLISH') || (confirmationBearish && p.direction === 'BEARISH')));
 
     // Professional MTF: use REAL 15m candles passed by caller. Never resample 5m candles into fake 15m.
-    const htfDataProvided = Boolean(options.higherTimeframeData && options.higherTimeframeData.length >= 25);
+    const htfDataProvided = Boolean(options.higherTimeframeData && options.higherTimeframeData.length >= 15);
     const htfAlign = htfDataProvided ? this.detectHigherTimeframeTrend(options.higherTimeframeData) : 'neutral';
     const htfAgreesBull = htfDataProvided ? htfAlign === 'bull' : true;
     const htfAgreesBear = htfDataProvided ? htfAlign === 'bear' : true;
