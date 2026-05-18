@@ -1805,26 +1805,77 @@ export class AdvancedAI {
     const htfDisagreeBear = htfDataProvided && htfAlign === 'bull';
     const htfAdxStrong = adx > 30;
 
+    // ===== FIX 4: TREND-CONTINUATION PULLBACK ENTRY MODEL =====
+    // BULL: ADX>25, ema9>ema21, price pulled back to ema9/ema21, bullish rejection wick
+    //       OR strong bullish close, MACD histogram improving (less negative or rising)
+    // BEAR: mirror
+    const _body = Math.abs(lastCandle.close - lastCandle.open);
+    const _range = Math.max(lastCandle.high - lastCandle.low, 1e-6);
+    const _lowerWick = Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
+    const _upperWick = lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
+    const bullishRejectionCandle = _lowerWick > _body * 1.2 && lastCandle.close > lastCandle.open;
+    const bearishRejectionCandle = _upperWick > _body * 1.2 && lastCandle.close < lastCandle.open;
+    const strongBullishClose = lastCandle.close > lastCandle.open && (lastCandle.close - lastCandle.low) / _range > 0.65;
+    const strongBearishClose = lastCandle.close < lastCandle.open && (lastCandle.high - lastCandle.close) / _range > 0.65;
+    const macdHistImprovingBull = macdData.histogram > prevMacdData.histogram;
+    const macdHistWeakeningBear = macdData.histogram < prevMacdData.histogram;
+    const priceTouchedEmaZoneBull = lastCandle.low <= ema9 + atr14 * 0.3 || lastCandle.low <= ema21 + atr14 * 0.4;
+    const priceTouchedEmaZoneBear = lastCandle.high >= ema9 - atr14 * 0.3 || lastCandle.high >= ema21 - atr14 * 0.4;
+    const continuationBull = adx > 25 && ema9 > ema21 && priceTouchedEmaZoneBull
+      && (bullishRejectionCandle || strongBullishClose) && macdHistImprovingBull;
+    const continuationBear = adx > 25 && ema9 < ema21 && priceTouchedEmaZoneBear
+      && (bearishRejectionCandle || strongBearishClose) && macdHistWeakeningBear;
+
+    // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
+    // Continuation setup bypasses the score requirement when ADX strong.
     const strongBullish = confirmationBullish
-      && earlyBullScore >= requiredConfirmations
-      && (breakoutQualityBull || adxStrong)        // strong ADX overrides breakout requirement
-      && (momentumBull || adxStrong)
-      && (slopeOkBull || adxStrong)                 // strong ADX overrides slope
+      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30))
+      && (breakoutQualityBull || adxStrong || continuationBull)
+      && (momentumBull || adxStrong || continuationBull)
+      && (slopeOkBull || adxStrong || continuationBull)
       && structureOkBull
       && !liquidityBlocksBull
       && !weakMidSessionTrap
       && !cooldownActive
-      && !(htfDisagreeBull && !htfAdxStrong);          // only block HTF disagree if trend is weak
+      && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
-      && earlyBearScore >= requiredConfirmations
-      && (breakoutQualityBear || adxStrong)
-      && (momentumBear || adxStrong)
-      && (slopeOkBear || adxStrong)
+      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30))
+      && (breakoutQualityBear || adxStrong || continuationBear)
+      && (momentumBear || adxStrong || continuationBear)
+      && (slopeOkBear || adxStrong || continuationBear)
       && structureOkBear
       && !liquidityBlocksBear
       && !weakMidSessionTrap
       && !cooldownActive
       && !(htfDisagreeBear && !htfAdxStrong);
+
+    // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
+    const breakoutClose = lastCandle.close;
+    const breakoutBodyRange = (Math.max(breakoutClose, lastCandle.open) - Math.min(breakoutClose, lastCandle.open)) / Math.max(_range, 1e-6);
+    const prevRanges = ohlcData.slice(-6, -1).map(c => c.high - c.low);
+    const avgPrevRange = prevRanges.length > 0 ? prevRanges.reduce((a, b) => a + b, 0) / prevRanges.length : _range;
+    const rangeExpansionStrong = _range > avgPrevRange * 1.3;
+    const closeNearHigh = (breakoutClose - lastCandle.low) / _range > 0.7;
+    const closeNearLow = (lastCandle.high - breakoutClose) / _range > 0.7;
+    const breakoutQuality: 'STRONG' | 'WEAK' | 'NONE' =
+      ((breakoutConfirmedBull && closeNearHigh) || (breakoutConfirmedBear && closeNearLow))
+        && rangeExpansionStrong && bbExpansion ? 'STRONG'
+      : (breakoutConfirmedBull || breakoutConfirmedBear) ? 'WEAK'
+      : 'NONE';
+
+    // ===== FIX 8: ENTRY QUALITY SCORE (0-100) =====
+    let entryQualityScore = 0;
+    entryQualityScore += Math.min(25, adx * 0.6);                              // trend strength up to 25
+    entryQualityScore += (confirmations.ema ? 12 : 0);                         // EMA alignment
+    entryQualityScore += (confirmations.adx ? 8 : 0);                          // ADX confirm
+    entryQualityScore += (breakoutQuality === 'STRONG' ? 15 : breakoutQuality === 'WEAK' ? 7 : 0);
+    entryQualityScore += ((strongBullishClose || strongBearishClose) ? 10 : (bullishRejectionCandle || bearishRejectionCandle) ? 6 : 0);
+    entryQualityScore += (smartMoneyBias !== 'NEUTRAL' ? 10 : 0);
+    entryQualityScore += (confirmations.macd ? 8 : 0);
+    entryQualityScore += (liquidity.stopHunt ? -10 : 0);
+    entryQualityScore += ((continuationBull || continuationBear) ? 12 : 0);
+    entryQualityScore = Math.max(0, Math.min(100, Math.round(entryQualityScore)));
+    const entryQualityTier = entryQualityScore >= 90 ? 'SNIPER' : entryQualityScore >= 75 ? 'STRONG' : entryQualityScore >= 60 ? 'ACCEPTABLE' : 'AVOID';
 
     
 
