@@ -221,7 +221,7 @@ export interface AdvancedSignal {
     failedConfirmations: string[];
     confidenceDecayReasons: string[];
     trendStrength: number;
-    breakoutQuality: 'STRONG' | 'WEAK' | 'NONE';
+    breakoutQuality: 'STRONG' | 'WEAK' | 'NONE' | 'FAKE_BREAKOUT';
     smartMoneyScore: number;
     liquidityWarnings: string[];
     marketWarnings: string[];
@@ -251,7 +251,9 @@ export interface AdvancedSignalOptions {
   higherTimeframeData?: OHLCCandle[];
   timeframeMinutes?: number;
   lastSignalTimestamp?: number;
+  lastSignalDirection?: 'BUY_CALL' | 'BUY_PUT' | 'WAIT';
   minimumBarsBetweenSignals?: number;
+  enforceClosedCandle?: boolean;
 }
 
 export class AdvancedAI {
@@ -1196,6 +1198,18 @@ export class AdvancedAI {
     const prevCandle = ohlcData[ohlcData.length - 2];
     const safeClose = Math.max(lastCandle.close, 1e-9);
 
+    // ===== FIX 4: CLOSED CANDLE VALIDATION =====
+    // Block evaluation of forming live candles. Caller may set options.enforceClosedCandle=false
+    // for backtests where timestamps refer to close-time instead of open-time.
+    const _tfMin = options.timeframeMinutes || 5;
+    const _candleOpenMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const _candleCloseMs = _candleOpenMs + _tfMin * 60 * 1000;
+    const _enforceClosed = options.enforceClosedCandle !== false;
+    const _candleClosed = !_enforceClosed || Date.now() >= _candleCloseMs;
+    if (!_candleClosed) {
+      return this.emptyWaitResult(`WAIT: Candle still forming (${Math.round((_candleCloseMs - Date.now()) / 1000)}s to close).`, startTime);
+    }
+
     // ========== CALCULATE ALL INDICATORS ==========
     calculationsPerformed++;
 
@@ -1440,8 +1454,8 @@ export class AdvancedAI {
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);
     const _prevVwapForSlope = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
     const vwapSlopeStrength = (vwap - _prevVwapForSlope) / Math.max(atr14, 1e-6); // ATR-normalized slope
-    const vwapSlopingUp = vwapSlopeStrength > 0.04;
-    const vwapSlopingDown = vwapSlopeStrength < -0.04;
+    const vwapSlopingUp = vwapSlopeStrength > 0.02;   // FIX 1: relaxed from 0.04 for slow grinding trends
+    const vwapSlopingDown = vwapSlopeStrength < -0.02;
     const vwapSlopeFlat = !vwapSlopingUp && !vwapSlopingDown;
 
     const vwapBullOK = priceAboveVWAP && (vwapNormalized.interpretation === 'ACCEPTABLE' || vwapSlopingUp);
@@ -1780,12 +1794,30 @@ export class AdvancedAI {
     const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 2;
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
     const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
+    // FIX 3: directional cooldown — block only same-direction repeats; allow opposite reversal.
+    const cooldownBlocksBull = cooldownActive && options.lastSignalDirection === 'BUY_CALL';
+    const cooldownBlocksBear = cooldownActive && options.lastSignalDirection === 'BUY_PUT';
+
+    // ===== FIX 6: FAKE BREAKOUT DETECTION =====
+    // Breakout candle but weak close, dominant wick, no volume expansion, no BB expansion.
+    const _fbBody = Math.abs(lastCandle.close - lastCandle.open);
+    const _fbRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
+    const _fbUpperWick = lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
+    const _fbLowerWick = Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
+    const _fbWickDominant = Math.max(_fbUpperWick, _fbLowerWick) > _fbBody * 1.2;
+    const _fbWeakClose = (_fbBody / _fbRange) < 0.45;
+    const fakeBreakout =
+      ((bullishBreakoutClose || bearishBreakdownClose) || (bullishBreakoutHold || bearishBreakdownHold))
+      && _fbWickDominant && _fbWeakClose && !hasAcceptableVolume && !bbExpansion;
+
+    // FIX 5: Lunch session = require +1 extra confirmation
+    const lunchExtraConfirmation = inMidSessionTrapWindow ? 1 : 0;
 
     // ===== FIX 5: ADX-BASED REQUIRED CONFIRMATIONS =====
     // ADX > 35 → 4 (strong trend, few confirmations needed)
     // ADX 25-35 → 5
     // ADX < 25 → 7 (weak/ranging — need overwhelming proof)
-    const requiredConfirmations = adx > 35 ? 4 : adx >= 25 ? 5 : 7;
+    const requiredConfirmations = (adx > 35 ? 4 : adx >= 25 ? 5 : 7) + lunchExtraConfirmation;
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [confirmations.macd, confirmations.adx, confirmations.rsi, confirmations.stochastic].filter(Boolean).length;
 
@@ -1893,6 +1925,10 @@ export class AdvancedAI {
 
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
+    // Trend exhausted: block continuation, allow only reversal entries (institutional rule)
+    const exhaustionBlocksContinuationBull = trendExhausted && !reversalBullEntry;
+    const exhaustionBlocksContinuationBear = trendExhausted && !reversalBearEntry;
+
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry)
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
@@ -1901,8 +1937,9 @@ export class AdvancedAI {
       && structureOkBull
       && !liquidityBlocksBull
       && !weakMidSessionTrap
-      && !cooldownActive
-      && !trendExhausted
+      && !cooldownBlocksBull
+      && !exhaustionBlocksContinuationBull
+      && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
       && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry)
@@ -1912,8 +1949,9 @@ export class AdvancedAI {
       && structureOkBear
       && !liquidityBlocksBear
       && !weakMidSessionTrap
-      && !cooldownActive
-      && !trendExhausted
+      && !cooldownBlocksBear
+      && !exhaustionBlocksContinuationBear
+      && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
@@ -1924,8 +1962,9 @@ export class AdvancedAI {
     const rangeExpansionStrong = _range > avgPrevRange * 1.3;
     const closeNearHigh = (breakoutClose - lastCandle.low) / _range > 0.7;
     const closeNearLow = (lastCandle.high - breakoutClose) / _range > 0.7;
-    const breakoutQuality: 'STRONG' | 'WEAK' | 'NONE' =
-      ((breakoutConfirmedBull && closeNearHigh) || (breakoutConfirmedBear && closeNearLow))
+    const breakoutQuality: 'STRONG' | 'WEAK' | 'NONE' | 'FAKE_BREAKOUT' =
+      fakeBreakout ? 'FAKE_BREAKOUT'
+      : ((breakoutConfirmedBull && closeNearHigh) || (breakoutConfirmedBear && closeNearLow))
         && rangeExpansionStrong && bbExpansion ? 'STRONG'
       : (breakoutConfirmedBull || breakoutConfirmedBear) ? 'WEAK'
       : 'NONE';
@@ -2072,11 +2111,11 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `⚠️ WAIT: Liquidity ${liquidity.buySideSweep ? 'buy-side' : 'sell-side'} sweep detected (stop hunt). Wait for reversal confirmation.`;
 
-    } else if (cooldownActive) {
+    } else if (cooldownActive && (cooldownBlocksBull || cooldownBlocksBear)) {
       action = 'WAIT';
       confidence = 35;
       bias = 'Neutral';
-      reasoning = `WAIT: Signal cooldown active (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars since last trade).`;
+      reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
       
     } else if (false /* HTF disagreement is now soft-scored, never a hard WAIT */) {
       action = 'WAIT';
@@ -2257,14 +2296,14 @@ export class AdvancedAI {
         marketWarnings: [
           weakMidSessionTrap ? 'mid-session-trap' : '',
           cooldownActive ? 'cooldown-active' : '',
-          trendExhausted ? 'trend-exhausted' : '',
-          inLunchChopSession ? 'lunch-chop-session' : '',
+          trendExhausted ? 'Trend exhaustion detected' : '',
+          inLunchChopSession ? 'Lunch session low momentum' : '',
+          fakeBreakout ? 'fake-breakout' : '',
           marketRegime.type === 'RANGING' ? 'ranging-market' : '',
           marketRegime.type === 'QUIET' ? 'quiet-market' : '',
         ].filter(Boolean),
         requiredConfirmations,
         regime: marketRegime.type,
-        // FIX 8/12: entry quality + continuation diagnostics
         entryQualityScore,
         entryQualityTier,
         continuationBull,
@@ -2272,6 +2311,12 @@ export class AdvancedAI {
         reversalBullEntry,
         reversalBearEntry,
         trendExhausted,
+        exhaustedMove: trendExhausted,
+        fakeBreakout,
+        candleClosed: _candleClosed,
+        lunchSession: inLunchChopSession,
+        cooldownActive,
+        cooldownDirection: options.lastSignalDirection ?? null,
         vwapSlopeStrength: +vwapSlopeStrength.toFixed(3),
         distFromEma21Atr: +distFromEma21Atr.toFixed(2),
         sessionPriority: inHighPrioritySession ? 'HIGH' : inLunchChopSession ? 'LOW' : 'NORMAL',
