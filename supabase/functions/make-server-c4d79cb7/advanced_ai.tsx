@@ -2019,7 +2019,7 @@ export class AdvancedAI {
     const overExpandedBlocksBear = overExpandedCandle && !continuationBear && !reversalBearEntry && !pullbackQualityBear;
 
     const strongBullish = confirmationBullish
-      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry)
+      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
       && (momentumBull || adxStrong || continuationBull || reversalBullEntry)
       && (slopeOkBull || adxStrong || continuationBull || reversalBullEntry)
