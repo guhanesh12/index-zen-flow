@@ -2028,17 +2028,18 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Mid-session trap only because ADX is weak/not rising, volume is weak, and VWAP is flat.`;
 
-    } else if (!breakoutConfirmedBull && !breakoutConfirmedBear) {
+    } else if (!breakoutConfirmedBull && !breakoutConfirmedBear && !continuationBull && !continuationBear) {
+      // FIX 4: continuation pullback bypasses breakout requirement
       action = 'WAIT';
       confidence = 40;
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Breakout close/hold not confirmed yet (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
+      reasoning = `WAIT: No breakout close/hold and no continuation pullback (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
 
-    } else if ((confirmationBullish && earlyBullScore < requiredConfirmations) || (confirmationBearish && earlyBearScore < requiredConfirmations)) {
+    } else if ((confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull) || (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear)) {
       action = 'WAIT';
       confidence = 40;
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Early entry confirmations incomplete (bull ${earlyBullScore}/4, bear ${earlyBearScore}/4; need ${requiredConfirmations}).`;
+      reasoning = `WAIT: Confirmations incomplete (bull ${totalBullScore}/8, bear ${totalBearScore}/8; need ${requiredConfirmations}, ADX ${adx.toFixed(1)}). No continuation setup.`;
 
     } else if ((bodySize < minimumBodySize || !hasAcceptableVolume) && adx < 25) {
       // FIX 3 + 10: Volume / body only hard-blocks when ADX < 25 (no trend energy).
