@@ -1452,8 +1452,8 @@ export class AdvancedAI {
     const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);
     const _prevVwapForSlope = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
     const vwapSlopeStrength = (vwap - _prevVwapForSlope) / Math.max(atr14, 1e-6); // ATR-normalized slope
-    const vwapSlopingUp = vwapSlopeStrength > 0.04;
-    const vwapSlopingDown = vwapSlopeStrength < -0.04;
+    const vwapSlopingUp = vwapSlopeStrength > 0.02;   // FIX 1: relaxed from 0.04 for slow grinding trends
+    const vwapSlopingDown = vwapSlopeStrength < -0.02;
     const vwapSlopeFlat = !vwapSlopingUp && !vwapSlopingDown;
 
     const vwapBullOK = priceAboveVWAP && (vwapNormalized.interpretation === 'ACCEPTABLE' || vwapSlopingUp);
