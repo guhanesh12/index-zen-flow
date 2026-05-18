@@ -1810,6 +1810,12 @@ class PersistentTradingEngine {
         if (!shouldExit && effectiveSL > 0 && pnl <= -effectiveSL) {
           shouldExit = true;
           exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
+          // FIX D: persist last SL hit so AdvancedAI applies the 2-bar revenge-trade cooldown.
+          try {
+            const slDir = position.action === 'BUY_CALL' || /CE$/i.test(position.symbolName || '') ? 'BUY_CALL' : 'BUY_PUT';
+            await kv.set(`last_sl_ts:${userId}:${position.index}`, Date.now());
+            await kv.set(`last_sl_dir:${userId}:${position.index}`, slDir);
+          } catch (_e) { /* non-fatal */ }
         }
 
         if (!shouldExit && effectiveSL <= 0 && position.trailingEnabled) {
