@@ -2090,18 +2090,28 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Mid-session trap only because ADX is weak/not rising, volume is weak, and VWAP is flat.`;
 
-    } else if (!breakoutConfirmedBull && !breakoutConfirmedBear && !continuationBull && !continuationBear) {
-      // FIX 4: continuation pullback bypasses breakout requirement
+    } else if (trendExhausted) {
+      // FIX 6: trend exhaustion guard
       action = 'WAIT';
-      confidence = 40;
-      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: No breakout close/hold and no continuation pullback (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
+      confidence = 35;
+      bias = 'Neutral';
+      reasoning = `WAIT: Trend exhausted — price ${distFromEma21Atr.toFixed(2)} ATR from EMA21 (>4). Avoid chasing.`;
 
-    } else if ((confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull) || (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear)) {
+    } else if (!breakoutConfirmedBull && !breakoutConfirmedBear && !continuationBull && !continuationBear && !reversalBullEntry && !reversalBearEntry) {
+      // FIX 4 + 3: continuation pullback or reversal-entry pattern bypasses breakout requirement
       action = 'WAIT';
       confidence = 40;
       bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
-      reasoning = `WAIT: Confirmations incomplete (bull ${totalBullScore}/8, bear ${totalBearScore}/8; need ${requiredConfirmations}, ADX ${adx.toFixed(1)}). No continuation setup.`;
+      reasoning = `WAIT: No breakout, no continuation pullback, no reversal pattern (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
+
+    } else if (
+      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry) ||
+      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry)
+    ) {
+      action = 'WAIT';
+      confidence = 40;
+      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : (isBullish ? 'Bullish' : isBearish ? 'Bearish' : 'Neutral');
+      reasoning = `WAIT: Confirmations incomplete (bull ${totalBullScore}/8, bear ${totalBearScore}/8; need ${requiredConfirmations}, ADX ${adx.toFixed(1)}). No continuation/reversal setup.`;
 
     } else if ((bodySize < minimumBodySize || !hasAcceptableVolume) && adx < 25) {
       // FIX 3 + 10: Volume / body only hard-blocks when ADX < 25 (no trend energy).
