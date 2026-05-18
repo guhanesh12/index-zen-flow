@@ -240,6 +240,8 @@ export interface AdvancedSignal {
       requiredConfirmations: number;
       adx: number;
     };
+    // Extended diagnostic fields (open shape — populated by signal generator)
+    [key: string]: any;
   };
 
   // Performance
@@ -1952,11 +1954,11 @@ export class AdvancedAI {
     // Bullish: hammer / morning star / bullish engulfing + MACD improving + above VWAP + ADX>25
     const hasBearReversalPattern = patterns.some(p =>
       p.direction === 'BEARISH' &&
-      (p.name === 'SHOOTING_STAR' || p.name === 'EVENING_STAR' || p.name === 'BEARISH_ENGULFING')
+      (p.type === 'SHOOTING_STAR' || p.type === 'EVENING_STAR' || p.type === 'BEARISH_ENGULFING')
     );
     const hasBullReversalPattern = patterns.some(p =>
       p.direction === 'BULLISH' &&
-      (p.name === 'HAMMER' || p.name === 'MORNING_STAR' || p.name === 'BULLISH_ENGULFING')
+      (p.type === 'HAMMER' || p.type === 'MORNING_STAR' || p.type === 'BULLISH_ENGULFING')
     );
     const reversalBearEntry = hasBearReversalPattern && adx > 25 && !priceAboveVWAP
       && macdHistWeakeningBear && lastCandle.close < lastCandle.open;
@@ -2006,8 +2008,8 @@ export class AdvancedAI {
 
     // ===== FIX 2: TREND PULLBACK QUALITY BOOST =====
     // Sniper continuation: EMA9/21 retest + rejection wick OR engulfing pattern.
-    const hasBullEngulfing = patterns.some(p => p.name === 'BULLISH_ENGULFING' && p.direction === 'BULLISH');
-    const hasBearEngulfing = patterns.some(p => p.name === 'BEARISH_ENGULFING' && p.direction === 'BEARISH');
+    const hasBullEngulfing = patterns.some(p => p.type === 'BULLISH_ENGULFING' && p.direction === 'BULLISH');
+    const hasBearEngulfing = patterns.some(p => p.type === 'BEARISH_ENGULFING' && p.direction === 'BEARISH');
     const pullbackQualityBull = continuationBull && (bullishRejectionCandle || hasBullEngulfing) && priceTouchedEmaZoneBull;
     const pullbackQualityBear = continuationBear && (bearishRejectionCandle || hasBearEngulfing) && priceTouchedEmaZoneBear;
 
