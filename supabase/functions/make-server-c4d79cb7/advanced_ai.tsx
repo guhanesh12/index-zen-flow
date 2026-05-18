@@ -2028,10 +2028,11 @@ export class AdvancedAI {
       && !weakMidSessionTrap
       && !cooldownBlocksBull
       && !exhaustionBlocksContinuationBull
+      && !overExpandedBlocksBull
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
-      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry)
+      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry)
       && (momentumBear || adxStrong || continuationBear || reversalBearEntry)
       && (slopeOkBear || adxStrong || continuationBear || reversalBearEntry)
@@ -2040,6 +2041,7 @@ export class AdvancedAI {
       && !weakMidSessionTrap
       && !cooldownBlocksBear
       && !exhaustionBlocksContinuationBear
+      && !overExpandedBlocksBear
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
