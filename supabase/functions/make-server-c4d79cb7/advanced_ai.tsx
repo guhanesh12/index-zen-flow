@@ -1196,6 +1196,18 @@ export class AdvancedAI {
     const prevCandle = ohlcData[ohlcData.length - 2];
     const safeClose = Math.max(lastCandle.close, 1e-9);
 
+    // ===== FIX 4: CLOSED CANDLE VALIDATION =====
+    // Block evaluation of forming live candles. Caller may set options.enforceClosedCandle=false
+    // for backtests where timestamps refer to close-time instead of open-time.
+    const _tfMin = options.timeframeMinutes || 5;
+    const _candleOpenMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const _candleCloseMs = _candleOpenMs + _tfMin * 60 * 1000;
+    const _enforceClosed = options.enforceClosedCandle !== false;
+    const _candleClosed = !_enforceClosed || Date.now() >= _candleCloseMs;
+    if (!_candleClosed) {
+      return this.emptyWaitResult(`WAIT: Candle still forming (${Math.round((_candleCloseMs - Date.now()) / 1000)}s to close).`, startTime);
+    }
+
     // ========== CALCULATE ALL INDICATORS ==========
     calculationsPerformed++;
 
