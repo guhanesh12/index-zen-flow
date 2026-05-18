@@ -1749,6 +1749,24 @@ export class AdvancedAI {
     const htfAgreesBull = htfDataProvided ? htfAlign === 'bull' : true;
     const htfAgreesBear = htfDataProvided ? htfAlign === 'bear' : true;
 
+    // ===== FIX 3: 1H HIGHER TIMEFRAME WEIGHT =====
+    // Align with 1H EMA21 direction AND 1H ADX > 20 → +15 confidence boost
+    const h1Data = options.hourlyTimeframeData;
+    const h1Provided = Boolean(h1Data && h1Data.length >= 25);
+    let h1Align: 'bull' | 'bear' | 'neutral' = 'neutral';
+    let h1Adx = 0;
+    if (h1Provided && h1Data) {
+      const h1Last = h1Data[h1Data.length - 1];
+      const h1Ema21 = this.calculateEMA(h1Data, 21);
+      h1Adx = this.calculateADX(h1Data);
+      if (h1Adx > 20) {
+        if (h1Last.close > h1Ema21) h1Align = 'bull';
+        else if (h1Last.close < h1Ema21) h1Align = 'bear';
+      }
+    }
+    const h1AlignedBull = h1Align === 'bull';
+    const h1AlignedBear = h1Align === 'bear';
+
     // Breakout confirmation: close beyond level, or previous breakout + current candle holds the level.
     const breakoutLookback = Math.min(12, Math.max(5, ohlcData.length - 2));
     const breakoutBase = ohlcData.slice(-(breakoutLookback + 2), -2);
