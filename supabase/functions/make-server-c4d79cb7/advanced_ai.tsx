@@ -1958,13 +1958,11 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: Signal cooldown active (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars since last trade).`;
       
-    } else if (confirmationBullish ? !htfAgreesBull : confirmationBearish ? !htfAgreesBear : false) {
+    } else if (false /* HTF disagreement is now soft-scored, never a hard WAIT */) {
       action = 'WAIT';
       confidence = 38;
       bias = 'Neutral';
-      reasoning = htfDataProvided
-        ? `WAIT: Real 15m trend disagrees (15m=${htfAlign}).`
-        : `WAIT: Real 15m candles not supplied, so MTF filter is neutral only.`;
+      reasoning = `WAIT: (deprecated HTF block — kept for cascade structure).`;
 
     } else if (weakMidSessionTrap) {
       action = 'WAIT';
