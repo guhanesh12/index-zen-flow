@@ -251,7 +251,9 @@ export interface AdvancedSignalOptions {
   higherTimeframeData?: OHLCCandle[];
   timeframeMinutes?: number;
   lastSignalTimestamp?: number;
+  lastSignalDirection?: 'BUY_CALL' | 'BUY_PUT' | 'WAIT';
   minimumBarsBetweenSignals?: number;
+  enforceClosedCandle?: boolean;
 }
 
 export class AdvancedAI {
