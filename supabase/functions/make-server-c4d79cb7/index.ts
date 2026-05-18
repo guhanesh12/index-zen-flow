@@ -4280,9 +4280,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
         
-        // Professional MTF: fetch entry timeframe and REAL 15m trend candles separately.
+        // Professional MTF: entry timeframe + REAL 15m + REAL 1H trend candles.
         const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 50);
         const real15mData = interval === '15' ? ohlcData : await dhanService.getOHLCData(securityId, '15', 80);
+        // FIX 3: 1H higher timeframe (best-effort, non-blocking on failure)
+        let real1hData: any[] = [];
+        try { real1hData = await dhanService.getOHLCData(securityId, '60', 40); } catch (_e) { real1hData = []; }
         
         if (!ohlcData || ohlcData.length === 0) {
           console.error(`❌ CRITICAL: No OHLC data for ${idx} (security ID: ${securityId})`);
