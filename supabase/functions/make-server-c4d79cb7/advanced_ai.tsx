@@ -1940,7 +1940,40 @@ export class AdvancedAI {
       (_istMinSess >= 9 * 60 + 20 && _istMinSess <= 11 * 60 + 15) ||
       (_istMinSess >= 13 * 60 + 45 && _istMinSess <= 15 * 60);
     const inLunchChopSession = _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
-    const sessionConfidenceModifier = inHighPrioritySession ? +4 : inLunchChopSession ? -8 : 0;
+
+    // ===== FIX 4: SESSION-BASED MARKET BEHAVIOR =====
+    // 09:15–10:30 volatile breakout | 10:30–13:00 trend continuation
+    // 13:00–14:15 sideways          | 14:15–15:30 trend expansion
+    type SessionBehavior = 'VOLATILE_BREAKOUT' | 'TREND_CONTINUATION' | 'SIDEWAYS' | 'TREND_EXPANSION' | 'OFF_HOURS';
+    let sessionBehavior: SessionBehavior = 'OFF_HOURS';
+    let sessionBehaviorModifier = 0;
+    if (_istMinSess >= 9 * 60 + 15 && _istMinSess < 10 * 60 + 30) {
+      sessionBehavior = 'VOLATILE_BREAKOUT';
+      sessionBehaviorModifier = 3;            // breakout-friendly
+    } else if (_istMinSess >= 10 * 60 + 30 && _istMinSess < 13 * 60) {
+      sessionBehavior = 'TREND_CONTINUATION';
+      sessionBehaviorModifier = 5;            // best for continuation entries
+    } else if (_istMinSess >= 13 * 60 && _istMinSess < 14 * 60 + 15) {
+      sessionBehavior = 'SIDEWAYS';
+      sessionBehaviorModifier = -6;           // chop penalty
+    } else if (_istMinSess >= 14 * 60 + 15 && _istMinSess <= 15 * 60 + 30) {
+      sessionBehavior = 'TREND_EXPANSION';
+      sessionBehaviorModifier = 4;            // late-day expansion
+    }
+    const sessionConfidenceModifier =
+      (inHighPrioritySession ? 4 : inLunchChopSession ? -8 : 0) + sessionBehaviorModifier;
+
+    // ===== FIX 1: OVER-EXPANDED CANDLE FILTER =====
+    // Avoid chasing vertical candles; range > 2.5 × ATR14 = exhaustion bar.
+    const candleExpansion = currentRange / Math.max(atr14, 1e-6);
+    const overExpandedCandle = candleExpansion > 2.5;
+
+    // ===== FIX 2: TREND PULLBACK QUALITY BOOST =====
+    // Sniper continuation: EMA9/21 retest + rejection wick OR engulfing pattern.
+    const hasBullEngulfing = patterns.some(p => p.name === 'BULLISH_ENGULFING' && p.direction === 'BULLISH');
+    const hasBearEngulfing = patterns.some(p => p.name === 'BEARISH_ENGULFING' && p.direction === 'BEARISH');
+    const pullbackQualityBull = continuationBull && (bullishRejectionCandle || hasBullEngulfing) && priceTouchedEmaZoneBull;
+    const pullbackQualityBear = continuationBear && (bearishRejectionCandle || hasBearEngulfing) && priceTouchedEmaZoneBear;
 
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
