@@ -450,6 +450,13 @@ class PersistentTradingEngine {
     this.cronLockUntil = now + 4_500; // Short lock: position monitor now runs every 1 second
     
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
+
+    // ⚡ BUG FIX 2 & 3: auto-resume engines that were stopped non-explicitly (pre-market + disconnect recovery)
+    try {
+      const ar = await this.autoResumeEngines();
+      if (ar.resumed > 0) console.log(`🔄 [CRON] Auto-resumed ${ar.resumed} engine(s), skipped ${ar.skipped}`);
+    } catch (_e) { /* non-fatal */ }
+
     
     try {
       // ⚡ Load active engines from Supabase DB table (more reliable than KV)
