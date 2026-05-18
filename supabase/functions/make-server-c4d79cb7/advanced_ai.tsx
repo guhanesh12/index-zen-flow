@@ -221,7 +221,7 @@ export interface AdvancedSignal {
     failedConfirmations: string[];
     confidenceDecayReasons: string[];
     trendStrength: number;
-    breakoutQuality: 'STRONG' | 'WEAK' | 'NONE';
+    breakoutQuality: 'STRONG' | 'WEAK' | 'NONE' | 'FAKE_BREAKOUT';
     smartMoneyScore: number;
     liquidityWarnings: string[];
     marketWarnings: string[];
