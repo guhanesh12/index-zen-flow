@@ -227,6 +227,19 @@ export interface AdvancedSignal {
     marketWarnings: string[];
     requiredConfirmations: number;
     regime: string;
+    entryQualityScore?: number;
+    entryQualityTier?: 'SNIPER' | 'STRONG' | 'ACCEPTABLE' | 'AVOID';
+    continuationBull?: boolean;
+    continuationBear?: boolean;
+    scoreBreakdown?: {
+      totalBullScore: number;
+      totalBearScore: number;
+      earlyBullScore: number;
+      earlyBearScore: number;
+      strongConfirmationScore: number;
+      requiredConfirmations: number;
+      adx: number;
+    };
   };
 
   // Performance
