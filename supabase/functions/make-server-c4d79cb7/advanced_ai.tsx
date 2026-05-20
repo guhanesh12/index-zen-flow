@@ -266,9 +266,14 @@ export interface AdvancedSignalOptions {
   lastLossTimestamp?: number;                // ms epoch of most recent loss
   consecutiveLossThreshold?: number;         // default 3
   consecutiveLossCooldownMs?: number;        // default 30 * 60 * 1000
+  blockNewEntriesAfterMinutes?: number;       // default 15:00 IST — no fresh intraday entries after this
 }
 
 export class AdvancedAI {
+  private static getIstMinutes(timestampMs: number): number {
+    const istDate = new Date(timestampMs + 5.5 * 60 * 60 * 1000);
+    return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+  }
   
   // ========================================
   // TECHNICAL INDICATORS (ALL OPTIMIZED!)
