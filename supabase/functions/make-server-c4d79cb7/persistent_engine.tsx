@@ -1164,7 +1164,7 @@ class PersistentTradingEngine {
           const symbolsForIndex = state.symbols.filter(s => normalizeIndexName(s) === indexName);
           const matchingSymbols = symbolsForIndex.filter(s => {
             if (s.active === false) return false;
-            if (normalizeOptionType(s.optionType || s.option_type) !== targetOptionType) return false;
+            if (normalizeOptionType(s.optionType || s.option_type || s.symbolName || s.name) !== targetOptionType) return false;
             if (!s.securityId && !s.symbolId && !s.symbol_id) return false;
             return true;
           });
@@ -1188,7 +1188,7 @@ class PersistentTradingEngine {
                 symbolsForIndex: symbolsForIndex.map(s => ({
                   name: getSymbolDisplayName(s),
                   index: normalizeIndexName(s),
-                  optionType: normalizeOptionType(s.optionType || s.option_type),
+                  optionType: normalizeOptionType(s.optionType || s.option_type || s.symbolName || s.name),
                   active: s.active !== false,
                   securityId: String(s.securityId || s.symbolId || s.symbol_id || ''),
                 })),
