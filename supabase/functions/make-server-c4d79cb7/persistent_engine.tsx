@@ -184,7 +184,10 @@ function selectNearestAtmSymbol(symbols: any[], aiAtmStrike: number | null, inde
     })
     .sort((a, b) => a.distance - b.distance || String(getSymbolDisplayName(a.symbol)).localeCompare(String(getSymbolDisplayName(b.symbol))));
   const best = ranked[0];
-  if (!best || best.distance > strikeStep * 3) return [];
+  if (!best) return [];
+  if (best.distance > strikeStep) {
+    console.warn(`⚠️ AUTO-STRIKE: nearest available strike is ${best.distance} pts away from AI ATM ${aiAtmStrike}. Proceeding with nearest configured contract.`);
+  }
   return [best.symbol];
 }
 
