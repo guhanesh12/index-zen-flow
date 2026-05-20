@@ -2351,22 +2351,22 @@ export class AdvancedAI {
     // Block PUT when 3+ of 4 oversold-exhaustion signals fire together.
     const oversoldSignalCount =
       (rsi < 32 ? 1 : 0) +
-      (stochK < 20 ? 1 : 0) +
+      (stoch.k < 20 ? 1 : 0) +
       (priceNearLowerBand ? 1 : 0) +
       (nearSupport ? 1 : 0);
     const overboughtSignalCount =
       (rsi > 68 ? 1 : 0) +
-      (stochK > 80 ? 1 : 0) +
+      (stoch.k > 80 ? 1 : 0) +
       (priceNearUpperBand ? 1 : 0) +
       (nearResistance ? 1 : 0);
     // Block PUT into oversold bounce zone unless we have a fresh BOS-down or
     // genuine high-volume breakdown (real continuation, not a grind into support).
     const oversoldBounceBlocksBear =
       oversoldSignalCount >= 3 &&
-      !(marketStructure.bos === "BEARISH" && breakoutQualityBear && isHighVolume);
+      !(marketStructure.bos === "BEAR" && breakoutQualityBear && isHighVolume);
     const overboughtRejectionBlocksBull =
       overboughtSignalCount >= 3 &&
-      !(marketStructure.bos === "BULLISH" && breakoutQualityBull && isHighVolume);
+      !(marketStructure.bos === "BULL" && breakoutQualityBull && isHighVolume);
 
 
 
