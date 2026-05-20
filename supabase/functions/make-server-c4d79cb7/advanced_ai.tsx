@@ -1849,6 +1849,7 @@ export class AdvancedAI {
     const momentumBull = macdHistogramExpandingBull || adxRising;
     const momentumBear = macdHistogramExpandingBear || adxRising;
 
+    const currentTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
     const analysisTimeMs = currentTsMs || Date.now();
     const istMinutes = this.getIstMinutes(analysisTimeMs);
     const inMidSessionTrapWindow = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
@@ -1857,7 +1858,6 @@ export class AdvancedAI {
     const weakMidSessionTrap = inMidSessionTrapWindow && (adx < 22 && !adxRising) && !hasAcceptableVolume && vwapFlat;
 
     const timeframeMinutes = options.timeframeMinutes || 5;
-    const currentTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
     const lastSignalTsMs = options.lastSignalTimestamp ? (options.lastSignalTimestamp < 1e12 ? options.lastSignalTimestamp * 1000 : options.lastSignalTimestamp) : 0;
     const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 2;
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
