@@ -277,22 +277,23 @@ export function DhanOrderManager({
 
   // Handle signal detection and auto order placement
   const handleSignal = async (symbol: any, signal: 'BUY' | 'SELL') => {
+    const orderSymbol = resolveAutoStrikeSymbol(symbol, signal, symbols);
     console.log('🎯 Signal Detected:', {
-      symbol: symbol.displayName || symbol.name,
+      symbol: orderSymbol.displayName || orderSymbol.name,
       signal: signal,
       timestamp: new Date().toISOString(),
     });
 
     // Check if symbol is active
-    if (!symbol.active) {
-      console.log('⚠️ Symbol not active, skipping order:', symbol.displayName || symbol.name);
+    if (!orderSymbol.active) {
+      console.log('⚠️ Symbol not active, skipping order:', orderSymbol.displayName || orderSymbol.name);
       return;
     }
 
     // Check if order already placed recently (prevent duplicates)
     const recentOrders = orders.filter(
       order => 
-        order.symbol?.name === symbol.name &&
+        order.symbol?.name === orderSymbol.name &&
         new Date().getTime() - new Date(order.timestamp).getTime() < 60000 // Last 1 minute
     );
 
@@ -302,7 +303,7 @@ export function DhanOrderManager({
     }
 
     // Place order
-    await placeOrder(symbol, signal);
+    await placeOrder(orderSymbol, signal);
   };
 
   // Notification system
