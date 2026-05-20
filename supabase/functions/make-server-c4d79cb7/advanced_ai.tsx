@@ -1960,6 +1960,16 @@ export class AdvancedAI {
     // ========== RISK MANAGEMENT ========== (FIX PROBLEM #10: dynamic RR)
     const currentPrice = lastCandle.close;
 
+    // 🔧 BUG FIX: SL/TGT direction must follow the dominant trend bias (which drives
+    // the BUY_CALL/BUY_PUT decision), NOT just the last candle's color. A bearish
+    // signal printed on a small green pullback candle was getting CALL-shaped SL/TGT.
+    const rmIsBullish =
+      trendBias === "bullish" ? true :
+      trendBias === "bearish" ? false :
+      confirmationBullish ? true :
+      confirmationBearish ? false :
+      isBullish;
+
     // ATR-based stop loss combined with swing structure (FIX 9: smarter stoploss)
     const atrStop = atr14 * 2;
     const swingLookback = ohlcData.slice(-15);
@@ -1968,8 +1978,8 @@ export class AdvancedAI {
     const swingStopBull = currentPrice - swingLow + atr14 * 0.2; // give 0.2 ATR buffer below swing low
     const swingStopBear = swingHigh - currentPrice + atr14 * 0.2;
     // Use the WIDER of ATR-stop vs swing-stop (more protective) — but cap at 3.5x ATR to keep RR sane.
-    const stopLossDistance = Math.min(atr14 * 3.5, Math.max(atrStop, isBullish ? swingStopBull : swingStopBear));
-    const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
+    const stopLossDistance = Math.min(atr14 * 3.5, Math.max(atrStop, rmIsBullish ? swingStopBull : swingStopBear));
+    const suggestedStopLoss = rmIsBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
 
     // Dynamic RR based on regime and trend strength:
     //   - Strong trend (ADX>40) + suitable regime → 3.0  (let winners run)
@@ -1986,7 +1996,7 @@ export class AdvancedAI {
       riskRewardRatio = 1.5;
 
     const targetDistance = stopLossDistance * riskRewardRatio;
-    const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
+    const suggestedTarget = rmIsBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
 
     const riskAmount = accountBalance * 0.02;
     const positionSize = Math.floor(riskAmount / Math.max(stopLossDistance, 1));
@@ -1996,7 +2006,7 @@ export class AdvancedAI {
     // ATR trailing stop: move SL to BE after 1 ATR profit, trail by 1.5 ATR after that
     const trailingStop = {
       initial: suggestedStopLoss,
-      trigger: isBullish ? currentPrice + atr14 : currentPrice - atr14, // when price hits this, activate trail
+      trigger: rmIsBullish ? currentPrice + atr14 : currentPrice - atr14, // when price hits this, activate trail
       trailDistance: atr14 * 1.5,
       breakeven: currentPrice,
     };
