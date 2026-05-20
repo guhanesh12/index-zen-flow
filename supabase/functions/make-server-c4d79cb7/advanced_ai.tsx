@@ -2363,10 +2363,10 @@ export class AdvancedAI {
     // genuine high-volume breakdown (real continuation, not a grind into support).
     const oversoldBounceBlocksBear =
       oversoldSignalCount >= 3 &&
-      !(marketStructure.bos === "BEARISH" && breakoutQualityBear && volumeBear);
+      !(marketStructure.bos === "BEARISH" && breakoutQualityBear && isHighVolume);
     const overboughtRejectionBlocksBull =
       overboughtSignalCount >= 3 &&
-      !(marketStructure.bos === "BULLISH" && breakoutQualityBull && volumeBull);
+      !(marketStructure.bos === "BULLISH" && breakoutQualityBull && isHighVolume);
 
 
 
