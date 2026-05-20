@@ -2470,6 +2470,7 @@ export class AdvancedAI {
       !newsVolatilityShock &&
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
+      !overboughtRejectionBlocksBull &&
       !(fakeBreakout && !continuationBull && !reversalBullEntry) &&
       !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish =
