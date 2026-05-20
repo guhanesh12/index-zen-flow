@@ -56,6 +56,61 @@ interface DhanOrderManagerProps {
   onOrderPlaced?: (order: OrderDetails) => void;
 }
 
+const normalizeIndexName = (value: any) => {
+  const raw = String(value?.index || value?.indexName || value?.index_name || value?.underlying || value?.name || value?.symbolName || '').toUpperCase().replace(/\s+/g, '');
+  if (raw.includes('BANKNIFTY')) return 'BANKNIFTY';
+  if (raw.includes('SENSEX')) return 'SENSEX';
+  return 'NIFTY';
+};
+
+const normalizeOptionType = (value: any) => {
+  const raw = String(value || '').toUpperCase();
+  if (raw.includes('BUY_CALL') || raw === 'BUY' || raw === 'CE' || raw === 'CALL') return 'CE';
+  if (raw.includes('BUY_PUT') || raw === 'SELL' || raw === 'PE' || raw === 'PUT') return 'PE';
+  return '';
+};
+
+const extractStrikePrice = (value: any) => {
+  const direct = Number(value?.aiAtmStrike || value?.atmStrike || value?.strikePrice || value?.strike_price || value?.strike || value?.raw_data?.strikePrice);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const text = String(value?.symbolName || value?.displayName || value?.name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const match = text.match(/(\d{4,6})(?=(CE|PE)$)/);
+  return match ? Number(match[1]) : null;
+};
+
+const getStrikeStep = (indexName: string) => indexName === 'BANKNIFTY' || indexName === 'SENSEX' ? 100 : 50;
+
+const resolveAutoStrikeSymbol = (requestedSymbol: any, signal: any, allSymbols: any[]) => {
+  const indexName = normalizeIndexName(requestedSymbol);
+  const targetOptionType = normalizeOptionType(signal) || normalizeOptionType(requestedSymbol?.optionType || requestedSymbol?.option_type);
+  const aiAtmStrike = Number(requestedSymbol?.aiAtmStrike || requestedSymbol?.atmStrike || requestedSymbol?.signalAtmStrike || requestedSymbol?.computedAtmStrike || requestedSymbol?.strikePrice || requestedSymbol?.strike_price || 0) || null;
+  if (!targetOptionType || !aiAtmStrike) return requestedSymbol;
+
+  const candidates = (allSymbols || []).filter((symbol) =>
+    symbol?.active !== false &&
+    normalizeIndexName(symbol) === indexName &&
+    normalizeOptionType(symbol?.optionType || symbol?.option_type || symbol?.symbolName || symbol?.name) === targetOptionType &&
+    (symbol?.securityId || symbol?.symbolId || symbol?.symbol_id)
+  );
+  if (candidates.length === 0) return requestedSymbol;
+
+  const step = getStrikeStep(indexName);
+  const selected = candidates
+    .map((symbol) => ({ symbol, strike: extractStrikePrice(symbol) }))
+    .sort((a, b) => Math.abs((a.strike || aiAtmStrike + step * 99) - aiAtmStrike) - Math.abs((b.strike || aiAtmStrike + step * 99) - aiAtmStrike))[0]?.symbol;
+
+  if (selected && selected !== requestedSymbol) {
+    console.log('🎯 Auto-selected nearest AI ATM strike:', {
+      indexName,
+      targetOptionType,
+      aiAtmStrike,
+      selected: selected.displayName || selected.symbolName || selected.name,
+      selectedStrike: extractStrikePrice(selected),
+    });
+  }
+  return selected || requestedSymbol;
+};
+
 export function DhanOrderManager({ 
   dhanClientId, 
   dhanAccessToken, 
