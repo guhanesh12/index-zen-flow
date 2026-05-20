@@ -172,6 +172,22 @@ function getStrikeStep(indexName: SupportedIndex): number {
   return indexName === 'BANKNIFTY' || indexName === 'SENSEX' ? 100 : 50;
 }
 
+function selectNearestAtmSymbol(symbols: any[], aiAtmStrike: number | null, indexName: SupportedIndex): any[] {
+  if (symbols.length === 0) return [];
+  if (!aiAtmStrike) return [symbols[0]];
+  const strikeStep = getStrikeStep(indexName);
+  const ranked = symbols
+    .map((symbol: any) => {
+      const strike = extractStrikePrice(symbol);
+      const distance = strike ? Math.abs(strike - aiAtmStrike) : Number.MAX_SAFE_INTEGER;
+      return { symbol, strike, distance };
+    })
+    .sort((a, b) => a.distance - b.distance || String(getSymbolDisplayName(a.symbol)).localeCompare(String(getSymbolDisplayName(b.symbol))));
+  const best = ranked[0];
+  if (!best || best.distance > strikeStep * 3) return [];
+  return [best.symbol];
+}
+
 async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
   try {
     const { data, error } = await supabaseAdmin
