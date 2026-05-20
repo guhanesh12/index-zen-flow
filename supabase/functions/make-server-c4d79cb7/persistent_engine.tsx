@@ -1987,7 +1987,14 @@ class PersistentTradingEngine {
 
         // ⚡ Same Engaged engine monitor confirmation: fetch fresh AI signal and exit strong reversal.
         const monitorIndex = normalizeIndexName(position);
-        const currentSignal = await getMonitorSignal(monitorIndex);
+        // Only refresh AI signal once per candle close (not every 1-second tick)
+        const _candleKey = `${monitorIndex}:${state.candleInterval}:${state.lastProcessedCandle}`;
+        const currentSignal = monitorSignalCache.has(_candleKey)
+          ? monitorSignalCache.get(_candleKey)
+          : await getMonitorSignal(monitorIndex).then((s) => {
+              monitorSignalCache.set(_candleKey, s);
+              return s;
+            });
         const indicators = currentSignal?.indicators || {};
         let signalShouldExit = false;
         let signalExitReason = "";
