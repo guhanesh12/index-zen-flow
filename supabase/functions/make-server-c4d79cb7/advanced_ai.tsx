@@ -2344,6 +2344,32 @@ export class AdvancedAI {
     const overExpandedBlocksBear =
       overExpandedCandle && !continuationBear && !reversalBearEntry && !pullbackQualityBear;
 
+    // ===== NEW FIX: OVERSOLD / OVERBOUGHT EXHAUSTION BOUNCE GUARD =====
+    // Real-market bug: at 10:15 IST BANKNIFTY fired BUY_PUT while RSI=29, Stoch=15,
+    // price AT lower Bollinger band, AND near support s1. Classic bounce zone,
+    // but FAST-continuation path ignored Stochastic because ADX was strong (38).
+    // Block PUT when 3+ of 4 oversold-exhaustion signals fire together.
+    const oversoldSignalCount =
+      (rsi < 32 ? 1 : 0) +
+      (stochK < 20 ? 1 : 0) +
+      (priceNearLowerBand ? 1 : 0) +
+      (nearSupport ? 1 : 0);
+    const overboughtSignalCount =
+      (rsi > 68 ? 1 : 0) +
+      (stochK > 80 ? 1 : 0) +
+      (priceNearUpperBand ? 1 : 0) +
+      (nearResistance ? 1 : 0);
+    // Block PUT into oversold bounce zone unless we have a fresh BOS-down or
+    // genuine high-volume breakdown (real continuation, not a grind into support).
+    const oversoldBounceBlocksBear =
+      oversoldSignalCount >= 3 &&
+      !(marketStructure.bos === "BEARISH" && breakoutQualityBear && volumeBear);
+    const overboughtRejectionBlocksBull =
+      overboughtSignalCount >= 3 &&
+      !(marketStructure.bos === "BULLISH" && breakoutQualityBull && volumeBull);
+
+
+
     // ===== NEW FIX C: MOMENTUM-CLIMAX EXHAUSTION =====
     // 3 consecutive expansion candles + RSI extreme + ATR spike + climax volume = blow-off top/bottom.
     const last3Bars = ohlcData.slice(-3);
