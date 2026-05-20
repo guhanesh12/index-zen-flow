@@ -2143,7 +2143,7 @@ export class AdvancedAI {
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish = confirmationBullish
-      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
+      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 28) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
       && (momentumBull || adxStrong || continuationBull || reversalBullEntry)
       && (slopeOkBull || adxStrong || continuationBull || reversalBullEntry)
@@ -2162,7 +2162,7 @@ export class AdvancedAI {
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
-      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry || (momentumStrong && adx > 30))
+      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 28) || reversalBearEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry)
       && (momentumBear || adxStrong || continuationBear || reversalBearEntry)
       && (slopeOkBear || adxStrong || continuationBear || reversalBearEntry)
