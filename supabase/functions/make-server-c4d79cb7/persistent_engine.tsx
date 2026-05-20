@@ -1074,6 +1074,7 @@ class PersistentTradingEngine {
                 consecutiveLossThreshold: 3,
                 consecutiveLossCooldownMs: 30 * 60 * 1000,
                 minimumBarsBetweenSignals: 2,
+                blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
               });
               if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
                 await kv.set(
