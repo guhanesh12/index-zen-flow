@@ -2246,17 +2246,9 @@ export class AdvancedAI {
         (p.type === "HAMMER" || p.type === "MORNING_STAR" || p.type === "BULLISH_ENGULFING"),
     );
     const reversalBearEntry =
-      hasBearReversalPattern &&
-      adx > 25 &&
-      !priceAboveVWAP &&
-      macdHistWeakeningBear &&
-      lastCandle.close < lastCandle.open;
+      hasBearReversalPattern && adx > 25 && macdHistWeakeningBear && lastCandle.close < lastCandle.open;
     const reversalBullEntry =
-      hasBullReversalPattern &&
-      adx > 25 &&
-      priceAboveVWAP &&
-      macdHistImprovingBull &&
-      lastCandle.close > lastCandle.open;
+      hasBullReversalPattern && adx > 25 && macdHistImprovingBull && lastCandle.close > lastCandle.open;
 
     // ===== FIX 6: TREND EXHAUSTION GUARD =====
     // Block chasing entries when price is > 4 ATR away from EMA21 (overextended).
