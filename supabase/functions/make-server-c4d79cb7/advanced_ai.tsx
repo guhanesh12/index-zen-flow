@@ -1955,10 +1955,14 @@ export class AdvancedAI {
     const macdHistWeakeningBear = macdData.histogram < prevMacdData.histogram;
     const priceTouchedEmaZoneBull = lastCandle.low <= ema9 + atr14 * 0.3 || lastCandle.low <= ema21 + atr14 * 0.4;
     const priceTouchedEmaZoneBear = lastCandle.high >= ema9 - atr14 * 0.3 || lastCandle.high >= ema21 - atr14 * 0.4;
-    const continuationBull = adx > 25 && ema9 > ema21 && priceTouchedEmaZoneBull
-      && (bullishRejectionCandle || strongBullishClose) && macdHistImprovingBull;
-    const continuationBear = adx > 25 && ema9 < ema21 && priceTouchedEmaZoneBear
-      && (bearishRejectionCandle || strongBearishClose) && macdHistWeakeningBear;
+    const institutionalContinuationBull = adx > 28 && ema9 > ema21 && rsi > 45 && rsi < 78 && macdHistImprovingBull;
+    const institutionalContinuationBear = adx > 28 && ema9 < ema21 && rsi < 55 && rsi > 22 && macdHistWeakeningBear;
+    const continuationBull = institutionalContinuationBull && (
+      priceTouchedEmaZoneBull || bullishRejectionCandle || strongBullishClose || lastCandle.close >= ema9 - atr14 * 0.35
+    );
+    const continuationBear = institutionalContinuationBear && (
+      priceTouchedEmaZoneBear || bearishRejectionCandle || strongBearishClose || lastCandle.close <= ema9 + atr14 * 0.35
+    );
 
     // ===== FIX 3: REVERSAL CONTINUATION ENTRY MODEL =====
     // Bearish: shooting star / evening star / bearish engulfing + MACD weakening + below VWAP + ADX>25
