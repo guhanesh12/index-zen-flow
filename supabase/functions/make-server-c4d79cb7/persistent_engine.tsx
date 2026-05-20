@@ -172,6 +172,25 @@ function getStrikeStep(indexName: SupportedIndex): number {
   return indexName === 'BANKNIFTY' || indexName === 'SENSEX' ? 100 : 50;
 }
 
+function selectNearestAtmSymbol(symbols: any[], aiAtmStrike: number | null, indexName: SupportedIndex): any[] {
+  if (symbols.length === 0) return [];
+  if (!aiAtmStrike) return [symbols[0]];
+  const strikeStep = getStrikeStep(indexName);
+  const ranked = symbols
+    .map((symbol: any) => {
+      const strike = extractStrikePrice(symbol);
+      const distance = strike ? Math.abs(strike - aiAtmStrike) : Number.MAX_SAFE_INTEGER;
+      return { symbol, strike, distance };
+    })
+    .sort((a, b) => a.distance - b.distance || String(getSymbolDisplayName(a.symbol)).localeCompare(String(getSymbolDisplayName(b.symbol))));
+  const best = ranked[0];
+  if (!best) return [];
+  if (best.distance > strikeStep) {
+    console.warn(`⚠️ AUTO-STRIKE: nearest available strike is ${best.distance} pts away from AI ATM ${aiAtmStrike}. Proceeding with nearest configured contract.`);
+  }
+  return [best.symbol];
+}
+
 async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
   try {
     const { data, error } = await supabaseAdmin
@@ -1145,7 +1164,7 @@ class PersistentTradingEngine {
           const symbolsForIndex = state.symbols.filter(s => normalizeIndexName(s) === indexName);
           const matchingSymbols = symbolsForIndex.filter(s => {
             if (s.active === false) return false;
-            if (normalizeOptionType(s.optionType || s.option_type) !== targetOptionType) return false;
+            if (normalizeOptionType(s.optionType || s.option_type || s.symbolName || s.name) !== targetOptionType) return false;
             if (!s.securityId && !s.symbolId && !s.symbol_id) return false;
             return true;
           });
@@ -1153,10 +1172,7 @@ class PersistentTradingEngine {
           const signalEntryPrice = Number(aiSignal?.signal?.riskManagement?.suggestedEntry || aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close || 0);
           const strikeStep = getStrikeStep(indexName as SupportedIndex);
           const signalAtmStrike = signalEntryPrice > 0 ? Math.round(signalEntryPrice / strikeStep) * strikeStep : null;
-          const strikeSafeSymbols = matchingSymbols.filter((s: any) => {
-            const symbolStrike = extractStrikePrice(s);
-            return !signalAtmStrike || !symbolStrike || Math.abs(symbolStrike - signalAtmStrike) <= strikeStep;
-          });
+          const autoSelectedSymbols = selectNearestAtmSymbol(matchingSymbols, signalAtmStrike, indexName as SupportedIndex);
 
           console.log(`🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`);
           if (matchingSymbols.length === 0) {
@@ -1172,30 +1188,29 @@ class PersistentTradingEngine {
                 symbolsForIndex: symbolsForIndex.map(s => ({
                   name: getSymbolDisplayName(s),
                   index: normalizeIndexName(s),
-                  optionType: normalizeOptionType(s.optionType || s.option_type),
+                  optionType: normalizeOptionType(s.optionType || s.option_type || s.symbolName || s.name),
                   active: s.active !== false,
                   securityId: String(s.securityId || s.symbolId || s.symbol_id || ''),
                 })),
               }
             });
-          } else if (strikeSafeSymbols.length === 0) {
-            console.log(`🛑 ${indexName} ${action} skipped - selected ${targetOptionType} symbols are not near signal ATM strike ${signalAtmStrike}`);
+          } else if (autoSelectedSymbols.length === 0) {
+            console.log(`🛑 ${indexName} ${action} skipped - no usable ${targetOptionType} contract could be auto-selected near AI ATM strike ${signalAtmStrike}`);
             await this.appendSharedLog(userId, {
               type: 'WAIT',
               timestamp: Date.now(),
-              message: `🛑 ${indexName} ${action} skipped — selected ${targetOptionType} strike is not near AI ATM strike ${signalAtmStrike || 'unknown'}`,
+              message: `🛑 ${indexName} ${action} skipped — no usable ${targetOptionType} contract could be auto-selected near AI ATM strike ${signalAtmStrike || 'unknown'}`,
               data: {
                 index: indexName,
                 action,
                 signalEntryPrice,
                 signalAtmStrike,
-                allowedDifference: strikeStep,
-                rejectedSymbols: matchingSymbols.map((s: any) => ({ name: getSymbolDisplayName(s), strike: extractStrikePrice(s), securityId: String(s.securityId || s.symbolId || s.symbol_id || '') })),
+                availableSymbols: matchingSymbols.map((s: any) => ({ name: getSymbolDisplayName(s), strike: extractStrikePrice(s), securityId: String(s.securityId || s.symbolId || s.symbol_id || '') })),
               }
             });
           }
           
-          for (const symbol of strikeSafeSymbols) {
+          for (const symbol of autoSelectedSymbols) {
             const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
             const normalizedSymbolName = getSymbolDisplayName(symbol);
             const normalizedOptionType = normalizeOptionType(symbol.optionType || symbol.option_type);

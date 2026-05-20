@@ -266,9 +266,14 @@ export interface AdvancedSignalOptions {
   lastLossTimestamp?: number;                // ms epoch of most recent loss
   consecutiveLossThreshold?: number;         // default 3
   consecutiveLossCooldownMs?: number;        // default 30 * 60 * 1000
+  blockNewEntriesAfterMinutes?: number;       // default 15:00 IST — no fresh intraday entries after this
 }
 
 export class AdvancedAI {
+  private static getIstMinutes(timestampMs: number): number {
+    const istDate = new Date(timestampMs + 5.5 * 60 * 60 * 1000);
+    return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
+  }
   
   // ========================================
   // TECHNICAL INDICATORS (ALL OPTIMIZED!)
@@ -1844,15 +1849,15 @@ export class AdvancedAI {
     const momentumBull = macdHistogramExpandingBull || adxRising;
     const momentumBear = macdHistogramExpandingBear || adxRising;
 
-    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const istMinutes = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+    const currentTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const analysisTimeMs = currentTsMs || Date.now();
+    const istMinutes = this.getIstMinutes(analysisTimeMs);
     const inMidSessionTrapWindow = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
     const prevVwap = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
     const vwapFlat = Math.abs(vwap - prevVwap) <= Math.max(1, atr14 * 0.05);
     const weakMidSessionTrap = inMidSessionTrapWindow && (adx < 22 && !adxRising) && !hasAcceptableVolume && vwapFlat;
 
     const timeframeMinutes = options.timeframeMinutes || 5;
-    const currentTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
     const lastSignalTsMs = options.lastSignalTimestamp ? (options.lastSignalTimestamp < 1e12 ? options.lastSignalTimestamp * 1000 : options.lastSignalTimestamp) : 0;
     const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 2;
     const barsSinceLastSignal = lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
@@ -1950,10 +1955,14 @@ export class AdvancedAI {
     const macdHistWeakeningBear = macdData.histogram < prevMacdData.histogram;
     const priceTouchedEmaZoneBull = lastCandle.low <= ema9 + atr14 * 0.3 || lastCandle.low <= ema21 + atr14 * 0.4;
     const priceTouchedEmaZoneBear = lastCandle.high >= ema9 - atr14 * 0.3 || lastCandle.high >= ema21 - atr14 * 0.4;
-    const continuationBull = adx > 25 && ema9 > ema21 && priceTouchedEmaZoneBull
-      && (bullishRejectionCandle || strongBullishClose) && macdHistImprovingBull;
-    const continuationBear = adx > 25 && ema9 < ema21 && priceTouchedEmaZoneBear
-      && (bearishRejectionCandle || strongBearishClose) && macdHistWeakeningBear;
+    const institutionalContinuationBull = adx > 28 && ema9 > ema21 && rsi > 45 && rsi < 78 && macdHistImprovingBull;
+    const institutionalContinuationBear = adx > 28 && ema9 < ema21 && rsi < 55 && rsi > 22 && macdHistWeakeningBear;
+    const continuationBull = institutionalContinuationBull && (
+      priceTouchedEmaZoneBull || bullishRejectionCandle || strongBullishClose || lastCandle.close >= ema9 - atr14 * 0.35
+    );
+    const continuationBear = institutionalContinuationBear && (
+      priceTouchedEmaZoneBear || bearishRejectionCandle || strongBearishClose || lastCandle.close <= ema9 + atr14 * 0.35
+    );
 
     // ===== FIX 3: REVERSAL CONTINUATION ENTRY MODEL =====
     // Bearish: shooting star / evening star / bearish engulfing + MACD weakening + below VWAP + ADX>25
@@ -1978,8 +1987,7 @@ export class AdvancedAI {
 
     // ===== FIX 7: SESSION-AWARE CONFIDENCE MODIFIER =====
     // High-priority: 09:20–11:15 and 13:45–15:00. Lunch chop 11:45–13:15 = penalty.
-    const _istNowSess = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const _istMinSess = _istNowSess.getUTCHours() * 60 + _istNowSess.getUTCMinutes();
+    const _istMinSess = istMinutes;
     const inHighPrioritySession =
       (_istMinSess >= 9 * 60 + 20 && _istMinSess <= 11 * 60 + 15) ||
       (_istMinSess >= 13 * 60 + 45 && _istMinSess <= 15 * 60);
@@ -2131,9 +2139,11 @@ export class AdvancedAI {
       : 0;
     const msSinceLastLoss = lastLossMs > 0 ? (currentTsMs - lastLossMs) : Infinity;
     const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
+    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60;
+    const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish = confirmationBullish
-      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
+      && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 28) || reversalBullEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry)
       && (momentumBull || adxStrong || continuationBull || reversalBullEntry)
       && (slopeOkBull || adxStrong || continuationBull || reversalBullEntry)
@@ -2148,10 +2158,11 @@ export class AdvancedAI {
       && !noiseFilter5m
       && !newsVolatilityShock
       && !consecutiveLossLockout
+      && !lateNewEntryBlocked
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
-      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 30) || reversalBearEntry || (momentumStrong && adx > 30))
+      && (totalBearScore >= requiredConfirmations || (continuationBear && adx > 28) || reversalBearEntry || (momentumStrong && adx > 30))
       && (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry)
       && (momentumBear || adxStrong || continuationBear || reversalBearEntry)
       && (slopeOkBear || adxStrong || continuationBear || reversalBearEntry)
@@ -2166,6 +2177,7 @@ export class AdvancedAI {
       && !noiseFilter5m
       && !newsVolatilityShock
       && !consecutiveLossLockout
+      && !lateNewEntryBlocked
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
@@ -2340,6 +2352,12 @@ export class AdvancedAI {
       confidence = 30;
       bias = 'Neutral';
       reasoning = `WAIT: News/event volatility shock — ATR ${atr14.toFixed(2)} vs avg ${avgAtr20.toFixed(2)} (${(atr14 / avgAtr20).toFixed(2)}x > 2.5x). Likely RBI/Fed/Budget/expiry spike.`;
+
+    } else if (lateNewEntryBlocked) {
+      action = 'WAIT';
+      confidence = 32;
+      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : 'Neutral';
+      reasoning = `WAIT: Late-entry gate — no fresh intraday entries after ${Math.floor(lastEntryMinute / 60).toString().padStart(2, '0')}:${(lastEntryMinute % 60).toString().padStart(2, '0')} IST for 15m strategy. Direction may be correct but RR/time-to-target is insufficient.`;
 
     } else if (noiseFilter5m) {
       action = 'WAIT';
@@ -2538,6 +2556,7 @@ export class AdvancedAI {
         marketWarnings: [
           weakMidSessionTrap ? 'mid-session-trap' : '',
           cooldownActive ? 'cooldown-active' : '',
+          lateNewEntryBlocked ? 'late-entry-block-after-15:00-ist' : '',
           trendExhausted ? 'Trend exhaustion detected' : '',
           inLunchChopSession ? 'Lunch session low momentum' : '',
           fakeBreakout ? 'fake-breakout' : '',
@@ -2550,6 +2569,8 @@ export class AdvancedAI {
         entryQualityTier,
         continuationBull,
         continuationBear,
+        institutionalContinuationBull,
+        institutionalContinuationBear,
         reversalBullEntry,
         reversalBearEntry,
         trendExhausted,
@@ -2563,6 +2584,9 @@ export class AdvancedAI {
         distFromEma21Atr: +distFromEma21Atr.toFixed(2),
         sessionPriority: inHighPrioritySession ? 'HIGH' : inLunchChopSession ? 'LOW' : 'NORMAL',
         sessionBehavior,
+        istMinutes: _istMinSess,
+        lateNewEntryBlocked,
+        lastEntryMinute,
         sessionBehaviorModifier,
         candleExpansion: +candleExpansion.toFixed(2),
         overExpandedCandle,
