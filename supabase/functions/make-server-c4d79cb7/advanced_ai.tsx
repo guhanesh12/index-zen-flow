@@ -2140,7 +2140,7 @@ export class AdvancedAI {
     // ADX > 35 → 4 (strong trend, few confirmations needed)
     // ADX 25-35 → 5
     // ADX < 25 → 7 (weak/ranging — need overwhelming proof)
-    const requiredConfirmations = (adx > 35 ? 4 : adx >= 25 ? 5 : 7) + lunchExtraConfirmation;
+    const requiredConfirmations = (adx > 35 ? 6 : adx >= 25 ? 7 : 10) + lunchExtraConfirmation;
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [
       confirmations.macd,
