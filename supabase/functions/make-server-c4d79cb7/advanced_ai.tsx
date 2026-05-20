@@ -1005,7 +1005,7 @@ export class AdvancedAI {
   }
 
   private static detectHigherTimeframeTrend(data?: OHLCCandle[]): "bull" | "bear" | "neutral" {
-    if (!data || data.length < 15) return "neutral";
+    if (!data || data.length < 5) return "neutral"; // 5 bars minimum — use partial data rather than blocking
     const last = data[data.length - 1];
     const ema9 = this.calculateEMA(data, 9);
     const ema21 = this.calculateEMA(data, 21);
