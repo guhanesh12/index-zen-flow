@@ -394,15 +394,23 @@ export class AdvancedAI {
    * Calculate VWAP (Volume Weighted Average Price)
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
+    // Anchor VWAP to 09:15 IST session start (NSE standard)
+    const IST_OFFSET = 5.5 * 3600;
+    const SESSION_START_MIN = 9 * 60 + 15; // 09:15
+    const sessionCandles = data.filter((c) => {
+      const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
+      const d = new Date((tsMs / 1000 + IST_OFFSET) * 1000);
+      const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+      return min >= SESSION_START_MIN;
+    });
+    const candles = sessionCandles.length > 0 ? sessionCandles : data;
     let cumulativeTPV = 0;
     let cumulativeVolume = 0;
-
-    for (const candle of data) {
+    for (const candle of candles) {
       const typicalPrice = (candle.high + candle.low + candle.close) / 3;
-      cumulativeTPV += typicalPrice * candle.volume;
-      cumulativeVolume += candle.volume;
+      cumulativeTPV += typicalPrice * (candle.volume || 1);
+      cumulativeVolume += candle.volume || 1;
     }
-
     return cumulativeVolume > 0 ? cumulativeTPV / cumulativeVolume : data[data.length - 1].close;
   }
 
