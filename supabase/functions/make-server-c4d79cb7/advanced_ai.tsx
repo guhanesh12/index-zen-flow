@@ -2353,6 +2353,12 @@ export class AdvancedAI {
       bias = 'Neutral';
       reasoning = `WAIT: News/event volatility shock — ATR ${atr14.toFixed(2)} vs avg ${avgAtr20.toFixed(2)} (${(atr14 / avgAtr20).toFixed(2)}x > 2.5x). Likely RBI/Fed/Budget/expiry spike.`;
 
+    } else if (lateNewEntryBlocked) {
+      action = 'WAIT';
+      confidence = 32;
+      bias = useTrendBias && trendBias !== 'neutral' ? (trendBias === 'bullish' ? 'Bullish' : 'Bearish') : 'Neutral';
+      reasoning = `WAIT: Late-entry gate — no fresh intraday entries after ${Math.floor(lastEntryMinute / 60).toString().padStart(2, '0')}:${(lastEntryMinute % 60).toString().padStart(2, '0')} IST for 15m strategy. Direction may be correct but RR/time-to-target is insufficient.`;
+
     } else if (noiseFilter5m) {
       action = 'WAIT';
       confidence = 34;
