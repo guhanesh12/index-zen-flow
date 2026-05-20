@@ -2139,6 +2139,8 @@ export class AdvancedAI {
       : 0;
     const msSinceLastLoss = lastLossMs > 0 ? (currentTsMs - lastLossMs) : Infinity;
     const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
+    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60;
+    const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish = confirmationBullish
       && (totalBullScore >= requiredConfirmations || (continuationBull && adx > 30) || reversalBullEntry || (momentumStrong && adx > 30))
@@ -2156,6 +2158,7 @@ export class AdvancedAI {
       && !noiseFilter5m
       && !newsVolatilityShock
       && !consecutiveLossLockout
+      && !lateNewEntryBlocked
       && !(fakeBreakout && !continuationBull && !reversalBullEntry)
       && !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish = confirmationBearish
@@ -2174,6 +2177,7 @@ export class AdvancedAI {
       && !noiseFilter5m
       && !newsVolatilityShock
       && !consecutiveLossLockout
+      && !lateNewEntryBlocked
       && !(fakeBreakout && !continuationBear && !reversalBearEntry)
       && !(htfDisagreeBear && !htfAdxStrong);
 
