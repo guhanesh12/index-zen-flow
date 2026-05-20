@@ -2420,7 +2420,7 @@ export class AdvancedAI {
       : 0;
     const msSinceLastLoss = lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60;
+    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 15; // 15:15 IST — last viable 15m entry
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish =
