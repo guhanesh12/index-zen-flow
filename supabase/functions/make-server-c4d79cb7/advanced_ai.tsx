@@ -2493,6 +2493,7 @@ export class AdvancedAI {
       !newsVolatilityShock &&
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
+      !oversoldBounceBlocksBear &&
       !(fakeBreakout && !continuationBear && !reversalBearEntry) &&
       !(htfDisagreeBear && !htfAdxStrong);
 
