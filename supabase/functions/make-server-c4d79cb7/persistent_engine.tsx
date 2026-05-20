@@ -1270,21 +1270,15 @@ class PersistentTradingEngine {
             return true;
           });
 
-          const signalEntryPrice = Number(
-            aiSignal?.signal?.riskManagement?.suggestedEntry ||
-              aiSignal?.ohlcData?.[aiSignal?.ohlcData?.length - 1]?.close ||
-              0,
-          );
-          const strikeStep = getStrikeStep(indexName as SupportedIndex);
-          const signalAtmStrike = signalEntryPrice > 0 ? Math.round(signalEntryPrice / strikeStep) * strikeStep : null;
-          const autoSelectedSymbols = selectNearestAtmSymbol(
-            matchingSymbols,
-            signalAtmStrike,
-            indexName as SupportedIndex,
-          );
+          // 🎯 MANUAL-ONLY STRIKE MODE
+          // Auto-strike (nearest-to-ATM) selection is DISABLED.
+          // We place trades on EVERY user-added active symbol that matches the
+          // index + option type. Whatever the user manually added in Symbol
+          // Manager is exactly what gets traded — no filtering by ATM distance.
+          const autoSelectedSymbols = matchingSymbols;
 
           console.log(
-            `🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`,
+            `🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (manual-only mode, from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`,
           );
           if (matchingSymbols.length === 0) {
             console.log(
@@ -1303,7 +1297,7 @@ class PersistentTradingEngine {
             await this.appendSharedLog(userId, {
               type: "ERROR",
               timestamp: Date.now(),
-              message: `❌ ${indexName} ${action} signal skipped - no matching active ${targetOptionType || "option"} symbol found for order placement`,
+              message: `❌ ${indexName} ${action} signal skipped - no manually-added active ${targetOptionType || "option"} symbol found. Please add a ${targetOptionType} contract for ${indexName} in Symbol Manager.`,
               data: {
                 index: indexName,
                 action,
@@ -1313,26 +1307,6 @@ class PersistentTradingEngine {
                   index: normalizeIndexName(s),
                   optionType: normalizeOptionType(s.optionType || s.option_type || s.symbolName || s.name),
                   active: s.active !== false,
-                  securityId: String(s.securityId || s.symbolId || s.symbol_id || ""),
-                })),
-              },
-            });
-          } else if (autoSelectedSymbols.length === 0) {
-            console.log(
-              `🛑 ${indexName} ${action} skipped - no usable ${targetOptionType} contract could be auto-selected near AI ATM strike ${signalAtmStrike}`,
-            );
-            await this.appendSharedLog(userId, {
-              type: "WAIT",
-              timestamp: Date.now(),
-              message: `🛑 ${indexName} ${action} skipped — no usable ${targetOptionType} contract could be auto-selected near AI ATM strike ${signalAtmStrike || "unknown"}`,
-              data: {
-                index: indexName,
-                action,
-                signalEntryPrice,
-                signalAtmStrike,
-                availableSymbols: matchingSymbols.map((s: any) => ({
-                  name: getSymbolDisplayName(s),
-                  strike: extractStrikePrice(s),
                   securityId: String(s.securityId || s.symbolId || s.symbol_id || ""),
                 })),
               },
