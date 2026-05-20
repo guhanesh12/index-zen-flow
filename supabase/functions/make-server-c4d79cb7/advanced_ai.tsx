@@ -1849,8 +1849,8 @@ export class AdvancedAI {
     const momentumBull = macdHistogramExpandingBull || adxRising;
     const momentumBear = macdHistogramExpandingBear || adxRising;
 
-    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const istMinutes = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+    const analysisTimeMs = currentTsMs || Date.now();
+    const istMinutes = this.getIstMinutes(analysisTimeMs);
     const inMidSessionTrapWindow = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
     const prevVwap = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
     const vwapFlat = Math.abs(vwap - prevVwap) <= Math.max(1, atr14 * 0.05);
@@ -1983,8 +1983,7 @@ export class AdvancedAI {
 
     // ===== FIX 7: SESSION-AWARE CONFIDENCE MODIFIER =====
     // High-priority: 09:20–11:15 and 13:45–15:00. Lunch chop 11:45–13:15 = penalty.
-    const _istNowSess = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const _istMinSess = _istNowSess.getUTCHours() * 60 + _istNowSess.getUTCMinutes();
+    const _istMinSess = istMinutes;
     const inHighPrioritySession =
       (_istMinSess >= 9 * 60 + 20 && _istMinSess <= 11 * 60 + 15) ||
       (_istMinSess >= 13 * 60 + 45 && _istMinSess <= 15 * 60);
