@@ -1774,7 +1774,7 @@ class PersistentTradingEngine {
               ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                   higherTimeframeData: real15mData,
                   timeframeMinutes: tfMin,
-                  minimumBarsBetweenSignals: 2,
+                  minimumBarsBetweenSignals: 1, // ⚡ FAST MODE
                 })
               : null;
           monitorSignalCache.set(indexName, signal);
