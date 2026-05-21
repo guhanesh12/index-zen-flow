@@ -1171,9 +1171,23 @@ class PersistentTradingEngine {
             },
           });
 
-          // Check if we should trade (only for symbols that match this index)
-          if (action === "WAIT" || confidence < 70) {
-            console.log(`⏸️ ${indexName} SKIPPING - Low confidence (${confidence}%) or WAIT signal`);
+          // ⚡ FAST MODE: live order gate lowered from 70 → 65; clear skip-reason logs.
+          if (action === "WAIT") {
+            console.log(`⏸️ ${indexName} SKIP — WAIT signal | conf=${confidence}% | reason: ${reason || "n/a"}`);
+            await this.appendSharedLog(userId, {
+              type: "SKIP",
+              timestamp: Date.now(),
+              message: `⏸️ ${indexName} SKIP (WAIT) | ${confidence}% | ${reason || "no reason"}`,
+            });
+            continue;
+          }
+          if (confidence < 65) {
+            console.log(`⏸️ ${indexName} SKIP — Low confidence ${confidence}% (<65) | ${reason || ""}`);
+            await this.appendSharedLog(userId, {
+              type: "SKIP",
+              timestamp: Date.now(),
+              message: `⏸️ ${indexName} SKIP — confidence ${confidence}% below 65% gate`,
+            });
             continue;
           }
 
