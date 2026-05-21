@@ -2110,7 +2110,7 @@ export class AdvancedAI {
         ? options.lastSignalTimestamp * 1000
         : options.lastSignalTimestamp
       : 0;
-    const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 2;
+    const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 1; // ⚡ FAST MODE default 1 bar
     const barsSinceLastSignal =
       lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
     const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;

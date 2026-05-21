@@ -403,9 +403,11 @@ class PersistentTradingEngine {
     const marketClose = 15 * 60 + 30;
 
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
-      engineState.lastProcessedCandle = this.getCurrentCandleTimestamp(istTime, parseInt(candleInterval));
+      // ⚡ FAST MODE: Do NOT arm-and-wait. Leave lastProcessedCandle empty so the
+      // very next tick analyzes the current candle immediately (no skipped morning entry).
+      engineState.lastProcessedCandle = "";
       console.log(
-        `⏱️ Engine armed for ${userId} at candle ${engineState.lastProcessedCandle} - waiting for next ${candleInterval}M candle close`,
+        `⚡ FAST MODE: Engine started for ${userId} - will analyze current ${candleInterval}M candle on next tick (no wait).`,
       );
     }
 
@@ -1073,7 +1075,7 @@ class PersistentTradingEngine {
                 lastLossTimestamp,
                 consecutiveLossThreshold: 3,
                 consecutiveLossCooldownMs: 30 * 60 * 1000,
-                minimumBarsBetweenSignals: 2,
+                minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
                 blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
               });
               if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
@@ -1169,9 +1171,23 @@ class PersistentTradingEngine {
             },
           });
 
-          // Check if we should trade (only for symbols that match this index)
-          if (action === "WAIT" || confidence < 70) {
-            console.log(`⏸️ ${indexName} SKIPPING - Low confidence (${confidence}%) or WAIT signal`);
+          // ⚡ FAST MODE: live order gate lowered from 70 → 65; clear skip-reason logs.
+          if (action === "WAIT") {
+            console.log(`⏸️ ${indexName} SKIP — WAIT signal | conf=${confidence}% | reason: ${reason || "n/a"}`);
+            await this.appendSharedLog(userId, {
+              type: "SKIP",
+              timestamp: Date.now(),
+              message: `⏸️ ${indexName} SKIP (WAIT) | ${confidence}% | ${reason || "no reason"}`,
+            });
+            continue;
+          }
+          if (confidence < 65) {
+            console.log(`⏸️ ${indexName} SKIP — Low confidence ${confidence}% (<65) | ${reason || ""}`);
+            await this.appendSharedLog(userId, {
+              type: "SKIP",
+              timestamp: Date.now(),
+              message: `⏸️ ${indexName} SKIP — confidence ${confidence}% below 65% gate`,
+            });
             continue;
           }
 
@@ -1758,7 +1774,7 @@ class PersistentTradingEngine {
               ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                   higherTimeframeData: real15mData,
                   timeframeMinutes: tfMin,
-                  minimumBarsBetweenSignals: 2,
+                  minimumBarsBetweenSignals: 1, // ⚡ FAST MODE
                 })
               : null;
           monitorSignalCache.set(indexName, signal);
