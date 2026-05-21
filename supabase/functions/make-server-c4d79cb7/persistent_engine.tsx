@@ -1075,7 +1075,7 @@ class PersistentTradingEngine {
                 lastLossTimestamp,
                 consecutiveLossThreshold: 3,
                 consecutiveLossCooldownMs: 30 * 60 * 1000,
-                minimumBarsBetweenSignals: 2,
+                minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
                 blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
               });
               if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
