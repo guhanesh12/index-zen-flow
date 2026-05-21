@@ -267,13 +267,23 @@ export default function AdvancedRegistration({ onSuccess, onBackToLanding }: Adv
         refresh_token: result.session.refresh_token
       });
 
-      // Show success message
-      setSuccess('Account created successfully! Redirecting to dashboard...');
-      
-      // Wait 2 seconds then redirect
-      setTimeout(() => {
-        onSuccess();
-      }, 2000);
+      // Fire admin alert + welcome email (non-blocking)
+       supabase.functions.invoke('notify-signup', {
+         body: {
+           fullName: formData.fullName,
+           email: formData.email,
+           mobile: formData.mobile,
+           clientId: result.user?.user_metadata?.client_id || result.profile?.client_id || '',
+         },
+       }).catch((e) => console.warn('notify-signup failed:', e));
+
+       // Show success message
+       setSuccess('Account created successfully! Redirecting to dashboard...');
+       
+       // Wait 2 seconds then redirect
+       setTimeout(() => {
+         onSuccess();
+       }, 2000);
 
     } catch (err: any) {
       console.error('OTP verification error:', err);
