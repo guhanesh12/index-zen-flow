@@ -310,7 +310,7 @@ export class AdvancedAI {
     let interpretation: "NEUTRAL" | "ACCEPTABLE" | "EXTENDED";
 
     // ⚡ FIX: In strong trends (ADX > 25), allow extended moves up to 3.0 ATR
-    const isStrongTrend = adx && adx > 25; // Changed from 40 to 25!
+    const isStrongTrend = adx && adx > 18; // Changed from 40 to 25!
     const extendedThreshold = isStrongTrend ? 3.0 : 0.6; // 3.0 ATR for trending markets
 
     if (distanceATR < 0.3) {
@@ -936,7 +936,7 @@ export class AdvancedAI {
     const lastCandle = data[data.length - 1];
 
     // ⚡ FIX: Check ADX strength first (>25 = trending, regardless of EMA alignment)
-    const isTrending = adx > 25;
+    const isTrending = adx > 18;
 
     // Check EMA alignment for trend direction
     const emaUptrend = indicators.ema9 > indicators.ema21 && indicators.ema21 > indicators.ema50;
@@ -1478,7 +1478,7 @@ export class AdvancedAI {
     const adx = this.calculateADX(ohlcData);
     const prevAdx = ohlcData.length > 30 ? this.calculateADX(ohlcData.slice(0, -1)) : adx;
     const adxRising = adx > prevAdx;
-    const adxStrong = adx > 25;
+    const adxStrong = adx > 18;
     const adxVeryStrong = adx > 50;
     const trending = adxStrong || (adx >= 18 && adxRising);
     calculationsPerformed += 1;
@@ -1696,7 +1696,7 @@ export class AdvancedAI {
               : "neutral";
 
     // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
-    const useTrendBias = adx > 25; // Changed from 40 to 25!
+    const useTrendBias = adx > 18; // Changed from 40 to 25!
     const confirmationBullish = useTrendBias ? trendBias === "bullish" : isBullish;
     const confirmationBearish = useTrendBias ? trendBias === "bearish" : isBearish;
 
@@ -1932,7 +1932,7 @@ export class AdvancedAI {
 
     // ⚡ FIX BUG #12: If ADX > 25 (trending), use trend bias instead of strict higher highs/lower lows
     // In strong trends, minor pullbacks don't invalidate the trend!
-    const trendingMarket = adx > 25;
+    const trendingMarket = adx > 18;
 
     if (trendingMarket && confirmationBullish) {
       confirmations.priceAction = true;
@@ -2246,9 +2246,9 @@ export class AdvancedAI {
         (p.type === "HAMMER" || p.type === "MORNING_STAR" || p.type === "BULLISH_ENGULFING"),
     );
     const reversalBearEntry =
-      hasBearReversalPattern && adx > 25 && macdHistWeakeningBear && lastCandle.close < lastCandle.open;
+      hasBearReversalPattern && adx > 18 && macdHistWeakeningBear && lastCandle.close < lastCandle.open;
     const reversalBullEntry =
-      hasBullReversalPattern && adx > 25 && macdHistImprovingBull && lastCandle.close > lastCandle.open;
+      hasBullReversalPattern && adx > 18 && macdHistImprovingBull && lastCandle.close > lastCandle.open;
 
     // ===== FIX 6: TREND EXHAUSTION GUARD =====
     // Block chasing entries when price is > 4 ATR away from EMA21 (overextended).
@@ -2350,25 +2350,15 @@ export class AdvancedAI {
     // but FAST-continuation path ignored Stochastic because ADX was strong (38).
     // Block PUT when 3+ of 4 oversold-exhaustion signals fire together.
     const oversoldSignalCount =
-      (rsi < 32 ? 1 : 0) +
-      (stoch.k < 20 ? 1 : 0) +
-      (priceNearLowerBand ? 1 : 0) +
-      (nearSupport ? 1 : 0);
+      (rsi < 32 ? 1 : 0) + (stoch.k < 20 ? 1 : 0) + (priceNearLowerBand ? 1 : 0) + (nearSupport ? 1 : 0);
     const overboughtSignalCount =
-      (rsi > 68 ? 1 : 0) +
-      (stoch.k > 80 ? 1 : 0) +
-      (priceNearUpperBand ? 1 : 0) +
-      (nearResistance ? 1 : 0);
+      (rsi > 68 ? 1 : 0) + (stoch.k > 80 ? 1 : 0) + (priceNearUpperBand ? 1 : 0) + (nearResistance ? 1 : 0);
     // Block PUT into oversold bounce zone unless we have a fresh BOS-down or
     // genuine high-volume breakdown (real continuation, not a grind into support).
     const oversoldBounceBlocksBear =
-      oversoldSignalCount >= 3 &&
-      !(marketStructure.bos === "BEAR" && breakoutQualityBear && isHighVolume);
+      oversoldSignalCount >= 3 && !(marketStructure.bos === "BEAR" && breakoutQualityBear && isHighVolume);
     const overboughtRejectionBlocksBull =
-      overboughtSignalCount >= 3 &&
-      !(marketStructure.bos === "BULL" && breakoutQualityBull && isHighVolume);
-
-
+      overboughtSignalCount >= 3 && !(marketStructure.bos === "BULL" && breakoutQualityBull && isHighVolume);
 
     // ===== NEW FIX C: MOMENTUM-CLIMAX EXHAUSTION =====
     // 3 consecutive expansion candles + RSI extreme + ATR spike + climax volume = blow-off top/bottom.
