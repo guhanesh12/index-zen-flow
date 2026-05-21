@@ -403,9 +403,11 @@ class PersistentTradingEngine {
     const marketClose = 15 * 60 + 30;
 
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
-      engineState.lastProcessedCandle = this.getCurrentCandleTimestamp(istTime, parseInt(candleInterval));
+      // ⚡ FAST MODE: Do NOT arm-and-wait. Leave lastProcessedCandle empty so the
+      // very next tick analyzes the current candle immediately (no skipped morning entry).
+      engineState.lastProcessedCandle = "";
       console.log(
-        `⏱️ Engine armed for ${userId} at candle ${engineState.lastProcessedCandle} - waiting for next ${candleInterval}M candle close`,
+        `⚡ FAST MODE: Engine started for ${userId} - will analyze current ${candleInterval}M candle on next tick (no wait).`,
       );
     }
 
