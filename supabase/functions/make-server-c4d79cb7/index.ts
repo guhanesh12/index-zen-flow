@@ -8443,6 +8443,10 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
 
+    if (!result.success) {
+      return c.json(result, 400);
+    }
+
     // Mark engine ran today (for daily ₹5 notification billing)
     try {
       const istDate = new Date(Date.now() + 5.5*3600*1000).toISOString().slice(0,10);
