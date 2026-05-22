@@ -25,6 +25,7 @@ import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
+import { resolveAutoSymbol } from "./instrument_refresh.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
