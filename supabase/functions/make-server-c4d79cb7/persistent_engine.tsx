@@ -369,11 +369,19 @@ class PersistentTradingEngine {
       };
     }
 
-    // Validate symbols
-    if (!symbols || symbols.length === 0) {
+    const { data: enabledAutoSlots } = await supabaseAdmin
+      .from("user_symbol_config")
+      .select("slot")
+      .eq("user_id", userId)
+      .eq("enabled", true)
+      .limit(1);
+    const hasAutoSymbolMode = Array.isArray(enabledAutoSlots) && enabledAutoSlots.length > 0;
+
+    // Validate at least one execution source: auto-symbol slots OR manual symbols
+    if ((!symbols || symbols.length === 0) && !hasAutoSymbolMode) {
       return {
         success: false,
-        message: "❌ No active symbols configured",
+        message: "❌ No execution source configured. Add an Auto Symbol slot or add manual symbols.",
       };
     }
 
@@ -423,6 +431,7 @@ class PersistentTradingEngine {
     console.log(`🚀 STARTING PERSISTENT ENGINE for user ${userId}`);
     console.log(`   Interval: ${candleInterval}M`);
     console.log(`   Symbols: ${symbols.length}`);
+    console.log(`   Auto Symbol Mode: ${hasAutoSymbolMode ? "ON" : "OFF"}`);
 
     const staleTimer = this.instances.get(userId);
     if (staleTimer) {
@@ -435,7 +444,7 @@ class PersistentTradingEngine {
       id: `engine_start_${Date.now()}`,
       timestamp: Date.now(),
       type: "ENGINE_START",
-      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${symbols.length} symbols active | 📱 Synced across all devices`,
+      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${hasAutoSymbolMode ? "Auto Symbol ON" : `${symbols.length} manual symbols active`} | 📱 Synced across all devices`,
     });
 
     return {
