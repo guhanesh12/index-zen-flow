@@ -10,6 +10,7 @@ const logoWhite = "/logo-white.png";
 import { SettingsPanel } from "./SettingsPanel";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
 import { SymbolManager } from "./SymbolManager";
+import { AutoSymbolConfig } from "./AutoSymbolConfig";
 import { AdvancedDashboard } from "./AdvancedDashboard";
 import { AdvancedPositionMonitor } from "./AdvancedPositionMonitor";
 import { EnhancedTradingEngine } from "./EnhancedTradingEngine";
