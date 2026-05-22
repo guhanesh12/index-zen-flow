@@ -167,6 +167,48 @@ export type Database = {
         }
         Relationships: []
       }
+      instrument_master: {
+        Row: {
+          exchange_segment: string
+          expiry_date: string
+          id: string
+          index_name: string
+          lot_size: number
+          option_type: string
+          refreshed_at: string
+          security_id: string
+          strike_price: number
+          symbol: string
+          tick_size: number | null
+        }
+        Insert: {
+          exchange_segment: string
+          expiry_date: string
+          id?: string
+          index_name: string
+          lot_size?: number
+          option_type: string
+          refreshed_at?: string
+          security_id: string
+          strike_price: number
+          symbol: string
+          tick_size?: number | null
+        }
+        Update: {
+          exchange_segment?: string
+          expiry_date?: string
+          id?: string
+          index_name?: string
+          lot_size?: number
+          option_type?: string
+          refreshed_at?: string
+          security_id?: string
+          strike_price?: number
+          symbol?: string
+          tick_size?: number | null
+        }
+        Relationships: []
+      }
       kv_store_4e940498: {
         Row: {
           key: string
@@ -795,6 +837,42 @@ export type Database = {
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_symbol_config: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          index_name: string
+          lot_count: number
+          moneyness: string
+          slot: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          index_name: string
+          lot_count?: number
+          moneyness?: string
+          slot: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          index_name?: string
+          lot_count?: number
+          moneyness?: string
+          slot?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
