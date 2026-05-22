@@ -8412,6 +8412,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
 
     const body = await c.req.json();
     const { candleInterval, symbols } = body;
+    const activeSymbols = Array.isArray(symbols) ? symbols : [];
 
     // Get user credentials
     const userCredentials = await kv.get(`api_credentials:${user.id}`);
@@ -8428,19 +8429,23 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`\n🚀 ============ START PERSISTENT ENGINE ============`);
     console.log(`   User: ${user.id}`);
     console.log(`   Interval: ${candleInterval}M`);
-    console.log(`   Symbols: ${symbols.length}`);
+    console.log(`   Symbols: ${activeSymbols.length}`);
 
     // Start engine (saves to both KV and DB)
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
       candleInterval: candleInterval || '15',
-      symbols: symbols || [],
+      symbols: activeSymbols,
       dhanClientId: credentials.dhanClientId,
       dhanAccessToken: credentials.dhanAccessToken
     });
 
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
+
+    if (!result.success) {
+      return c.json(result, 400);
+    }
 
     // Mark engine ran today (for daily ₹5 notification billing)
     try {
@@ -8462,7 +8467,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
           userId: user.id,
           data: {
             candleInterval: candleInterval || '15',
-            symbolCount: (symbols || []).length,
+            symbolCount: activeSymbols.length,
           },
         }),
       }).catch((e) => console.warn('[engine_started email]', e?.message));
@@ -10511,15 +10516,39 @@ app.post("/make-server-c4d79cb7/auto-symbol/resolve", async (c) => {
   }
 });
 
+const AUTO_SYMBOL_INDICES = new Set(["NIFTY", "BANKNIFTY", "SENSEX"]);
+const AUTO_SYMBOL_MONEYNESS = new Set(["ATM", "ITM1", "ITM2", "OTM1", "OTM2"]);
+
+function normalizeAutoSymbolSlot(body: any, userId: string) {
+  const slot = Number(body?.slot);
+  const indexName = String(body?.index_name || "").toUpperCase().trim();
+  const moneyness = String(body?.moneyness || "ATM").toUpperCase().trim();
+  const lotCount = Number(body?.lot_count);
+
+  if (!Number.isInteger(slot) || slot < 1 || slot > 3) throw new Error("Slot must be 1, 2, or 3");
+  if (!AUTO_SYMBOL_INDICES.has(indexName)) throw new Error("Index must be NIFTY, BANKNIFTY, or SENSEX");
+  if (!AUTO_SYMBOL_MONEYNESS.has(moneyness)) throw new Error("Moneyness must be ATM, ITM1, ITM2, OTM1, or OTM2");
+  if (!Number.isFinite(lotCount) || lotCount < 1 || lotCount > 50) throw new Error("Lot count must be between 1 and 50");
+
+  return {
+    user_id: userId,
+    slot,
+    index_name: indexName,
+    moneyness,
+    lot_count: Math.floor(lotCount),
+    enabled: body?.enabled !== false,
+  };
+}
+
 // 📋 List user symbol config (auto-selection slots)
 app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
   try {
-    const userId = c.req.header("x-user-id");
-    if (!userId) return c.json({ success: false, error: "Missing x-user-id" }, 400);
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
     const { data, error } = await supabase
       .from("user_symbol_config")
       .select("*")
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .order("slot", { ascending: true });
     if (error) throw error;
     return c.json({ success: true, slots: data || [] });
@@ -10531,17 +10560,10 @@ app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
 // 💾 Upsert one slot of user symbol config
 app.post("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
   try {
-    const userId = c.req.header("x-user-id");
-    if (!userId) return c.json({ success: false, error: "Missing x-user-id" }, 400);
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
     const body = await c.req.json();
-    const row = {
-      user_id: userId,
-      slot: Number(body.slot),
-      index_name: body.index_name,
-      moneyness: body.moneyness || "ATM",
-      lot_count: Math.max(1, Number(body.lot_count) || 1),
-      enabled: body.enabled !== false,
-    };
+    const row = normalizeAutoSymbolSlot(body, user.id);
     const { data, error } = await supabase
       .from("user_symbol_config")
       .upsert(row, { onConflict: "user_id,slot" })
@@ -10557,13 +10579,14 @@ app.post("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
 // 🗑️ Delete one slot
 app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
   try {
-    const userId = c.req.header("x-user-id");
-    if (!userId) return c.json({ success: false, error: "Missing x-user-id" }, 400);
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
     const slot = Number(c.req.param("slot"));
+    if (!Number.isInteger(slot) || slot < 1 || slot > 3) return c.json({ success: false, error: "Invalid slot" }, 400);
     const { error } = await supabase
       .from("user_symbol_config")
       .delete()
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .eq("slot", slot);
     if (error) throw error;
     return c.json({ success: true });

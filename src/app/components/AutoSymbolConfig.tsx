@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/app/components/ui/badge";
 import { Loader2, Plus, Trash2, Zap, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
 interface Slot {
   slot: number;
@@ -41,26 +42,33 @@ export function AutoSymbolConfig({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
 
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-    "x-user-id": userId,
-  };
+  async function getHeaders(json = true) {
+    const token = (await getAccessToken()) || accessToken;
+    return {
+      ...(json ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${token}`,
+    };
+  }
 
   async function load() {
+    if (!accessToken) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const r = await fetch(`${serverUrl}/auto-symbol/config`, { headers });
+      const r = await fetchWithAuth(`${serverUrl}/auto-symbol/config`, { headers: await getHeaders(false) });
       const j = await r.json();
-      if (j.success) setSlots(j.slots || []);
+      if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
+      setSlots(j.slots || []);
     } catch (e: any) {
-      toast.error("Failed to load auto symbol config");
+      toast.error(`Failed to load auto symbol config: ${e.message}`);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [userId]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [accessToken, userId]);
 
   function nextSlotNumber(): number {
     const used = new Set(slots.map(s => s.slot));
@@ -71,13 +79,13 @@ export function AutoSymbolConfig({
   async function saveSlot(slot: Slot) {
     setSaving(slot.slot);
     try {
-      const r = await fetch(`${serverUrl}/auto-symbol/config`, {
-        method: "POST", headers, body: JSON.stringify(slot),
+      const r = await fetchWithAuth(`${serverUrl}/auto-symbol/config`, {
+        method: "POST", headers: await getHeaders(), body: JSON.stringify(slot),
       });
       const j = await r.json();
-      if (!j.success) throw new Error(j.error);
+      if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
       toast.success(`Slot ${slot.slot} saved`);
-      load();
+      await load();
     } catch (e: any) {
       toast.error(`Save failed: ${e.message}`);
     } finally {
@@ -88,13 +96,13 @@ export function AutoSymbolConfig({
   async function deleteSlot(slot: number) {
     if (!confirm(`Remove slot ${slot}?`)) return;
     try {
-      const r = await fetch(`${serverUrl}/auto-symbol/config/${slot}`, {
-        method: "DELETE", headers,
+      const r = await fetchWithAuth(`${serverUrl}/auto-symbol/config/${slot}`, {
+        method: "DELETE", headers: await getHeaders(false),
       });
       const j = await r.json();
-      if (!j.success) throw new Error(j.error);
+      if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
       toast.success(`Slot ${slot} removed`);
-      load();
+      await load();
     } catch (e: any) {
       toast.error(`Delete failed: ${e.message}`);
     }
