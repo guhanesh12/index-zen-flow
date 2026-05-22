@@ -2442,7 +2442,18 @@ class PersistentTradingEngine {
           skipped++;
           continue;
         }
-        if (!row.selected_symbols || (row.selected_symbols as any[]).length === 0) {
+        const hasManualSymbols = Array.isArray(row.selected_symbols) && (row.selected_symbols as any[]).length > 0;
+        let hasAutoSymbolSlots = false;
+        if (!hasManualSymbols) {
+          const { data: autoSlots } = await supabaseAdmin
+            .from("user_symbol_config")
+            .select("slot")
+            .eq("user_id", row.user_id)
+            .eq("enabled", true)
+            .limit(1);
+          hasAutoSymbolSlots = Array.isArray(autoSlots) && autoSlots.length > 0;
+        }
+        if (!hasManualSymbols && !hasAutoSymbolSlots) {
           skipped++;
           continue;
         }
