@@ -15,6 +15,7 @@ import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
 import { PersistentTradingEngine } from "./persistent_engine.tsx";
+import { refreshInstrumentMaster, resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { checkAndDebitTiered, getDailyProfitStats, PRICING_TIERS } from "./tiered_debit.tsx";
 import { getLandingContent, updateLandingContent, getTermsContent, updateTermsContent, getPrivacyContent, updatePrivacyContent, getAllPages, getPageBySlug, savePage, deletePage, getSocialLinks, updateSocialLinks } from "./landing_admin.tsx";
 import * as pushNotifications from "./push_notifications.tsx";
@@ -10477,6 +10478,96 @@ app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
     return c.json({ success: true, ...result });
   } catch (error: any) {
     console.error("❌ [AUTO-RESUME] Failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 📥 Daily 08:50 IST — refresh centralized instrument master (NIFTY / BANKNIFTY / SENSEX options)
+app.all("/make-server-c4d79cb7/cron/refresh-instruments", async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const force = url.searchParams.get("force") === "1";
+    const result = await refreshInstrumentMaster({ force });
+    return c.json(result);
+  } catch (error: any) {
+    console.error("❌ [INSTRUMENT_REFRESH] Failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 🔎 Resolve an auto symbol on demand (used by UI preview + engine)
+app.post("/make-server-c4d79cb7/auto-symbol/resolve", async (c) => {
+  try {
+    const body = await c.req.json();
+    const result = await resolveAutoSymbol({
+      index_name: body.index_name,
+      ltp: Number(body.ltp),
+      option_type: body.option_type,
+      moneyness: body.moneyness || "ATM",
+    });
+    return c.json({ success: true, resolved: result });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 400);
+  }
+});
+
+// 📋 List user symbol config (auto-selection slots)
+app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
+  try {
+    const userId = c.req.header("x-user-id");
+    if (!userId) return c.json({ success: false, error: "Missing x-user-id" }, 400);
+    const { data, error } = await supabase
+      .from("user_symbol_config")
+      .select("*")
+      .eq("user_id", userId)
+      .order("slot", { ascending: true });
+    if (error) throw error;
+    return c.json({ success: true, slots: data || [] });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 💾 Upsert one slot of user symbol config
+app.post("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
+  try {
+    const userId = c.req.header("x-user-id");
+    if (!userId) return c.json({ success: false, error: "Missing x-user-id" }, 400);
+    const body = await c.req.json();
+    const row = {
+      user_id: userId,
+      slot: Number(body.slot),
+      index_name: body.index_name,
+      moneyness: body.moneyness || "ATM",
+      lot_count: Math.max(1, Number(body.lot_count) || 1),
+      enabled: body.enabled !== false,
+    };
+    const { data, error } = await supabase
+      .from("user_symbol_config")
+      .upsert(row, { onConflict: "user_id,slot" })
+      .select()
+      .single();
+    if (error) throw error;
+    return c.json({ success: true, slot: data });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 🗑️ Delete one slot
+app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
+  try {
+    const userId = c.req.header("x-user-id");
+    if (!userId) return c.json({ success: false, error: "Missing x-user-id" }, 400);
+    const slot = Number(c.req.param("slot"));
+    const { error } = await supabase
+      .from("user_symbol_config")
+      .delete()
+      .eq("user_id", userId)
+      .eq("slot", slot);
+    if (error) throw error;
+    return c.json({ success: true });
+  } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }
 });

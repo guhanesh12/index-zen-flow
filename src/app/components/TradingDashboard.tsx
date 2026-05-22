@@ -10,6 +10,7 @@ const logoWhite = "/logo-white.png";
 import { SettingsPanel } from "./SettingsPanel";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
 import { SymbolManager } from "./SymbolManager";
+import { AutoSymbolConfig } from "./AutoSymbolConfig";
 import { AdvancedDashboard } from "./AdvancedDashboard";
 import { AdvancedPositionMonitor } from "./AdvancedPositionMonitor";
 import { EnhancedTradingEngine } from "./EnhancedTradingEngine";
@@ -1072,7 +1073,8 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
           </TabsContent>
 
           <TabsContent value="symbols">
-            <div className="animate-in fade-in-50 duration-500">
+            <div className="animate-in fade-in-50 duration-500 space-y-4">
+              <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
               <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
             </div>
           </TabsContent>
