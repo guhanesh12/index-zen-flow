@@ -359,7 +359,8 @@ class PersistentTradingEngine {
    * START ENGINE FOR USER
    */
   static async startEngine(config: EngineConfig): Promise<{ success: boolean; message: string }> {
-    const { userId, candleInterval, symbols, dhanClientId, dhanAccessToken } = config;
+    const { userId, candleInterval, dhanClientId, dhanAccessToken } = config;
+    const symbols = Array.isArray(config.symbols) ? config.symbols : [];
 
     // Check if engine already running
     if (this.instances.has(userId)) {
@@ -378,7 +379,7 @@ class PersistentTradingEngine {
     const hasAutoSymbolMode = Array.isArray(enabledAutoSlots) && enabledAutoSlots.length > 0;
 
     // Validate at least one execution source: auto-symbol slots OR manual symbols
-    if ((!symbols || symbols.length === 0) && !hasAutoSymbolMode) {
+    if (symbols.length === 0 && !hasAutoSymbolMode) {
       return {
         success: false,
         message: "❌ No execution source configured. Add an Auto Symbol slot or add manual symbols.",
