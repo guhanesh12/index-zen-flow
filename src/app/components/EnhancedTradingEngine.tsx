@@ -1106,7 +1106,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     // ⚡⚡⚡ START/STOP 24/7 BACKGROUND SERVER ENGINE ⚡⚡⚡
       if (running) {
         // Start 24/7 Engine
-        await fetch(`${serverUrl}/engine/start`, {
+        const startResponse = await fetchWithAuth(`${serverUrl}/engine/start`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1117,6 +1117,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             symbols: tradingSymbols.filter(s => s.active) // Send only active symbols
           })
         });
+        const startData = await startResponse.json().catch(() => ({}));
+        if (!startResponse.ok || startData.success === false) {
+          throw new Error(startData.error || startData.message || `Engine start failed (${startResponse.status})`);
+        }
         console.log(`🚀 24/7 Server Engine STARTED in background`);
         
         onLog({
