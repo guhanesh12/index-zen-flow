@@ -15,6 +15,7 @@ import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
 import { PersistentTradingEngine } from "./persistent_engine.tsx";
+import { refreshInstrumentMaster, resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { checkAndDebitTiered, getDailyProfitStats, PRICING_TIERS } from "./tiered_debit.tsx";
 import { getLandingContent, updateLandingContent, getTermsContent, updateTermsContent, getPrivacyContent, updatePrivacyContent, getAllPages, getPageBySlug, savePage, deletePage, getSocialLinks, updateSocialLinks } from "./landing_admin.tsx";
 import * as pushNotifications from "./push_notifications.tsx";
