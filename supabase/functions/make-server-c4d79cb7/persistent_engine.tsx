@@ -1287,16 +1287,70 @@ class PersistentTradingEngine {
             return true;
           });
 
-          // 🎯 MANUAL-ONLY STRIKE MODE
-          // Auto-strike (nearest-to-ATM) selection is DISABLED.
-          // We place trades on EVERY user-added active symbol that matches the
-          // index + option type. Whatever the user manually added in Symbol
-          // Manager is exactly what gets traded — no filtering by ATM distance.
-          const autoSelectedSymbols = matchingSymbols;
+          // 🎯 AUTO-SYMBOL MODE (NEW): if user has user_symbol_config slots for this index,
+          // resolve them from the centralized instrument_master and use those instead of
+          // (or alongside) manually-added symbols. This lets the user pick ATM / ITM / OTM
+          // and a lot count — the engine fetches the matching contract at signal time.
+          let autoSelectedSymbols = matchingSymbols;
+          try {
+            const { data: autoSlots } = await supabaseAdmin
+              .from("user_symbol_config")
+              .select("slot, index_name, moneyness, lot_count, enabled")
+              .eq("user_id", userId)
+              .eq("enabled", true)
+              .eq("index_name", indexName);
 
-          console.log(
-            `🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (manual-only mode, from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`,
-          );
+            if (autoSlots && autoSlots.length > 0) {
+              const spotLtp = Number(ohlcData[ohlcData.length - 1]?.close) || 0;
+              if (spotLtp > 0) {
+                const resolved: any[] = [];
+                for (const slot of autoSlots) {
+                  const r = await resolveAutoSymbol({
+                    index_name: indexName as any,
+                    ltp: spotLtp,
+                    option_type: targetOptionType as any,
+                    moneyness: (slot.moneyness || "ATM") as any,
+                  });
+                  if (!r) {
+                    console.warn(`⚠️ [AUTO_SYMBOL] slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType} not found in instrument_master`);
+                    continue;
+                  }
+                  resolved.push({
+                    id: `AUTO_${slot.slot}_${r.security_id}`,
+                    name: r.symbol,
+                    symbolName: r.symbol,
+                    displayName: r.symbol,
+                    index: indexName,
+                    indexName,
+                    optionType: r.option_type,
+                    transactionType: "BUY",
+                    exchangeSegment: r.exchange_segment,
+                    productType: "INTRADAY",
+                    orderType: "MARKET",
+                    validity: "DAY",
+                    securityId: String(r.security_id),
+                    symbolId: String(r.security_id),
+                    quantity: r.lot_size * Math.max(1, slot.lot_count || 1),
+                    lotSize: r.lot_size,
+                    strikePrice: r.strike_price,
+                    expiry: r.expiry_date,
+                    active: true,
+                    targetAmount: 0,
+                    stopLossAmount: 0,
+                    trailingEnabled: false,
+                    __autoSlot: slot.slot,
+                    __moneyness: slot.moneyness,
+                  });
+                }
+                if (resolved.length > 0) {
+                  console.log(`🎯 [AUTO_SYMBOL] ${indexName} ${action}: resolved ${resolved.length} auto-config slots @ spot ${spotLtp}`);
+                  autoSelectedSymbols = resolved;
+                }
+              }
+            }
+          } catch (autoErr: any) {
+            console.error(`❌ [AUTO_SYMBOL] resolution failed for ${indexName}:`, autoErr?.message || autoErr);
+          }
           if (matchingSymbols.length === 0) {
             console.log(
               `⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`,
