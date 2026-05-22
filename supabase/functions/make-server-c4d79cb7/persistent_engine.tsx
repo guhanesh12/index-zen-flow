@@ -1351,7 +1351,7 @@ class PersistentTradingEngine {
           } catch (autoErr: any) {
             console.error(`❌ [AUTO_SYMBOL] resolution failed for ${indexName}:`, autoErr?.message || autoErr);
           }
-          if (matchingSymbols.length === 0) {
+          if (autoSelectedSymbols.length === 0 && matchingSymbols.length === 0) {
             console.log(
               `⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`,
               JSON.stringify(
