@@ -1292,6 +1292,8 @@ class PersistentTradingEngine {
           // (or alongside) manually-added symbols. This lets the user pick ATM / ITM / OTM
           // and a lot count — the engine fetches the matching contract at signal time.
           let autoSelectedSymbols = matchingSymbols;
+          let autoSlotCount = 0;
+          let autoResolveFailures = 0;
           try {
             const { data: autoSlots } = await supabaseAdmin
               .from("user_symbol_config")
@@ -1301,10 +1303,12 @@ class PersistentTradingEngine {
               .eq("index_name", indexName);
 
             if (autoSlots && autoSlots.length > 0) {
+              autoSlotCount = autoSlots.length;
               const spotLtp = Number(ohlcData[ohlcData.length - 1]?.close) || 0;
               if (spotLtp > 0) {
                 const resolved: any[] = [];
                 for (const slot of autoSlots) {
+                  const lotCount = Math.max(1, Number(slot.lot_count) || 1);
                   const r = await resolveAutoSymbol({
                     index_name: indexName as any,
                     ltp: spotLtp,
@@ -1312,9 +1316,17 @@ class PersistentTradingEngine {
                     moneyness: (slot.moneyness || "ATM") as any,
                   });
                   if (!r) {
+                    autoResolveFailures++;
                     console.warn(`⚠️ [AUTO_SYMBOL] slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType} not found in instrument_master`);
+                    await this.appendSharedLog(userId, {
+                      type: "ERROR",
+                      timestamp: Date.now(),
+                      message: `❌ AUTO SYMBOL NOT FOUND: Slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType}. Instrument master has no matching contract near spot ${spotLtp}.`,
+                      data: { index: indexName, action, slot: slot.slot, moneyness: slot.moneyness, optionType: targetOptionType, spotLtp },
+                    });
                     continue;
                   }
+                  const finalQuantity = r.lot_size * lotCount;
                   resolved.push({
                     id: `AUTO_${slot.slot}_${r.security_id}`,
                     name: r.symbol,
@@ -1330,8 +1342,9 @@ class PersistentTradingEngine {
                     validity: "DAY",
                     securityId: String(r.security_id),
                     symbolId: String(r.security_id),
-                    quantity: r.lot_size * Math.max(1, slot.lot_count || 1),
+                    quantity: finalQuantity,
                     lotSize: r.lot_size,
+                    lotCount,
                     strikePrice: r.strike_price,
                     expiry: r.expiry_date,
                     active: true,
@@ -1341,19 +1354,40 @@ class PersistentTradingEngine {
                     __autoSlot: slot.slot,
                     __moneyness: slot.moneyness,
                   });
+                  console.log(
+                    `🎯 [AUTO_SYMBOL] slot ${slot.slot}: ${indexName} ${slot.moneyness} ${targetOptionType} → ${r.symbol} SID ${r.security_id} strike ${r.strike_price} lotSize ${r.lot_size} × lots ${lotCount} = qty ${finalQuantity}`,
+                  );
                 }
                 if (resolved.length > 0) {
                   console.log(`🎯 [AUTO_SYMBOL] ${indexName} ${action}: resolved ${resolved.length} auto-config slots @ spot ${spotLtp}`);
                   autoSelectedSymbols = resolved;
                 }
+              } else {
+                autoResolveFailures = autoSlotCount;
+                await this.appendSharedLog(userId, {
+                  type: "ERROR",
+                  timestamp: Date.now(),
+                  message: `❌ AUTO SYMBOL SKIPPED: ${indexName} spot price was unavailable, so ATM/ITM/OTM contract could not be selected.`,
+                  data: { index: indexName, action, targetOptionType },
+                });
               }
             }
           } catch (autoErr: any) {
             console.error(`❌ [AUTO_SYMBOL] resolution failed for ${indexName}:`, autoErr?.message || autoErr);
+            autoResolveFailures = Math.max(autoResolveFailures, autoSlotCount || 1);
+            await this.appendSharedLog(userId, {
+              type: "ERROR",
+              timestamp: Date.now(),
+              message: `❌ AUTO SYMBOL ERROR: ${indexName} ${action} contract resolution failed - ${autoErr?.message || autoErr}`,
+              data: { index: indexName, action, targetOptionType },
+            });
           }
           if (autoSelectedSymbols.length === 0 && matchingSymbols.length === 0) {
+            const skipMessage = autoSlotCount > 0
+              ? `❌ ${indexName} ${action} signal skipped - ${autoSlotCount} auto-symbol slot(s) enabled but no ${targetOptionType || "option"} contract could be resolved from today's instrument master. Refresh instruments and check ATM/ITM/OTM settings.`
+              : `❌ ${indexName} ${action} signal skipped - no auto-symbol slot and no manually-added active ${targetOptionType || "option"} symbol found. Add an auto slot or a manual ${targetOptionType} contract for ${indexName}.`;
             console.log(
-              `⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`,
+              `⚠️ NO ORDERABLE SYMBOLS for ${indexName} ${action}! Auto slots: ${autoSlotCount}, auto failures: ${autoResolveFailures}. Symbols for index:`,
               JSON.stringify(
                 symbolsForIndex.map((s) => ({
                   name: s.name,
@@ -1368,11 +1402,13 @@ class PersistentTradingEngine {
             await this.appendSharedLog(userId, {
               type: "ERROR",
               timestamp: Date.now(),
-              message: `❌ ${indexName} ${action} signal skipped - no manually-added active ${targetOptionType || "option"} symbol found. Please add a ${targetOptionType} contract for ${indexName} in Symbol Manager.`,
+              message: skipMessage,
               data: {
                 index: indexName,
                 action,
                 targetOptionType,
+                autoSlotCount,
+                autoResolveFailures,
                 symbolsForIndex: symbolsForIndex.map((s) => ({
                   name: getSymbolDisplayName(s),
                   index: normalizeIndexName(s),
