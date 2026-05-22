@@ -1073,7 +1073,8 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
           </TabsContent>
 
           <TabsContent value="symbols">
-            <div className="animate-in fade-in-50 duration-500">
+            <div className="animate-in fade-in-50 duration-500 space-y-4">
+              <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
               <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
             </div>
           </TabsContent>
