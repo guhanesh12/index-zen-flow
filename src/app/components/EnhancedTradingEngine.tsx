@@ -1814,7 +1814,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     onLog({
       timestamp: Date.now(),
       type: 'ENGINE_START',
-      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${tradingSymbols.length} symbols active | 📱 Synced across all devices`
+      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${enabledAutoSlots.length > 0 ? 'Auto Symbol ON' : `${tradingSymbols.length} symbols active`} | 📱 Synced across all devices`
     });
 
     console.log(`\n✅✅✅ ENGINE STARTED ✅✅✅`);
