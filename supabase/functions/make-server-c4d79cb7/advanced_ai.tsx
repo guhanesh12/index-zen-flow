@@ -2137,10 +2137,11 @@ export class AdvancedAI {
     const lunchExtraConfirmation = inMidSessionTrapWindow ? 1 : 0;
 
     // ===== FIX 5: ADX-BASED REQUIRED CONFIRMATIONS =====
+    // Max possible totalScore = earlyScore(4) + strongConfirmationScore(4) = 8.
     // ADX > 35 → 4 (strong trend, few confirmations needed)
-    // ADX 25-35 → 5
-    // ADX < 25 → 7 (weak/ranging — need overwhelming proof)
-    const requiredConfirmations = (adx > 35 ? 6 : adx >= 25 ? 7 : 10) + lunchExtraConfirmation;
+    // ADX 22-35 → 5 (lowered from 25 to catch trending-but-not-strong days like 22-May)
+    // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
+    const requiredConfirmations = (adx > 35 ? 4 : adx >= 22 ? 5 : 6) + lunchExtraConfirmation;
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [
       confirmations.macd,
@@ -2355,10 +2356,17 @@ export class AdvancedAI {
       (rsi > 68 ? 1 : 0) + (stoch.k > 80 ? 1 : 0) + (priceNearUpperBand ? 1 : 0) + (nearResistance ? 1 : 0);
     // Block PUT into oversold bounce zone unless we have a fresh BOS-down or
     // genuine high-volume breakdown (real continuation, not a grind into support).
+    // Relaxed: require 4+ signals (was 3), and escape if EMA9 still sloping with trend strongly.
+    const ema9SlopingDown = ema9 < ema21 && (ema21 - ema9) > atr14 * 0.15;
+    const ema9SlopingUp = ema9 > ema21 && (ema9 - ema21) > atr14 * 0.15;
     const oversoldBounceBlocksBear =
-      oversoldSignalCount >= 3 && !(marketStructure.bos === "BEAR" && breakoutQualityBear && isHighVolume);
+      oversoldSignalCount >= 4 &&
+      !ema9SlopingDown &&
+      !(marketStructure.bos === "BEAR" && breakoutQualityBear && isHighVolume);
     const overboughtRejectionBlocksBull =
-      overboughtSignalCount >= 3 && !(marketStructure.bos === "BULL" && breakoutQualityBull && isHighVolume);
+      overboughtSignalCount >= 4 &&
+      !ema9SlopingUp &&
+      !(marketStructure.bos === "BULL" && breakoutQualityBull && isHighVolume);
 
     // ===== NEW FIX C: MOMENTUM-CLIMAX EXHAUSTION =====
     // 3 consecutive expansion candles + RSI extreme + ATR spike + climax volume = blow-off top/bottom.
