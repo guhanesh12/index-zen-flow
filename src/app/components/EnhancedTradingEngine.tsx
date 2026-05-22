@@ -1608,11 +1608,27 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
   // ============ ENGINE CONTROL ============
   const handleStartEngine = async (isAutoRestart = false) => {
+    let enabledAutoSlots = autoSymbolSlots.filter((slot: any) => slot.enabled !== false);
+    try {
+      const freshToken = await getFreshAccessToken();
+      const autoResponse = await fetchWithAuth(`${serverUrl}/auto-symbol/config`, {
+        headers: { Authorization: `Bearer ${freshToken}` }
+      });
+      const autoData = await autoResponse.json().catch(() => ({}));
+      if (autoResponse.ok && autoData.success) {
+        enabledAutoSlots = (autoData.slots || []).filter((slot: any) => slot.enabled !== false);
+        setAutoSymbolSlots(autoData.slots || []);
+      }
+    } catch (autoErr) {
+      console.warn('⚠️ Could not refresh auto-symbol slots before engine start:', autoErr);
+    }
+
     console.log('\n🔘 ============ START ENGINE CLICKED ============');
     console.log(`⚡ Type: ${isAutoRestart ? 'AUTO-RESTART' : 'MANUAL START'}`);
     console.log(`⚡ SELECTED TIMEFRAME: ${candleInterval}M`);
     console.log(`📊 Market Status: ${marketStatus}`);
     console.log(`📈 Trading Symbols: ${tradingSymbols.length}`);
+    console.log(`🎯 Auto Symbol Slots: ${enabledAutoSlots.length}`);
     
     // ⚡⚡⚡ CHECK 1: Market Must Be OPEN (SKIP FOR AUTO-RESTART) ⚡⚡⚡
     if (marketStatus !== 'OPEN' && !isAutoRestart) {
@@ -1670,12 +1686,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
     
     // ⚡⚡⚡ CHECK 2: Symbols Must Be Configured ⚡⚡⚡
-    if (tradingSymbols.length === 0) {
-      alert('No trading symbols configured! Please add symbols first.');
+    if (tradingSymbols.length === 0 && enabledAutoSlots.length === 0) {
+      alert('No trading setup configured! Add an Auto Symbol slot or add manual symbols first.');
       onLog({
         timestamp: Date.now(),
         type: 'WARNING',
-        message: '⚠️ No trading symbols configured'
+        message: '⚠️ No auto-symbol slot or manual symbol configured'
       });
       return;
     }
@@ -1684,7 +1700,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const ceSymbols = tradingSymbols.filter(s => s.optionType === 'CE' && s.transactionType === 'BUY' && s.active);
     const peSymbols = tradingSymbols.filter(s => s.optionType === 'PE' && s.transactionType === 'BUY' && s.active);
     
-    if (ceSymbols.length === 0 || peSymbols.length === 0) {
+    if (enabledAutoSlots.length === 0 && (ceSymbols.length === 0 || peSymbols.length === 0)) {
       const missing = [];
       if (ceSymbols.length === 0) missing.push('CE (Call)');
       if (peSymbols.length === 0) missing.push('PE (Put)');
