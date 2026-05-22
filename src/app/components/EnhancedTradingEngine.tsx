@@ -1149,7 +1149,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.log(`💾 Saved engine state to backend: Running=${running}, Interval=${interval}M`);
     } catch (error) {
       console.log('Failed to save engine state:', error);
-      // Don't block user action if backend save fails
+      if (running) throw error;
+      // Don't block stop action if backend save fails
     }
   };
 
@@ -1738,10 +1739,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     
     // ⚡ Show confirmation dialog with current symbols (SKIP FOR AUTO-RESTART)
     if (!isAutoRestart) {
-      const symbolsList = [
-        ...ceSymbols.map(s => `• ${s.name} (${s.optionType})`),
-        ...peSymbols.map(s => `• ${s.name} (${s.optionType})`)
-      ].join('\n');
+      const symbolsList = enabledAutoSlots.length > 0
+        ? enabledAutoSlots.map((slot: any) => `• Auto Slot ${slot.slot}: ${slot.index_name} ${slot.moneyness} × ${slot.lot_count || 1} lot(s)`).join('\n')
+        : [
+            ...ceSymbols.map(s => `• ${s.name} (${s.optionType})`),
+            ...peSymbols.map(s => `• ${s.name} (${s.optionType})`)
+          ].join('\n');
       
       const confirmStart = confirm(
         `🚀 START AI TRADING ENGINE?\n\n` +
@@ -1793,7 +1796,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     notifyEngineStart();
     
     // ⚡⚡⚡ NEW: SAVE TO BACKEND FOR MULTI-DEVICE SYNC ⚡⚡⚡
-    await saveEngineState(true, candleInterval);
+    try {
+      await saveEngineState(true, candleInterval);
+    } catch (startErr: any) {
+      setIsRunning(false);
+      isRunningRef.current = false;
+      localStorage.setItem('engine_running', 'false');
+      alert(`Engine start failed: ${startErr.message || startErr}`);
+      onLog({
+        timestamp: Date.now(),
+        type: 'ERROR',
+        message: `❌ Engine start failed: ${startErr.message || startErr}`
+      });
+      return;
+    }
     
     onLog({
       timestamp: Date.now(),
