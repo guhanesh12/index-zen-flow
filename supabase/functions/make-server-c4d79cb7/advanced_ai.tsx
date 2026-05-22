@@ -2137,10 +2137,11 @@ export class AdvancedAI {
     const lunchExtraConfirmation = inMidSessionTrapWindow ? 1 : 0;
 
     // ===== FIX 5: ADX-BASED REQUIRED CONFIRMATIONS =====
+    // Max possible totalScore = earlyScore(4) + strongConfirmationScore(4) = 8.
     // ADX > 35 → 4 (strong trend, few confirmations needed)
-    // ADX 25-35 → 5
-    // ADX < 25 → 7 (weak/ranging — need overwhelming proof)
-    const requiredConfirmations = (adx > 35 ? 6 : adx >= 25 ? 7 : 10) + lunchExtraConfirmation;
+    // ADX 22-35 → 5 (lowered from 25 to catch trending-but-not-strong days like 22-May)
+    // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
+    const requiredConfirmations = (adx > 35 ? 4 : adx >= 22 ? 5 : 6) + lunchExtraConfirmation;
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [
       confirmations.macd,
