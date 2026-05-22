@@ -181,6 +181,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   
   // ============ TRADING STATE ============
   const [tradingSymbols, setTradingSymbols] = useState<TradingSymbol[]>([]);
+  const [autoSymbolSlots, setAutoSymbolSlots] = useState<any[]>([]);
   const [activePositions, setActivePositions] = useState<ActivePosition[]>([]);
   // ⚡ Keep activePositionsRef in sync with state
   useEffect(() => {
