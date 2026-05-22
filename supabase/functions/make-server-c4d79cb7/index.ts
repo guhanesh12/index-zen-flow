@@ -8412,6 +8412,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
 
     const body = await c.req.json();
     const { candleInterval, symbols } = body;
+    const activeSymbols = Array.isArray(symbols) ? symbols : [];
 
     // Get user credentials
     const userCredentials = await kv.get(`api_credentials:${user.id}`);
@@ -8428,13 +8429,13 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`\n🚀 ============ START PERSISTENT ENGINE ============`);
     console.log(`   User: ${user.id}`);
     console.log(`   Interval: ${candleInterval}M`);
-    console.log(`   Symbols: ${symbols.length}`);
+    console.log(`   Symbols: ${activeSymbols.length}`);
 
     // Start engine (saves to both KV and DB)
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
       candleInterval: candleInterval || '15',
-      symbols: symbols || [],
+      symbols: activeSymbols,
       dhanClientId: credentials.dhanClientId,
       dhanAccessToken: credentials.dhanAccessToken
     });
@@ -8462,7 +8463,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
           userId: user.id,
           data: {
             candleInterval: candleInterval || '15',
-            symbolCount: (symbols || []).length,
+            symbolCount: activeSymbols.length,
           },
         }),
       }).catch((e) => console.warn('[engine_started email]', e?.message));
