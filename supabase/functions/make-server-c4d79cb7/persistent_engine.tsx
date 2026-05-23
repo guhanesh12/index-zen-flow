@@ -1199,7 +1199,9 @@ class PersistentTradingEngine {
             continue;
           }
           if (confidence < 65) {
-            console.log(`⚡ ${indexName} BUY signal accepted despite ${confidence}% confidence — proceeding to symbol resolution/order`);
+            console.log(
+              `⚡ ${indexName} BUY signal accepted despite ${confidence}% confidence — proceeding to symbol resolution/order`,
+            );
             await this.appendSharedLog(userId, {
               type: "INFO",
               timestamp: Date.now(),
@@ -1235,8 +1237,8 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          if (reversalPosition) {
-            const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, signal-confirmed ${confidence}% confidence)`;
+          if (reversalPosition && confidence >= 80) {
+            const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await placeOrderViaStaticIP(
               userId,
               { dhanClientId, dhanAccessToken },
@@ -1332,12 +1334,21 @@ class PersistentTradingEngine {
                   });
                   if (!r) {
                     autoResolveFailures++;
-                    console.warn(`⚠️ [AUTO_SYMBOL] slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType} not found in instrument_master`);
+                    console.warn(
+                      `⚠️ [AUTO_SYMBOL] slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType} not found in instrument_master`,
+                    );
                     await this.appendSharedLog(userId, {
                       type: "ERROR",
                       timestamp: Date.now(),
                       message: `❌ AUTO SYMBOL NOT FOUND: Slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType}. Instrument master has no matching contract near spot ${spotLtp}.`,
-                      data: { index: indexName, action, slot: slot.slot, moneyness: slot.moneyness, optionType: targetOptionType, spotLtp },
+                      data: {
+                        index: indexName,
+                        action,
+                        slot: slot.slot,
+                        moneyness: slot.moneyness,
+                        optionType: targetOptionType,
+                        spotLtp,
+                      },
                     });
                     continue;
                   }
@@ -1374,7 +1385,9 @@ class PersistentTradingEngine {
                   );
                 }
                 if (resolved.length > 0) {
-                  console.log(`🎯 [AUTO_SYMBOL] ${indexName} ${action}: resolved ${resolved.length} auto-config slots @ spot ${spotLtp}`);
+                  console.log(
+                    `🎯 [AUTO_SYMBOL] ${indexName} ${action}: resolved ${resolved.length} auto-config slots @ spot ${spotLtp}`,
+                  );
                   autoSelectedSymbols = resolved;
                 }
               } else {
@@ -1398,9 +1411,10 @@ class PersistentTradingEngine {
             });
           }
           if (autoSelectedSymbols.length === 0 && matchingSymbols.length === 0) {
-            const skipMessage = autoSlotCount > 0
-              ? `❌ ${indexName} ${action} signal skipped - ${autoSlotCount} auto-symbol slot(s) enabled but no ${targetOptionType || "option"} contract could be resolved from today's instrument master. Refresh instruments and check ATM/ITM/OTM settings.`
-              : `❌ ${indexName} ${action} signal skipped - no auto-symbol slot and no manually-added active ${targetOptionType || "option"} symbol found. Add an auto slot or a manual ${targetOptionType} contract for ${indexName}.`;
+            const skipMessage =
+              autoSlotCount > 0
+                ? `❌ ${indexName} ${action} signal skipped - ${autoSlotCount} auto-symbol slot(s) enabled but no ${targetOptionType || "option"} contract could be resolved from today's instrument master. Refresh instruments and check ATM/ITM/OTM settings.`
+                : `❌ ${indexName} ${action} signal skipped - no auto-symbol slot and no manually-added active ${targetOptionType || "option"} symbol found. Add an auto slot or a manual ${targetOptionType} contract for ${indexName}.`;
             console.log(
               `⚠️ NO ORDERABLE SYMBOLS for ${indexName} ${action}! Auto slots: ${autoSlotCount}, auto failures: ${autoResolveFailures}. Symbols for index:`,
               JSON.stringify(
@@ -1490,10 +1504,11 @@ class PersistentTradingEngine {
             );
             if (
               sameIndexPosition &&
+              confidence >= 90 &&
               targetOptionType &&
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
-              const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || "OLD"} → ${targetOptionType}, signal-confirmed ${confidence}% confidence)`;
+              const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || "OLD"} → ${targetOptionType})`;
               const exitResult = await placeOrderViaStaticIP(
                 userId,
                 { dhanClientId, dhanAccessToken },
