@@ -1653,8 +1653,21 @@ class PersistentTradingEngine {
               } else {
                 console.log(`❌ ORDER FAILED: ${orderResult.error}`);
                 await this.saveOrderToDB(userId, symbol, orderResult, action, "failed");
+                await this.appendSharedLog(userId, {
+                  type: "ERROR",
+                  timestamp: Date.now(),
+                  message: `❌ ORDER FAILED: ${normalizedSymbolName} | ${action} | Qty ${orderParams.quantity} | ${orderResult.error || orderResult.message || "Dhan/VPS rejected order"}`,
+                  data: { index: indexName, symbol: normalizedSymbolName, action, orderParams, orderResult },
+                });
                 this.recentOrderKeys.delete(orderKey);
               }
+            } else {
+              await this.appendSharedLog(userId, {
+                type: "ERROR",
+                timestamp: Date.now(),
+                message: `❌ ORDER NOT SENT: Unsupported signal action ${action} for ${normalizedSymbolName}`,
+                data: { index: indexName, symbol: normalizedSymbolName, action },
+              });
             }
           }
         } catch (error) {
