@@ -157,12 +157,13 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Consume failed");
+      if (data.liveCheck) setLiveCheck(data.liveCheck);
 
       // Backend now runs a live Dhan funds check after saving the token.
       // If it fails the toast must reflect reality — otherwise we'd lie that
       // the broker is connected while orders/funds/market data won't work.
       if (data.liveCheck && data.liveCheck.ok === false) {
-        toast.error(`Token saved but Dhan rejected it: ${data.liveCheck.error || "verification failed"}`);
+        toast.error(`Dhan rejected the token: [${data.liveCheck.errorCode || "?"}] ${data.liveCheck.error || "verification failed"}. Check the Dhan account you logged into matches your API Key.`);
         setRow(data.credentials);
         return;
       }
