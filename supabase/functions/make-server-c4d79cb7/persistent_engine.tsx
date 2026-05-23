@@ -1115,7 +1115,12 @@ class PersistentTradingEngine {
 
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
-          const reason = aiSignal.signal.reason || "";
+          const reason =
+            aiSignal.signal.reason ||
+            aiSignal.signal.reasoning ||
+            aiSignal.signal.debugInfo?.finalDecisionReason ||
+            aiSignal.signal.debugInfo?.blockedReason ||
+            "";
           const signalTimestamp = Date.now();
 
           // Store latest UI snapshot for every index. Count every analysis (including WAIT)
