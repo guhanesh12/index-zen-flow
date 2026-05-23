@@ -1307,6 +1307,22 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   };
 
+  const loadAutoSymbolSlots = async () => {
+    try {
+      const freshToken = await getFreshAccessToken();
+      const response = await fetchWithAuth(`${serverUrl}/auto-symbol/config`, {
+        headers: { Authorization: `Bearer ${freshToken}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+      setAutoSymbolSlots(data.slots || []);
+      console.log(`🎯 Loaded ${(data.slots || []).filter((slot: any) => slot.enabled !== false).length} enabled auto-symbol slots`);
+    } catch (error) {
+      console.warn('⚠️ Failed to load auto-symbol slots:', error);
+      setAutoSymbolSlots([]);
+    }
+  };
+
   const loadDhanClientId = async () => {
     try {
       // ⚡ FIRST: Try to load from localStorage as a fallback
