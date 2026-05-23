@@ -2018,6 +2018,20 @@ export class AdvancedAI {
     let reasoning = "";
     let bias: "Bullish" | "Bearish" | "Neutral" = "Neutral";
 
+    if (fastBullEntry) {
+      action = "BUY_CALL";
+      confidence = 78;
+      bias = "Bullish";
+      reasoning =
+        "⚡ FAST BREAKOUT ENTRY: Strong bullish momentum with VWAP slope + MACD expansion + volume confirmation";
+    } else if (fastBearEntry) {
+      action = "BUY_PUT";
+      confidence = 78;
+      bias = "Bearish";
+      reasoning =
+        "⚡ FAST BREAKDOWN ENTRY: Strong bearish momentum with VWAP slope + MACD expansion + volume confirmation";
+    }
+
     // FIX PROBLEM #7: ATR-relative body strength (relative to current volatility)
     // Body must be ≥ max(10 pts, 0.4 × ATR14). In low-volatility sessions ATR is small so 10pts dominates,
     // in high-volatility ATR-derived floor scales up so a relatively weak 12pt candle isn't enough.
