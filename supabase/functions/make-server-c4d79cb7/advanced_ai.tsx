@@ -2018,14 +2018,22 @@ export class AdvancedAI {
     let reasoning = "";
     let bias: "Bullish" | "Bearish" | "Neutral" = "Neutral";
 
+    // FIX PROBLEM #7: ATR-relative body strength
     const minimumBodySize = Math.max(10, atr14 * 0.4);
     const isVeryStrongTrend = adx > 50;
     const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
-    const volumeFeedReliable = ...
-    const hasAcceptableVolume = ...
 
-    const hasStrongPattern = ...
+    const volumeFeedReliable = avgVolume > 0 && refVolume > 0 && isFinite(volumeRatio) && volumeRatio > 0;
 
+    const hasAcceptableVolume = !volumeFeedReliable ? bodyPercent >= 35 : volumeRatio >= minimumVolumeRatio;
+
+    const hasStrongPattern = patterns.some(
+      (p) =>
+        p.confidence >= 80 &&
+        ((confirmationBullish && p.direction === "BULLISH") || (confirmationBearish && p.direction === "BEARISH")),
+    );
+
+    // ===== FAST BREAKOUT ENTRY =====
     if (fastBullEntry) {
       action = "BUY_CALL";
       confidence = 78;
