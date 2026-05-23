@@ -212,6 +212,31 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
     }
   };
 
+  const verifyConnection = async () => {
+    setBusy("verify");
+    try {
+      const tok = await getToken();
+      const res = await fetchWithAuth(`${serverUrl}/broker/oauth/verify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Verify failed");
+      setLiveCheck(data.liveCheck);
+      if (data.liveCheck?.ok) {
+        const bal = data.liveCheck.balance != null ? ` · Balance ₹${Number(data.liveCheck.balance).toLocaleString("en-IN")}` : "";
+        toast.success(`Dhan token is valid ✅${bal}`);
+      } else {
+        toast.error(`Dhan rejected token: [${data.liveCheck?.errorCode || "?"}] ${data.liveCheck?.error || "invalid"}`);
+      }
+      await loadStatus();
+    } catch (e: any) {
+      toast.error(e.message || "Verify failed");
+    } finally {
+      setBusy("");
+    }
+  };
+
   const tokenExpiry = row?.access_token_expiry ? new Date(row.access_token_expiry) : null;
   const tokenHoursLeft = tokenExpiry ? (tokenExpiry.getTime() - Date.now()) / 3_600_000 : null;
   const keyExpiry = row?.api_key_expiry ? new Date(row.api_key_expiry) : null;
