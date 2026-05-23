@@ -1182,7 +1182,8 @@ class PersistentTradingEngine {
             },
           });
 
-          // ⚡ FAST MODE: live order gate lowered from 70 → 65; clear skip-reason logs.
+          // ⚡ BUY means execute: confidence is now informational only. If the strategy emits
+          // BUY_CALL / BUY_PUT, auto/manual symbol selection and Dhan order placement must run.
           if (action === "WAIT") {
             console.log(`⏸️ ${indexName} SKIP — WAIT signal | conf=${confidence}% | reason: ${reason || "n/a"}`);
             await this.appendSharedLog(userId, {
@@ -1193,13 +1194,12 @@ class PersistentTradingEngine {
             continue;
           }
           if (confidence < 65) {
-            console.log(`⏸️ ${indexName} SKIP — Low confidence ${confidence}% (<65) | ${reason || ""}`);
+            console.log(`⚡ ${indexName} BUY signal accepted despite ${confidence}% confidence — proceeding to symbol resolution/order`);
             await this.appendSharedLog(userId, {
-              type: "SKIP",
+              type: "INFO",
               timestamp: Date.now(),
-              message: `⏸️ ${indexName} SKIP — confidence ${confidence}% below 65% gate`,
+              message: `⚡ ${indexName} ${action} signal accepted (${confidence}%) — auto/manual order execution enabled`,
             });
-            continue;
           }
 
           if (!state.activePositions || state.activePositions.length === 0) {
@@ -1573,14 +1573,23 @@ class PersistentTradingEngine {
                 amoTime: symbol.amoTime || symbol.amo_time || "",
               };
 
-              const orderResult = await placeOrderViaStaticIP(
-                userId,
-                {
-                  dhanClientId: dhanClientId,
-                  dhanAccessToken: dhanAccessToken,
-                },
-                orderParams,
-              );
+              let orderResult: any;
+              try {
+                orderResult = await placeOrderViaStaticIP(
+                  userId,
+                  {
+                    dhanClientId: dhanClientId,
+                    dhanAccessToken: dhanAccessToken,
+                  },
+                  orderParams,
+                );
+              } catch (orderError: any) {
+                orderResult = {
+                  success: false,
+                  error: orderError?.message || String(orderError),
+                  code: orderError?.code || null,
+                };
+              }
 
               if (orderResult.orderId) {
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
@@ -1653,8 +1662,21 @@ class PersistentTradingEngine {
               } else {
                 console.log(`❌ ORDER FAILED: ${orderResult.error}`);
                 await this.saveOrderToDB(userId, symbol, orderResult, action, "failed");
+                await this.appendSharedLog(userId, {
+                  type: "ERROR",
+                  timestamp: Date.now(),
+                  message: `❌ ORDER FAILED: ${normalizedSymbolName} | ${action} | Qty ${orderParams.quantity} | ${orderResult.error || orderResult.message || "Dhan/VPS rejected order"}`,
+                  data: { index: indexName, symbol: normalizedSymbolName, action, orderParams, orderResult },
+                });
                 this.recentOrderKeys.delete(orderKey);
               }
+            } else {
+              await this.appendSharedLog(userId, {
+                type: "ERROR",
+                timestamp: Date.now(),
+                message: `❌ ORDER NOT SENT: Unsupported signal action ${action} for ${normalizedSymbolName}`,
+                data: { index: indexName, symbol: normalizedSymbolName, action },
+              });
             }
           }
         } catch (error) {
