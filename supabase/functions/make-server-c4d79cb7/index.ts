@@ -11820,7 +11820,9 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
       last_status: "connected",
       last_error: null,
     });
-    // Mirror access token into legacy KV so existing engine code keeps working
+    // Mirror access token into legacy KV so existing engine + /api-credentials
+    // GET (manual flow) immediately see the OAuth-issued token. This is what
+    // makes funds, market data and order placement work without restart.
     try {
       const existing = (await kv.get(`api_credentials:${user.id}`)) || {};
       await kv.set(`api_credentials:${user.id}`, {
@@ -11828,9 +11830,40 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
         dhanClientId: updated.dhan_client_id,
         dhanAccessToken: updated.access_token,
         tokenUpdatedAt: new Date().toISOString(),
+        tokenExpiry: updated.access_token_expiry || null,
+        connectedVia: "oauth",
       });
-    } catch (_) {}
-    return c.json({ success: true, credentials: sanitizeBrokerRow(updated) });
+    } catch (mirrorErr) {
+      console.error("[OAUTH] KV mirror failed:", mirrorErr);
+    }
+
+    // 🔬 Live verification: hit Dhan funds with the new token. If this fails the
+    // token isn't actually usable — return the failure so the UI doesn't show
+    // a misleading "connected" toast.
+    let liveCheck: { ok: boolean; balance?: number; error?: string } = { ok: false };
+    try {
+      const fundsResp = await fetch("https://api.dhan.co/v2/fundlimit", {
+        headers: {
+          "access-token": updated.access_token,
+          "client-id": updated.dhan_client_id,
+          Accept: "application/json",
+        },
+      });
+      const fundsBody = await fundsResp.text();
+      if (fundsResp.ok) {
+        try {
+          const parsed = JSON.parse(fundsBody);
+          liveCheck = { ok: true, balance: Number(parsed?.availabelBalance ?? parsed?.availableBalance ?? 0) };
+        } catch { liveCheck = { ok: true }; }
+      } else {
+        liveCheck = { ok: false, error: `Dhan funds ${fundsResp.status}: ${fundsBody.slice(0, 200)}` };
+        await upsertBrokerRow(user.id, { last_status: "token_invalid", last_error: liveCheck.error });
+      }
+    } catch (verifyErr: any) {
+      liveCheck = { ok: false, error: verifyErr?.message || String(verifyErr) };
+    }
+
+    return c.json({ success: true, credentials: sanitizeBrokerRow(updated), liveCheck });
   } catch (err: any) {
     console.error("consume error:", err);
     return c.json({ success: false, error: err?.message || String(err) }, 500);
