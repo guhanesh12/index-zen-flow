@@ -1573,14 +1573,23 @@ class PersistentTradingEngine {
                 amoTime: symbol.amoTime || symbol.amo_time || "",
               };
 
-              const orderResult = await placeOrderViaStaticIP(
-                userId,
-                {
-                  dhanClientId: dhanClientId,
-                  dhanAccessToken: dhanAccessToken,
-                },
-                orderParams,
-              );
+              let orderResult: any;
+              try {
+                orderResult = await placeOrderViaStaticIP(
+                  userId,
+                  {
+                    dhanClientId: dhanClientId,
+                    dhanAccessToken: dhanAccessToken,
+                  },
+                  orderParams,
+                );
+              } catch (orderError: any) {
+                orderResult = {
+                  success: false,
+                  error: orderError?.message || String(orderError),
+                  code: orderError?.code || null,
+                };
+              }
 
               if (orderResult.orderId) {
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
