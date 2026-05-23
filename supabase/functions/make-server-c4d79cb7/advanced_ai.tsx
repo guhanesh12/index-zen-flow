@@ -2018,6 +2018,14 @@ export class AdvancedAI {
     let reasoning = "";
     let bias: "Bullish" | "Bearish" | "Neutral" = "Neutral";
 
+    const minimumBodySize = Math.max(10, atr14 * 0.4);
+const isVeryStrongTrend = adx > 50;
+const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
+const volumeFeedReliable = ...
+const hasAcceptableVolume = ...
+
+  const hasStrongPattern = ...
+
     if (fastBullEntry) {
       action = "BUY_CALL";
       confidence = 78;
