@@ -1182,7 +1182,8 @@ class PersistentTradingEngine {
             },
           });
 
-          // ⚡ FAST MODE: live order gate lowered from 70 → 65; clear skip-reason logs.
+          // ⚡ BUY means execute: confidence is now informational only. If the strategy emits
+          // BUY_CALL / BUY_PUT, auto/manual symbol selection and Dhan order placement must run.
           if (action === "WAIT") {
             console.log(`⏸️ ${indexName} SKIP — WAIT signal | conf=${confidence}% | reason: ${reason || "n/a"}`);
             await this.appendSharedLog(userId, {
@@ -1193,13 +1194,12 @@ class PersistentTradingEngine {
             continue;
           }
           if (confidence < 65) {
-            console.log(`⏸️ ${indexName} SKIP — Low confidence ${confidence}% (<65) | ${reason || ""}`);
+            console.log(`⚡ ${indexName} BUY signal accepted despite ${confidence}% confidence — proceeding to symbol resolution/order`);
             await this.appendSharedLog(userId, {
-              type: "SKIP",
+              type: "INFO",
               timestamp: Date.now(),
-              message: `⏸️ ${indexName} SKIP — confidence ${confidence}% below 65% gate`,
+              message: `⚡ ${indexName} ${action} signal accepted (${confidence}%) — auto/manual order execution enabled`,
             });
-            continue;
           }
 
           if (!state.activePositions || state.activePositions.length === 0) {
