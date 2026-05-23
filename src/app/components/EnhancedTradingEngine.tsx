@@ -4380,10 +4380,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         }
         if (enabledAutoSlots.length > 0) {
           return (
-            <Card className="bg-green-900/20 border-green-500/30">
+            <Card className="bg-primary/10 border-primary/30">
               <CardContent className="pt-4">
-                <div className="flex items-center gap-3 text-sm text-green-300">
-                  <Check className="size-5 text-green-400" />
+                <div className="flex items-center gap-3 text-sm text-primary">
+                  <Check className="size-5 text-primary" />
                   <span>
                     Auto Symbol Selection ready: {enabledAutoSlots.map((slot: any) => `Slot ${slot.slot} ${slot.index_name} ${slot.moneyness} ×${slot.lot_count || 1}`).join(' • ')}. Manual CE/PE symbols are not required.
                   </span>
