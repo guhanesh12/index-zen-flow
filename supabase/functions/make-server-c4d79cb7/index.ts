@@ -10681,6 +10681,28 @@ app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
   }
 });
 
+// Backward-compatible alias used by older dashboard/mobile builds
+app.get("/make-server-c4d79cb7/positions/monitor/active", async (c) => {
+  try {
+    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
+    const queryUserId = c.req.query('userId');
+    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
+    if (!userId) return c.json({ error: 'userId required' }, 401);
+
+    const { data, error } = await supabase
+      .from('position_monitor_state')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ success: true, positions: data || [] });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // POST /position-monitor/trailing  → enable/disable trailing SL on an active position
 app.post("/make-server-c4d79cb7/position-monitor/trailing", async (c) => {
   try {
