@@ -2161,6 +2161,21 @@ export class AdvancedAI {
     const bearTier: "NONE" | "FAST" | "STRONG" | "HIGH" =
       totalBearScore >= 6 ? "HIGH" : totalBearScore >= 5 ? "STRONG" : totalBearScore >= 3 ? "FAST" : "NONE";
 
+    // ===== FAST BREAKOUT ENTRY =====
+    const fastBullEntry =
+      bullTier === "FAST" &&
+      bodySize >= minimumBodySize &&
+      vwapSlopingUp &&
+      macdHistogramExpandingBull &&
+      hasAcceptableVolume;
+
+    const fastBearEntry =
+      bearTier === "FAST" &&
+      bodySize >= minimumBodySize &&
+      vwapSlopingDown &&
+      macdHistogramExpandingBear &&
+      hasAcceptableVolume;
+
     // ===== REVERSAL FOLLOW-THROUGH GATE =====
     // CHoCH + RSI divergence may only boost confidence if follow-through candle
     // closes in the reversal direction AND volume confirms.
