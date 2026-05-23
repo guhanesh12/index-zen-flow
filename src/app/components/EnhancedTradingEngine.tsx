@@ -1591,8 +1591,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       adjustedHours -= 24;
     }
     
-    // Minutes since market open (9:00 AM)
-    const minutesSinceOpen = (adjustedHours - 9) * 60 + adjustedMinutes;
+    // Minutes since market open (9:15 AM)
+    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
     
     if (minutesSinceOpen < 0 || minutesSinceOpen >= 390) {
       setNextCandleClose('Market Closed');
@@ -1606,7 +1606,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const nextIntervalEnd = (currentInterval + 1) * interval;
     
     // Calculate exact close time
-    const closeMinutes = 540 + nextIntervalEnd; // 540 = 9:00 AM in minutes
+    const closeMinutes = 555 + nextIntervalEnd; // 555 = 9:15 AM in minutes
     const closeHour = Math.floor(closeMinutes / 60);
     const closeMin = closeMinutes % 60;
     
@@ -1665,7 +1665,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         const confirmForceStart = confirm(
           `⚠️ FORCE START MODE ENABLED\n\n` +
           `Market Status: ${marketStatus}\n` +
-          `Normal Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\n` +
+          `Normal Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\n` +
           `You have enabled "Force Start" mode for special trading sessions.\n\n` +
           `⚠️ WARNING: This is for SPECIAL SESSIONS ONLY (weekends/holidays with market open)\n` +
           `⚠️ Make sure the market is actually OPEN before proceeding!\n\n` +
@@ -1692,15 +1692,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         
         console.error(`\n❌ ${errorMsg}`);
         console.error(`  - Market Status: ${marketStatus}`);
-        console.error(`  - Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)`);
+        console.error(`  - Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)`);
         console.error(`  - Please wait for market to OPEN before starting engine\n`);
         
-        alert(`${errorMsg}\n\nMarket Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
+        alert(`${errorMsg}\n\nMarket Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
         
         onLog({
           timestamp: Date.now(),
           type: 'ERROR',
-          message: `${errorMsg} - Market hours: 9:00 AM to 3:30 PM IST`
+          message: `${errorMsg} - Market hours: 9:15 AM to 3:30 PM IST`
         });
         return;
       }
