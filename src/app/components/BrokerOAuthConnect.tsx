@@ -241,7 +241,9 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
   const tokenHoursLeft = tokenExpiry ? (tokenExpiry.getTime() - Date.now()) / 3_600_000 : null;
   const keyExpiry = row?.api_key_expiry ? new Date(row.api_key_expiry) : null;
   const keyDaysLeft = keyExpiry ? Math.floor((keyExpiry.getTime() - Date.now()) / 86_400_000) : null;
-  const isConnected = !!(row?.access_token && tokenHoursLeft && tokenHoursLeft > 0);
+  const tokenLive = liveCheck?.ok === true;
+  const tokenRejected = liveCheck?.ok === false || row?.last_status === "token_invalid";
+  const isConnected = !!(row?.access_token && tokenHoursLeft && tokenHoursLeft > 0 && !tokenRejected);
 
   return (
     <Card className="bg-zinc-900 border-zinc-800">
@@ -249,9 +251,13 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
         <CardTitle className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-emerald-400" />
           Dhan OAuth (API Key &amp; Secret · 12 months)
-          {isConnected ? (
+          {tokenRejected ? (
+            <Badge className="bg-red-500/20 text-red-300 border-red-500/40 ml-auto">
+              <XCircle className="w-3 h-3 mr-1" /> Dhan rejected token
+            </Badge>
+          ) : isConnected ? (
             <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 ml-auto">
-              <CheckCircle2 className="w-3 h-3 mr-1" /> Connected
+              <CheckCircle2 className="w-3 h-3 mr-1" /> Connected{tokenLive && liveCheck?.balance != null ? ` · ₹${Number(liveCheck.balance).toLocaleString("en-IN")}` : ""}
             </Badge>
           ) : (
             <Badge variant="outline" className="ml-auto text-zinc-400">
