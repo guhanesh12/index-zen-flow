@@ -4528,7 +4528,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             <div>
               <Label className="text-zinc-400">Positions</Label>
               <div className="text-sm mt-2">
-                <span className="text-amber-500 font-semibold">{tradingSymbols.length}</span> <span className="text-zinc-300">waiting</span> | 
+                <span className="text-amber-500 font-semibold">{autoSymbolSlots.filter((slot: any) => slot.enabled !== false).length || tradingSymbols.length}</span> <span className="text-zinc-300">{autoSymbolSlots.some((slot: any) => slot.enabled !== false) ? 'auto slots ready' : 'waiting'}</span> | 
                 <span className="text-green-500 font-semibold ml-1">{activePositions.length}</span> <span className="text-zinc-300">active</span>
               </div>
             </div>
@@ -4540,7 +4540,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   ⚡ ENABLED
                 </Badge>
                 <span className="text-xs text-zinc-300">
-                  Confidence ≥85%
+                  Every BUY signal
                 </span>
               </div>
             </div>
