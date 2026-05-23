@@ -763,6 +763,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   // ============ LOAD DATA ============
   useEffect(() => {
     loadSymbols();
+    loadAutoSymbolSlots();
     loadDhanClientId();
     loadExistingPositions(); // ⚡ NEW: Load existing positions from Dhan
     syncEngineState(); // ⚡ NEW: Load engine state from backend
@@ -854,11 +855,17 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.log('🔄 Credentials updated event received! Reloading dhanClientId...');
       loadDhanClientId();
     };
+    const handleAutoSymbolUpdate = () => {
+      console.log('🎯 Auto-symbol config updated! Reloading slots...');
+      loadAutoSymbolSlots();
+    };
     
     window.addEventListener('credentials-updated', handleCredentialsUpdate);
+    window.addEventListener('auto-symbol-config-updated', handleAutoSymbolUpdate);
     
     return () => {
       window.removeEventListener('credentials-updated', handleCredentialsUpdate);
+      window.removeEventListener('auto-symbol-config-updated', handleAutoSymbolUpdate);
     };
   }, []);
 
@@ -1300,6 +1307,22 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     }
   };
 
+  const loadAutoSymbolSlots = async () => {
+    try {
+      const freshToken = await getFreshAccessToken();
+      const response = await fetchWithAuth(`${serverUrl}/auto-symbol/config`, {
+        headers: { Authorization: `Bearer ${freshToken}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+      setAutoSymbolSlots(data.slots || []);
+      console.log(`🎯 Loaded ${(data.slots || []).filter((slot: any) => slot.enabled !== false).length} enabled auto-symbol slots`);
+    } catch (error) {
+      console.warn('⚠️ Failed to load auto-symbol slots:', error);
+      setAutoSymbolSlots([]);
+    }
+  };
+
   const loadDhanClientId = async () => {
     try {
       // ⚡ FIRST: Try to load from localStorage as a fallback
@@ -1521,8 +1544,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       const istMinutes = istTime.getUTCMinutes();
       const totalMinutes = (istHours * 60) + istMinutes;
       
-      // Check if within trading hours even on weekend
-      if (totalMinutes >= 540 && totalMinutes < 930) {
+    // Check if within trading hours even on weekend
+      if (totalMinutes >= 555 && totalMinutes < 930) {
         setMarketStatus('OPEN');
         console.log('⚡ FORCE START ENABLED - Weekend market treated as OPEN');
         return;
@@ -1541,8 +1564,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const istMinutes = istTime.getUTCMinutes();
     const totalMinutes = (istHours * 60) + istMinutes;
     
-    // Market hours: 9:00 AM (540 min) to 3:30 PM (930 min)
-    if (totalMinutes >= 540 && totalMinutes < 930) {
+    // Market hours: 9:15 AM (555 min) to 3:30 PM (930 min)
+    if (totalMinutes >= 555 && totalMinutes < 930) {
       setMarketStatus('OPEN');
     } else {
       setMarketStatus('CLOSED');
@@ -1568,10 +1591,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       adjustedHours -= 24;
     }
     
-    // Minutes since market open (9:00 AM)
-    const minutesSinceOpen = (adjustedHours - 9) * 60 + adjustedMinutes;
+    // Minutes since market open (9:15 AM)
+    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
     
-    if (minutesSinceOpen < 0 || minutesSinceOpen >= 390) {
+    if (minutesSinceOpen < 0 || minutesSinceOpen >= 375) {
       setNextCandleClose('Market Closed');
       setSecondsToCandle(0);
       return;
@@ -1583,7 +1606,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const nextIntervalEnd = (currentInterval + 1) * interval;
     
     // Calculate exact close time
-    const closeMinutes = 540 + nextIntervalEnd; // 540 = 9:00 AM in minutes
+    const closeMinutes = 555 + nextIntervalEnd; // 555 = 9:15 AM in minutes
     const closeHour = Math.floor(closeMinutes / 60);
     const closeMin = closeMinutes % 60;
     
@@ -1642,7 +1665,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         const confirmForceStart = confirm(
           `⚠️ FORCE START MODE ENABLED\n\n` +
           `Market Status: ${marketStatus}\n` +
-          `Normal Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\n` +
+          `Normal Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\n` +
           `You have enabled "Force Start" mode for special trading sessions.\n\n` +
           `⚠️ WARNING: This is for SPECIAL SESSIONS ONLY (weekends/holidays with market open)\n` +
           `⚠️ Make sure the market is actually OPEN before proceeding!\n\n` +
@@ -1669,15 +1692,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         
         console.error(`\n❌ ${errorMsg}`);
         console.error(`  - Market Status: ${marketStatus}`);
-        console.error(`  - Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)`);
+        console.error(`  - Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)`);
         console.error(`  - Please wait for market to OPEN before starting engine\n`);
         
-        alert(`${errorMsg}\n\nMarket Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
+        alert(`${errorMsg}\n\nMarket Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
         
         onLog({
           timestamp: Date.now(),
           type: 'ERROR',
-          message: `${errorMsg} - Market hours: 9:00 AM to 3:30 PM IST`
+          message: `${errorMsg} - Market hours: 9:15 AM to 3:30 PM IST`
         });
         return;
       }
@@ -2266,7 +2289,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     
     const currentSecond = now.getUTCSeconds();
     const currentTimeStr = `${adjustedHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}:${currentSecond.toString().padStart(2, '0')}`;
-    const minutesSinceOpen = (adjustedHours - 9) * 60 + adjustedMinutes;
+    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
     const interval = parseInt(candleIntervalRef.current); // ⚡⚡⚡ CRITICAL: Use REF to get LATEST value
     
     // ⚡ FIX: Calculate IST time properly
@@ -4298,9 +4321,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     <div className="space-y-4">
       {/* ⚠️ SYMBOL CONFIGURATION WARNING */}
       {(() => {
+        const enabledAutoSlots = autoSymbolSlots.filter((slot: any) => slot.enabled !== false);
         const ceSymbols = tradingSymbols.filter(s => s.optionType === 'CE' && s.transactionType === 'BUY');
         const peSymbols = tradingSymbols.filter(s => s.optionType === 'PE' && s.transactionType === 'BUY');
-        const hasMissingSymbols = ceSymbols.length === 0 || peSymbols.length === 0;
+        const hasMissingSymbols = enabledAutoSlots.length === 0 && (ceSymbols.length === 0 || peSymbols.length === 0);
         
         if (hasMissingSymbols) {
           const missing = [];
@@ -4349,6 +4373,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                       </Button>
                     </div>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        }
+        if (enabledAutoSlots.length > 0) {
+          return (
+            <Card className="bg-primary/10 border-primary/30">
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3 text-sm text-primary">
+                  <Check className="size-5 text-primary" />
+                  <span>
+                    Auto Symbol Selection ready: {enabledAutoSlots.map((slot: any) => `Slot ${slot.slot} ${slot.index_name} ${slot.moneyness} ×${slot.lot_count || 1}`).join(' • ')}. Manual CE/PE symbols are not required.
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -4490,7 +4528,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             <div>
               <Label className="text-zinc-400">Positions</Label>
               <div className="text-sm mt-2">
-                <span className="text-amber-500 font-semibold">{tradingSymbols.length}</span> <span className="text-zinc-300">waiting</span> | 
+                <span className="text-amber-500 font-semibold">{autoSymbolSlots.filter((slot: any) => slot.enabled !== false).length || tradingSymbols.length}</span> <span className="text-zinc-300">{autoSymbolSlots.some((slot: any) => slot.enabled !== false) ? 'auto slots ready' : 'waiting'}</span> | 
                 <span className="text-green-500 font-semibold ml-1">{activePositions.length}</span> <span className="text-zinc-300">active</span>
               </div>
             </div>
@@ -4502,7 +4540,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   ⚡ ENABLED
                 </Badge>
                 <span className="text-xs text-zinc-300">
-                  Confidence ≥85%
+                  Every BUY signal
                 </span>
               </div>
             </div>
