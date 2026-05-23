@@ -2547,7 +2547,7 @@ export class AdvancedAI {
     const inTrendingRegime = marketRegime.type === "TRENDING_UP" || marketRegime.type === "TRENDING_DOWN";
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
-      !inTrendingRegime && adx < 18 && slopesFlat && atrLow && (vwapFlat || squeezeWithoutExpansion) && emaMixed;
+      !inTrendingRegime && adx < 18 && ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
     const sidewaysSignals = [adx < 18, atrLow, vwapFlat, slopesFlat, squeezeWithoutExpansion, emaMixed].filter(
       Boolean,
     ).length;
