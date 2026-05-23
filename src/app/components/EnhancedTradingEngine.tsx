@@ -2289,7 +2289,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     
     const currentSecond = now.getUTCSeconds();
     const currentTimeStr = `${adjustedHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}:${currentSecond.toString().padStart(2, '0')}`;
-    const minutesSinceOpen = (adjustedHours - 9) * 60 + adjustedMinutes;
+    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
     const interval = parseInt(candleIntervalRef.current); // ⚡⚡⚡ CRITICAL: Use REF to get LATEST value
     
     // ⚡ FIX: Calculate IST time properly
