@@ -64,6 +64,7 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
       const r: BrokerRow | null = data?.credentials || null;
       setRow(r);
       if (data?.liveCheck) setLiveCheck(data.liveCheck);
+      if (r) {
         setForm((f) => ({
           ...f,
           dhanClientId: r.dhan_client_id || f.dhanClientId,
