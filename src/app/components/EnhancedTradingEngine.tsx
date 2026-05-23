@@ -763,6 +763,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   // ============ LOAD DATA ============
   useEffect(() => {
     loadSymbols();
+    loadAutoSymbolSlots();
     loadDhanClientId();
     loadExistingPositions(); // ⚡ NEW: Load existing positions from Dhan
     syncEngineState(); // ⚡ NEW: Load engine state from backend
@@ -854,11 +855,17 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.log('🔄 Credentials updated event received! Reloading dhanClientId...');
       loadDhanClientId();
     };
+    const handleAutoSymbolUpdate = () => {
+      console.log('🎯 Auto-symbol config updated! Reloading slots...');
+      loadAutoSymbolSlots();
+    };
     
     window.addEventListener('credentials-updated', handleCredentialsUpdate);
+    window.addEventListener('auto-symbol-config-updated', handleAutoSymbolUpdate);
     
     return () => {
       window.removeEventListener('credentials-updated', handleCredentialsUpdate);
+      window.removeEventListener('auto-symbol-config-updated', handleAutoSymbolUpdate);
     };
   }, []);
 
@@ -1521,8 +1528,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       const istMinutes = istTime.getUTCMinutes();
       const totalMinutes = (istHours * 60) + istMinutes;
       
-      // Check if within trading hours even on weekend
-      if (totalMinutes >= 540 && totalMinutes < 930) {
+    // Check if within trading hours even on weekend
+      if (totalMinutes >= 555 && totalMinutes < 930) {
         setMarketStatus('OPEN');
         console.log('⚡ FORCE START ENABLED - Weekend market treated as OPEN');
         return;
@@ -1541,8 +1548,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const istMinutes = istTime.getUTCMinutes();
     const totalMinutes = (istHours * 60) + istMinutes;
     
-    // Market hours: 9:00 AM (540 min) to 3:30 PM (930 min)
-    if (totalMinutes >= 540 && totalMinutes < 930) {
+    // Market hours: 9:15 AM (555 min) to 3:30 PM (930 min)
+    if (totalMinutes >= 555 && totalMinutes < 930) {
       setMarketStatus('OPEN');
     } else {
       setMarketStatus('CLOSED');
