@@ -11706,6 +11706,36 @@ async function upsertBrokerRow(userId: string, patch: Record<string, any>) {
   return data;
 }
 
+// --- helper: live-verify a token against Dhan funds API -------------------
+async function verifyDhanToken(token: string, clientId: string): Promise<{ ok: boolean; balance?: number; error?: string; errorCode?: string }> {
+  try {
+    const resp = await fetch("https://api.dhan.co/v2/fundlimit", {
+      headers: {
+        "access-token": token,
+        "client-id": clientId,
+        Accept: "application/json",
+      },
+    });
+    const text = await resp.text();
+    if (resp.ok) {
+      try {
+        const parsed = JSON.parse(text);
+        return { ok: true, balance: Number(parsed?.availabelBalance ?? parsed?.availableBalance ?? 0) };
+      } catch { return { ok: true }; }
+    }
+    let errorCode: string | undefined;
+    let errorMessage = text.slice(0, 300);
+    try {
+      const parsed = JSON.parse(text);
+      errorCode = parsed?.errorCode;
+      errorMessage = parsed?.errorMessage || errorMessage;
+    } catch {}
+    return { ok: false, error: errorMessage, errorCode };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
 // --- GET status ------------------------------------------------------------
 app.get("/make-server-c4d79cb7/broker/oauth/status", async (c) => {
   try {
@@ -11713,7 +11743,40 @@ app.get("/make-server-c4d79cb7/broker/oauth/status", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     let row = await getBrokerRow(user.id);
     row = await syncLegacyAccessTokenToBrokerRow(user.id, row);
-    return c.json({ success: true, credentials: sanitizeBrokerRow(row) });
+    // Live verify so UI reflects reality (Dhan can reject a fresh JWT if the
+    // app's API key/secret don't belong to the logged-in account).
+    let liveCheck: any = null;
+    if (row?.access_token && row?.dhan_client_id) {
+      liveCheck = await verifyDhanToken(row.access_token, row.dhan_client_id);
+      const desiredStatus = liveCheck.ok ? "connected" : "token_invalid";
+      if (row.last_status !== desiredStatus) {
+        row = await upsertBrokerRow(user.id, {
+          last_status: desiredStatus,
+          last_error: liveCheck.ok ? null : `[${liveCheck.errorCode || "?"}] ${liveCheck.error || "Dhan rejected token"}`,
+        });
+      }
+    }
+    return c.json({ success: true, credentials: sanitizeBrokerRow(row), liveCheck });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST verify (manual Test Connection button) --------------------------
+app.post("/make-server-c4d79cb7/broker/oauth/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const row = await getBrokerRow(user.id);
+    if (!row?.access_token || !row?.dhan_client_id) {
+      return c.json({ success: false, error: "No access token saved. Connect with Dhan first." }, 400);
+    }
+    const liveCheck = await verifyDhanToken(row.access_token, row.dhan_client_id);
+    await upsertBrokerRow(user.id, {
+      last_status: liveCheck.ok ? "connected" : "token_invalid",
+      last_error: liveCheck.ok ? null : `[${liveCheck.errorCode || "?"}] ${liveCheck.error || "Dhan rejected token"}`,
+    });
+    return c.json({ success: true, liveCheck });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
@@ -11837,30 +11900,13 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
       console.error("[OAUTH] KV mirror failed:", mirrorErr);
     }
 
-    // 🔬 Live verification: hit Dhan funds with the new token. If this fails the
-    // token isn't actually usable — return the failure so the UI doesn't show
-    // a misleading "connected" toast.
-    let liveCheck: { ok: boolean; balance?: number; error?: string } = { ok: false };
-    try {
-      const fundsResp = await fetch("https://api.dhan.co/v2/fundlimit", {
-        headers: {
-          "access-token": updated.access_token,
-          "client-id": updated.dhan_client_id,
-          Accept: "application/json",
-        },
+    // 🔬 Live verification via shared helper
+    const liveCheck = await verifyDhanToken(updated.access_token, updated.dhan_client_id);
+    if (!liveCheck.ok) {
+      await upsertBrokerRow(user.id, {
+        last_status: "token_invalid",
+        last_error: `[${liveCheck.errorCode || "?"}] ${liveCheck.error || "Dhan rejected token"}`,
       });
-      const fundsBody = await fundsResp.text();
-      if (fundsResp.ok) {
-        try {
-          const parsed = JSON.parse(fundsBody);
-          liveCheck = { ok: true, balance: Number(parsed?.availabelBalance ?? parsed?.availableBalance ?? 0) };
-        } catch { liveCheck = { ok: true }; }
-      } else {
-        liveCheck = { ok: false, error: `Dhan funds ${fundsResp.status}: ${fundsBody.slice(0, 200)}` };
-        await upsertBrokerRow(user.id, { last_status: "token_invalid", last_error: liveCheck.error });
-      }
-    } catch (verifyErr: any) {
-      liveCheck = { ok: false, error: verifyErr?.message || String(verifyErr) };
     }
 
     return c.json({ success: true, credentials: sanitizeBrokerRow(updated), liveCheck });

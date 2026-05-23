@@ -48,7 +48,8 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
     postbackUrl: "",
   });
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState<"" | "save" | "consent" | "consume" | "disconnect">("");
+  const [busy, setBusy] = useState<"" | "save" | "consent" | "consume" | "disconnect" | "verify">("");
+  const [liveCheck, setLiveCheck] = useState<{ ok: boolean; balance?: number; error?: string; errorCode?: string } | null>(null);
 
   const getToken = async () => (await getAccessToken()) || accessToken;
 
@@ -62,6 +63,7 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
       const data = await res.json();
       const r: BrokerRow | null = data?.credentials || null;
       setRow(r);
+      if (data?.liveCheck) setLiveCheck(data.liveCheck);
       if (r) {
         setForm((f) => ({
           ...f,
@@ -155,12 +157,13 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Consume failed");
+      if (data.liveCheck) setLiveCheck(data.liveCheck);
 
       // Backend now runs a live Dhan funds check after saving the token.
       // If it fails the toast must reflect reality — otherwise we'd lie that
       // the broker is connected while orders/funds/market data won't work.
       if (data.liveCheck && data.liveCheck.ok === false) {
-        toast.error(`Token saved but Dhan rejected it: ${data.liveCheck.error || "verification failed"}`);
+        toast.error(`Dhan rejected the token: [${data.liveCheck.errorCode || "?"}] ${data.liveCheck.error || "verification failed"}. Check the Dhan account you logged into matches your API Key.`);
         setRow(data.credentials);
         return;
       }
@@ -209,11 +212,38 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
     }
   };
 
+  const verifyConnection = async () => {
+    setBusy("verify");
+    try {
+      const tok = await getToken();
+      const res = await fetchWithAuth(`${serverUrl}/broker/oauth/verify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Verify failed");
+      setLiveCheck(data.liveCheck);
+      if (data.liveCheck?.ok) {
+        const bal = data.liveCheck.balance != null ? ` · Balance ₹${Number(data.liveCheck.balance).toLocaleString("en-IN")}` : "";
+        toast.success(`Dhan token is valid ✅${bal}`);
+      } else {
+        toast.error(`Dhan rejected token: [${data.liveCheck?.errorCode || "?"}] ${data.liveCheck?.error || "invalid"}`);
+      }
+      await loadStatus();
+    } catch (e: any) {
+      toast.error(e.message || "Verify failed");
+    } finally {
+      setBusy("");
+    }
+  };
+
   const tokenExpiry = row?.access_token_expiry ? new Date(row.access_token_expiry) : null;
   const tokenHoursLeft = tokenExpiry ? (tokenExpiry.getTime() - Date.now()) / 3_600_000 : null;
   const keyExpiry = row?.api_key_expiry ? new Date(row.api_key_expiry) : null;
   const keyDaysLeft = keyExpiry ? Math.floor((keyExpiry.getTime() - Date.now()) / 86_400_000) : null;
-  const isConnected = !!(row?.access_token && tokenHoursLeft && tokenHoursLeft > 0);
+  const tokenLive = liveCheck?.ok === true;
+  const tokenRejected = liveCheck?.ok === false || row?.last_status === "token_invalid";
+  const isConnected = !!(row?.access_token && tokenHoursLeft && tokenHoursLeft > 0 && !tokenRejected);
 
   return (
     <Card className="bg-zinc-900 border-zinc-800">
@@ -221,9 +251,13 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
         <CardTitle className="flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-emerald-400" />
           Dhan OAuth (API Key &amp; Secret · 12 months)
-          {isConnected ? (
+          {tokenRejected ? (
+            <Badge className="bg-red-500/20 text-red-300 border-red-500/40 ml-auto">
+              <XCircle className="w-3 h-3 mr-1" /> Dhan rejected token
+            </Badge>
+          ) : isConnected ? (
             <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 ml-auto">
-              <CheckCircle2 className="w-3 h-3 mr-1" /> Connected
+              <CheckCircle2 className="w-3 h-3 mr-1" /> Connected{tokenLive && liveCheck?.balance != null ? ` · ₹${Number(liveCheck.balance).toLocaleString("en-IN")}` : ""}
             </Badge>
           ) : (
             <Badge variant="outline" className="ml-auto text-zinc-400">
@@ -371,6 +405,17 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
             <ExternalLink className="w-4 h-4 mr-2" />
             {busy === "consent" ? "Opening…" : isConnected ? "Reconnect" : "Connect with Dhan"}
           </Button>
+          {row?.access_token && (
+            <Button
+              onClick={verifyConnection}
+              disabled={busy !== ""}
+              variant="outline"
+              className="bg-blue-500/10 border-blue-500/30 text-blue-300 hover:bg-blue-500/20"
+            >
+              <ShieldCheck className="w-4 h-4 mr-2" />
+              {busy === "verify" ? "Testing…" : "Test Connection"}
+            </Button>
+          )}
           {row && (
             <Button
               onClick={disconnect}
