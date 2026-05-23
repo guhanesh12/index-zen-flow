@@ -85,6 +85,7 @@ export function AutoSymbolConfig({
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
       toast.success(`Slot ${slot.slot} saved`);
+      window.dispatchEvent(new Event("auto-symbol-config-updated"));
       await load();
     } catch (e: any) {
       toast.error(`Save failed: ${e.message}`);
@@ -102,6 +103,7 @@ export function AutoSymbolConfig({
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
       toast.success(`Slot ${slot} removed`);
+      window.dispatchEvent(new Event("auto-symbol-config-updated"));
       await load();
     } catch (e: any) {
       toast.error(`Delete failed: ${e.message}`);
