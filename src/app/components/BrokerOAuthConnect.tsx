@@ -48,7 +48,8 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
     postbackUrl: "",
   });
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState<"" | "save" | "consent" | "consume" | "disconnect">("");
+  const [busy, setBusy] = useState<"" | "save" | "consent" | "consume" | "disconnect" | "verify">("");
+  const [liveCheck, setLiveCheck] = useState<{ ok: boolean; balance?: number; error?: string; errorCode?: string } | null>(null);
 
   const getToken = async () => (await getAccessToken()) || accessToken;
 
