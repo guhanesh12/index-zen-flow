@@ -2357,8 +2357,8 @@ export class AdvancedAI {
     // Block PUT into oversold bounce zone unless we have a fresh BOS-down or
     // genuine high-volume breakdown (real continuation, not a grind into support).
     // Relaxed: require 4+ signals (was 3), and escape if EMA9 still sloping with trend strongly.
-    const ema9SlopingDown = ema9 < ema21 && (ema21 - ema9) > atr14 * 0.15;
-    const ema9SlopingUp = ema9 > ema21 && (ema9 - ema21) > atr14 * 0.15;
+    const ema9SlopingDown = ema9 < ema21 && ema21 - ema9 > atr14 * 0.15;
+    const ema9SlopingUp = ema9 > ema21 && ema9 - ema21 > atr14 * 0.15;
     const oversoldBounceBlocksBear =
       oversoldSignalCount >= 4 &&
       !ema9SlopingDown &&
@@ -2446,40 +2446,6 @@ export class AdvancedAI {
     const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
     const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 15; // 15:15 IST — last viable 15m entry
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
-
-    // Strong momentum escape: prevents good directional days from staying WAIT just
-    // because a breakout/pullback pattern label did not trigger on the exact candle.
-    // Still respects timing, cooldown, volatility, loss-lockout, and exhaustion safety.
-    const highConvictionMomentumBull =
-      confirmationBullish &&
-      adx >= 25 &&
-      ema9 > ema21 &&
-      lastCandle.close > vwap &&
-      momentumPointsBull >= 4 &&
-      (macdHistogramExpandingBull || adxRising) &&
-      !cooldownBlocksBull &&
-      !slBlocksBull &&
-      !lateNewEntryBlocked &&
-      !consecutiveLossLockout &&
-      !newsVolatilityShock &&
-      !noiseFilter5m &&
-      !trendExhausted &&
-      !overboughtRejectionBlocksBull;
-    const highConvictionMomentumBear =
-      confirmationBearish &&
-      adx >= 25 &&
-      ema9 < ema21 &&
-      lastCandle.close < vwap &&
-      momentumPointsBear >= 4 &&
-      (macdHistogramExpandingBear || adxRising) &&
-      !cooldownBlocksBear &&
-      !slBlocksBear &&
-      !lateNewEntryBlocked &&
-      !consecutiveLossLockout &&
-      !newsVolatilityShock &&
-      !noiseFilter5m &&
-      !trendExhausted &&
-      !oversoldBounceBlocksBear;
 
     const strongBullish =
       confirmationBullish &&
@@ -2581,8 +2547,8 @@ export class AdvancedAI {
     const inTrendingRegime = marketRegime.type === "TRENDING_UP" || marketRegime.type === "TRENDING_DOWN";
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
-      !inTrendingRegime && adx < 22 && slopesFlat && atrLow && (vwapFlat || squeezeWithoutExpansion) && emaMixed;
-    const sidewaysSignals = [adx < 22, atrLow, vwapFlat, slopesFlat, squeezeWithoutExpansion, emaMixed].filter(
+      !inTrendingRegime && adx < 18 && slopesFlat && atrLow && (vwapFlat || squeezeWithoutExpansion) && emaMixed;
+    const sidewaysSignals = [adx < 18, atrLow, vwapFlat, slopesFlat, squeezeWithoutExpansion, emaMixed].filter(
       Boolean,
     ).length;
 
@@ -2651,8 +2617,8 @@ export class AdvancedAI {
     // unless market structure has already flipped (CHoCH confirmed).
     const blockBearByTrend = adx > 35 && marketStructure.type === "UPTREND" && marketStructure.choch !== "BEAR";
     const blockBullByTrend = adx > 35 && marketStructure.type === "DOWNTREND" && marketStructure.choch !== "BULL";
-    const allowBullish = (strongBullish || highConvictionMomentumBull) && !volatilitySpike && !blockBullByTrend;
-    const allowBearish = (strongBearish || highConvictionMomentumBear) && !volatilitySpike && !blockBearByTrend;
+    const allowBullish = strongBullish && !volatilitySpike && !blockBullByTrend;
+    const allowBearish = strongBearish && !volatilitySpike && !blockBearByTrend;
 
     if (volatilitySpike) {
       action = "WAIT";
@@ -2685,7 +2651,7 @@ export class AdvancedAI {
       confidence += afternoonDecay; // FIX 4 + afternoon decay
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = "Bullish";
-      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${highConvictionMomentumBull ? " Momentum escape!" : ""}${overExpandedCandle ? " OVEREXPANDED!" : ""}${pullbackQualityBull ? " Sniper pullback!" : ""}${reversalBullEntry ? " Reversal entry!" : ""}${continuationBull ? " Continuation!" : ""}${h1AlignedBull ? " 1H aligned!" : ""}`;
+      reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? " OVEREXPANDED!" : ""}${pullbackQualityBull ? " Sniper pullback!" : ""}${reversalBullEntry ? " Reversal entry!" : ""}${continuationBull ? " Continuation!" : ""}${h1AlignedBull ? " 1H aligned!" : ""}`;
     } else if (allowBearish) {
       action = "BUY_PUT";
       const tierBase = bearTier === "HIGH" ? 70 : bearTier === "STRONG" ? 64 : 58;
@@ -2710,7 +2676,7 @@ export class AdvancedAI {
       confidence += afternoonDecay; // FIX 4 + afternoon decay
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = "Bearish";
-      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${highConvictionMomentumBear ? " Momentum escape!" : ""}${overExpandedCandle ? " OVEREXPANDED!" : ""}${pullbackQualityBear ? " Sniper pullback!" : ""}${reversalBearEntry ? " Reversal entry!" : ""}${continuationBear ? " Continuation!" : ""}${h1AlignedBear ? " 1H aligned!" : ""}`;
+      reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? " OVEREXPANDED!" : ""}${pullbackQualityBear ? " Sniper pullback!" : ""}${reversalBearEntry ? " Reversal entry!" : ""}${continuationBear ? " Continuation!" : ""}${h1AlignedBear ? " 1H aligned!" : ""}`;
     } else if (consecutiveLossLockout) {
       action = "WAIT";
       confidence = 30;
