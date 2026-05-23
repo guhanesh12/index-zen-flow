@@ -4321,9 +4321,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     <div className="space-y-4">
       {/* ⚠️ SYMBOL CONFIGURATION WARNING */}
       {(() => {
+        const enabledAutoSlots = autoSymbolSlots.filter((slot: any) => slot.enabled !== false);
         const ceSymbols = tradingSymbols.filter(s => s.optionType === 'CE' && s.transactionType === 'BUY');
         const peSymbols = tradingSymbols.filter(s => s.optionType === 'PE' && s.transactionType === 'BUY');
-        const hasMissingSymbols = ceSymbols.length === 0 || peSymbols.length === 0;
+        const hasMissingSymbols = enabledAutoSlots.length === 0 && (ceSymbols.length === 0 || peSymbols.length === 0);
         
         if (hasMissingSymbols) {
           const missing = [];
@@ -4372,6 +4373,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                       </Button>
                     </div>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        }
+        if (enabledAutoSlots.length > 0) {
+          return (
+            <Card className="bg-green-900/20 border-green-500/30">
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3 text-sm text-green-300">
+                  <Check className="size-5 text-green-400" />
+                  <span>
+                    Auto Symbol Selection ready: {enabledAutoSlots.map((slot: any) => `Slot ${slot.slot} ${slot.index_name} ${slot.moneyness} ×${slot.lot_count || 1}`).join(' • ')}. Manual CE/PE symbols are not required.
+                  </span>
                 </div>
               </CardContent>
             </Card>
