@@ -1594,7 +1594,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     // Minutes since market open (9:15 AM)
     const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
     
-    if (minutesSinceOpen < 0 || minutesSinceOpen >= 390) {
+    if (minutesSinceOpen < 0 || minutesSinceOpen >= 375) {
       setNextCandleClose('Market Closed');
       setSecondsToCandle(0);
       return;
