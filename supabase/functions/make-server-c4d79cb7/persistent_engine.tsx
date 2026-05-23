@@ -1235,8 +1235,8 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          if (reversalPosition && confidence >= 90) {
-            const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
+          if (reversalPosition) {
+            const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, signal-confirmed ${confidence}% confidence)`;
             const exitResult = await placeOrderViaStaticIP(
               userId,
               { dhanClientId, dhanAccessToken },
@@ -1490,11 +1490,10 @@ class PersistentTradingEngine {
             );
             if (
               sameIndexPosition &&
-              confidence >= 90 &&
               targetOptionType &&
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
-              const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || "OLD"} → ${targetOptionType})`;
+              const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || "OLD"} → ${targetOptionType}, signal-confirmed ${confidence}% confidence)`;
               const exitResult = await placeOrderViaStaticIP(
                 userId,
                 { dhanClientId, dhanAccessToken },
