@@ -11900,30 +11900,13 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
       console.error("[OAUTH] KV mirror failed:", mirrorErr);
     }
 
-    // 🔬 Live verification: hit Dhan funds with the new token. If this fails the
-    // token isn't actually usable — return the failure so the UI doesn't show
-    // a misleading "connected" toast.
-    let liveCheck: { ok: boolean; balance?: number; error?: string } = { ok: false };
-    try {
-      const fundsResp = await fetch("https://api.dhan.co/v2/fundlimit", {
-        headers: {
-          "access-token": updated.access_token,
-          "client-id": updated.dhan_client_id,
-          Accept: "application/json",
-        },
+    // 🔬 Live verification via shared helper
+    const liveCheck = await verifyDhanToken(updated.access_token, updated.dhan_client_id);
+    if (!liveCheck.ok) {
+      await upsertBrokerRow(user.id, {
+        last_status: "token_invalid",
+        last_error: `[${liveCheck.errorCode || "?"}] ${liveCheck.error || "Dhan rejected token"}`,
       });
-      const fundsBody = await fundsResp.text();
-      if (fundsResp.ok) {
-        try {
-          const parsed = JSON.parse(fundsBody);
-          liveCheck = { ok: true, balance: Number(parsed?.availabelBalance ?? parsed?.availableBalance ?? 0) };
-        } catch { liveCheck = { ok: true }; }
-      } else {
-        liveCheck = { ok: false, error: `Dhan funds ${fundsResp.status}: ${fundsBody.slice(0, 200)}` };
-        await upsertBrokerRow(user.id, { last_status: "token_invalid", last_error: liveCheck.error });
-      }
-    } catch (verifyErr: any) {
-      liveCheck = { ok: false, error: verifyErr?.message || String(verifyErr) };
     }
 
     return c.json({ success: true, credentials: sanitizeBrokerRow(updated), liveCheck });
