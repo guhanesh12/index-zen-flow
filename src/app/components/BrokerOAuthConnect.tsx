@@ -63,7 +63,7 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
       const data = await res.json();
       const r: BrokerRow | null = data?.credentials || null;
       setRow(r);
-      if (r) {
+      if (data?.liveCheck) setLiveCheck(data.liveCheck);
         setForm((f) => ({
           ...f,
           dhanClientId: r.dhan_client_id || f.dhanClientId,
