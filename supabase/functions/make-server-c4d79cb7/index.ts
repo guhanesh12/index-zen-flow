@@ -4698,7 +4698,7 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
   
   try {
     const body = await c.req.json();
-    const { open, high, low, close, volume, timestamp } = body;
+    const { open, high, low, close, volume, timestamp, minWarmup } = body;
     
     if (!open || !high || !low || !close || !volume || !timestamp) {
       return c.json({ 
@@ -4712,7 +4712,7 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
     console.log(`📅 Last: ${new Date(timestamp[timestamp.length - 1] * 1000).toLocaleString('en-IN')}`);
     
     // Run strategy
-    const { signals, summary } = runManualStrategy(open, high, low, close, volume, timestamp);
+    const { signals, summary } = runManualStrategy(open, high, low, close, volume, timestamp, minWarmup);
     
     // Simulate trades
     const { trades, stats } = simulateTrades(signals, 75);
