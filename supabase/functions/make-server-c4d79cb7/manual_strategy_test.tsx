@@ -19,7 +19,8 @@ interface Signal {
 
 export function runManualStrategy(
   open: number[], high: number[], low: number[], close: number[],
-  volume: number[], timestamp: number[]
+  volume: number[], timestamp: number[],
+  minWarmup?: number
 ) {
   console.log(`🧪 MANUAL BACKTEST (AdvancedAI) — ${close.length} candles`);
   const candles: OHLCCandle[] = [];
