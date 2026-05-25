@@ -6,7 +6,7 @@ class RateLimiter {
   private queue: Array<() => Promise<any>> = [];
   private processing = false;
   private lastRequestTime = 0;
-  private readonly MIN_REQUEST_INTERVAL = 600; // 600ms between requests (safe buffer)
+  private readonly MIN_REQUEST_INTERVAL = 150; // ultra-fast candle-close burst; per-minute cap still protects Dhan
   private requestCount = 0;
   private windowStart = Date.now();
   private readonly MAX_REQUESTS_PER_MINUTE = 60; // Dhan's rate limit
@@ -343,7 +343,9 @@ export class DhanService {
       const cachedBehindClosedCandle = Boolean(cached && cachedLastTsMs && cachedLastTsMs < currentClosedBoundaryMs);
       const justAfterCandleClose = nowMs - currentClosedBoundaryMs <= 75_000;
 
-      if (cached && (nowMs - cached.timestamp) < this.CACHE_DURATION && !cachedBehindClosedCandle && !justAfterCandleClose) {
+      const intervalAwareCacheMs = Math.max(this.CACHE_DURATION, Math.min(intervalMs - 5_000, 15 * 60 * 1000));
+
+      if (cached && (nowMs - cached.timestamp) < intervalAwareCacheMs && !cachedBehindClosedCandle && !justAfterCandleClose) {
         console.log(`✅ CACHE HIT: Using cached ${interval}min data for ${securityId} (${cached.price.length} candles, ${Math.round((nowMs - cached.timestamp) / 1000)}s old)`);
         return cached.price;
       }
