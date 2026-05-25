@@ -25,6 +25,7 @@ import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
+import { resolveAutoSymbol } from "./instrument_refresh.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -295,6 +296,26 @@ async function getFreshSymbolsForEngine(userId: string, stateSymbols: any[]): Pr
 // Supabase client for DB operations
 const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL") || "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "");
 
+async function loadDhanCredentials(userId: string): Promise<{ dhanClientId: string; dhanAccessToken: string } | null> {
+  const { data } = await supabaseAdmin
+    .from("broker_credentials")
+    .select("dhan_client_id, access_token, last_status")
+    .eq("user_id", userId)
+    .eq("broker", "dhan")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (data?.dhan_client_id && data?.access_token) {
+    const fresh = { dhanClientId: data.dhan_client_id, dhanAccessToken: data.access_token };
+    await kv.set(`api_credentials:${userId}`, fresh);
+    return fresh;
+  }
+
+  const legacy = await kv.get(`api_credentials:${userId}`);
+  return legacy?.dhanClientId && legacy?.dhanAccessToken ? legacy : null;
+}
+
 interface EngineState {
   isRunning: boolean;
   userId: string;
@@ -328,9 +349,11 @@ class PersistentTradingEngine {
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
   private static activeLoops: Set<string> = new Set();
+  private static activeLoopStartedAt: Map<string, number> = new Map();
   private static monitorLoops: Map<string, Promise<void>> = new Map();
   private static recentOrderKeys: Map<string, number> = new Map();
   private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
+  private static readonly ACTIVE_LOOP_STALE_MS = 90 * 1000;
   private static readonly POSITION_MONITOR_INTERVAL_MS = 1000;
 
   /**
@@ -358,7 +381,8 @@ class PersistentTradingEngine {
    * START ENGINE FOR USER
    */
   static async startEngine(config: EngineConfig): Promise<{ success: boolean; message: string }> {
-    const { userId, candleInterval, symbols, dhanClientId, dhanAccessToken } = config;
+    const { userId, candleInterval, dhanClientId, dhanAccessToken } = config;
+    const symbols = Array.isArray(config.symbols) ? config.symbols : [];
 
     // Check if engine already running
     if (this.instances.has(userId)) {
@@ -368,11 +392,19 @@ class PersistentTradingEngine {
       };
     }
 
-    // Validate symbols
-    if (!symbols || symbols.length === 0) {
+    const { data: enabledAutoSlots } = await supabaseAdmin
+      .from("user_symbol_config")
+      .select("slot")
+      .eq("user_id", userId)
+      .eq("enabled", true)
+      .limit(1);
+    const hasAutoSymbolMode = Array.isArray(enabledAutoSlots) && enabledAutoSlots.length > 0;
+
+    // Validate at least one execution source: auto-symbol slots OR manual symbols
+    if (symbols.length === 0 && !hasAutoSymbolMode) {
       return {
         success: false,
-        message: "❌ No active symbols configured",
+        message: "❌ No execution source configured. Add an Auto Symbol slot or add manual symbols.",
       };
     }
 
@@ -422,6 +454,7 @@ class PersistentTradingEngine {
     console.log(`🚀 STARTING PERSISTENT ENGINE for user ${userId}`);
     console.log(`   Interval: ${candleInterval}M`);
     console.log(`   Symbols: ${symbols.length}`);
+    console.log(`   Auto Symbol Mode: ${hasAutoSymbolMode ? "ON" : "OFF"}`);
 
     const staleTimer = this.instances.get(userId);
     if (staleTimer) {
@@ -434,7 +467,7 @@ class PersistentTradingEngine {
       id: `engine_start_${Date.now()}`,
       timestamp: Date.now(),
       type: "ENGINE_START",
-      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${symbols.length} symbols active | 📱 Synced across all devices`,
+      message: `🚀 AI Trading Engine STARTED | ${candleInterval}M Candles | ${hasAutoSymbolMode ? "Auto Symbol ON" : `${symbols.length} manual symbols active`} | 📱 Synced across all devices`,
     });
 
     return {
@@ -545,15 +578,19 @@ class PersistentTradingEngine {
           const settings = engine.strategy_settings || {};
           const symbols = engine.selected_symbols || [];
 
-          // Get Dhan credentials from KV
-          const credentials = await kv.get(`api_credentials:${userId}`);
+          // Get fresh Dhan credentials from DB first; KV can be stale after reconnect/token refresh.
+          const credentials = await loadDhanCredentials(userId);
           if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) {
             console.warn(`⚠️ [CRON] No Dhan credentials for user ${userId}, skipping`);
             continue;
           }
 
-          // Hydrate memory state if needed
-          if (!this.engineStates.has(userId)) {
+          // Hydrate/sync memory state from DB every tick. Edge isolates keep module memory
+          // between requests; after a stop/start, an old in-memory `isRunning:false` state
+          // can survive while DB correctly says running, causing heartbeat-only ticks with
+          // no candle analysis. Treat DB as source of truth for active cron engines.
+          const existingState = this.engineStates.get(userId);
+          if (!existingState) {
             this.engineStates.set(userId, {
               isRunning: true,
               userId,
@@ -571,6 +608,20 @@ class PersistentTradingEngine {
               dhanClientId: credentials.dhanClientId,
               dhanAccessToken: credentials.dhanAccessToken,
             });
+          } else {
+            existingState.isRunning = true;
+            existingState.candleInterval = settings.candleInterval || existingState.candleInterval || "15";
+            existingState.symbols = symbols;
+            existingState.lastProcessedCandle = settings.lastProcessedCandle || existingState.lastProcessedCandle || "";
+            existingState.stats = {
+              totalSignals: Math.max(existingState.stats?.totalSignals || 0, settings.totalSignals || 0),
+              totalOrders: Math.max(existingState.stats?.totalOrders || 0, settings.totalOrders || 0),
+              totalPnL: Number(settings.totalPnL ?? existingState.stats?.totalPnL ?? 0),
+            };
+            existingState.startTime = new Date(engine.started_at || engine.created_at).getTime();
+            existingState.lastHeartbeat = Date.now();
+            existingState.dhanClientId = credentials.dhanClientId;
+            existingState.dhanAccessToken = credentials.dhanAccessToken;
           }
 
           const dhanService = new DhanService({
@@ -611,7 +662,7 @@ class PersistentTradingEngine {
         );
         for (const uid of orphanUserIds) {
           try {
-            const credentials = await kv.get(`api_credentials:${uid}`);
+            const credentials = await loadDhanCredentials(uid);
             if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) continue;
             const dhanService = new DhanService({
               clientId: credentials.dhanClientId,
@@ -685,7 +736,7 @@ class PersistentTradingEngine {
       if (this.monitorLoops.has(userId)) continue;
 
       const loop = (async () => {
-        const credentials = await kv.get(`api_credentials:${userId}`);
+        const credentials = await loadDhanCredentials(userId);
         if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;
 
         const dhanService = new DhanService({
@@ -901,8 +952,15 @@ class PersistentTradingEngine {
     dhanAccessToken: string,
   ): Promise<void> {
     if (this.activeLoops.has(userId)) {
+      const startedAt = this.activeLoopStartedAt.get(userId) || 0;
+      if (startedAt && Date.now() - startedAt > this.ACTIVE_LOOP_STALE_MS) {
+        console.warn(`⚠️ Stale engine loop lock cleared for ${userId} after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+        this.activeLoops.delete(userId);
+        this.activeLoopStartedAt.delete(userId);
+      } else {
       console.log(`⏸️ Skipping overlapping engine loop for ${userId}`);
       return;
+      }
     }
 
     const state = this.engineStates.get(userId);
@@ -912,6 +970,7 @@ class PersistentTradingEngine {
     }
 
     this.activeLoops.add(userId);
+    this.activeLoopStartedAt.set(userId, Date.now());
 
     try {
       const liveEngineState = await this.getLiveEngineState(userId);
@@ -985,9 +1044,10 @@ class PersistentTradingEngine {
 
       console.log(`\n🔥 NEW CANDLE DETECTED! Processing ${state.candleInterval}M candle at ${currentCandleTimestamp}`);
 
-      // Mark as processed
-      state.lastProcessedCandle = currentCandleTimestamp;
-      await this.saveEngineStateToDB(userId, state);
+      // ⚡ Do NOT mark this candle processed yet. Marking before AI/data/order work
+      // caused failed or slow candle-close analysis to be skipped forever, leaving
+      // the UI stuck on the previous snapshot. We commit lastProcessedCandle only
+      // after the latest signal snapshot has been produced.
 
       // ⚡⚡⚡ ANALYZE ALL 3 INDICES INDEPENDENTLY (like frontend does) ⚡⚡⚡
       const allIndices = ["NIFTY", "BANKNIFTY", "SENSEX"];
@@ -1013,12 +1073,16 @@ class PersistentTradingEngine {
             } catch (_e) {
               real1hData = [];
             }
-            // ⚡ FIX: strip the still-forming candle so the engine analyses only CLOSED bars (critical on 15m).
+            // ⚡ Dhan index candles use close-time timestamps (09:30 means 09:15-09:30 CLOSED).
+            // Keep the latest bar as soon as its timestamp is <= the current closed boundary;
+            // only strip future/actively-forming close timestamps.
             const stripForming = (arr: any[], tfMin: number) => {
               if (!arr || arr.length < 2) return arr;
               const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
               const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
-              return Date.now() < lastTsMs + tfMin * 60 * 1000 ? arr.slice(0, -1) : arr;
+              const tfMs = tfMin * 60 * 1000;
+              const currentClosedBoundaryMs = Math.floor(Date.now() / tfMs) * tfMs;
+              return lastTsMs > currentClosedBoundaryMs ? arr.slice(0, -1) : arr;
             };
             // ⚡ BUG FIX 1: Resample primary lower-TF candles into 15m if separate 15m feed is sparse/stale.
             const resampleTo15m = (arr: any[], srcTfMin: number) => {
@@ -1104,7 +1168,12 @@ class PersistentTradingEngine {
 
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
-          const reason = aiSignal.signal.reason || "";
+          const reason =
+            aiSignal.signal.reason ||
+            aiSignal.signal.reasoning ||
+            aiSignal.signal.debugInfo?.finalDecisionReason ||
+            aiSignal.signal.debugInfo?.blockedReason ||
+            "";
           const signalTimestamp = Date.now();
 
           // Store latest UI snapshot for every index. Count every analysis (including WAIT)
@@ -1171,7 +1240,8 @@ class PersistentTradingEngine {
             },
           });
 
-          // ⚡ FAST MODE: live order gate lowered from 70 → 65; clear skip-reason logs.
+          // ⚡ BUY means execute: confidence is now informational only. If the strategy emits
+          // BUY_CALL / BUY_PUT, auto/manual symbol selection and Dhan order placement must run.
           if (action === "WAIT") {
             console.log(`⏸️ ${indexName} SKIP — WAIT signal | conf=${confidence}% | reason: ${reason || "n/a"}`);
             await this.appendSharedLog(userId, {
@@ -1182,13 +1252,14 @@ class PersistentTradingEngine {
             continue;
           }
           if (confidence < 65) {
-            console.log(`⏸️ ${indexName} SKIP — Low confidence ${confidence}% (<65) | ${reason || ""}`);
+            console.log(
+              `⚡ ${indexName} BUY signal accepted despite ${confidence}% confidence — proceeding to symbol resolution/order`,
+            );
             await this.appendSharedLog(userId, {
-              type: "SKIP",
+              type: "INFO",
               timestamp: Date.now(),
-              message: `⏸️ ${indexName} SKIP — confidence ${confidence}% below 65% gate`,
+              message: `⚡ ${indexName} ${action} signal accepted (${confidence}%) — auto/manual order execution enabled`,
             });
-            continue;
           }
 
           if (!state.activePositions || state.activePositions.length === 0) {
@@ -1219,7 +1290,7 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          if (reversalPosition && confidence >= 90) {
+          if (reversalPosition && confidence >= 80) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await placeOrderViaStaticIP(
               userId,
@@ -1286,19 +1357,119 @@ class PersistentTradingEngine {
             return true;
           });
 
-          // 🎯 MANUAL-ONLY STRIKE MODE
-          // Auto-strike (nearest-to-ATM) selection is DISABLED.
-          // We place trades on EVERY user-added active symbol that matches the
-          // index + option type. Whatever the user manually added in Symbol
-          // Manager is exactly what gets traded — no filtering by ATM distance.
-          const autoSelectedSymbols = matchingSymbols;
+          // 🎯 AUTO-SYMBOL MODE (NEW): if user has user_symbol_config slots for this index,
+          // resolve them from the centralized instrument_master and use those instead of
+          // (or alongside) manually-added symbols. This lets the user pick ATM / ITM / OTM
+          // and a lot count — the engine fetches the matching contract at signal time.
+          let autoSelectedSymbols = matchingSymbols;
+          let autoSlotCount = 0;
+          let autoResolveFailures = 0;
+          try {
+            const { data: autoSlots } = await supabaseAdmin
+              .from("user_symbol_config")
+              .select("slot, index_name, moneyness, lot_count, enabled")
+              .eq("user_id", userId)
+              .eq("enabled", true)
+              .eq("index_name", indexName);
 
-          console.log(
-            `🔍 ${indexName} ${action}: Found ${matchingSymbols.length} matching symbols (manual-only mode, from ${symbolsForIndex.length} total for index, targetOptionType=${targetOptionType})`,
-          );
-          if (matchingSymbols.length === 0) {
+            if (autoSlots && autoSlots.length > 0) {
+              autoSlotCount = autoSlots.length;
+              const spotLtp = Number(ohlcData[ohlcData.length - 1]?.close) || 0;
+              if (spotLtp > 0) {
+                const resolved: any[] = [];
+                for (const slot of autoSlots) {
+                  const lotCount = Math.max(1, Number(slot.lot_count) || 1);
+                  const r = await resolveAutoSymbol({
+                    index_name: indexName as any,
+                    ltp: spotLtp,
+                    option_type: targetOptionType as any,
+                    moneyness: (slot.moneyness || "ATM") as any,
+                  });
+                  if (!r) {
+                    autoResolveFailures++;
+                    console.warn(
+                      `⚠️ [AUTO_SYMBOL] slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType} not found in instrument_master`,
+                    );
+                    await this.appendSharedLog(userId, {
+                      type: "ERROR",
+                      timestamp: Date.now(),
+                      message: `❌ AUTO SYMBOL NOT FOUND: Slot ${slot.slot} ${indexName} ${slot.moneyness} ${targetOptionType}. Instrument master has no matching contract near spot ${spotLtp}.`,
+                      data: {
+                        index: indexName,
+                        action,
+                        slot: slot.slot,
+                        moneyness: slot.moneyness,
+                        optionType: targetOptionType,
+                        spotLtp,
+                      },
+                    });
+                    continue;
+                  }
+                  const finalQuantity = r.lot_size * lotCount;
+                  resolved.push({
+                    id: `AUTO_${slot.slot}_${r.security_id}`,
+                    name: r.symbol,
+                    symbolName: r.symbol,
+                    displayName: r.symbol,
+                    index: indexName,
+                    indexName,
+                    optionType: r.option_type,
+                    transactionType: "BUY",
+                    exchangeSegment: r.exchange_segment,
+                    productType: "INTRADAY",
+                    orderType: "MARKET",
+                    validity: "DAY",
+                    securityId: String(r.security_id),
+                    symbolId: String(r.security_id),
+                    quantity: finalQuantity,
+                    lotSize: r.lot_size,
+                    lotCount,
+                    strikePrice: r.strike_price,
+                    expiry: r.expiry_date,
+                    active: true,
+                    targetAmount: 0,
+                    stopLossAmount: 0,
+                    trailingEnabled: false,
+                    __autoSlot: slot.slot,
+                    __moneyness: slot.moneyness,
+                  });
+                  console.log(
+                    `🎯 [AUTO_SYMBOL] slot ${slot.slot}: ${indexName} ${slot.moneyness} ${targetOptionType} → ${r.symbol} SID ${r.security_id} strike ${r.strike_price} lotSize ${r.lot_size} × lots ${lotCount} = qty ${finalQuantity}`,
+                  );
+                }
+                if (resolved.length > 0) {
+                  console.log(
+                    `🎯 [AUTO_SYMBOL] ${indexName} ${action}: resolved ${resolved.length} auto-config slots @ spot ${spotLtp}`,
+                  );
+                  autoSelectedSymbols = resolved;
+                }
+              } else {
+                autoResolveFailures = autoSlotCount;
+                await this.appendSharedLog(userId, {
+                  type: "ERROR",
+                  timestamp: Date.now(),
+                  message: `❌ AUTO SYMBOL SKIPPED: ${indexName} spot price was unavailable, so ATM/ITM/OTM contract could not be selected.`,
+                  data: { index: indexName, action, targetOptionType },
+                });
+              }
+            }
+          } catch (autoErr: any) {
+            console.error(`❌ [AUTO_SYMBOL] resolution failed for ${indexName}:`, autoErr?.message || autoErr);
+            autoResolveFailures = Math.max(autoResolveFailures, autoSlotCount || 1);
+            await this.appendSharedLog(userId, {
+              type: "ERROR",
+              timestamp: Date.now(),
+              message: `❌ AUTO SYMBOL ERROR: ${indexName} ${action} contract resolution failed - ${autoErr?.message || autoErr}`,
+              data: { index: indexName, action, targetOptionType },
+            });
+          }
+          if (autoSelectedSymbols.length === 0 && matchingSymbols.length === 0) {
+            const skipMessage =
+              autoSlotCount > 0
+                ? `❌ ${indexName} ${action} signal skipped - ${autoSlotCount} auto-symbol slot(s) enabled but no ${targetOptionType || "option"} contract could be resolved from today's instrument master. Refresh instruments and check ATM/ITM/OTM settings.`
+                : `❌ ${indexName} ${action} signal skipped - no auto-symbol slot and no manually-added active ${targetOptionType || "option"} symbol found. Add an auto slot or a manual ${targetOptionType} contract for ${indexName}.`;
             console.log(
-              `⚠️ NO MATCHING SYMBOLS for ${indexName} ${action}! Symbols for index:`,
+              `⚠️ NO ORDERABLE SYMBOLS for ${indexName} ${action}! Auto slots: ${autoSlotCount}, auto failures: ${autoResolveFailures}. Symbols for index:`,
               JSON.stringify(
                 symbolsForIndex.map((s) => ({
                   name: s.name,
@@ -1313,11 +1484,13 @@ class PersistentTradingEngine {
             await this.appendSharedLog(userId, {
               type: "ERROR",
               timestamp: Date.now(),
-              message: `❌ ${indexName} ${action} signal skipped - no manually-added active ${targetOptionType || "option"} symbol found. Please add a ${targetOptionType} contract for ${indexName} in Symbol Manager.`,
+              message: skipMessage,
               data: {
                 index: indexName,
                 action,
                 targetOptionType,
+                autoSlotCount,
+                autoResolveFailures,
                 symbolsForIndex: symbolsForIndex.map((s) => ({
                   name: getSymbolDisplayName(s),
                   index: normalizeIndexName(s),
@@ -1472,14 +1645,23 @@ class PersistentTradingEngine {
                 amoTime: symbol.amoTime || symbol.amo_time || "",
               };
 
-              const orderResult = await placeOrderViaStaticIP(
-                userId,
-                {
-                  dhanClientId: dhanClientId,
-                  dhanAccessToken: dhanAccessToken,
-                },
-                orderParams,
-              );
+              let orderResult: any;
+              try {
+                orderResult = await placeOrderViaStaticIP(
+                  userId,
+                  {
+                    dhanClientId: dhanClientId,
+                    dhanAccessToken: dhanAccessToken,
+                  },
+                  orderParams,
+                );
+              } catch (orderError: any) {
+                orderResult = {
+                  success: false,
+                  error: orderError?.message || String(orderError),
+                  code: orderError?.code || null,
+                };
+              }
 
               if (orderResult.orderId) {
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
@@ -1552,8 +1734,21 @@ class PersistentTradingEngine {
               } else {
                 console.log(`❌ ORDER FAILED: ${orderResult.error}`);
                 await this.saveOrderToDB(userId, symbol, orderResult, action, "failed");
+                await this.appendSharedLog(userId, {
+                  type: "ERROR",
+                  timestamp: Date.now(),
+                  message: `❌ ORDER FAILED: ${normalizedSymbolName} | ${action} | Qty ${orderParams.quantity} | ${orderResult.error || orderResult.message || "Dhan/VPS rejected order"}`,
+                  data: { index: indexName, symbol: normalizedSymbolName, action, orderParams, orderResult },
+                });
                 this.recentOrderKeys.delete(orderKey);
               }
+            } else {
+              await this.appendSharedLog(userId, {
+                type: "ERROR",
+                timestamp: Date.now(),
+                message: `❌ ORDER NOT SENT: Unsupported signal action ${action} for ${normalizedSymbolName}`,
+                data: { index: indexName, symbol: normalizedSymbolName, action },
+              });
             }
           }
         } catch (error) {
@@ -1563,6 +1758,9 @@ class PersistentTradingEngine {
 
       if (Object.keys(latestSignalsSnapshot).length > 0) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
+        state.lastProcessedCandle = currentCandleTimestamp;
+      } else {
+        console.warn(`⚠️ No signal snapshot saved for ${currentCandleTimestamp}; candle will be retried on next tick.`);
       }
 
       // 📧 ONE consolidated email per candle covering ALL actionable signals
@@ -1620,6 +1818,7 @@ class PersistentTradingEngine {
       });
     } finally {
       this.activeLoops.delete(userId);
+      this.activeLoopStartedAt.delete(userId);
     }
   }
 
@@ -1765,7 +1964,9 @@ class PersistentTradingEngine {
             if (!arr || arr.length < 2) return arr;
             const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
             const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
-            return Date.now() < lastTsMs + tfM * 60 * 1000 ? arr.slice(0, -1) : arr;
+            const tfMs = tfM * 60 * 1000;
+            const currentClosedBoundaryMs = Math.floor(Date.now() / tfMs) * tfMs;
+            return lastTsMs > currentClosedBoundaryMs ? arr.slice(0, -1) : arr;
           };
           const ohlcData = stripForming(ohlcDataRaw, tfMin);
           const real15mData = stripForming(real15mDataRaw, 15);
@@ -2342,7 +2543,18 @@ class PersistentTradingEngine {
           skipped++;
           continue;
         }
-        if (!row.selected_symbols || (row.selected_symbols as any[]).length === 0) {
+        const hasManualSymbols = Array.isArray(row.selected_symbols) && (row.selected_symbols as any[]).length > 0;
+        let hasAutoSymbolSlots = false;
+        if (!hasManualSymbols) {
+          const { data: autoSlots } = await supabaseAdmin
+            .from("user_symbol_config")
+            .select("slot")
+            .eq("user_id", row.user_id)
+            .eq("enabled", true)
+            .limit(1);
+          hasAutoSymbolSlots = Array.isArray(autoSlots) && autoSlots.length > 0;
+        }
+        if (!hasManualSymbols && !hasAutoSymbolSlots) {
           skipped++;
           continue;
         }
