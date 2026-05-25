@@ -505,11 +505,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   };
 
   const getSignalMomentumLabel = (signal: any) => {
+    // ⚡ FIX: Momentum must align with the signal direction.
+    // BUY_CALL → BULLISH, BUY_PUT → BEARISH. Only fall back to flow/pressure when WAIT.
+    const action = String(signal?.action || '').toUpperCase();
+    if (action === 'BUY_CALL' || action === 'BULLISH' || action === 'BUY') return 'BULLISH';
+    if (action === 'BUY_PUT' || action === 'BEARISH' || action === 'SELL') return 'BEARISH';
+
+    const bias = String(signal?.bias || '').toUpperCase();
+    if (bias.includes('BULL')) return 'BULLISH';
+    if (bias.includes('BEAR')) return 'BEARISH';
+
     const directMomentum = signal?.momentum;
-    if (directMomentum && directMomentum !== 'N/A') return directMomentum;
+    if (directMomentum && directMomentum !== 'N/A' && directMomentum !== 'NEUTRAL') return directMomentum;
 
     const orderFlow = signal?.volume_analysis?.orderFlow || signal?.volumeAnalysis?.orderFlow || signal?.institutional_bias;
-    if (orderFlow && orderFlow !== 'N/A') return orderFlow;
+    if (orderFlow && orderFlow !== 'N/A' && orderFlow !== 'NEUTRAL') return orderFlow;
 
     const buyPressure = Number(signal?.volume_analysis?.buyPressure ?? signal?.volumeAnalysis?.buyPressure ?? 0);
     const sellPressure = Number(signal?.volume_analysis?.sellPressure ?? signal?.volumeAnalysis?.sellPressure ?? 0);
