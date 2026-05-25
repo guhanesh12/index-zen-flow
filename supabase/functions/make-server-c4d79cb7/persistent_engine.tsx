@@ -1053,6 +1053,7 @@ class PersistentTradingEngine {
       const allIndices = ["NIFTY", "BANKNIFTY", "SENSEX"];
       const analyzedIndices = new Set<string>();
       const latestSignalsSnapshot: Record<string, any> = {};
+      const batchSignalTimestamp = Date.now();
 
       for (const indexName of allIndices) {
         try {
@@ -1174,7 +1175,7 @@ class PersistentTradingEngine {
             aiSignal.signal.debugInfo?.finalDecisionReason ||
             aiSignal.signal.debugInfo?.blockedReason ||
             "";
-          const signalTimestamp = Date.now();
+          const signalTimestamp = batchSignalTimestamp;
 
           // Store latest UI snapshot for every index. Count every analysis (including WAIT)
           // toward the daily signal stat so the Performance panel reflects real activity.
