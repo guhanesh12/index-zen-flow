@@ -1915,7 +1915,9 @@ class PersistentTradingEngine {
             if (!arr || arr.length < 2) return arr;
             const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
             const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
-            return Date.now() < lastTsMs + tfM * 60 * 1000 ? arr.slice(0, -1) : arr;
+            const tfMs = tfM * 60 * 1000;
+            const currentClosedBoundaryMs = Math.floor(Date.now() / tfMs) * tfMs;
+            return lastTsMs > currentClosedBoundaryMs ? arr.slice(0, -1) : arr;
           };
           const ohlcData = stripForming(ohlcDataRaw, tfMin);
           const real15mData = stripForming(real15mDataRaw, 15);
