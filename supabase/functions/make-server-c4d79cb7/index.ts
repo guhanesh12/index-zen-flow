@@ -10468,7 +10468,7 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   console.log("==========================================");
   console.log("⏱️ [CRON] 24/7 Engine Tick Triggered via HTTP");
   console.log("==========================================");
-  
+
   try {
     const result = await PersistentTradingEngine.runCronTick();
     return c.json(result);
