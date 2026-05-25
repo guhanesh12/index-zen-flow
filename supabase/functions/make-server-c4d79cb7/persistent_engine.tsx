@@ -1015,14 +1015,12 @@ class PersistentTradingEngine {
         return;
       }
 
-      // ⚡⚡⚡ ALWAYS MONITOR ACTIVE POSITIONS (EVERY TICK) ⚡⚡⚡
-      await this.monitorPositions(userId, dhanService, state);
-
       const candleMinutes = parseInt(state.candleInterval);
       const minutesSinceOpen = currentTimeMinutes - marketOpen;
 
       if (minutesSinceOpen < candleMinutes) {
         console.log(`⏳ Waiting for first ${state.candleInterval}M candle to close for user ${userId}`);
+        await this.monitorPositions(userId, dhanService, state);
         await kv.set(`engine_state_${userId}`, state);
         return;
       }
@@ -1038,6 +1036,7 @@ class PersistentTradingEngine {
       if (currentCandleTimestamp === state.lastProcessedCandle || currentCandleTimestamp === dbLastProcessedCandle) {
         state.lastProcessedCandle = currentCandleTimestamp;
         console.log(`⏸️ Same candle ${currentCandleTimestamp} - monitoring positions only`);
+        await this.monitorPositions(userId, dhanService, state);
         await kv.set(`engine_state_${userId}`, state);
         return;
       }
@@ -1053,8 +1052,10 @@ class PersistentTradingEngine {
       const allIndices = ["NIFTY", "BANKNIFTY", "SENSEX"];
       const analyzedIndices = new Set<string>();
       const latestSignalsSnapshot: Record<string, any> = {};
+      const batchSignalTimestamp = Date.now();
 
-      for (const indexName of allIndices) {
+      await Promise.all(
+        allIndices.map(async (indexName) => {
         try {
           console.log(`\n📊 Analyzing index: ${indexName}`);
 
@@ -1163,7 +1164,7 @@ class PersistentTradingEngine {
             await this.saveSignalToDB(userId, pseudoSymbol, {
               signal: { action: "WAIT", confidence: 0, reasoning: "AI analysis failed - no data" },
             });
-            continue;
+            return;
           }
 
           const action = aiSignal.signal.action;
@@ -1174,7 +1175,7 @@ class PersistentTradingEngine {
             aiSignal.signal.debugInfo?.finalDecisionReason ||
             aiSignal.signal.debugInfo?.blockedReason ||
             "";
-          const signalTimestamp = Date.now();
+          const signalTimestamp = batchSignalTimestamp;
 
           // Store latest UI snapshot for every index. Count every analysis (including WAIT)
           // toward the daily signal stat so the Performance panel reflects real activity.
@@ -1249,7 +1250,7 @@ class PersistentTradingEngine {
               timestamp: Date.now(),
               message: `⏸️ ${indexName} SKIP (WAIT) | ${confidence}% | ${reason || "no reason"}`,
             });
-            continue;
+            return;
           }
           if (confidence < 65) {
             console.log(
@@ -1334,7 +1335,7 @@ class PersistentTradingEngine {
               state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
             } else {
               console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${exitResult.error}`);
-              continue;
+              return;
             }
           }
 
@@ -1516,13 +1517,13 @@ class PersistentTradingEngine {
 
             if (this.hasRecentOrderKey(orderKey)) {
               console.log(`⏸️ SKIPPING DUPLICATE - Recent in-memory order key exists for ${normalizedSymbolName}`);
-              continue;
+              return;
             }
 
             if (await this.hasRecentOrderInDB(userId, normalizedSecurityId)) {
               console.log(`⏸️ SKIPPING DUPLICATE - Recent DB order exists for ${normalizedSymbolName}`);
               this.markRecentOrderKey(orderKey);
-              continue;
+              return;
             }
 
             // ✅ DUPLICATE-SIGNAL BLOCK: If a position is ALREADY RUNNING for this
@@ -1604,7 +1605,7 @@ class PersistentTradingEngine {
                 state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
               } else {
                 console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
-                continue;
+                return;
               }
             }
 
@@ -1620,7 +1621,7 @@ class PersistentTradingEngine {
               console.log(
                 `⏸️ ALREADY RUNNING - Position open for ${indexName} (${symbol.name}). Skipping ${action} on next candle.`,
               );
-              continue;
+              return;
             }
 
             // ⚡ EXECUTE ORDER!
@@ -1754,7 +1755,8 @@ class PersistentTradingEngine {
         } catch (error) {
           console.error(`❌ Error analyzing ${indexName}:`, error);
         }
-      }
+        }),
+      );
 
       if (Object.keys(latestSignalsSnapshot).length > 0) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);

@@ -275,6 +275,22 @@ export class AdvancedAI {
     return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
   }
 
+  private static getCurrentSessionCandles(data: OHLCCandle[], includeLast = true): OHLCCandle[] {
+    if (!data.length) return [];
+    const last = data[data.length - 1];
+    const lastTsMs = last.timestamp < 1e12 ? last.timestamp * 1000 : last.timestamp;
+    const istDayKey = (tsMs: number) => new Date(tsMs + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const targetDay = istDayKey(lastTsMs);
+    const sessionStart = 9 * 60 + 15;
+    const sessionEnd = 15 * 60 + 30;
+    const session = data.filter((c) => {
+      const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
+      const mins = this.getIstMinutes(tsMs);
+      return istDayKey(tsMs) === targetDay && mins >= sessionStart && mins <= sessionEnd;
+    });
+    return includeLast ? session : session.filter((c) => c !== last);
+  }
+
   // ========================================
   // TECHNICAL INDICATORS (ALL OPTIMIZED!)
   // ========================================
@@ -395,14 +411,7 @@ export class AdvancedAI {
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
     // Anchor VWAP to 09:15 IST session start (NSE standard)
-    const IST_OFFSET = 5.5 * 3600;
-    const SESSION_START_MIN = 9 * 60 + 15; // 09:15
-    const sessionCandles = data.filter((c) => {
-      const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
-      const d = new Date((tsMs / 1000 + IST_OFFSET) * 1000);
-      const min = d.getUTCHours() * 60 + d.getUTCMinutes();
-      return min >= SESSION_START_MIN;
-    });
+    const sessionCandles = this.getCurrentSessionCandles(data, true);
     const candles = sessionCandles.length > 0 ? sessionCandles : data;
     let cumulativeTPV = 0;
     let cumulativeVolume = 0;
@@ -1492,15 +1501,18 @@ export class AdvancedAI {
     const stochOversold = stoch.k < 20;
     calculationsPerformed += 1;
 
-    // Support/Resistance — proper swing-pivot detection (fractal pivots + clustering by touches)
-    const swing = this.calculateSwingLevels(ohlcData, 80, 2, 2);
+    // Support/Resistance — use only today's IST session so gap-up/down days do not compare
+    // against previous-day highs/lows hundreds of points away.
+    const currentSessionCandles = this.getCurrentSessionCandles(ohlcData, true);
+    const priorSessionCandles = this.getCurrentSessionCandles(ohlcData, false);
+    const levelData = currentSessionCandles.length >= 5 ? currentSessionCandles : ohlcData.slice(-50);
+    const priorLevelData = priorSessionCandles.length >= 3 ? priorSessionCandles : levelData.slice(0, -1);
+    const swing = this.calculateSwingLevels(levelData, 80, 2, 2);
     // Fallback to extremes if no pivots found yet (early warm-up)
-    const sortedHighs = ohlcData
-      .slice(-50)
+    const sortedHighs = levelData
       .map((c) => c.high)
       .sort((a, b) => b - a);
-    const sortedLows = ohlcData
-      .slice(-50)
+    const sortedLows = levelData
       .map((c) => c.low)
       .sort((a, b) => a - b);
     const resistance1 = swing.resistances[0] ?? sortedHighs[0];
@@ -1547,8 +1559,15 @@ export class AdvancedAI {
     const lastCandleBody = Math.abs((lastCandle.close || 0) - (lastCandle.open || 0));
     const lastCandleRange = (lastCandle.high || 0) - (lastCandle.low || 0);
     const bodyRefCandle = lastCandleBody > 0 && lastCandleRange > 0 ? lastCandle : fallbackCandle;
-    const volumeRefCandle = [...recentCandles].reverse().find((c) => (c.volume || 0) > 0) || bodyRefCandle;
-    const avgVolume = recentCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / Math.max(recentCandles.length, 1);
+    const volumeRefCandle = (lastCandle.volume || 0) > 0 ? lastCandle : bodyRefCandle;
+    const completedVolumeCandles = ohlcData
+      .slice(-31, -1)
+      .filter((c) => Number.isFinite(c.volume) && c.volume > 0);
+    const sameSessionVolumeCandles = priorSessionCandles.filter((c) => Number.isFinite(c.volume) && c.volume > 0).slice(-30);
+    const volumeBaselineCandles = sameSessionVolumeCandles.length >= 5 ? sameSessionVolumeCandles : completedVolumeCandles;
+    const avgVolume = volumeBaselineCandles.length
+      ? volumeBaselineCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / volumeBaselineCandles.length
+      : 0;
     const refVolume = volumeRefCandle.volume || 0;
     const volumeRatio = avgVolume > 0 && Number.isFinite(refVolume / avgVolume) ? refVolume / avgVolume : 0;
     const isHighVolume = volumeRatio > 1.5;
@@ -2061,10 +2080,10 @@ export class AdvancedAI {
     const h1AlignedBear = h1Align === "bear";
 
     // Breakout confirmation: close beyond level, or previous breakout + current candle holds the level.
-    const breakoutLookback = Math.min(12, Math.max(5, ohlcData.length - 2));
-    const breakoutBase = ohlcData.slice(-(breakoutLookback + 2), -2);
+    const breakoutLookback = Math.min(12, Math.max(5, priorLevelData.length));
+    const breakoutBase = priorLevelData.slice(-breakoutLookback);
     const fallbackBase = ohlcData.slice(-Math.min(12, ohlcData.length - 1), -1);
-    const levelCandles = breakoutBase.length >= 5 ? breakoutBase : fallbackBase;
+    const levelCandles = breakoutBase.length >= 3 ? breakoutBase : fallbackBase;
     const breakoutHigh = Math.max(...levelCandles.map((c) => c.high));
     const breakoutLow = Math.min(...levelCandles.map((c) => c.low));
     const breakoutHoldTol = atr14 * 0.15;
@@ -2612,8 +2631,9 @@ export class AdvancedAI {
         volumeAnalysis: (() => {
           const candleStrength =
             bodyPercent >= 60 ? "STRONG" : bodyPercent >= 35 ? "DECISIVE" : bodyPercent >= 25 ? "MODERATE" : "WEAK";
-          const candlesWithVolume = ohlcData.slice(-10).filter((c) => (c.volume || 0) > 0).length;
-          const volumeCoverage = candlesWithVolume / 10;
+          const coverageBase = Math.max(1, Math.min(10, volumeBaselineCandles.length || ohlcData.slice(-10).length));
+          const candlesWithVolume = volumeBaselineCandles.slice(-10).filter((c) => (c.volume || 0) > 0).length;
+          const volumeCoverage = candlesWithVolume / coverageBase;
           const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
           const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
           return {
@@ -2893,8 +2913,9 @@ export class AdvancedAI {
         // Volume feed reliability: index feeds (NIFTY/BANKNIFTY/SENSEX) often
         // ship 0 volume. Detect that and surface candle-based confirmation
         // instead of blocking/erasing the panel.
-        const candlesWithVolume = ohlcData.slice(-10).filter((c) => (c.volume || 0) > 0).length;
-        const volumeCoverage = candlesWithVolume / 10;
+        const coverageBase = Math.max(1, Math.min(10, volumeBaselineCandles.length || ohlcData.slice(-10).length));
+        const candlesWithVolume = volumeBaselineCandles.slice(-10).filter((c) => (c.volume || 0) > 0).length;
+        const volumeCoverage = candlesWithVolume / coverageBase;
         // Feed is reliable when historical coverage is good, even if the
         // current bar is still forming (volume=0 mid-candle).
         const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
