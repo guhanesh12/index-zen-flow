@@ -1565,9 +1565,22 @@ export class AdvancedAI {
       .filter((c) => Number.isFinite(c.volume) && c.volume > 0);
     const sameSessionVolumeCandles = priorSessionCandles.filter((c) => Number.isFinite(c.volume) && c.volume > 0).slice(-30);
     const volumeBaselineCandles = sameSessionVolumeCandles.length >= 5 ? sameSessionVolumeCandles : completedVolumeCandles;
-    const avgVolume = volumeBaselineCandles.length
+    // ⚡ FIX: Use MEDIAN baseline (not mean) so opening-bell mega-volume candles don't crush the ratio.
+    // TradingView and Dhan platforms display volume ratios using median-style normalization — this aligns us with them.
+    const sortedVols = volumeBaselineCandles
+      .map((c) => c.volume || 0)
+      .filter((v) => v > 0)
+      .sort((a, b) => a - b);
+    const medianVolume = sortedVols.length
+      ? sortedVols.length % 2 === 1
+        ? sortedVols[(sortedVols.length - 1) >> 1]
+        : (sortedVols[sortedVols.length / 2 - 1] + sortedVols[sortedVols.length / 2]) / 2
+      : 0;
+    const meanVolume = volumeBaselineCandles.length
       ? volumeBaselineCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / volumeBaselineCandles.length
       : 0;
+    // Prefer median; fall back to mean if median is 0
+    const avgVolume = medianVolume > 0 ? medianVolume : meanVolume;
     const refVolume = volumeRefCandle.volume || 0;
     const volumeRatio = avgVolume > 0 && Number.isFinite(refVolume / avgVolume) ? refVolume / avgVolume : 0;
     const isHighVolume = volumeRatio > 1.5;
