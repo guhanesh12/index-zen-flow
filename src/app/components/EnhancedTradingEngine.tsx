@@ -891,25 +891,13 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     console.log('  - Manual Stop:', manualStop);
     console.log('============================================\n');
     
-    // ❌ DISABLED: Auto-restart on page refresh (prevents unwanted background signal detection)
-    // Engine should ONLY start when user manually clicks "Start Engine" button
-    // This ensures signal detection does NOT run when engine is stopped
-    
+    // Backend DB state is the source of truth. Do not write misleading
+    // "Engine is stopped" UI logs from stale browser localStorage; sync will update status.
     if (wasRunning && !manualStop) {
-      console.log('ℹ️ Engine was running before page refresh - But NOT auto-restarting');
-      console.log('   To start: Click "Start Engine" button manually');
-      onLog({
-        timestamp: Date.now(),
-        type: 'INFO',
-        message: 'ℹ️ Engine is stopped. Click "Start Engine" to resume trading.'
-      });
+      console.log('☁️ Engine was running before refresh - syncing backend state.');
+      syncEngineState();
     } else if (wasRunning && manualStop) {
-      console.log('ℹ️ Engine was manually stopped by user - NOT auto-restarting');
-      onLog({
-        timestamp: Date.now(),
-        type: 'INFO',
-        message: 'ℹ️ Engine is stopped. Click "Start Engine" to resume trading.'
-      });
+      console.log('ℹ️ Engine was manually stopped by user - waiting for manual start.');
     }
   }, [tradingSymbols]); // Runs when symbols are loaded
 
