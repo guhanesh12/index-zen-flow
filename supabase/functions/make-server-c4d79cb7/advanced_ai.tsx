@@ -2356,6 +2356,25 @@ export class AdvancedAI {
     const momentumScore = Math.max(momentumPointsBull, momentumPointsBear);
     const momentumStrong = momentumScore >= 4;
 
+    // ⚡ ULTRA-FAST CLOSED-CANDLE MOMENTUM
+    // Opening move was getting stuck at WAIT(32/40) because breakout/pattern confirmation was
+    // too strict for the first completed candles. If a closed candle has clear body + direction
+    // + range expansion, allow it as a valid momentum entry on the candle close.
+    const ultraFastOpeningBull =
+      earlyOpeningSession &&
+      lastCandle.close > lastCandle.open &&
+      bodyPercent >= 55 &&
+      (rangeExpansion || currentRange >= atr14 * 0.9) &&
+      (ema9 >= ema21 || macdHistogramExpandingBull || rsi >= 50) &&
+      !liquidity.buySideSweep;
+    const ultraFastOpeningBear =
+      earlyOpeningSession &&
+      lastCandle.close < lastCandle.open &&
+      bodyPercent >= 55 &&
+      (rangeExpansion || currentRange >= atr14 * 0.9) &&
+      (ema9 <= ema21 || macdHistogramExpandingBear || rsi <= 50) &&
+      !liquidity.sellSideSweep;
+
     // ===== FIX 4: REAL TREND REVERSAL DETECTION =====
     const last3 = ohlcData.slice(-3);
     const macdHist3RisingBull =
