@@ -92,6 +92,61 @@ export class DhanService {
     this.accessToken = config.accessToken;
   }
 
+  private async getIndexOHLCFallback(securityId: string, interval: string, count = 120): Promise<any[]> {
+    const symbolMap: Record<string, string> = {
+      '13': '^NSEI',
+      '25': '^NSEBANK',
+      '51': '^BSESN',
+    };
+    const yahooSymbol = symbolMap[String(securityId).trim()];
+    if (!yahooSymbol) return [];
+
+    const requestedInterval = Math.max(1, parseInt(interval, 10) || 15);
+    const yahooInterval = requestedInterval === 60 ? '60m' : requestedInterval === 15 ? '15m' : requestedInterval === 5 ? '5m' : '1m';
+    const range = yahooInterval === '1m' ? '5d' : '7d';
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${yahooInterval}&range=${range}`;
+
+    try {
+      console.warn(`🟡 Dhan index OHLC unavailable for ${securityId}; fetching fallback ${yahooSymbol} ${yahooInterval} candles`);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 IndexPilotAI/1.0',
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`⚠️ Index OHLC fallback failed: HTTP ${response.status}`);
+        return [];
+      }
+
+      const result = await response.json();
+      const chart = result?.chart?.result?.[0];
+      const timestamps = chart?.timestamp || [];
+      const quote = chart?.indicators?.quote?.[0] || {};
+      const candles = timestamps
+        .map((ts: number, i: number) => ({
+          timestamp: ts * 1000,
+          open: Number(quote.open?.[i] || 0),
+          high: Number(quote.high?.[i] || 0),
+          low: Number(quote.low?.[i] || 0),
+          close: Number(quote.close?.[i] || 0),
+          volume: Number(quote.volume?.[i] || 0),
+        }))
+        .filter((c: any) => c.timestamp && c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0)
+        .slice(-count);
+
+      if (candles.length > 0) {
+        console.log(`✅ Fallback OHLC ready: ${candles.length} ${yahooInterval} candles for ${yahooSymbol}`);
+      }
+      return candles;
+    } catch (error: any) {
+      console.warn(`⚠️ Index OHLC fallback error for ${securityId}: ${error?.message || error}`);
+      return [];
+    }
+  }
+
   // ⚡⚡⚡ RETRY HELPER: Handles 502 Bad Gateway, network errors, AND rate limits ⚡⚡⚡
   private async retryFetch(
     url: string,
@@ -341,7 +396,9 @@ export class DhanService {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'access-token': this.accessToken,
+                'client-id': this.clientId,
               },
               body: JSON.stringify(requestBody)
             },
