@@ -1401,8 +1401,11 @@ export class AdvancedAI {
     // Block evaluation of forming live candles. Caller may set options.enforceClosedCandle=false
     // for backtests where timestamps refer to close-time instead of open-time.
     const _tfMin = options.timeframeMinutes || 5;
-    const _candleOpenMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
-    const _candleCloseMs = _candleOpenMs + _tfMin * 60 * 1000;
+    const _candleTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const _tsDate = new Date(_candleTsMs + 5.5 * 60 * 60 * 1000);
+    const _tsIstMinutes = _tsDate.getUTCHours() * 60 + _tsDate.getUTCMinutes();
+    const _looksLikeDhanCloseTime = _tsIstMinutes >= 9 * 60 + 15 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
+    const _candleCloseMs = _looksLikeDhanCloseTime ? _candleTsMs : _candleTsMs + _tfMin * 60 * 1000;
     const _enforceClosed = options.enforceClosedCandle !== false;
     const _candleClosed = !_enforceClosed || Date.now() >= _candleCloseMs;
     if (!_candleClosed) {
@@ -2156,9 +2159,9 @@ export class AdvancedAI {
     // ADX > 35 → 4 (strong trend, few confirmations needed)
     // ADX 22-35 → 5 (lowered from 25 to catch trending-but-not-strong days like 22-May)
     // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
-    // ⚡ FAST OPENING: first 45min (09:15-10:00) drop 1 confirmation so the morning
-    //   momentum candle can fire even before MACD/RSI fully settle.
-    const earlyOpeningSession = istMinutes >= 9 * 60 + 15 && istMinutes < 10 * 60;
+    // ⚡ FAST OPENING: first 75min (09:15-10:30) drop confirmation so the 09:30/09:45/10:00
+    //   closed momentum candles can fire before slow indicators fully settle.
+    const earlyOpeningSession = istMinutes >= 9 * 60 + 15 && istMinutes <= 10 * 60 + 30;
     const openingRelief = earlyOpeningSession ? 1 : 0;
     const requiredConfirmations = Math.max(
       3,
@@ -2356,6 +2359,25 @@ export class AdvancedAI {
     const momentumScore = Math.max(momentumPointsBull, momentumPointsBear);
     const momentumStrong = momentumScore >= 4;
 
+    // ⚡ ULTRA-FAST CLOSED-CANDLE MOMENTUM
+    // Opening move was getting stuck at WAIT(32/40) because breakout/pattern confirmation was
+    // too strict for the first completed candles. If a closed candle has clear body + direction
+    // + range expansion, allow it as a valid momentum entry on the candle close.
+    const ultraFastOpeningBull =
+      earlyOpeningSession &&
+      lastCandle.close > lastCandle.open &&
+      bodyPercent >= 55 &&
+      (rangeExpansion || currentRange >= atr14 * 0.9) &&
+      (ema9 >= ema21 || macdHistogramExpandingBull || rsi >= 50) &&
+      !liquidity.buySideSweep;
+    const ultraFastOpeningBear =
+      earlyOpeningSession &&
+      lastCandle.close < lastCandle.open &&
+      bodyPercent >= 55 &&
+      (rangeExpansion || currentRange >= atr14 * 0.9) &&
+      (ema9 <= ema21 || macdHistogramExpandingBear || rsi <= 50) &&
+      !liquidity.sellSideSweep;
+
     // ===== FIX 4: REAL TREND REVERSAL DETECTION =====
     const last3 = ohlcData.slice(-3);
     const macdHist3RisingBull =
@@ -2485,13 +2507,14 @@ export class AdvancedAI {
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish =
-      confirmationBullish &&
+      (confirmationBullish || ultraFastOpeningBull) &&
       (totalBullScore >= requiredConfirmations ||
         (continuationBull && adx > 28) ||
         reversalBullEntry ||
-        (momentumStrong && adx > 30)) &&
-      (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry) &&
-      (momentumBull || adxStrong || continuationBull || reversalBullEntry) &&
+        (momentumStrong && adx > 30) ||
+        ultraFastOpeningBull) &&
+      (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry || ultraFastOpeningBull) &&
+      (momentumBull || adxStrong || continuationBull || reversalBullEntry || ultraFastOpeningBull) &&
       (slopeOkBull || adxStrong || continuationBull || reversalBullEntry) &&
       structureOkBull &&
       !liquidityBlocksBull &&
@@ -2509,13 +2532,14 @@ export class AdvancedAI {
       !(fakeBreakout && !continuationBull && !reversalBullEntry) &&
       !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish =
-      confirmationBearish &&
+      (confirmationBearish || ultraFastOpeningBear) &&
       (totalBearScore >= requiredConfirmations ||
         (continuationBear && adx > 28) ||
         reversalBearEntry ||
-        (momentumStrong && adx > 30)) &&
-      (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry) &&
-      (momentumBear || adxStrong || continuationBear || reversalBearEntry) &&
+        (momentumStrong && adx > 30) ||
+        ultraFastOpeningBear) &&
+      (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry || ultraFastOpeningBear) &&
+      (momentumBear || adxStrong || continuationBear || reversalBearEntry || ultraFastOpeningBear) &&
       (slopeOkBear || adxStrong || continuationBear || reversalBearEntry) &&
       structureOkBear &&
       !liquidityBlocksBear &&
@@ -2772,7 +2796,9 @@ export class AdvancedAI {
       !continuationBull &&
       !continuationBear &&
       !reversalBullEntry &&
-      !reversalBearEntry
+      !reversalBearEntry &&
+      !ultraFastOpeningBull &&
+      !ultraFastOpeningBear
     ) {
       // FIX 4 + 3: continuation pullback or reversal-entry pattern bypasses breakout requirement
       action = "WAIT";
@@ -2789,8 +2815,8 @@ export class AdvancedAI {
               : "Neutral";
       reasoning = `WAIT: No breakout, no continuation pullback, no reversal pattern (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
     } else if (
-      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry) ||
-      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry)
+      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry && !ultraFastOpeningBull) ||
+      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry && !ultraFastOpeningBear)
     ) {
       action = "WAIT";
       confidence = 40;
@@ -2986,6 +3012,8 @@ export class AdvancedAI {
         sessionBehaviorModifier,
         candleExpansion: +candleExpansion.toFixed(2),
         overExpandedCandle,
+        ultraFastOpeningBull,
+        ultraFastOpeningBear,
         pullbackQualityBull,
         pullbackQualityBear,
         h1Align,
