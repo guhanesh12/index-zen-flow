@@ -578,8 +578,8 @@ class PersistentTradingEngine {
           const settings = engine.strategy_settings || {};
           const symbols = engine.selected_symbols || [];
 
-          // Get Dhan credentials from KV
-          const credentials = await kv.get(`api_credentials:${userId}`);
+          // Get fresh Dhan credentials from DB first; KV can be stale after reconnect/token refresh.
+          const credentials = await loadDhanCredentials(userId);
           if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) {
             console.warn(`⚠️ [CRON] No Dhan credentials for user ${userId}, skipping`);
             continue;
@@ -662,7 +662,7 @@ class PersistentTradingEngine {
         );
         for (const uid of orphanUserIds) {
           try {
-            const credentials = await kv.get(`api_credentials:${uid}`);
+            const credentials = await loadDhanCredentials(uid);
             if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) continue;
             const dhanService = new DhanService({
               clientId: credentials.dhanClientId,
@@ -736,7 +736,7 @@ class PersistentTradingEngine {
       if (this.monitorLoops.has(userId)) continue;
 
       const loop = (async () => {
-        const credentials = await kv.get(`api_credentials:${userId}`);
+        const credentials = await loadDhanCredentials(userId);
         if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;
 
         const dhanService = new DhanService({
