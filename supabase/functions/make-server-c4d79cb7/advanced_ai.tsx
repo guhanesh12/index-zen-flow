@@ -2520,7 +2520,8 @@ export class AdvancedAI {
       : 0;
     const msSinceLastLoss = lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 15; // 15:15 IST — last viable 15m entry
+    // ⚡ FIX: Relaxed late-entry gate from 15:15 → 15:25 IST so the 15:15 candle close still produces a tradeable signal.
+    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 25; // 15:25 IST
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish =
