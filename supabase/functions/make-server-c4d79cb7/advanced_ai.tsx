@@ -3009,6 +3009,8 @@ export class AdvancedAI {
         sessionBehaviorModifier,
         candleExpansion: +candleExpansion.toFixed(2),
         overExpandedCandle,
+        ultraFastOpeningBull,
+        ultraFastOpeningBear,
         pullbackQualityBull,
         pullbackQualityBear,
         h1Align,
