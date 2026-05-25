@@ -1508,15 +1508,18 @@ export class AdvancedAI {
     const stochOversold = stoch.k < 20;
     calculationsPerformed += 1;
 
-    // Support/Resistance — proper swing-pivot detection (fractal pivots + clustering by touches)
-    const swing = this.calculateSwingLevels(ohlcData, 80, 2, 2);
+    // Support/Resistance — use only today's IST session so gap-up/down days do not compare
+    // against previous-day highs/lows hundreds of points away.
+    const currentSessionCandles = this.getCurrentSessionCandles(ohlcData, true);
+    const priorSessionCandles = this.getCurrentSessionCandles(ohlcData, false);
+    const levelData = currentSessionCandles.length >= 5 ? currentSessionCandles : ohlcData.slice(-50);
+    const priorLevelData = priorSessionCandles.length >= 3 ? priorSessionCandles : levelData.slice(0, -1);
+    const swing = this.calculateSwingLevels(levelData, 80, 2, 2);
     // Fallback to extremes if no pivots found yet (early warm-up)
-    const sortedHighs = ohlcData
-      .slice(-50)
+    const sortedHighs = levelData
       .map((c) => c.high)
       .sort((a, b) => b - a);
-    const sortedLows = ohlcData
-      .slice(-50)
+    const sortedLows = levelData
       .map((c) => c.low)
       .sort((a, b) => a - b);
     const resistance1 = swing.resistances[0] ?? sortedHighs[0];
