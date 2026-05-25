@@ -996,9 +996,10 @@ class PersistentTradingEngine {
 
       console.log(`\n🔥 NEW CANDLE DETECTED! Processing ${state.candleInterval}M candle at ${currentCandleTimestamp}`);
 
-      // Mark as processed
-      state.lastProcessedCandle = currentCandleTimestamp;
-      await this.saveEngineStateToDB(userId, state);
+      // ⚡ Do NOT mark this candle processed yet. Marking before AI/data/order work
+      // caused failed or slow candle-close analysis to be skipped forever, leaving
+      // the UI stuck on the previous snapshot. We commit lastProcessedCandle only
+      // after the latest signal snapshot has been produced.
 
       // ⚡⚡⚡ ANALYZE ALL 3 INDICES INDEPENDENTLY (like frontend does) ⚡⚡⚡
       const allIndices = ["NIFTY", "BANKNIFTY", "SENSEX"];
@@ -1705,6 +1706,9 @@ class PersistentTradingEngine {
 
       if (Object.keys(latestSignalsSnapshot).length > 0) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
+        state.lastProcessedCandle = currentCandleTimestamp;
+      } else {
+        console.warn(`⚠️ No signal snapshot saved for ${currentCandleTimestamp}; candle will be retried on next tick.`);
       }
 
       // 📧 ONE consolidated email per candle covering ALL actionable signals
