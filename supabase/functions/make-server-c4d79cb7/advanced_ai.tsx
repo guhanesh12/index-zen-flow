@@ -1566,8 +1566,15 @@ export class AdvancedAI {
     const lastCandleBody = Math.abs((lastCandle.close || 0) - (lastCandle.open || 0));
     const lastCandleRange = (lastCandle.high || 0) - (lastCandle.low || 0);
     const bodyRefCandle = lastCandleBody > 0 && lastCandleRange > 0 ? lastCandle : fallbackCandle;
-    const volumeRefCandle = [...recentCandles].reverse().find((c) => (c.volume || 0) > 0) || bodyRefCandle;
-    const avgVolume = recentCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / Math.max(recentCandles.length, 1);
+    const volumeRefCandle = (lastCandle.volume || 0) > 0 ? lastCandle : bodyRefCandle;
+    const completedVolumeCandles = ohlcData
+      .slice(-31, -1)
+      .filter((c) => Number.isFinite(c.volume) && c.volume > 0);
+    const sameSessionVolumeCandles = priorSessionCandles.filter((c) => Number.isFinite(c.volume) && c.volume > 0).slice(-30);
+    const volumeBaselineCandles = sameSessionVolumeCandles.length >= 5 ? sameSessionVolumeCandles : completedVolumeCandles;
+    const avgVolume = volumeBaselineCandles.length
+      ? volumeBaselineCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / volumeBaselineCandles.length
+      : 0;
     const refVolume = volumeRefCandle.volume || 0;
     const volumeRatio = avgVolume > 0 && Number.isFinite(refVolume / avgVolume) ? refVolume / avgVolume : 0;
     const isHighVolume = volumeRatio > 1.5;
