@@ -565,8 +565,12 @@ class PersistentTradingEngine {
             continue;
           }
 
-          // Hydrate memory state if needed
-          if (!this.engineStates.has(userId)) {
+          // Hydrate/sync memory state from DB every tick. Edge isolates keep module memory
+          // between requests; after a stop/start, an old in-memory `isRunning:false` state
+          // can survive while DB correctly says running, causing heartbeat-only ticks with
+          // no candle analysis. Treat DB as source of truth for active cron engines.
+          const existingState = this.engineStates.get(userId);
+          if (!existingState) {
             this.engineStates.set(userId, {
               isRunning: true,
               userId,
@@ -584,6 +588,20 @@ class PersistentTradingEngine {
               dhanClientId: credentials.dhanClientId,
               dhanAccessToken: credentials.dhanAccessToken,
             });
+          } else {
+            existingState.isRunning = true;
+            existingState.candleInterval = settings.candleInterval || existingState.candleInterval || "15";
+            existingState.symbols = symbols;
+            existingState.lastProcessedCandle = settings.lastProcessedCandle || existingState.lastProcessedCandle || "";
+            existingState.stats = {
+              totalSignals: Math.max(existingState.stats?.totalSignals || 0, settings.totalSignals || 0),
+              totalOrders: Math.max(existingState.stats?.totalOrders || 0, settings.totalOrders || 0),
+              totalPnL: Number(settings.totalPnL ?? existingState.stats?.totalPnL ?? 0),
+            };
+            existingState.startTime = new Date(engine.started_at || engine.created_at).getTime();
+            existingState.lastHeartbeat = Date.now();
+            existingState.dhanClientId = credentials.dhanClientId;
+            existingState.dhanAccessToken = credentials.dhanAccessToken;
           }
 
           const dhanService = new DhanService({
