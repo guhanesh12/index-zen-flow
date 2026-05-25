@@ -1368,10 +1368,11 @@ class PersistentTradingEngine {
           try {
             const { data: autoSlots } = await supabaseAdmin
               .from("user_symbol_config")
-              .select("slot, index_name, moneyness, lot_count, enabled")
+              .select("slot, index_name, moneyness, lot_count, enabled, target_per_lot, stop_loss_per_lot, trailing_enabled, trailing_activation_per_lot, trailing_step_per_lot")
               .eq("user_id", userId)
               .eq("enabled", true)
               .eq("index_name", indexName);
+
 
             if (autoSlots && autoSlots.length > 0) {
               autoSlotCount = autoSlots.length;
