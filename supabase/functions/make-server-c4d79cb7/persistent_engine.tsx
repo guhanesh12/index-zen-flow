@@ -1517,13 +1517,13 @@ class PersistentTradingEngine {
 
             if (this.hasRecentOrderKey(orderKey)) {
               console.log(`⏸️ SKIPPING DUPLICATE - Recent in-memory order key exists for ${normalizedSymbolName}`);
-              continue;
+              return;
             }
 
             if (await this.hasRecentOrderInDB(userId, normalizedSecurityId)) {
               console.log(`⏸️ SKIPPING DUPLICATE - Recent DB order exists for ${normalizedSymbolName}`);
               this.markRecentOrderKey(orderKey);
-              continue;
+              return;
             }
 
             // ✅ DUPLICATE-SIGNAL BLOCK: If a position is ALREADY RUNNING for this
@@ -1605,7 +1605,7 @@ class PersistentTradingEngine {
                 state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
               } else {
                 console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
-                continue;
+                return;
               }
             }
 
@@ -1621,7 +1621,7 @@ class PersistentTradingEngine {
               console.log(
                 `⏸️ ALREADY RUNNING - Position open for ${indexName} (${symbol.name}). Skipping ${action} on next candle.`,
               );
-              continue;
+              return;
             }
 
             // ⚡ EXECUTE ORDER!
