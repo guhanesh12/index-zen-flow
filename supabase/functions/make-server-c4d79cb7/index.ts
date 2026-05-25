@@ -10469,20 +10469,13 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   console.log("⏱️ [CRON] 24/7 Engine Tick Triggered via HTTP");
   console.log("==========================================");
 
-  const runTick = PersistentTradingEngine.runCronTick().catch((error: any) => {
-    console.error("❌ [CRON] Background tick failed:", error);
-  });
-
-  // pg_net defaults to a 5s timeout, while a real candle-close tick can take
-  // longer because it fetches OHLC for multiple users/indices. Returning fast
-  // prevents Postgres from cancelling the request before signals/orders finish.
-  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
-    EdgeRuntime.waitUntil(runTick);
-    return c.json({ success: true, queued: true, message: "Engine tick queued" }, 202);
+  try {
+    const result = await PersistentTradingEngine.runCronTick();
+    return c.json(result);
+  } catch (error: any) {
+    console.error("❌ [CRON] Tick failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
   }
-
-  await runTick;
-  return c.json({ success: true, queued: false });
 });
 
 // ⚡ BUG FIX 2/3: Pre-market auto-resume — re-arms engines that auto-stopped
