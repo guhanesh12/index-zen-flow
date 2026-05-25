@@ -296,6 +296,26 @@ async function getFreshSymbolsForEngine(userId: string, stateSymbols: any[]): Pr
 // Supabase client for DB operations
 const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL") || "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "");
 
+async function loadDhanCredentials(userId: string): Promise<{ dhanClientId: string; dhanAccessToken: string } | null> {
+  const { data } = await supabaseAdmin
+    .from("broker_credentials")
+    .select("dhan_client_id, access_token, last_status")
+    .eq("user_id", userId)
+    .eq("broker", "dhan")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (data?.dhan_client_id && data?.access_token) {
+    const fresh = { dhanClientId: data.dhan_client_id, dhanAccessToken: data.access_token };
+    await kv.set(`api_credentials:${userId}`, fresh);
+    return fresh;
+  }
+
+  const legacy = await kv.get(`api_credentials:${userId}`);
+  return legacy?.dhanClientId && legacy?.dhanAccessToken ? legacy : null;
+}
+
 interface EngineState {
   isRunning: boolean;
   userId: string;
@@ -329,9 +349,11 @@ class PersistentTradingEngine {
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
   private static activeLoops: Set<string> = new Set();
+  private static activeLoopStartedAt: Map<string, number> = new Map();
   private static monitorLoops: Map<string, Promise<void>> = new Map();
   private static recentOrderKeys: Map<string, number> = new Map();
   private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
+  private static readonly ACTIVE_LOOP_STALE_MS = 90 * 1000;
   private static readonly POSITION_MONITOR_INTERVAL_MS = 1000;
 
   /**
@@ -556,15 +578,19 @@ class PersistentTradingEngine {
           const settings = engine.strategy_settings || {};
           const symbols = engine.selected_symbols || [];
 
-          // Get Dhan credentials from KV
-          const credentials = await kv.get(`api_credentials:${userId}`);
+          // Get fresh Dhan credentials from DB first; KV can be stale after reconnect/token refresh.
+          const credentials = await loadDhanCredentials(userId);
           if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) {
             console.warn(`⚠️ [CRON] No Dhan credentials for user ${userId}, skipping`);
             continue;
           }
 
-          // Hydrate memory state if needed
-          if (!this.engineStates.has(userId)) {
+          // Hydrate/sync memory state from DB every tick. Edge isolates keep module memory
+          // between requests; after a stop/start, an old in-memory `isRunning:false` state
+          // can survive while DB correctly says running, causing heartbeat-only ticks with
+          // no candle analysis. Treat DB as source of truth for active cron engines.
+          const existingState = this.engineStates.get(userId);
+          if (!existingState) {
             this.engineStates.set(userId, {
               isRunning: true,
               userId,
@@ -582,6 +608,20 @@ class PersistentTradingEngine {
               dhanClientId: credentials.dhanClientId,
               dhanAccessToken: credentials.dhanAccessToken,
             });
+          } else {
+            existingState.isRunning = true;
+            existingState.candleInterval = settings.candleInterval || existingState.candleInterval || "15";
+            existingState.symbols = symbols;
+            existingState.lastProcessedCandle = settings.lastProcessedCandle || existingState.lastProcessedCandle || "";
+            existingState.stats = {
+              totalSignals: Math.max(existingState.stats?.totalSignals || 0, settings.totalSignals || 0),
+              totalOrders: Math.max(existingState.stats?.totalOrders || 0, settings.totalOrders || 0),
+              totalPnL: Number(settings.totalPnL ?? existingState.stats?.totalPnL ?? 0),
+            };
+            existingState.startTime = new Date(engine.started_at || engine.created_at).getTime();
+            existingState.lastHeartbeat = Date.now();
+            existingState.dhanClientId = credentials.dhanClientId;
+            existingState.dhanAccessToken = credentials.dhanAccessToken;
           }
 
           const dhanService = new DhanService({
@@ -622,7 +662,7 @@ class PersistentTradingEngine {
         );
         for (const uid of orphanUserIds) {
           try {
-            const credentials = await kv.get(`api_credentials:${uid}`);
+            const credentials = await loadDhanCredentials(uid);
             if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) continue;
             const dhanService = new DhanService({
               clientId: credentials.dhanClientId,
@@ -696,7 +736,7 @@ class PersistentTradingEngine {
       if (this.monitorLoops.has(userId)) continue;
 
       const loop = (async () => {
-        const credentials = await kv.get(`api_credentials:${userId}`);
+        const credentials = await loadDhanCredentials(userId);
         if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;
 
         const dhanService = new DhanService({
@@ -912,8 +952,15 @@ class PersistentTradingEngine {
     dhanAccessToken: string,
   ): Promise<void> {
     if (this.activeLoops.has(userId)) {
+      const startedAt = this.activeLoopStartedAt.get(userId) || 0;
+      if (startedAt && Date.now() - startedAt > this.ACTIVE_LOOP_STALE_MS) {
+        console.warn(`⚠️ Stale engine loop lock cleared for ${userId} after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+        this.activeLoops.delete(userId);
+        this.activeLoopStartedAt.delete(userId);
+      } else {
       console.log(`⏸️ Skipping overlapping engine loop for ${userId}`);
       return;
+      }
     }
 
     const state = this.engineStates.get(userId);
@@ -923,6 +970,7 @@ class PersistentTradingEngine {
     }
 
     this.activeLoops.add(userId);
+    this.activeLoopStartedAt.set(userId, Date.now());
 
     try {
       const liveEngineState = await this.getLiveEngineState(userId);
@@ -1770,6 +1818,7 @@ class PersistentTradingEngine {
       });
     } finally {
       this.activeLoops.delete(userId);
+      this.activeLoopStartedAt.delete(userId);
     }
   }
 
