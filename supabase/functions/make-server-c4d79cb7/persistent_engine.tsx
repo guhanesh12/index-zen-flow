@@ -1055,7 +1055,8 @@ class PersistentTradingEngine {
       const latestSignalsSnapshot: Record<string, any> = {};
       const batchSignalTimestamp = Date.now();
 
-      for (const indexName of allIndices) {
+      await Promise.all(
+        allIndices.map(async (indexName) => {
         try {
           console.log(`\n📊 Analyzing index: ${indexName}`);
 
@@ -1164,7 +1165,7 @@ class PersistentTradingEngine {
             await this.saveSignalToDB(userId, pseudoSymbol, {
               signal: { action: "WAIT", confidence: 0, reasoning: "AI analysis failed - no data" },
             });
-            continue;
+            return;
           }
 
           const action = aiSignal.signal.action;
@@ -1250,7 +1251,7 @@ class PersistentTradingEngine {
               timestamp: Date.now(),
               message: `⏸️ ${indexName} SKIP (WAIT) | ${confidence}% | ${reason || "no reason"}`,
             });
-            continue;
+            return;
           }
           if (confidence < 65) {
             console.log(
@@ -1755,7 +1756,8 @@ class PersistentTradingEngine {
         } catch (error) {
           console.error(`❌ Error analyzing ${indexName}:`, error);
         }
-      }
+        }),
+      );
 
       if (Object.keys(latestSignalsSnapshot).length > 0) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
