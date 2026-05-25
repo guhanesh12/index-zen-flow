@@ -2740,7 +2740,7 @@ export class AdvancedAI {
       confidence = 34;
       bias = "Neutral";
       reasoning = `WAIT: 5m noise filter — candle range ${currentRange.toFixed(2)} < 40% of ATR14 ${atr14.toFixed(2)}. Insufficient volatility for entry.`;
-    } else if (liquidity.stopHunt) {
+    } else if (liquidity.stopHunt && !earlyOpeningSession) {
       action = "WAIT";
       confidence = 32;
       bias = "Neutral";
