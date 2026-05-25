@@ -2156,7 +2156,14 @@ export class AdvancedAI {
     // ADX > 35 → 4 (strong trend, few confirmations needed)
     // ADX 22-35 → 5 (lowered from 25 to catch trending-but-not-strong days like 22-May)
     // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
-    const requiredConfirmations = (adx > 35 ? 4 : adx >= 22 ? 5 : 6) + lunchExtraConfirmation;
+    // ⚡ FAST OPENING: first 45min (09:15-10:00) drop 1 confirmation so the morning
+    //   momentum candle can fire even before MACD/RSI fully settle.
+    const earlyOpeningSession = istMinutes >= 9 * 60 + 15 && istMinutes < 10 * 60;
+    const openingRelief = earlyOpeningSession ? 1 : 0;
+    const requiredConfirmations = Math.max(
+      3,
+      (adx > 35 ? 4 : adx >= 22 ? 5 : 6) + lunchExtraConfirmation - openingRelief,
+    );
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [
       confirmations.macd,
