@@ -2793,7 +2793,9 @@ export class AdvancedAI {
       !continuationBull &&
       !continuationBear &&
       !reversalBullEntry &&
-      !reversalBearEntry
+      !reversalBearEntry &&
+      !ultraFastOpeningBull &&
+      !ultraFastOpeningBear
     ) {
       // FIX 4 + 3: continuation pullback or reversal-entry pattern bypasses breakout requirement
       action = "WAIT";
@@ -2810,8 +2812,8 @@ export class AdvancedAI {
               : "Neutral";
       reasoning = `WAIT: No breakout, no continuation pullback, no reversal pattern (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
     } else if (
-      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry) ||
-      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry)
+      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry && !ultraFastOpeningBull) ||
+      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry && !ultraFastOpeningBear)
     ) {
       action = "WAIT";
       confidence = 40;
