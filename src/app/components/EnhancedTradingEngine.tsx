@@ -2319,10 +2319,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       return; // Silent skip - no log spam
     }
     
-    // ⚡⚡⚡ NEW STRATEGY: REQUEST AI EXACTLY 2 SECONDS BEFORE CANDLE CLOSES ⚡⚡⚡
+    // ⚡⚡⚡ NEW STRATEGY: REQUEST AI JUST BEFORE CANDLE CLOSES ⚡⚡⚡
     // This gives AI time to process, so signal arrives RIGHT at candle close!
     // ⚡ CRITICAL: Use EXACT match (not range) to prevent multiple requests!
-    const isPreCloseWindow = (secondsToClose === 2);
+    const isPreCloseWindow = secondsToClose > 0 && secondsToClose <= 3;
     
     if (isPreCloseWindow) {
       // ⚡⚡⚡ SECONDARY CHECK: TIME-BASED RATE LIMIT (Per timeframe) ⚡⚡⚡

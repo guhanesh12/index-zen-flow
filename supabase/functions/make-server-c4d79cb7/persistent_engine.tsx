@@ -1025,12 +1025,16 @@ class PersistentTradingEngine {
             } catch (_e) {
               real1hData = [];
             }
-            // ⚡ FIX: strip the still-forming candle so the engine analyses only CLOSED bars (critical on 15m).
+            // ⚡ Dhan index candles use close-time timestamps (09:30 means 09:15-09:30 CLOSED).
+            // Keep the latest bar as soon as its timestamp is <= the current closed boundary;
+            // only strip future/actively-forming close timestamps.
             const stripForming = (arr: any[], tfMin: number) => {
               if (!arr || arr.length < 2) return arr;
               const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
               const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
-              return Date.now() < lastTsMs + tfMin * 60 * 1000 ? arr.slice(0, -1) : arr;
+              const tfMs = tfMin * 60 * 1000;
+              const currentClosedBoundaryMs = Math.floor(Date.now() / tfMs) * tfMs;
+              return lastTsMs > currentClosedBoundaryMs ? arr.slice(0, -1) : arr;
             };
             // ⚡ BUG FIX 1: Resample primary lower-TF candles into 15m if separate 15m feed is sparse/stale.
             const resampleTo15m = (arr: any[], srcTfMin: number) => {
@@ -1911,7 +1915,9 @@ class PersistentTradingEngine {
             if (!arr || arr.length < 2) return arr;
             const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
             const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
-            return Date.now() < lastTsMs + tfM * 60 * 1000 ? arr.slice(0, -1) : arr;
+            const tfMs = tfM * 60 * 1000;
+            const currentClosedBoundaryMs = Math.floor(Date.now() / tfMs) * tfMs;
+            return lastTsMs > currentClosedBoundaryMs ? arr.slice(0, -1) : arr;
           };
           const ohlcData = stripForming(ohlcDataRaw, tfMin);
           const real15mData = stripForming(real15mDataRaw, 15);
