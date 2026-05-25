@@ -275,6 +275,22 @@ export class AdvancedAI {
     return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
   }
 
+  private static getCurrentSessionCandles(data: OHLCCandle[], includeLast = true): OHLCCandle[] {
+    if (!data.length) return [];
+    const last = data[data.length - 1];
+    const lastTsMs = last.timestamp < 1e12 ? last.timestamp * 1000 : last.timestamp;
+    const istDayKey = (tsMs: number) => new Date(tsMs + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const targetDay = istDayKey(lastTsMs);
+    const sessionStart = 9 * 60 + 15;
+    const sessionEnd = 15 * 60 + 30;
+    const session = data.filter((c) => {
+      const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
+      const mins = this.getIstMinutes(tsMs);
+      return istDayKey(tsMs) === targetDay && mins >= sessionStart && mins <= sessionEnd;
+    });
+    return includeLast ? session : session.filter((c) => c !== last);
+  }
+
   // ========================================
   // TECHNICAL INDICATORS (ALL OPTIMIZED!)
   // ========================================
