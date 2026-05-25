@@ -1401,8 +1401,11 @@ export class AdvancedAI {
     // Block evaluation of forming live candles. Caller may set options.enforceClosedCandle=false
     // for backtests where timestamps refer to close-time instead of open-time.
     const _tfMin = options.timeframeMinutes || 5;
-    const _candleOpenMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
-    const _candleCloseMs = _candleOpenMs + _tfMin * 60 * 1000;
+    const _candleTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const _tsDate = new Date(_candleTsMs + 5.5 * 60 * 60 * 1000);
+    const _tsIstMinutes = _tsDate.getUTCHours() * 60 + _tsDate.getUTCMinutes();
+    const _looksLikeDhanCloseTime = _tsIstMinutes >= 9 * 60 + 30 && _tsIstMinutes <= 15 * 60 + 30;
+    const _candleCloseMs = _looksLikeDhanCloseTime ? _candleTsMs : _candleTsMs + _tfMin * 60 * 1000;
     const _enforceClosed = options.enforceClosedCandle !== false;
     const _candleClosed = !_enforceClosed || Date.now() >= _candleCloseMs;
     if (!_candleClosed) {
