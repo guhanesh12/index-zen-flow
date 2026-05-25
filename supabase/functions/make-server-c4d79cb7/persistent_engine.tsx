@@ -1335,7 +1335,7 @@ class PersistentTradingEngine {
               state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
             } else {
               console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${exitResult.error}`);
-              continue;
+              return;
             }
           }
 
