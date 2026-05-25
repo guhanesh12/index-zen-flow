@@ -1368,10 +1368,11 @@ class PersistentTradingEngine {
           try {
             const { data: autoSlots } = await supabaseAdmin
               .from("user_symbol_config")
-              .select("slot, index_name, moneyness, lot_count, enabled")
+              .select("slot, index_name, moneyness, lot_count, enabled, target_per_lot, stop_loss_per_lot, trailing_enabled, trailing_activation_per_lot, trailing_step_per_lot")
               .eq("user_id", userId)
               .eq("enabled", true)
               .eq("index_name", indexName);
+
 
             if (autoSlots && autoSlots.length > 0) {
               autoSlotCount = autoSlots.length;
@@ -1407,6 +1408,27 @@ class PersistentTradingEngine {
                     continue;
                   }
                   const finalQuantity = r.lot_size * lotCount;
+
+                  // 🧮 Dynamic risk: per-lot × lot_count, then moneyness multiplier.
+                  // ITM = slower/safer (bigger SL, smaller target); OTM = faster (smaller SL, bigger target).
+                  const MONEYNESS_MULT: Record<string, { tgt: number; sl: number }> = {
+                    ITM2: { tgt: 0.70, sl: 1.30 },
+                    ITM1: { tgt: 0.85, sl: 1.15 },
+                    ATM:  { tgt: 1.00, sl: 1.00 },
+                    OTM1: { tgt: 1.20, sl: 0.85 },
+                    OTM2: { tgt: 1.50, sl: 0.70 },
+                  };
+                  const mm = MONEYNESS_MULT[slot.moneyness] || MONEYNESS_MULT.ATM;
+                  const tgtPerLot = Number(slot.target_per_lot) || 0;
+                  const slPerLot = Number(slot.stop_loss_per_lot) || 0;
+                  const trailActPerLot = Number(slot.trailing_activation_per_lot) || 0;
+                  const trailStepPerLot = Number(slot.trailing_step_per_lot) || 0;
+                  const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
+                  const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
+                  const trailingActivationAmount = +(trailActPerLot * lotCount * mm.tgt).toFixed(2);
+                  const trailingStep = +(trailStepPerLot * lotCount).toFixed(2);
+                  const trailingEnabled = !!slot.trailing_enabled && trailingActivationAmount > 0 && trailingStep > 0;
+
                   resolved.push({
                     id: `AUTO_${slot.slot}_${r.security_id}`,
                     name: r.symbol,
@@ -1428,15 +1450,19 @@ class PersistentTradingEngine {
                     strikePrice: r.strike_price,
                     expiry: r.expiry_date,
                     active: true,
-                    targetAmount: 0,
-                    stopLossAmount: 0,
-                    trailingEnabled: false,
+                    targetAmount,
+                    stopLossAmount,
+                    trailingEnabled,
+                    trailingActivationAmount,
+                    stopLossJumpAmount: trailingStep,
+                    trailingStep,
                     __autoSlot: slot.slot,
                     __moneyness: slot.moneyness,
                   });
                   console.log(
-                    `🎯 [AUTO_SYMBOL] slot ${slot.slot}: ${indexName} ${slot.moneyness} ${targetOptionType} → ${r.symbol} SID ${r.security_id} strike ${r.strike_price} lotSize ${r.lot_size} × lots ${lotCount} = qty ${finalQuantity}`,
+                    `🎯 [AUTO_SYMBOL] slot ${slot.slot}: ${indexName} ${slot.moneyness} ${targetOptionType} → ${r.symbol} qty ${finalQuantity} | Tgt ₹${targetAmount} SL ₹${stopLossAmount} ${trailingEnabled ? `TRAIL act ₹${trailingActivationAmount} step ₹${trailingStep}` : "trail OFF"}`,
                   );
+
                 }
                 if (resolved.length > 0) {
                   console.log(

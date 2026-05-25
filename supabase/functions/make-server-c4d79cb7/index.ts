@@ -10532,6 +10532,11 @@ function normalizeAutoSymbolSlot(body: any, userId: string) {
   if (!AUTO_SYMBOL_MONEYNESS.has(moneyness)) throw new Error("Moneyness must be ATM, ITM1, ITM2, OTM1, or OTM2");
   if (!Number.isFinite(lotCount) || lotCount < 1 || lotCount > 50) throw new Error("Lot count must be between 1 and 50");
 
+  const num = (v: any) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+
   return {
     user_id: userId,
     slot,
@@ -10539,8 +10544,14 @@ function normalizeAutoSymbolSlot(body: any, userId: string) {
     moneyness,
     lot_count: Math.floor(lotCount),
     enabled: body?.enabled !== false,
+    target_per_lot: num(body?.target_per_lot),
+    stop_loss_per_lot: num(body?.stop_loss_per_lot),
+    trailing_enabled: !!body?.trailing_enabled,
+    trailing_activation_per_lot: num(body?.trailing_activation_per_lot),
+    trailing_step_per_lot: num(body?.trailing_step_per_lot),
   };
 }
+
 
 // 📋 List user symbol config (auto-selection slots)
 app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {

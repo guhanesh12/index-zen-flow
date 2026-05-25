@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/ca
 import { Button } from "@/app/components/ui/button";
 import { Switch } from "@/app/components/ui/switch";
 import { Label } from "@/app/components/ui/label";
+import { Input } from "@/app/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/app/components/ui/select";
 import { Badge } from "@/app/components/ui/badge";
-import { Loader2, Plus, Trash2, Zap, RefreshCw } from "lucide-react";
+import { Loader2, Plus, Trash2, Zap, RefreshCw, Target, Shield, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
@@ -18,16 +19,41 @@ interface Slot {
   moneyness: "ATM" | "ITM1" | "ITM2" | "OTM1" | "OTM2";
   lot_count: number;
   enabled: boolean;
+  target_per_lot: number;
+  stop_loss_per_lot: number;
+  trailing_enabled: boolean;
+  trailing_activation_per_lot: number;
+  trailing_step_per_lot: number;
 }
 
 const INDICES = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
 const MONEYNESS = [
-  { v: "ITM2", l: "ITM-2 (deep in-the-money)" },
-  { v: "ITM1", l: "ITM-1 (in-the-money)" },
-  { v: "ATM",  l: "ATM (at-the-money)" },
-  { v: "OTM1", l: "OTM-1 (out-of-the-money)" },
-  { v: "OTM2", l: "OTM-2 (deep out-of-the-money)" },
+  { v: "ITM2", l: "ITM-2 (deep ITM)" },
+  { v: "ITM1", l: "ITM-1" },
+  { v: "ATM",  l: "ATM" },
+  { v: "OTM1", l: "OTM-1" },
+  { v: "OTM2", l: "OTM-2 (deep OTM)" },
 ];
+
+// Same multipliers as the backend engine — keep in sync.
+const MONEYNESS_MULT: Record<string, { tgt: number; sl: number }> = {
+  ITM2: { tgt: 0.70, sl: 1.30 },
+  ITM1: { tgt: 0.85, sl: 1.15 },
+  ATM:  { tgt: 1.00, sl: 1.00 },
+  OTM1: { tgt: 1.20, sl: 0.85 },
+  OTM2: { tgt: 1.50, sl: 0.70 },
+};
+
+function computeEffective(s: Slot) {
+  const mm = MONEYNESS_MULT[s.moneyness] || MONEYNESS_MULT.ATM;
+  return {
+    target: +((s.target_per_lot || 0) * s.lot_count * mm.tgt).toFixed(2),
+    stopLoss: +((s.stop_loss_per_lot || 0) * s.lot_count * mm.sl).toFixed(2),
+    trailingAct: +((s.trailing_activation_per_lot || 0) * s.lot_count * mm.tgt).toFixed(2),
+    trailingStep: +((s.trailing_step_per_lot || 0) * s.lot_count).toFixed(2),
+    mm,
+  };
+}
 
 export function AutoSymbolConfig({
   serverUrl,
@@ -50,17 +76,29 @@ export function AutoSymbolConfig({
     };
   }
 
+  function normalizeRow(r: any): Slot {
+    return {
+      slot: r.slot,
+      index_name: r.index_name,
+      moneyness: r.moneyness,
+      lot_count: Number(r.lot_count) || 1,
+      enabled: !!r.enabled,
+      target_per_lot: Number(r.target_per_lot) || 0,
+      stop_loss_per_lot: Number(r.stop_loss_per_lot) || 0,
+      trailing_enabled: !!r.trailing_enabled,
+      trailing_activation_per_lot: Number(r.trailing_activation_per_lot) || 0,
+      trailing_step_per_lot: Number(r.trailing_step_per_lot) || 0,
+    };
+  }
+
   async function load() {
-    if (!accessToken) {
-      setLoading(false);
-      return;
-    }
+    if (!accessToken) { setLoading(false); return; }
     setLoading(true);
     try {
       const r = await fetchWithAuth(`${serverUrl}/auto-symbol/config`, { headers: await getHeaders(false) });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
-      setSlots(j.slots || []);
+      setSlots((j.slots || []).map(normalizeRow));
     } catch (e: any) {
       toast.error(`Failed to load auto symbol config: ${e.message}`);
     } finally {
@@ -115,6 +153,8 @@ export function AutoSymbolConfig({
     if (!n) { toast.warning("Maximum 3 slots"); return; }
     setSlots(prev => [...prev, {
       slot: n, index_name: "NIFTY", moneyness: "ATM", lot_count: 1, enabled: true,
+      target_per_lot: 500, stop_loss_per_lot: 300,
+      trailing_enabled: false, trailing_activation_per_lot: 400, trailing_step_per_lot: 100,
     }].sort((a, b) => a.slot - b.slot));
   }
 
@@ -135,9 +175,8 @@ export function AutoSymbolConfig({
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-1">
-          Configure up to 3 slots. When the AI fires <Badge variant="outline" className="mx-1">BUY_CALL</Badge>
-          or <Badge variant="outline" className="mx-1">BUY_PUT</Badge> for the matching index, the engine
-          auto-picks the correct option contract from today's instrument master and places the order in milliseconds.
+          3 slots — one per index. Target / SL / Trailing are entered <strong>per lot</strong> and the
+          engine auto-scales them by <strong>lot count</strong> and <strong>ATM/ITM/OTM</strong>. Works for both CE and PE.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -153,76 +192,118 @@ export function AutoSymbolConfig({
           </div>
         )}
 
-        {slots.map((s, i) => (
-          <div
-            key={s.slot}
-            className="rounded-lg border border-border bg-muted/30 p-3 space-y-3"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary">Slot {s.slot}</Badge>
-                <Switch
-                  checked={s.enabled}
-                  onCheckedChange={(v) => updateLocal(i, { enabled: v })}
-                />
-                <span className="text-xs text-muted-foreground">{s.enabled ? "Enabled" : "Disabled"}</span>
+        {slots.map((s, i) => {
+          const eff = computeEffective(s);
+          return (
+            <div
+              key={s.slot}
+              className="rounded-lg border border-border bg-muted/30 p-3 space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">Slot {s.slot}</Badge>
+                  <Switch
+                    checked={s.enabled}
+                    onCheckedChange={(v) => updateLocal(i, { enabled: v })}
+                  />
+                  <span className="text-xs text-muted-foreground">{s.enabled ? "Enabled" : "Disabled"}</span>
+                </div>
+                <Button size="icon" variant="ghost" onClick={() => deleteSlot(s.slot)}>
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => deleteSlot(s.slot)}>
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <Label className="text-xs">Index</Label>
-                <Select
-                  value={s.index_name}
-                  onValueChange={(v) => updateLocal(i, { index_name: v as any })}
-                >
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {INDICES.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Moneyness</Label>
-                <Select
-                  value={s.moneyness}
-                  onValueChange={(v) => updateLocal(i, { moneyness: v as any })}
-                >
-                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {MONEYNESS.map(m => <SelectItem key={m.v} value={m.v}>{m.l}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Lot Count</Label>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline" size="icon" className="h-9 w-9"
-                    onClick={() => updateLocal(i, { lot_count: Math.max(1, s.lot_count - 1) })}
-                  >−</Button>
-                  <div className="flex-1 text-center font-mono text-sm bg-background rounded h-9 flex items-center justify-center border">
-                    {s.lot_count}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-xs">Index</Label>
+                  <Select value={s.index_name} onValueChange={(v) => updateLocal(i, { index_name: v as any })}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {INDICES.map(x => <SelectItem key={x} value={x}>{x}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Moneyness</Label>
+                  <Select value={s.moneyness} onValueChange={(v) => updateLocal(i, { moneyness: v as any })}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MONEYNESS.map(m => <SelectItem key={m.v} value={m.v}>{m.l}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Lot Count</Label>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="icon" className="h-9 w-9"
+                      onClick={() => updateLocal(i, { lot_count: Math.max(1, s.lot_count - 1) })}>−</Button>
+                    <div className="flex-1 text-center font-mono text-sm bg-background rounded h-9 flex items-center justify-center border">
+                      {s.lot_count}
+                    </div>
+                    <Button variant="outline" size="icon" className="h-9 w-9"
+                      onClick={() => updateLocal(i, { lot_count: Math.min(50, s.lot_count + 1) })}>+</Button>
                   </div>
-                  <Button
-                    variant="outline" size="icon" className="h-9 w-9"
-                    onClick={() => updateLocal(i, { lot_count: Math.min(50, s.lot_count + 1) })}
-                  >+</Button>
                 </div>
               </div>
-            </div>
 
-            <div className="flex justify-end">
-              <Button size="sm" onClick={() => saveSlot(s)} disabled={saving === s.slot}>
-                {saving === s.slot ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Save Slot {s.slot}
-              </Button>
+              {/* Per-lot risk inputs */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs flex items-center gap-1"><Target className="h-3 w-3 text-green-500" /> Target ₹ / lot</Label>
+                  <Input type="number" min={0} className="h-9" value={s.target_per_lot}
+                    onChange={(e) => updateLocal(i, { target_per_lot: Number(e.target.value) || 0 })} />
+                </div>
+                <div>
+                  <Label className="text-xs flex items-center gap-1"><Shield className="h-3 w-3 text-red-500" /> Stop-Loss ₹ / lot</Label>
+                  <Input type="number" min={0} className="h-9" value={s.stop_loss_per_lot}
+                    onChange={(e) => updateLocal(i, { stop_loss_per_lot: Number(e.target.value) || 0 })} />
+                </div>
+              </div>
+
+              {/* Trailing */}
+              <div className="rounded-md border border-border bg-background/60 p-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-amber-500" />
+                  <Label className="text-xs flex-1">Trailing Stop-Loss</Label>
+                  <Switch checked={s.trailing_enabled}
+                    onCheckedChange={(v) => updateLocal(i, { trailing_enabled: v })} />
+                </div>
+                {s.trailing_enabled && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Activate at ₹ / lot</Label>
+                      <Input type="number" min={0} className="h-8" value={s.trailing_activation_per_lot}
+                        onChange={(e) => updateLocal(i, { trailing_activation_per_lot: Number(e.target.value) || 0 })} />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Step ₹ / lot</Label>
+                      <Input type="number" min={0} className="h-8" value={s.trailing_step_per_lot}
+                        onChange={(e) => updateLocal(i, { trailing_step_per_lot: Number(e.target.value) || 0 })} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Live computed preview */}
+              <div className="rounded-md bg-primary/5 border border-primary/20 p-2 text-[11px] font-mono grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>🎯 Target: <span className="text-green-500 font-bold">₹{eff.target}</span></div>
+                <div>🛡️ SL: <span className="text-red-500 font-bold">₹{eff.stopLoss}</span></div>
+                <div>🔥 Trail act: <span className="text-amber-500 font-bold">₹{eff.trailingAct}</span></div>
+                <div>📈 Trail step: <span className="text-amber-500 font-bold">₹{eff.trailingStep}</span></div>
+                <div className="col-span-2 sm:col-span-4 text-muted-foreground">
+                  {s.moneyness} mult → tgt ×{eff.mm.tgt} · sl ×{eff.mm.sl} · lots ×{s.lot_count} · applies to CE &amp; PE
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => saveSlot(s)} disabled={saving === s.slot}>
+                  {saving === s.slot ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Save Slot {s.slot}
+                </Button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {slots.length < 3 && !loading && (
           <Button variant="outline" className="w-full" onClick={addSlot}>
