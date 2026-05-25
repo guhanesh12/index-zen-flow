@@ -102,15 +102,13 @@ export async function refreshInstrumentMaster(opts: { force?: boolean } = {}) {
     if (optType !== "CE" && optType !== "PE") continue;
 
     const tradingSym = (cols[cSymbol] || "").toUpperCase();
-    // Reject look-alike underlyings (NIFTYNXT50, FINNIFTY, MIDCPNIFTY, BANKEX, SENSEX50 etc.)
+    // Reject look-alike underlyings (FINNIFTY, MIDCPNIFTY, NIFTYNXT50, BANKEX, SENSEX50, etc.)
     let indexName = "";
-    if (tradingSym.startsWith("BANKNIFTY") && !/^BANKNIFTY[A-Z]/.test(tradingSym.replace("BANKNIFTY", "X"))) {
+    if (tradingSym.startsWith("BANKNIFTY-") || tradingSym.startsWith("BANKNIFTY ")) {
       indexName = "BANKNIFTY";
-    } else if (/^NIFTY\d/.test(tradingSym) || /^NIFTY\s/.test(tradingSym) || tradingSym === "NIFTY") {
-      // True NIFTY contracts: "NIFTY" followed by a digit (expiry/strike) — excludes NIFTYNXT50, NIFTYIT, FINNIFTY, MIDCPNIFTY
+    } else if (tradingSym.startsWith("NIFTY-") || tradingSym.startsWith("NIFTY ")) {
       indexName = "NIFTY";
-    } else if (/^SENSEX\d/.test(tradingSym) || tradingSym === "SENSEX") {
-      // True SENSEX (excludes SENSEX50, BANKEX)
+    } else if (tradingSym.startsWith("SENSEX-") || tradingSym.startsWith("SENSEX ")) {
       indexName = "SENSEX";
     } else continue;
 
