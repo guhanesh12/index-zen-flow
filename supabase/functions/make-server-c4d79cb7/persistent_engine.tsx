@@ -2372,9 +2372,56 @@ class PersistentTradingEngine {
           }
         }
 
+        // ⚡⚡⚡ ADVANCED PREDICTIVE EXIT INTELLIGENCE ⚡⚡⚡
+        // Goal: lock profit on early reversal, cut loss BEFORE full SL when market turns hard against,
+        // and HOLD aggressively when trend is strongly aligned (let winners run).
+        const _posDir = normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BULLISH" : "BEARISH";
+        const _alignedNow = currentSignal ? _posDir === marketMomentum : true;
+        const _strongAgainst = !!currentSignal && !_alignedNow && momentumStrength >= 4;
+        const _strongWith = !!currentSignal && _alignedNow && momentumStrength >= 4;
+        const _baseTgtForCalc = Math.max(_baseTarget, effectiveTarget) || 0;
+        const _baseSLForCalc = Math.max(_baseSL, Math.abs(effectiveSL)) || 0;
+
+        // 1) PROFIT PROTECTION — exit when we've captured meaningful profit and trend is reversing.
+        //    Skipped if trend is still strongly with the position (let winners run).
+        if (!shouldExit && (position.highestPnl || 0) > 0 && pnl > 0 && !_strongWith) {
+          const peak = position.highestPnl || 0;
+          const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.4 : Math.max(150, peak * 0.5);
+          const inProfitZone = peak >= profitFloor;
+          const heavyGiveBack = giveBackPct >= 55;
+          const reversingMomentum = momentumScore < 0;
+          if (inProfitZone && heavyGiveBack && reversingMomentum) {
+            shouldExit = true;
+            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, momentum reversing)`;
+          }
+        }
+
+        // 2) EARLY LOSS CUT — exit before full SL when market is strongly against us.
+        if (!shouldExit && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
+          const lossPct = Math.abs(pnl) / _baseSLForCalc;
+          if (lossPct >= 0.45) {
+            shouldExit = true;
+            exitReason = `Early Reversal Cut (${marketMomentum} strongly against ${_posDir}, Loss ₹${pnl.toFixed(2)} = ${(lossPct * 100).toFixed(0)}% of SL)`;
+          }
+        }
+
+        // 3) AI REVERSAL CONFIRMED — lower confidence required when momentum strongly confirms.
+        if (!shouldExit && currentSignal) {
+          const opp = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
+          const conf = Number(currentSignal.confidence || 0);
+          if (currentSignal.action === opp && conf >= 75 && _strongAgainst) {
+            shouldExit = true;
+            exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%, momentum ${momentumStrength}/6 against)`;
+          }
+        }
+
+        // 4) Original strong-reversal signal-based exit (90%+ conf) — kept as final safety net.
         if (!shouldExit && signalShouldExit) {
-          shouldExit = true;
-          exitReason = signalExitReason;
+          // Suppress if strongly with trend AND in healthy profit (let winners run)
+          if (!(_strongWith && pnl > 0 && giveBackPct < 40)) {
+            shouldExit = true;
+            exitReason = signalExitReason;
+          }
         }
 
         (position as any).monitorDecision = shouldExit ? "EXIT" : monitorDecision;
