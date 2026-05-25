@@ -296,6 +296,26 @@ async function getFreshSymbolsForEngine(userId: string, stateSymbols: any[]): Pr
 // Supabase client for DB operations
 const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL") || "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "");
 
+async function loadDhanCredentials(userId: string): Promise<{ dhanClientId: string; dhanAccessToken: string } | null> {
+  const { data } = await supabaseAdmin
+    .from("broker_credentials")
+    .select("dhan_client_id, access_token, last_status")
+    .eq("user_id", userId)
+    .eq("broker", "dhan")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (data?.dhan_client_id && data?.access_token) {
+    const fresh = { dhanClientId: data.dhan_client_id, dhanAccessToken: data.access_token };
+    await kv.set(`api_credentials:${userId}`, fresh);
+    return fresh;
+  }
+
+  const legacy = await kv.get(`api_credentials:${userId}`);
+  return legacy?.dhanClientId && legacy?.dhanAccessToken ? legacy : null;
+}
+
 interface EngineState {
   isRunning: boolean;
   userId: string;
