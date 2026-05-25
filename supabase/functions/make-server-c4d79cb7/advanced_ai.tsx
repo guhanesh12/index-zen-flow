@@ -2638,8 +2638,9 @@ export class AdvancedAI {
         volumeAnalysis: (() => {
           const candleStrength =
             bodyPercent >= 60 ? "STRONG" : bodyPercent >= 35 ? "DECISIVE" : bodyPercent >= 25 ? "MODERATE" : "WEAK";
-          const candlesWithVolume = ohlcData.slice(-10).filter((c) => (c.volume || 0) > 0).length;
-          const volumeCoverage = candlesWithVolume / 10;
+          const coverageBase = Math.max(1, Math.min(10, volumeBaselineCandles.length || ohlcData.slice(-10).length));
+          const candlesWithVolume = volumeBaselineCandles.slice(-10).filter((c) => (c.volume || 0) > 0).length;
+          const volumeCoverage = candlesWithVolume / coverageBase;
           const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
           const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
           return {
@@ -2919,8 +2920,9 @@ export class AdvancedAI {
         // Volume feed reliability: index feeds (NIFTY/BANKNIFTY/SENSEX) often
         // ship 0 volume. Detect that and surface candle-based confirmation
         // instead of blocking/erasing the panel.
-        const candlesWithVolume = ohlcData.slice(-10).filter((c) => (c.volume || 0) > 0).length;
-        const volumeCoverage = candlesWithVolume / 10;
+        const coverageBase = Math.max(1, Math.min(10, volumeBaselineCandles.length || ohlcData.slice(-10).length));
+        const candlesWithVolume = volumeBaselineCandles.slice(-10).filter((c) => (c.volume || 0) > 0).length;
+        const volumeCoverage = candlesWithVolume / coverageBase;
         // Feed is reliable when historical coverage is good, even if the
         // current bar is still forming (volume=0 mid-candle).
         const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
