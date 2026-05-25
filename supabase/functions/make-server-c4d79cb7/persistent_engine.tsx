@@ -1015,14 +1015,12 @@ class PersistentTradingEngine {
         return;
       }
 
-      // ⚡⚡⚡ ALWAYS MONITOR ACTIVE POSITIONS (EVERY TICK) ⚡⚡⚡
-      await this.monitorPositions(userId, dhanService, state);
-
       const candleMinutes = parseInt(state.candleInterval);
       const minutesSinceOpen = currentTimeMinutes - marketOpen;
 
       if (minutesSinceOpen < candleMinutes) {
         console.log(`⏳ Waiting for first ${state.candleInterval}M candle to close for user ${userId}`);
+        await this.monitorPositions(userId, dhanService, state);
         await kv.set(`engine_state_${userId}`, state);
         return;
       }
@@ -1038,6 +1036,7 @@ class PersistentTradingEngine {
       if (currentCandleTimestamp === state.lastProcessedCandle || currentCandleTimestamp === dbLastProcessedCandle) {
         state.lastProcessedCandle = currentCandleTimestamp;
         console.log(`⏸️ Same candle ${currentCandleTimestamp} - monitoring positions only`);
+        await this.monitorPositions(userId, dhanService, state);
         await kv.set(`engine_state_${userId}`, state);
         return;
       }
