@@ -850,6 +850,11 @@ export type Database = {
           lot_count: number
           moneyness: string
           slot: number
+          stop_loss_per_lot: number
+          target_per_lot: number
+          trailing_activation_per_lot: number
+          trailing_enabled: boolean
+          trailing_step_per_lot: number
           updated_at: string
           user_id: string
         }
@@ -861,6 +866,11 @@ export type Database = {
           lot_count?: number
           moneyness?: string
           slot: number
+          stop_loss_per_lot?: number
+          target_per_lot?: number
+          trailing_activation_per_lot?: number
+          trailing_enabled?: boolean
+          trailing_step_per_lot?: number
           updated_at?: string
           user_id: string
         }
@@ -872,6 +882,11 @@ export type Database = {
           lot_count?: number
           moneyness?: string
           slot?: number
+          stop_loss_per_lot?: number
+          target_per_lot?: number
+          trailing_activation_per_lot?: number
+          trailing_enabled?: boolean
+          trailing_step_per_lot?: number
           updated_at?: string
           user_id?: string
         }
