@@ -329,9 +329,11 @@ class PersistentTradingEngine {
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
   private static activeLoops: Set<string> = new Set();
+  private static activeLoopStartedAt: Map<string, number> = new Map();
   private static monitorLoops: Map<string, Promise<void>> = new Map();
   private static recentOrderKeys: Map<string, number> = new Map();
   private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
+  private static readonly ACTIVE_LOOP_STALE_MS = 90 * 1000;
   private static readonly POSITION_MONITOR_INTERVAL_MS = 1000;
 
   /**
