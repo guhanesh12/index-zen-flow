@@ -411,14 +411,7 @@ export class AdvancedAI {
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
     // Anchor VWAP to 09:15 IST session start (NSE standard)
-    const IST_OFFSET = 5.5 * 3600;
-    const SESSION_START_MIN = 9 * 60 + 15; // 09:15
-    const sessionCandles = data.filter((c) => {
-      const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
-      const d = new Date((tsMs / 1000 + IST_OFFSET) * 1000);
-      const min = d.getUTCHours() * 60 + d.getUTCMinutes();
-      return min >= SESSION_START_MIN;
-    });
+    const sessionCandles = this.getCurrentSessionCandles(data, true);
     const candles = sessionCandles.length > 0 ? sessionCandles : data;
     let cumulativeTPV = 0;
     let cumulativeVolume = 0;
