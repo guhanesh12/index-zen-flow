@@ -2096,16 +2096,31 @@ class PersistentTradingEngine {
           position.currentStopLossAmount = Number(position.stopLossAmount || 0);
         }
 
-        const _baseTarget = Number(position.targetAmount || 0);
-        const _baseSL = Number(position.stopLossAmount || 0);
-        // ⚡ STRICT: only use the user-entered values. NO fallback to trailingStep
-        // and NO automatic defaults — trailing must be fully user-configured.
+        let _baseTarget = Number(position.targetAmount || 0);
+        let _baseSL = Number(position.stopLossAmount || 0);
+
+        // 🤖 AUTO-DEFAULT RISK (for manual symbols / positions without user-configured Tgt/SL)
+        // 5% target, 2.5% SL of notional (R:R ≈ 2:1). Trailing auto-enabled with sensible jumps.
+        if (_baseTarget <= 0 && _baseSL <= 0 && entryPrice > 0 && quantity > 0) {
+          const notional = entryPrice * quantity;
+          _baseTarget = Math.max(100, Math.round(notional * 0.05));
+          _baseSL = Math.max(75, Math.round(notional * 0.025));
+          position.targetAmount = _baseTarget;
+          position.stopLossAmount = _baseSL;
+          position.currentTargetAmount = _baseTarget;
+          position.currentStopLossAmount = _baseSL;
+          if (!position.trailingActivationAmount || position.trailingActivationAmount <= 0) {
+            position.trailingEnabled = true;
+            position.trailingActivationAmount = Math.round(_baseTarget * 0.5); // activate at 50% of target
+            position.targetJumpAmount = Math.round(_baseTarget * 0.25);
+            position.stopLossJumpAmount = Math.round(_baseSL * 0.35);
+          }
+        }
+
         const _activation = Number(position.trailingActivationAmount ?? 0);
         const _targetJump = Number(position.targetJumpAmount ?? 0);
         const _slJump = Number(position.stopLossJumpAmount ?? 0);
 
-        // Trailing runs ONLY if user explicitly enabled it AND entered all three values > 0.
-        // (activation > 0, target+ > 0, SL- > 0). Otherwise target/SL stay at the base values.
         const _trailingConfigured =
           position.trailingEnabled === true && _activation > 0 && _targetJump > 0 && _slJump > 0;
 
