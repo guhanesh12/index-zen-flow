@@ -914,8 +914,15 @@ class PersistentTradingEngine {
     dhanAccessToken: string,
   ): Promise<void> {
     if (this.activeLoops.has(userId)) {
+      const startedAt = this.activeLoopStartedAt.get(userId) || 0;
+      if (startedAt && Date.now() - startedAt > this.ACTIVE_LOOP_STALE_MS) {
+        console.warn(`⚠️ Stale engine loop lock cleared for ${userId} after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+        this.activeLoops.delete(userId);
+        this.activeLoopStartedAt.delete(userId);
+      } else {
       console.log(`⏸️ Skipping overlapping engine loop for ${userId}`);
       return;
+      }
     }
 
     const state = this.engineStates.get(userId);
@@ -925,6 +932,7 @@ class PersistentTradingEngine {
     }
 
     this.activeLoops.add(userId);
+    this.activeLoopStartedAt.set(userId, Date.now());
 
     try {
       const liveEngineState = await this.getLiveEngineState(userId);
@@ -1772,6 +1780,7 @@ class PersistentTradingEngine {
       });
     } finally {
       this.activeLoops.delete(userId);
+      this.activeLoopStartedAt.delete(userId);
     }
   }
 
