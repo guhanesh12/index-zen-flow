@@ -102,11 +102,17 @@ export async function refreshInstrumentMaster(opts: { force?: boolean } = {}) {
     if (optType !== "CE" && optType !== "PE") continue;
 
     const tradingSym = (cols[cSymbol] || "").toUpperCase();
+    // Reject look-alike underlyings (NIFTYNXT50, FINNIFTY, MIDCPNIFTY, BANKEX, SENSEX50 etc.)
     let indexName = "";
-    if (tradingSym.startsWith("BANKNIFTY")) indexName = "BANKNIFTY";
-    else if (tradingSym.startsWith("SENSEX")) indexName = "SENSEX";
-    else if (tradingSym.startsWith("NIFTY")) indexName = "NIFTY";
-    else continue;
+    if (tradingSym.startsWith("BANKNIFTY") && !/^BANKNIFTY[A-Z]/.test(tradingSym.replace("BANKNIFTY", "X"))) {
+      indexName = "BANKNIFTY";
+    } else if (/^NIFTY\d/.test(tradingSym) || /^NIFTY\s/.test(tradingSym) || tradingSym === "NIFTY") {
+      // True NIFTY contracts: "NIFTY" followed by a digit (expiry/strike) — excludes NIFTYNXT50, NIFTYIT, FINNIFTY, MIDCPNIFTY
+      indexName = "NIFTY";
+    } else if (/^SENSEX\d/.test(tradingSym) || tradingSym === "SENSEX") {
+      // True SENSEX (excludes SENSEX50, BANKEX)
+      indexName = "SENSEX";
+    } else continue;
 
     if (!TARGET_UNDERLYINGS.has(indexName)) continue;
 
