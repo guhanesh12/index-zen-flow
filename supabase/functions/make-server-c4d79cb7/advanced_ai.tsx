@@ -2087,10 +2087,10 @@ export class AdvancedAI {
     const h1AlignedBear = h1Align === "bear";
 
     // Breakout confirmation: close beyond level, or previous breakout + current candle holds the level.
-    const breakoutLookback = Math.min(12, Math.max(5, ohlcData.length - 2));
-    const breakoutBase = ohlcData.slice(-(breakoutLookback + 2), -2);
+    const breakoutLookback = Math.min(12, Math.max(5, priorLevelData.length));
+    const breakoutBase = priorLevelData.slice(-breakoutLookback);
     const fallbackBase = ohlcData.slice(-Math.min(12, ohlcData.length - 1), -1);
-    const levelCandles = breakoutBase.length >= 5 ? breakoutBase : fallbackBase;
+    const levelCandles = breakoutBase.length >= 3 ? breakoutBase : fallbackBase;
     const breakoutHigh = Math.max(...levelCandles.map((c) => c.high));
     const breakoutLow = Math.min(...levelCandles.map((c) => c.low));
     const breakoutHoldTol = atr14 * 0.15;
