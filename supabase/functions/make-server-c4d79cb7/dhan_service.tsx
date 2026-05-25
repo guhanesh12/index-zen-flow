@@ -696,7 +696,7 @@ export class DhanService {
 
       // 3. Validate product type + exchange segment combinations
       const exchangeSegment = orderRequest.exchangeSegment || 'NSE_FNO';
-      const productType = 'INTRADAY';
+      const productType: string = 'INTRADAY';
       
       // ⚡ CRITICAL: Validate exchange segment format
       const validExchangeSegments = ['NSE_EQ', 'NSE_FNO', 'NSE_CURR', 'BSE_EQ', 'BSE_FNO', 'BSE_CURR', 'MCX_COMM'];
@@ -987,6 +987,7 @@ export class DhanService {
     } catch (error: any) {
       console.error('Error placing bracket order:', error);
       return {
+        success: false,
         orderId: '',
         orderStatus: 'REJECTED',
         message: error.message || 'Bracket order failed'
@@ -1012,6 +1013,7 @@ export class DhanService {
     } catch (error: any) {
       console.error('Error placing cover order:', error);
       return {
+        success: false,
         orderId: '',
         orderStatus: 'REJECTED',
         message: error.message || 'Cover order failed'
@@ -1084,7 +1086,7 @@ export class DhanService {
           try {
             const quote = await this.getMarketQuote(securityId, exchangeSegment);
             livePrice = Number(quote?.ltp || quote?.close || 0);
-          } catch (quoteError) {
+          } catch (quoteError: any) {
             console.warn(`⚠️ Position live quote fallback failed for ${securityId}:`, quoteError?.message || quoteError);
           }
         }
