@@ -279,22 +279,9 @@ export class DhanService {
       const cacheKey = `intraday_${securityId}_${interval}`;
       const cached = this.priceCache.get(cacheKey);
       
-      const intervalMinutes = Math.max(1, parseInt(interval, 10) || 1);
-      const intervalMs = intervalMinutes * 60 * 1000;
-      const nowMs = Date.now();
-      const currentClosedBoundaryMs = Math.floor(nowMs / intervalMs) * intervalMs;
-      const cachedLastTs = cached?.price?.[cached.price.length - 1]?.timestamp || 0;
-      const cachedLastTsMs = cachedLastTs < 1e12 ? cachedLastTs * 1000 : cachedLastTs;
-      const cachedBehindClosedCandle = Boolean(cached && cachedLastTsMs && cachedLastTsMs < currentClosedBoundaryMs);
-      const justAfterCandleClose = nowMs - currentClosedBoundaryMs <= 75_000;
-
-      if (cached && (nowMs - cached.timestamp) < this.CACHE_DURATION && !cachedBehindClosedCandle && !justAfterCandleClose) {
-        console.log(`✅ CACHE HIT: Using cached ${interval}min data for ${securityId} (${cached.price.length} candles, ${Math.round((nowMs - cached.timestamp) / 1000)}s old)`);
+      if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
+        console.log(`✅ CACHE HIT: Using cached ${interval}min data for ${securityId} (${cached.price.length} candles, ${Math.round((Date.now() - cached.timestamp) / 1000)}s old)`);
         return cached.price;
-      }
-
-      if (cached && (cachedBehindClosedCandle || justAfterCandleClose)) {
-        console.log(`🔄 CACHE BYPASS: fetching fresh ${interval}min data for ${securityId} after candle close (cachedLast=${cachedLastTsMs ? new Date(cachedLastTsMs).toISOString() : 'none'}, boundary=${new Date(currentClosedBoundaryMs).toISOString()})`);
       }
       
       console.log(`🔄 CACHE MISS: Fetching fresh ${interval}min data for ${securityId}...`);
@@ -323,7 +310,7 @@ export class DhanService {
         securityId,
         exchangeSegment,
         instrument,
-        interval: intervalMinutes, // ⚡ FIX: Dhan API expects number not string
+        interval: parseInt(interval), // ⚡ FIX: Dhan API expects number not string
         fromDate: formatDate(fromDate),
         toDate: formatToDate(toDate),
         oi: false // Always false for INDEX instruments

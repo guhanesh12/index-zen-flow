@@ -15,7 +15,6 @@ import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
 import { PersistentTradingEngine } from "./persistent_engine.tsx";
-import { refreshInstrumentMaster, resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { checkAndDebitTiered, getDailyProfitStats, PRICING_TIERS } from "./tiered_debit.tsx";
 import { getLandingContent, updateLandingContent, getTermsContent, updateTermsContent, getPrivacyContent, updatePrivacyContent, getAllPages, getPageBySlug, savePage, deletePage, getSocialLinks, updateSocialLinks } from "./landing_admin.tsx";
 import * as pushNotifications from "./push_notifications.tsx";
@@ -4322,13 +4321,11 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         
         console.log(`✅ ${idx}: ${ohlcData.length} candles fetched`);
         const latestCandle = ohlcData[ohlcData.length - 1];
-        // FIX 4: Dhan index candles use close-time timestamps (09:30 = 09:15-09:30 CLOSED).
-        // Keep the latest candle once its timestamp is at/before the current closed boundary.
+        // FIX 4: drop the trailing forming candle so the engine analyzes the most-recently CLOSED bar.
         const _tfMs = Number(interval) * 60 * 1000;
         const _lastTs = (ohlcData[ohlcData.length - 1]?.timestamp ?? 0);
         const _lastTsMs = _lastTs < 1e12 ? _lastTs * 1000 : _lastTs;
-        const _currentClosedBoundaryMs = Math.floor(Date.now() / _tfMs) * _tfMs;
-        const _isFormingLive = _lastTsMs > _currentClosedBoundaryMs;
+        const _isFormingLive = Date.now() < _lastTsMs + _tfMs;
         const analysisCandles = _isFormingLive && ohlcData.length > 1 ? ohlcData.slice(0, -1) : ohlcData;
         const analyzedCandle = analysisCandles[analysisCandles.length - 1];
         const firstCandle = ohlcData[0];
@@ -4358,7 +4355,7 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           lastLossTimestamp,
           consecutiveLossThreshold: 3,
           consecutiveLossCooldownMs: 30 * 60 * 1000,
-          minimumBarsBetweenSignals: 1, // ⚡ ULTRA FAST: allow every newly closed candle; duplicate orders still protected separately
+          minimumBarsBetweenSignals: 2,
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
@@ -4700,7 +4697,7 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
   
   try {
     const body = await c.req.json();
-    const { open, high, low, close, volume, timestamp, minWarmup } = body;
+    const { open, high, low, close, volume, timestamp } = body;
     
     if (!open || !high || !low || !close || !volume || !timestamp) {
       return c.json({ 
@@ -4714,7 +4711,7 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
     console.log(`📅 Last: ${new Date(timestamp[timestamp.length - 1] * 1000).toLocaleString('en-IN')}`);
     
     // Run strategy
-    const { signals, summary } = runManualStrategy(open, high, low, close, volume, timestamp, minWarmup);
+    const { signals, summary } = runManualStrategy(open, high, low, close, volume, timestamp);
     
     // Simulate trades
     const { trades, stats } = simulateTrades(signals, 75);
@@ -8414,7 +8411,6 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
 
     const body = await c.req.json();
     const { candleInterval, symbols } = body;
-    const activeSymbols = Array.isArray(symbols) ? symbols : [];
 
     // Get user credentials
     const userCredentials = await kv.get(`api_credentials:${user.id}`);
@@ -8431,23 +8427,19 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`\n🚀 ============ START PERSISTENT ENGINE ============`);
     console.log(`   User: ${user.id}`);
     console.log(`   Interval: ${candleInterval}M`);
-    console.log(`   Symbols: ${activeSymbols.length}`);
+    console.log(`   Symbols: ${symbols.length}`);
 
     // Start engine (saves to both KV and DB)
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
       candleInterval: candleInterval || '15',
-      symbols: activeSymbols,
+      symbols: symbols || [],
       dhanClientId: credentials.dhanClientId,
       dhanAccessToken: credentials.dhanAccessToken
     });
 
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
-
-    if (!result.success) {
-      return c.json(result, 400);
-    }
 
     // Mark engine ran today (for daily ₹5 notification billing)
     try {
@@ -8469,7 +8461,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
           userId: user.id,
           data: {
             candleInterval: candleInterval || '15',
-            symbolCount: activeSymbols.length,
+            symbolCount: (symbols || []).length,
           },
         }),
       }).catch((e) => console.warn('[engine_started email]', e?.message));
@@ -10468,7 +10460,7 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   console.log("==========================================");
   console.log("⏱️ [CRON] 24/7 Engine Tick Triggered via HTTP");
   console.log("==========================================");
-
+  
   try {
     const result = await PersistentTradingEngine.runCronTick();
     return c.json(result);
@@ -10485,114 +10477,6 @@ app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
     return c.json({ success: true, ...result });
   } catch (error: any) {
     console.error("❌ [AUTO-RESUME] Failed:", error);
-    return c.json({ success: false, error: error.message }, 500);
-  }
-});
-
-// 📥 Daily 08:50 IST — refresh centralized instrument master (NIFTY / BANKNIFTY / SENSEX options)
-app.all("/make-server-c4d79cb7/cron/refresh-instruments", async (c) => {
-  try {
-    const url = new URL(c.req.url);
-    const force = url.searchParams.get("force") === "1";
-    const result = await refreshInstrumentMaster({ force });
-    return c.json(result);
-  } catch (error: any) {
-    console.error("❌ [INSTRUMENT_REFRESH] Failed:", error);
-    return c.json({ success: false, error: error.message }, 500);
-  }
-});
-
-// 🔎 Resolve an auto symbol on demand (used by UI preview + engine)
-app.post("/make-server-c4d79cb7/auto-symbol/resolve", async (c) => {
-  try {
-    const body = await c.req.json();
-    const result = await resolveAutoSymbol({
-      index_name: body.index_name,
-      ltp: Number(body.ltp),
-      option_type: body.option_type,
-      moneyness: body.moneyness || "ATM",
-    });
-    return c.json({ success: true, resolved: result });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 400);
-  }
-});
-
-const AUTO_SYMBOL_INDICES = new Set(["NIFTY", "BANKNIFTY", "SENSEX"]);
-const AUTO_SYMBOL_MONEYNESS = new Set(["ATM", "ITM1", "ITM2", "OTM1", "OTM2"]);
-
-function normalizeAutoSymbolSlot(body: any, userId: string) {
-  const slot = Number(body?.slot);
-  const indexName = String(body?.index_name || "").toUpperCase().trim();
-  const moneyness = String(body?.moneyness || "ATM").toUpperCase().trim();
-  const lotCount = Number(body?.lot_count);
-
-  if (!Number.isInteger(slot) || slot < 1 || slot > 3) throw new Error("Slot must be 1, 2, or 3");
-  if (!AUTO_SYMBOL_INDICES.has(indexName)) throw new Error("Index must be NIFTY, BANKNIFTY, or SENSEX");
-  if (!AUTO_SYMBOL_MONEYNESS.has(moneyness)) throw new Error("Moneyness must be ATM, ITM1, ITM2, OTM1, or OTM2");
-  if (!Number.isFinite(lotCount) || lotCount < 1 || lotCount > 50) throw new Error("Lot count must be between 1 and 50");
-
-  return {
-    user_id: userId,
-    slot,
-    index_name: indexName,
-    moneyness,
-    lot_count: Math.floor(lotCount),
-    enabled: body?.enabled !== false,
-  };
-}
-
-// 📋 List user symbol config (auto-selection slots)
-app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
-  try {
-    const { user, error: authError } = await validateAuth(c);
-    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
-    const { data, error } = await supabase
-      .from("user_symbol_config")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("slot", { ascending: true });
-    if (error) throw error;
-    return c.json({ success: true, slots: data || [] });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
-  }
-});
-
-// 💾 Upsert one slot of user symbol config
-app.post("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
-  try {
-    const { user, error: authError } = await validateAuth(c);
-    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
-    const body = await c.req.json();
-    const row = normalizeAutoSymbolSlot(body, user.id);
-    const { data, error } = await supabase
-      .from("user_symbol_config")
-      .upsert(row, { onConflict: "user_id,slot" })
-      .select()
-      .single();
-    if (error) throw error;
-    return c.json({ success: true, slot: data });
-  } catch (error: any) {
-    return c.json({ success: false, error: error.message }, 500);
-  }
-});
-
-// 🗑️ Delete one slot
-app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
-  try {
-    const { user, error: authError } = await validateAuth(c);
-    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
-    const slot = Number(c.req.param("slot"));
-    if (!Number.isInteger(slot) || slot < 1 || slot > 3) return c.json({ success: false, error: "Invalid slot" }, 400);
-    const { error } = await supabase
-      .from("user_symbol_config")
-      .delete()
-      .eq("user_id", user.id)
-      .eq("slot", slot);
-    if (error) throw error;
-    return c.json({ success: true });
-  } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }
 });
@@ -10663,28 +10547,6 @@ app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
 // GET /position-monitor/list  → all active monitored positions for the user
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
-  try {
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-    if (!userId) return c.json({ error: 'userId required' }, 401);
-
-    const { data, error } = await supabase
-      .from('position_monitor_state')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
-
-    if (error) return c.json({ error: error.message }, 500);
-    return c.json({ success: true, positions: data || [] });
-  } catch (error: any) {
-    return c.json({ error: error.message }, 500);
-  }
-});
-
-// Backward-compatible alias used by older dashboard/mobile builds
-app.get("/make-server-c4d79cb7/positions/monitor/active", async (c) => {
   try {
     const bearerToken = c.req.header('Authorization')?.split(' ')[1];
     const queryUserId = c.req.query('userId');
@@ -11730,36 +11592,6 @@ async function upsertBrokerRow(userId: string, patch: Record<string, any>) {
   return data;
 }
 
-// --- helper: live-verify a token against Dhan funds API -------------------
-async function verifyDhanToken(token: string, clientId: string): Promise<{ ok: boolean; balance?: number; error?: string; errorCode?: string }> {
-  try {
-    const resp = await fetch("https://api.dhan.co/v2/fundlimit", {
-      headers: {
-        "access-token": token,
-        "client-id": clientId,
-        Accept: "application/json",
-      },
-    });
-    const text = await resp.text();
-    if (resp.ok) {
-      try {
-        const parsed = JSON.parse(text);
-        return { ok: true, balance: Number(parsed?.availabelBalance ?? parsed?.availableBalance ?? 0) };
-      } catch { return { ok: true }; }
-    }
-    let errorCode: string | undefined;
-    let errorMessage = text.slice(0, 300);
-    try {
-      const parsed = JSON.parse(text);
-      errorCode = parsed?.errorCode;
-      errorMessage = parsed?.errorMessage || errorMessage;
-    } catch {}
-    return { ok: false, error: errorMessage, errorCode };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
-  }
-}
-
 // --- GET status ------------------------------------------------------------
 app.get("/make-server-c4d79cb7/broker/oauth/status", async (c) => {
   try {
@@ -11767,40 +11599,7 @@ app.get("/make-server-c4d79cb7/broker/oauth/status", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     let row = await getBrokerRow(user.id);
     row = await syncLegacyAccessTokenToBrokerRow(user.id, row);
-    // Live verify so UI reflects reality (Dhan can reject a fresh JWT if the
-    // app's API key/secret don't belong to the logged-in account).
-    let liveCheck: any = null;
-    if (row?.access_token && row?.dhan_client_id) {
-      liveCheck = await verifyDhanToken(row.access_token, row.dhan_client_id);
-      const desiredStatus = liveCheck.ok ? "connected" : "token_invalid";
-      if (row.last_status !== desiredStatus) {
-        row = await upsertBrokerRow(user.id, {
-          last_status: desiredStatus,
-          last_error: liveCheck.ok ? null : `[${liveCheck.errorCode || "?"}] ${liveCheck.error || "Dhan rejected token"}`,
-        });
-      }
-    }
-    return c.json({ success: true, credentials: sanitizeBrokerRow(row), liveCheck });
-  } catch (err: any) {
-    return c.json({ success: false, error: err?.message || String(err) }, 500);
-  }
-});
-
-// --- POST verify (manual Test Connection button) --------------------------
-app.post("/make-server-c4d79cb7/broker/oauth/verify", async (c) => {
-  try {
-    const { user, error } = await validateAuth(c);
-    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
-    const row = await getBrokerRow(user.id);
-    if (!row?.access_token || !row?.dhan_client_id) {
-      return c.json({ success: false, error: "No access token saved. Connect with Dhan first." }, 400);
-    }
-    const liveCheck = await verifyDhanToken(row.access_token, row.dhan_client_id);
-    await upsertBrokerRow(user.id, {
-      last_status: liveCheck.ok ? "connected" : "token_invalid",
-      last_error: liveCheck.ok ? null : `[${liveCheck.errorCode || "?"}] ${liveCheck.error || "Dhan rejected token"}`,
-    });
-    return c.json({ success: true, liveCheck });
+    return c.json({ success: true, credentials: sanitizeBrokerRow(row) });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
@@ -11907,9 +11706,7 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
       last_status: "connected",
       last_error: null,
     });
-    // Mirror access token into legacy KV so existing engine + /api-credentials
-    // GET (manual flow) immediately see the OAuth-issued token. This is what
-    // makes funds, market data and order placement work without restart.
+    // Mirror access token into legacy KV so existing engine code keeps working
     try {
       const existing = (await kv.get(`api_credentials:${user.id}`)) || {};
       await kv.set(`api_credentials:${user.id}`, {
@@ -11917,23 +11714,9 @@ app.post("/make-server-c4d79cb7/broker/oauth/consume", async (c) => {
         dhanClientId: updated.dhan_client_id,
         dhanAccessToken: updated.access_token,
         tokenUpdatedAt: new Date().toISOString(),
-        tokenExpiry: updated.access_token_expiry || null,
-        connectedVia: "oauth",
       });
-    } catch (mirrorErr) {
-      console.error("[OAUTH] KV mirror failed:", mirrorErr);
-    }
-
-    // 🔬 Live verification via shared helper
-    const liveCheck = await verifyDhanToken(updated.access_token, updated.dhan_client_id);
-    if (!liveCheck.ok) {
-      await upsertBrokerRow(user.id, {
-        last_status: "token_invalid",
-        last_error: `[${liveCheck.errorCode || "?"}] ${liveCheck.error || "Dhan rejected token"}`,
-      });
-    }
-
-    return c.json({ success: true, credentials: sanitizeBrokerRow(updated), liveCheck });
+    } catch (_) {}
+    return c.json({ success: true, credentials: sanitizeBrokerRow(updated) });
   } catch (err: any) {
     console.error("consume error:", err);
     return c.json({ success: false, error: err?.message || String(err) }, 500);

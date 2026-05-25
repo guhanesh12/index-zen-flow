@@ -19,8 +19,7 @@ interface Signal {
 
 export function runManualStrategy(
   open: number[], high: number[], low: number[], close: number[],
-  volume: number[], timestamp: number[],
-  minWarmup?: number
+  volume: number[], timestamp: number[]
 ) {
   console.log(`🧪 MANUAL BACKTEST (AdvancedAI) — ${close.length} candles`);
   const candles: OHLCCandle[] = [];
@@ -33,7 +32,7 @@ export function runManualStrategy(
 
   const signals: Signal[] = [];
   let buyCallCount = 0, buyPutCount = 0, waitCount = 0, totalConfidence = 0;
-  const MIN_WARMUP = Math.min(minWarmup ?? 50, Math.max(candles.length - 1, 1));
+  const MIN_WARMUP = 50;
   for (let i = MIN_WARMUP; i < candles.length; i++) {
     const window = candles.slice(0, i + 1);
     const sig = AdvancedAI.generateAdvancedSignal(window);

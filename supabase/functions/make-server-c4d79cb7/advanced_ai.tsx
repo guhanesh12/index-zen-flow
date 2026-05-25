@@ -1401,11 +1401,8 @@ export class AdvancedAI {
     // Block evaluation of forming live candles. Caller may set options.enforceClosedCandle=false
     // for backtests where timestamps refer to close-time instead of open-time.
     const _tfMin = options.timeframeMinutes || 5;
-    const _candleTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
-    const _tsDate = new Date(_candleTsMs + 5.5 * 60 * 60 * 1000);
-    const _tsIstMinutes = _tsDate.getUTCHours() * 60 + _tsDate.getUTCMinutes();
-    const _looksLikeDhanCloseTime = _tsIstMinutes >= 9 * 60 + 15 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
-    const _candleCloseMs = _looksLikeDhanCloseTime ? _candleTsMs : _candleTsMs + _tfMin * 60 * 1000;
+    const _candleOpenMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const _candleCloseMs = _candleOpenMs + _tfMin * 60 * 1000;
     const _enforceClosed = options.enforceClosedCandle !== false;
     const _candleClosed = !_enforceClosed || Date.now() >= _candleCloseMs;
     if (!_candleClosed) {
@@ -2021,21 +2018,6 @@ export class AdvancedAI {
     let reasoning = "";
     let bias: "Bullish" | "Bearish" | "Neutral" = "Neutral";
 
-    // ===== FAST BREAKOUT ENTRY =====
-    if (fastBullEntry) {
-      action = "BUY_CALL";
-      confidence = 78;
-      bias = "Bullish";
-      reasoning =
-        "⚡ FAST BREAKOUT ENTRY: Strong bullish momentum with VWAP slope + MACD expansion + volume confirmation";
-    } else if (fastBearEntry) {
-      action = "BUY_PUT";
-      confidence = 78;
-      bias = "Bearish";
-      reasoning =
-        "⚡ FAST BREAKDOWN ENTRY: Strong bearish momentum with VWAP slope + MACD expansion + volume confirmation";
-    }
-
     // FIX PROBLEM #7: ATR-relative body strength (relative to current volatility)
     // Body must be ≥ max(10 pts, 0.4 × ATR14). In low-volatility sessions ATR is small so 10pts dominates,
     // in high-volatility ATR-derived floor scales up so a relatively weak 12pt candle isn't enough.
@@ -2155,18 +2137,10 @@ export class AdvancedAI {
     const lunchExtraConfirmation = inMidSessionTrapWindow ? 1 : 0;
 
     // ===== FIX 5: ADX-BASED REQUIRED CONFIRMATIONS =====
-    // Max possible totalScore = earlyScore(4) + strongConfirmationScore(4) = 8.
     // ADX > 35 → 4 (strong trend, few confirmations needed)
-    // ADX 22-35 → 5 (lowered from 25 to catch trending-but-not-strong days like 22-May)
-    // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
-    // ⚡ FAST OPENING: first 75min (09:15-10:30) drop confirmation so the 09:30/09:45/10:00
-    //   closed momentum candles can fire before slow indicators fully settle.
-    const earlyOpeningSession = istMinutes >= 9 * 60 + 15 && istMinutes <= 10 * 60 + 30;
-    const openingRelief = earlyOpeningSession ? 1 : 0;
-    const requiredConfirmations = Math.max(
-      3,
-      (adx > 35 ? 4 : adx >= 22 ? 5 : 6) + lunchExtraConfirmation - openingRelief,
-    );
+    // ADX 25-35 → 5
+    // ADX < 25 → 7 (weak/ranging — need overwhelming proof)
+    const requiredConfirmations = (adx > 35 ? 6 : adx >= 25 ? 7 : 10) + lunchExtraConfirmation;
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [
       confirmations.macd,
@@ -2185,21 +2159,6 @@ export class AdvancedAI {
       totalBullScore >= 6 ? "HIGH" : totalBullScore >= 5 ? "STRONG" : totalBullScore >= 3 ? "FAST" : "NONE";
     const bearTier: "NONE" | "FAST" | "STRONG" | "HIGH" =
       totalBearScore >= 6 ? "HIGH" : totalBearScore >= 5 ? "STRONG" : totalBearScore >= 3 ? "FAST" : "NONE";
-
-    // ===== FAST BREAKOUT ENTRY =====
-    const fastBullEntry =
-      bullTier === "FAST" &&
-      bodySize >= minimumBodySize &&
-      vwapSlopingUp &&
-      macdHistogramExpandingBull &&
-      hasAcceptableVolume;
-
-    const fastBearEntry =
-      bearTier === "FAST" &&
-      bodySize >= minimumBodySize &&
-      vwapSlopingDown &&
-      macdHistogramExpandingBear &&
-      hasAcceptableVolume;
 
     // ===== REVERSAL FOLLOW-THROUGH GATE =====
     // CHoCH + RSI divergence may only boost confidence if follow-through candle
@@ -2359,25 +2318,6 @@ export class AdvancedAI {
     const momentumScore = Math.max(momentumPointsBull, momentumPointsBear);
     const momentumStrong = momentumScore >= 4;
 
-    // ⚡ ULTRA-FAST CLOSED-CANDLE MOMENTUM
-    // Opening move was getting stuck at WAIT(32/40) because breakout/pattern confirmation was
-    // too strict for the first completed candles. If a closed candle has clear body + direction
-    // + range expansion, allow it as a valid momentum entry on the candle close.
-    const ultraFastOpeningBull =
-      earlyOpeningSession &&
-      lastCandle.close > lastCandle.open &&
-      bodyPercent >= 55 &&
-      (rangeExpansion || currentRange >= atr14 * 0.9) &&
-      (ema9 >= ema21 || macdHistogramExpandingBull || rsi >= 50) &&
-      !liquidity.buySideSweep;
-    const ultraFastOpeningBear =
-      earlyOpeningSession &&
-      lastCandle.close < lastCandle.open &&
-      bodyPercent >= 55 &&
-      (rangeExpansion || currentRange >= atr14 * 0.9) &&
-      (ema9 <= ema21 || macdHistogramExpandingBear || rsi <= 50) &&
-      !liquidity.sellSideSweep;
-
     // ===== FIX 4: REAL TREND REVERSAL DETECTION =====
     const last3 = ohlcData.slice(-3);
     const macdHist3RisingBull =
@@ -2415,17 +2355,10 @@ export class AdvancedAI {
       (rsi > 68 ? 1 : 0) + (stoch.k > 80 ? 1 : 0) + (priceNearUpperBand ? 1 : 0) + (nearResistance ? 1 : 0);
     // Block PUT into oversold bounce zone unless we have a fresh BOS-down or
     // genuine high-volume breakdown (real continuation, not a grind into support).
-    // Relaxed: require 4+ signals (was 3), and escape if EMA9 still sloping with trend strongly.
-    const ema9SlopingDown = ema9 < ema21 && ema21 - ema9 > atr14 * 0.15;
-    const ema9SlopingUp = ema9 > ema21 && ema9 - ema21 > atr14 * 0.15;
     const oversoldBounceBlocksBear =
-      oversoldSignalCount >= 4 &&
-      !ema9SlopingDown &&
-      !(marketStructure.bos === "BEAR" && breakoutQualityBear && isHighVolume);
+      oversoldSignalCount >= 3 && !(marketStructure.bos === "BEAR" && breakoutQualityBear && isHighVolume);
     const overboughtRejectionBlocksBull =
-      overboughtSignalCount >= 4 &&
-      !ema9SlopingUp &&
-      !(marketStructure.bos === "BULL" && breakoutQualityBull && isHighVolume);
+      overboughtSignalCount >= 3 && !(marketStructure.bos === "BULL" && breakoutQualityBull && isHighVolume);
 
     // ===== NEW FIX C: MOMENTUM-CLIMAX EXHAUSTION =====
     // 3 consecutive expansion candles + RSI extreme + ATR spike + climax volume = blow-off top/bottom.
@@ -2507,14 +2440,13 @@ export class AdvancedAI {
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish =
-      (confirmationBullish || ultraFastOpeningBull) &&
+      confirmationBullish &&
       (totalBullScore >= requiredConfirmations ||
         (continuationBull && adx > 28) ||
         reversalBullEntry ||
-        (momentumStrong && adx > 30) ||
-        ultraFastOpeningBull) &&
-      (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry || ultraFastOpeningBull) &&
-      (momentumBull || adxStrong || continuationBull || reversalBullEntry || ultraFastOpeningBull) &&
+        (momentumStrong && adx > 30)) &&
+      (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry) &&
+      (momentumBull || adxStrong || continuationBull || reversalBullEntry) &&
       (slopeOkBull || adxStrong || continuationBull || reversalBullEntry) &&
       structureOkBull &&
       !liquidityBlocksBull &&
@@ -2532,14 +2464,13 @@ export class AdvancedAI {
       !(fakeBreakout && !continuationBull && !reversalBullEntry) &&
       !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish =
-      (confirmationBearish || ultraFastOpeningBear) &&
+      confirmationBearish &&
       (totalBearScore >= requiredConfirmations ||
         (continuationBear && adx > 28) ||
         reversalBearEntry ||
-        (momentumStrong && adx > 30) ||
-        ultraFastOpeningBear) &&
-      (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry || ultraFastOpeningBear) &&
-      (momentumBear || adxStrong || continuationBear || reversalBearEntry || ultraFastOpeningBear) &&
+        (momentumStrong && adx > 30)) &&
+      (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry) &&
+      (momentumBear || adxStrong || continuationBear || reversalBearEntry) &&
       (slopeOkBear || adxStrong || continuationBear || reversalBearEntry) &&
       structureOkBear &&
       !liquidityBlocksBear &&
@@ -2608,8 +2539,8 @@ export class AdvancedAI {
     const inTrendingRegime = marketRegime.type === "TRENDING_UP" || marketRegime.type === "TRENDING_DOWN";
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
-      !inTrendingRegime && adx < 18 && ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
-    const sidewaysSignals = [adx < 18, atrLow, vwapFlat, slopesFlat, squeezeWithoutExpansion, emaMixed].filter(
+      !inTrendingRegime && adx < 22 && slopesFlat && atrLow && (vwapFlat || squeezeWithoutExpansion) && emaMixed;
+    const sidewaysSignals = [adx < 22, atrLow, vwapFlat, slopesFlat, squeezeWithoutExpansion, emaMixed].filter(
       Boolean,
     ).length;
 
@@ -2764,7 +2695,7 @@ export class AdvancedAI {
       confidence = 34;
       bias = "Neutral";
       reasoning = `WAIT: 5m noise filter — candle range ${currentRange.toFixed(2)} < 40% of ATR14 ${atr14.toFixed(2)}. Insufficient volatility for entry.`;
-    } else if (liquidity.stopHunt && !earlyOpeningSession) {
+    } else if (liquidity.stopHunt) {
       action = "WAIT";
       confidence = 32;
       bias = "Neutral";
@@ -2796,9 +2727,7 @@ export class AdvancedAI {
       !continuationBull &&
       !continuationBear &&
       !reversalBullEntry &&
-      !reversalBearEntry &&
-      !ultraFastOpeningBull &&
-      !ultraFastOpeningBear
+      !reversalBearEntry
     ) {
       // FIX 4 + 3: continuation pullback or reversal-entry pattern bypasses breakout requirement
       action = "WAIT";
@@ -2815,8 +2744,8 @@ export class AdvancedAI {
               : "Neutral";
       reasoning = `WAIT: No breakout, no continuation pullback, no reversal pattern (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
     } else if (
-      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry && !ultraFastOpeningBull) ||
-      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry && !ultraFastOpeningBear)
+      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry) ||
+      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry)
     ) {
       action = "WAIT";
       confidence = 40;
@@ -3012,8 +2941,6 @@ export class AdvancedAI {
         sessionBehaviorModifier,
         candleExpansion: +candleExpansion.toFixed(2),
         overExpandedCandle,
-        ultraFastOpeningBull,
-        ultraFastOpeningBear,
         pullbackQualityBull,
         pullbackQualityBear,
         h1Align,

@@ -66,29 +66,6 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   useEffect(() => {
     loadCredentials();
     fetchVpsSubscriptionStatus();
-
-    // 🔄 Refresh connection state after Dhan OAuth completes. BrokerOAuthConnect
-    // dispatches these events on /consume success. Without this, the panel
-    // keeps showing "Not connected" even though the access token was saved.
-    const reload = () => { loadCredentials(); };
-    window.addEventListener('credentials-updated', reload);
-    window.addEventListener('dhan-connected', reload);
-
-    // Also handle direct same-tab OAuth callback redirect (?dhan=connected)
-    try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('dhan') === 'connected') {
-        loadCredentials();
-        const url = new URL(window.location.href);
-        url.searchParams.delete('dhan');
-        window.history.replaceState({}, '', url.toString());
-      }
-    } catch {}
-
-    return () => {
-      window.removeEventListener('credentials-updated', reload);
-      window.removeEventListener('dhan-connected', reload);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
