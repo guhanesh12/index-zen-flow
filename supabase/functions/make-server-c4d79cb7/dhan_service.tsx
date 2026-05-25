@@ -429,6 +429,15 @@ export class DhanService {
             console.log('🔑 DH-901: Dhan Access Token expired - returning empty candles');
             return [];
           }
+
+          if (errorData.errorCode === 'DH-902') {
+            const fallback = await this.getIndexOHLCFallback(securityId, interval, 160);
+            if (fallback.length > 0) {
+              this.priceCache.set(cacheKey, { price: fallback, timestamp: Date.now() });
+              console.warn(`🟡 DH-902 from Dhan Data API, but fallback supplied ${fallback.length} fresh index candles for signal generation`);
+              return fallback;
+            }
+          }
           
           // ⚡ NEW: Handle common errors gracefully
           if (errorData.errorCode === 'DH-906') {
@@ -534,7 +543,7 @@ export class DhanService {
       );
 
       // Return last N candles
-      const result = candles.slice(-count);
+      const result = candles.length > 0 ? candles.slice(-count) : await this.getIndexOHLCFallback(securityId, interval, count);
       console.log(`✅ Successfully fetched ${result.length} candles (${interval}min interval)`);
       
       // ⚡ VERIFY TIMEFRAME: Show first and last 3 candle timestamps
