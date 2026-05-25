@@ -92,6 +92,61 @@ export class DhanService {
     this.accessToken = config.accessToken;
   }
 
+  private async getIndexOHLCFallback(securityId: string, interval: string, count = 120): Promise<any[]> {
+    const symbolMap: Record<string, string> = {
+      '13': '^NSEI',
+      '25': '^NSEBANK',
+      '51': '^BSESN',
+    };
+    const yahooSymbol = symbolMap[String(securityId).trim()];
+    if (!yahooSymbol) return [];
+
+    const requestedInterval = Math.max(1, parseInt(interval, 10) || 15);
+    const yahooInterval = requestedInterval === 60 ? '60m' : requestedInterval === 15 ? '15m' : requestedInterval === 5 ? '5m' : '1m';
+    const range = yahooInterval === '1m' ? '5d' : '7d';
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${yahooInterval}&range=${range}`;
+
+    try {
+      console.warn(`🟡 Dhan index OHLC unavailable for ${securityId}; fetching fallback ${yahooSymbol} ${yahooInterval} candles`);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 IndexPilotAI/1.0',
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`⚠️ Index OHLC fallback failed: HTTP ${response.status}`);
+        return [];
+      }
+
+      const result = await response.json();
+      const chart = result?.chart?.result?.[0];
+      const timestamps = chart?.timestamp || [];
+      const quote = chart?.indicators?.quote?.[0] || {};
+      const candles = timestamps
+        .map((ts: number, i: number) => ({
+          timestamp: ts * 1000,
+          open: Number(quote.open?.[i] || 0),
+          high: Number(quote.high?.[i] || 0),
+          low: Number(quote.low?.[i] || 0),
+          close: Number(quote.close?.[i] || 0),
+          volume: Number(quote.volume?.[i] || 0),
+        }))
+        .filter((c: any) => c.timestamp && c.open > 0 && c.high > 0 && c.low > 0 && c.close > 0)
+        .slice(-count);
+
+      if (candles.length > 0) {
+        console.log(`✅ Fallback OHLC ready: ${candles.length} ${yahooInterval} candles for ${yahooSymbol}`);
+      }
+      return candles;
+    } catch (error: any) {
+      console.warn(`⚠️ Index OHLC fallback error for ${securityId}: ${error?.message || error}`);
+      return [];
+    }
+  }
+
   // ⚡⚡⚡ RETRY HELPER: Handles 502 Bad Gateway, network errors, AND rate limits ⚡⚡⚡
   private async retryFetch(
     url: string,
@@ -341,7 +396,9 @@ export class DhanService {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'access-token': this.accessToken,
+                'client-id': this.clientId,
               },
               body: JSON.stringify(requestBody)
             },
@@ -371,6 +428,15 @@ export class DhanService {
           if (errorData.errorCode === 'DH-901') {
             console.log('🔑 DH-901: Dhan Access Token expired - returning empty candles');
             return [];
+          }
+
+          if (errorData.errorCode === 'DH-902') {
+            const fallback = await this.getIndexOHLCFallback(securityId, interval, 160);
+            if (fallback.length > 0) {
+              this.priceCache.set(cacheKey, { price: fallback, timestamp: Date.now() });
+              console.warn(`🟡 DH-902 from Dhan Data API, but fallback supplied ${fallback.length} fresh index candles for signal generation`);
+              return fallback;
+            }
           }
           
           // ⚡ NEW: Handle common errors gracefully
@@ -477,7 +543,7 @@ export class DhanService {
       );
 
       // Return last N candles
-      const result = candles.slice(-count);
+      const result = candles.length > 0 ? candles.slice(-count) : await this.getIndexOHLCFallback(securityId, interval, count);
       console.log(`✅ Successfully fetched ${result.length} candles (${interval}min interval)`);
       
       // ⚡ VERIFY TIMEFRAME: Show first and last 3 candle timestamps
@@ -630,7 +696,7 @@ export class DhanService {
 
       // 3. Validate product type + exchange segment combinations
       const exchangeSegment = orderRequest.exchangeSegment || 'NSE_FNO';
-      const productType = 'INTRADAY';
+      const productType: string = 'INTRADAY';
       
       // ⚡ CRITICAL: Validate exchange segment format
       const validExchangeSegments = ['NSE_EQ', 'NSE_FNO', 'NSE_CURR', 'BSE_EQ', 'BSE_FNO', 'BSE_CURR', 'MCX_COMM'];
@@ -921,6 +987,7 @@ export class DhanService {
     } catch (error: any) {
       console.error('Error placing bracket order:', error);
       return {
+        success: false,
         orderId: '',
         orderStatus: 'REJECTED',
         message: error.message || 'Bracket order failed'
@@ -946,6 +1013,7 @@ export class DhanService {
     } catch (error: any) {
       console.error('Error placing cover order:', error);
       return {
+        success: false,
         orderId: '',
         orderStatus: 'REJECTED',
         message: error.message || 'Cover order failed'
@@ -1018,7 +1086,7 @@ export class DhanService {
           try {
             const quote = await this.getMarketQuote(securityId, exchangeSegment);
             livePrice = Number(quote?.ltp || quote?.close || 0);
-          } catch (quoteError) {
+          } catch (quoteError: any) {
             console.warn(`⚠️ Position live quote fallback failed for ${securityId}:`, quoteError?.message || quoteError);
           }
         }
