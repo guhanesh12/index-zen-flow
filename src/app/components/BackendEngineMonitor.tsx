@@ -289,10 +289,25 @@ export function BackendEngineMonitor({
       </CardHeader>
 
       <CardContent>
+        {brokerAlert && (
+          <div className="mb-4 p-3 rounded-lg border-2 border-red-500 bg-red-500/15 flex items-start gap-2">
+            <AlertTriangle className="size-5 text-red-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-300">Broker connection issue — orders are being rejected</p>
+              <p className="text-sm text-red-200 mt-1">{brokerAlert}</p>
+            </div>
+          </div>
+        )}
+        {lastOrderFailure && (
+          <div className="mb-4 p-2 rounded border border-amber-500/30 bg-amber-500/5 text-xs text-amber-200">
+            <span className="font-semibold">Last order failure: </span>{lastOrderFailure}
+          </div>
+        )}
         {engineStatus ? (
           <div className="space-y-4">
             {/* Status Info */}
             <div className="grid grid-cols-3 gap-4">
+
               <div>
                 <p className="text-sm text-slate-400">Candle Interval</p>
                 <p className="text-lg font-bold text-white">{engineStatus.candleInterval}M</p>
