@@ -1,30 +1,26 @@
 // @ts-nocheck
-// Firebase Configuration
+// Firebase Configuration — project indexpilotai-e1106
 import { initializeApp } from "firebase/app";
-import { getMessaging, getToken, onMessage, Messaging } from "firebase/messaging";
+import { getMessaging, Messaging } from "firebase/messaging";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBwqxzsY4_ueHSams1jDJCjxKhLEOYVrtU",
-  authDomain: "algo-app-615ae.firebaseapp.com",
-  projectId: "algo-app-615ae",
-  storageBucket: "algo-app-615ae.firebasestorage.app",
-  messagingSenderId: "759806420144",
-  appId: "1:759806420144:web:a9aaeebe4b93bb48594775",
-  measurementId: "G-VX9L36H2G5"
+  apiKey: "AIzaSyBUt38Mx2WR-EfEU1wLfFEjNygNMay8eYo",
+  authDomain: "indexpilotai-e1106.firebaseapp.com",
+  projectId: "indexpilotai-e1106",
+  storageBucket: "indexpilotai-e1106.firebasestorage.app",
+  messagingSenderId: "167770668435",
+  appId: "1:167770668435:web:ec781a95603f5b24bbbc66",
+  measurementId: "G-6BTDWSVFPQ",
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase Cloud Messaging
 let messaging: Messaging | null = null;
-
-// Only initialize messaging in browser context (not SSR)
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
   try {
     messaging = getMessaging(app);
   } catch (error) {
-    console.error('Failed to initialize Firebase Messaging:', error);
+    console.error("Failed to initialize Firebase Messaging:", error);
   }
 }
 

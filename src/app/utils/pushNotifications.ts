@@ -6,19 +6,19 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
-// Firebase configuration from the requirements
+// Firebase configuration — project indexpilotai-e1106
 const firebaseConfig = {
-  apiKey: "AIzaSyBwqxzsY4_ueHSams1jDJCjxKhLEOYVrtU",
-  authDomain: "algo-app-615ae.firebaseapp.com",
-  projectId: "algo-app-615ae",
-  storageBucket: "algo-app-615ae.firebasestorage.app",
-  messagingSenderId: "759806420144",
-  appId: "1:759806420144:web:a9aaeebe4b93bb48594775",
-  measurementId: "G-VX9L36H2G5"
+  apiKey: "AIzaSyBUt38Mx2WR-EfEU1wLfFEjNygNMay8eYo",
+  authDomain: "indexpilotai-e1106.firebaseapp.com",
+  projectId: "indexpilotai-e1106",
+  storageBucket: "indexpilotai-e1106.firebasestorage.app",
+  messagingSenderId: "167770668435",
+  appId: "1:167770668435:web:ec781a95603f5b24bbbc66",
+  measurementId: "G-6BTDWSVFPQ",
 };
 
-// Web Push Certificate (VAPID Key)
-const vapidKey = "BCJwUHX0XWuHubHBLmhbiKnUjInxpo-bLBR_NxkGmJOod-XlhzMH5e_VZVDCOsLd5zuB0E-kVsXz4XO3l9oU8BQ";
+// Web Push VAPID public key (from Firebase Console → Cloud Messaging → Web Push certificates)
+const vapidKey = "BAMIKImrcshfd4Qv_QUkWl2mv3MZczdqMnTnXAnLku9ax9Ri9T3yovmSkdAQDBnigJsF5KoBpcc8FQIcA8TsqIA2";
 
 let app: any = null;
 let messaging: any = null;
