@@ -2852,21 +2852,21 @@ export class AdvancedAI {
         if (rsi < 50) conf += 5;
         if (isHighVolume) conf += 10;
         if (h1Align === "bear" || htfAlign === "bear") conf += 5;
-        if (adx14 >= 20) conf += 5;
+        if (adx >= 20) conf += 5;
         confidence = Math.min(95, conf);
         action = "BUY_PUT";
         bias = "Bearish";
-        reasoning = `📉 BREAKDOWN BUY_PUT — close ${lastCandle.close.toFixed(2)} < prev low ${prevCandle.low.toFixed(2)}, close at ${(closePosLow * 100).toFixed(0)}% of low, VWAP${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx14.toFixed(0)}.`;
+        reasoning = `📉 BREAKDOWN BUY_PUT — close ${lastCandle.close.toFixed(2)} < prev low ${prevCandle.low.toFixed(2)}, close at ${(closePosLow * 100).toFixed(0)}% of low, VWAP${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       } else if (bullBreakout) {
         let conf = 70;
         if (rsi > 50) conf += 5;
         if (isHighVolume) conf += 10;
         if (h1Align === "bull" || htfAlign === "bull") conf += 5;
-        if (adx14 >= 20) conf += 5;
+        if (adx >= 20) conf += 5;
         confidence = Math.min(95, conf);
         action = "BUY_CALL";
         bias = "Bullish";
-        reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} > prev high ${prevCandle.high.toFixed(2)}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx14.toFixed(0)}.`;
+        reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} > prev high ${prevCandle.high.toFixed(2)}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
     if (false) {  // placeholder to preserve following else-if chain
