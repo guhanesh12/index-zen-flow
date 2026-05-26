@@ -1649,6 +1649,15 @@ class PersistentTradingEngine {
                   reason: exitReason,
                   message: `🚪 POSITION CLOSED: ${sameIndexPosition.symbolName} | ${exitReason} | P&L: ${(sameIndexPosition.pnl || 0) >= 0 ? "+" : ""}₹${Number(sameIndexPosition.pnl || 0).toFixed(2)}`,
                 });
+                {
+                  const _pnl2 = Number(sameIndexPosition.pnl || 0);
+                  sendPushToUser(userId, {
+                    title: `${_pnl2 >= 0 ? "✅ Profit Booked" : "🛑 Loss Booked"}: ${sameIndexPosition.symbolName}`,
+                    body: `P&L: ${_pnl2 >= 0 ? "+" : ""}₹${_pnl2.toFixed(2)} • ${exitReason}`,
+                    targetUrl: "/dashboard",
+                    data: { type: "POSITION_CLOSED", symbol: String(sameIndexPosition.symbolName || ""), pnl: String(_pnl2) },
+                  }).catch((e) => console.error("FCM push (close2) failed:", e));
+                }
                 state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
               } else {
                 console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
