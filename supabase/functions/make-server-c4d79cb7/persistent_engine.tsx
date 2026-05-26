@@ -99,8 +99,14 @@ function normalizeOptionType(value: any): "CE" | "PE" | "" {
   const rawValue = String(value ?? "")
     .toUpperCase()
     .trim();
+  if (!rawValue) return "";
   if (rawValue === "CE" || rawValue === "CALL") return "CE";
   if (rawValue === "PE" || rawValue === "PUT") return "PE";
+  // Handle full trading symbols like "NIFTY-MAY2026-24100-CE" or "SENSEX26MAY76500PE"
+  if (/(^|[^A-Z])CE($|[^A-Z])/.test(rawValue) || /CALL/.test(rawValue)) return "CE";
+  if (/(^|[^A-Z])PE($|[^A-Z])/.test(rawValue) || /PUT/.test(rawValue)) return "PE";
+  if (rawValue.endsWith("CE")) return "CE";
+  if (rawValue.endsWith("PE")) return "PE";
   return "";
 }
 
@@ -2386,10 +2392,15 @@ class PersistentTradingEngine {
         const _strongWith = !!currentSignal && _alignedNow && momentumStrength >= 4;
         const _baseTgtForCalc = Math.max(_baseTarget, effectiveTarget) || 0;
         const _baseSLForCalc = Math.max(_baseSL, Math.abs(effectiveSL)) || 0;
+        // Grace period: don't allow predictive/AI-reversal exits in the first 45s after entry.
+        // Hard TP / SL / trailing SL above still apply.
+        const _entryTs = Number((position as any).entryTime || (position as any).createdAt || (position as any).entryTimestamp || 0);
+        const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
+        const _withinGrace = _ageMs < 45_000;
 
         // 1) PROFIT PROTECTION — exit when we've captured meaningful profit and trend is reversing.
         //    Skipped if trend is still strongly with the position (let winners run).
-        if (!shouldExit && (position.highestPnl || 0) > 0 && pnl > 0 && !_strongWith) {
+        if (!shouldExit && !_withinGrace && (position.highestPnl || 0) > 0 && pnl > 0 && !_strongWith) {
           const peak = position.highestPnl || 0;
           const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.4 : Math.max(150, peak * 0.5);
           const inProfitZone = peak >= profitFloor;
@@ -2402,7 +2413,7 @@ class PersistentTradingEngine {
         }
 
         // 2) EARLY LOSS CUT — exit before full SL when market is strongly against us.
-        if (!shouldExit && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
+        if (!shouldExit && !_withinGrace && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
           const lossPct = Math.abs(pnl) / _baseSLForCalc;
           if (lossPct >= 0.45) {
             shouldExit = true;
@@ -2411,7 +2422,7 @@ class PersistentTradingEngine {
         }
 
         // 3) AI REVERSAL CONFIRMED — lower confidence required when momentum strongly confirms.
-        if (!shouldExit && currentSignal) {
+        if (!shouldExit && !_withinGrace && currentSignal) {
           const opp = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
           const conf = Number(currentSignal.confidence || 0);
           if (currentSignal.action === opp && conf >= 75 && _strongAgainst) {
@@ -2421,7 +2432,7 @@ class PersistentTradingEngine {
         }
 
         // 4) Original strong-reversal signal-based exit (90%+ conf) — kept as final safety net.
-        if (!shouldExit && signalShouldExit) {
+        if (!shouldExit && !_withinGrace && signalShouldExit) {
           // Suppress if strongly with trend AND in healthy profit (let winners run)
           if (!(_strongWith && pnl > 0 && giveBackPct < 40)) {
             shouldExit = true;
