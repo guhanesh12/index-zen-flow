@@ -1106,7 +1106,7 @@ class PersistentTradingEngine {
               return out;
             };
             const tfMin = Number(state.candleInterval);
-            const ohlcData = stripForming(ohlcDataRaw, tfMin);
+            ohlcData = stripForming(ohlcDataRaw, tfMin);
             let real15mData = stripForming(real15mDataRaw, 15);
             const real1hDataClosed = stripForming(real1hData, 60);
             // Fallback: if separate 15m feed is sparse, resample primary
