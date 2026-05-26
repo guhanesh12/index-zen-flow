@@ -2851,7 +2851,7 @@ export class AdvancedAI {
         let conf = 70;
         if (rsi < 50) conf += 5;
         if (isHighVolume) conf += 10;
-        if (h1Align === "BEAR" || htfAlign === "BEAR") conf += 5;
+        if (h1Align === "bear" || htfAlign === "bear") conf += 5;
         if (adx14 >= 20) conf += 5;
         confidence = Math.min(95, conf);
         action = "BUY_PUT";
@@ -2861,7 +2861,7 @@ export class AdvancedAI {
         let conf = 70;
         if (rsi > 50) conf += 5;
         if (isHighVolume) conf += 10;
-        if (h1Align === "BULL" || htfAlign === "BULL") conf += 5;
+        if (h1Align === "bull" || htfAlign === "bull") conf += 5;
         if (adx14 >= 20) conf += 5;
         confidence = Math.min(95, conf);
         action = "BUY_CALL";
