@@ -26,6 +26,7 @@ import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
+import { sendPushToUser } from "./push_notifications.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -1206,26 +1207,28 @@ class PersistentTradingEngine {
 
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
 
-          if (action !== "WAIT")
+          if (action !== "WAIT") {
             await this.saveUserNotification(userId, {
               id: `signal_${userId}_${indexName}_${currentCandleTimestamp}_${action}`,
               type: "SIGNAL_DETECTED",
-              title: action === "WAIT" ? `⏸️ ${indexName} - Market Not Suitable` : `📊 ${indexName} Signal Detected`,
-              message:
-                action === "WAIT"
-                  ? `WAIT ${indexName}${confidence ? ` (${confidence}% confidence)` : ""}${reason ? ` - ${reason.substring(0, 60)}...` : ""}`
-                  : `BUY ${indexName}${confidence ? ` (${confidence}% confidence)` : ""}`,
+              title: `📊 ${indexName} Signal Detected`,
+              message: `BUY ${indexName}${confidence ? ` (${confidence}% confidence)` : ""}`,
               timestamp: Date.now(),
               read: false,
               data: {
-                index: indexName,
-                symbol: indexName,
-                action: action === "WAIT" ? "WAIT" : "BUY",
-                confidence,
-                reasoning: reason,
+                index: indexName, symbol: indexName,
+                action: "BUY", confidence, reasoning: reason,
                 timeframe: state.candleInterval,
               },
             });
+            // 🔔 FCM push to user device (mobile/web)
+            sendPushToUser(userId, {
+              title: `${action === "BUY_CALL" ? "📈" : "📉"} ${indexName} ${action === "BUY_CALL" ? "CALL" : "PUT"} Signal`,
+              body: `${confidence}% confidence • ${(reason || "").slice(0, 80)}`,
+              targetUrl: "/dashboard",
+              data: { type: "TRADE_SIGNAL", index: indexName, action, confidence: String(confidence) },
+            }).catch((e) => console.error("FCM push (signal) failed:", e));
+          }
 
           // ⚡ Save signal log to user's persistent logs
           await this.appendSharedLog(userId, {
