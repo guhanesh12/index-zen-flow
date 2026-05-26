@@ -1377,7 +1377,11 @@ class PersistentTradingEngine {
 
             if (autoSlots && autoSlots.length > 0) {
               autoSlotCount = autoSlots.length;
-              const spotLtp = Number(ohlcData[ohlcData.length - 1]?.close) || 0;
+              const spotLtp =
+                Number(ohlcData[ohlcData.length - 1]?.close) ||
+                Number(aiSignal?.signal?.riskManagement?.suggestedEntry) ||
+                Number(aiSignal?.signal?.price) ||
+                0;
               if (spotLtp > 0) {
                 const resolved: any[] = [];
                 for (const slot of autoSlots) {
