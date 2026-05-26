@@ -2803,7 +2803,9 @@ export class AdvancedAI {
         bias = "Neutral";
         reasoning = `⛔ BUY_PUT blocked — ${why}. Avoiding bottom-buy before reversal.`;
       }
+    }
     if (false) {  // placeholder to preserve following else-if chain
+
 
     } else if (consecutiveLossLockout) {
       action = "WAIT";
