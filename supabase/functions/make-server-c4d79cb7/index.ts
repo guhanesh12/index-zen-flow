@@ -5358,6 +5358,14 @@ app.post("/make-server-c4d79cb7/wallet/verify-payment", async (c) => {
       }).catch(() => {});
     } catch {}
 
+    // 🔔 FCM push — wallet recharge success
+    pushNotifications.sendPushToUser(user.id, {
+      title: "💰 Wallet Recharged",
+      body: `₹${orderDetails.amount} added. New balance: ₹${newBalance}`,
+      targetUrl: "/wallet",
+      data: { type: "WALLET_RECHARGE", amount: String(orderDetails.amount), balance: String(newBalance) },
+    }).catch((e) => console.error("FCM push (wallet) failed:", e));
+
     return c.json({
       success: true,
       newBalance: newBalance,
@@ -7919,27 +7927,35 @@ app.get("/make-server-c4d79cb7/debug/analytics", async (c) => {
 // 📢 PUSH NOTIFICATION ROUTES
 // ═══════════════════════════════════════════════════════════════
 
-// Subscribe to push notifications
+// Subscribe to push notifications (RN/web both call this)
 app.post("/make-server-c4d79cb7/push/subscribe", async (c) => {
   try {
-    const { userId, deviceToken, browser, device } = await c.req.json();
-    
-    console.log('📢 New push notification subscriber:', { userId, browser, device });
-    
-    const result = await pushNotifications.saveSubscriber({
-      userId,
-      deviceToken,
-      browser,
-      device,
-    });
-    
-    if (result.success) {
-      return c.json({ success: true, message: 'Subscribed successfully' });
-    } else {
-      return c.json({ success: false, message: result.error }, 500);
-    }
+    const { userId, deviceToken, browser, device, platform } = await c.req.json();
+    console.log('📢 push/subscribe:', { userId, browser, device, platform });
+    const result = await pushNotifications.saveSubscriber({ userId, deviceToken, browser, device, platform });
+    return result.success
+      ? c.json({ success: true, message: 'Subscribed successfully' })
+      : c.json({ success: false, message: result.error }, 500);
   } catch (error: any) {
-    console.error('❌ Error subscribing to push notifications:', error);
+    console.error('❌ push/subscribe error:', error);
+    return c.json({ success: false, message: error.message }, 500);
+  }
+});
+
+// Send push to a specific user (admin / server-to-server with INTERNAL_SYNC_KEY)
+app.post("/make-server-c4d79cb7/push/send-to-user", async (c) => {
+  try {
+    const key = c.req.header('x-internal-key');
+    const isInternal = key && key === Deno.env.get('INTERNAL_SYNC_KEY');
+    if (!isInternal) {
+      const authResult = await validateAdminAuth(c);
+      if (!authResult.authorized) return c.json({ success: false, message: 'Unauthorized' }, 401);
+    }
+    const { userId, title, body, imageUrl, targetUrl, data } = await c.req.json();
+    if (!userId || !title || !body) return c.json({ success: false, message: 'userId, title, body required' }, 400);
+    const r = await pushNotifications.sendPushToUser(userId, { title, body, imageUrl, targetUrl, data });
+    return c.json(r);
+  } catch (error: any) {
     return c.json({ success: false, message: error.message }, 500);
   }
 });
@@ -9759,6 +9775,14 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
         }),
       }).catch(() => {});
     } catch {}
+
+    // 🔔 FCM push — support ticket created
+    pushNotifications.sendPushToUser(user.id, {
+      title: "🎫 Support Ticket Created",
+      body: `#${ticketId.slice(-8).toUpperCase()} • ${subject}`,
+      targetUrl: "/support",
+      data: { type: "TICKET_CREATED", ticketId },
+    }).catch((e) => console.error("FCM push (ticket) failed:", e));
 
     return c.json({ success: true, ticketId });
   } catch (error: any) {
