@@ -1063,6 +1063,7 @@ class PersistentTradingEngine {
           const securityIdMap: Record<string, string> = { NIFTY: "13", BANKNIFTY: "25", SENSEX: "51" };
           const securityId = securityIdMap[indexName] || "13";
           let aiSignal: any = null;
+          let ohlcData: any[] = [];
           try {
             const dhanSvc = new DhanService({ clientId: dhanClientId, accessToken: dhanAccessToken });
             const ohlcDataRaw = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
