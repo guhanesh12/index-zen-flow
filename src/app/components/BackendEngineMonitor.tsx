@@ -109,6 +109,7 @@ export function BackendEngineMonitor({
       setOrders(ordersData.orders || []);
       setPositions(positionsData.positions || []);
 
+      checkBrokerHealth();
     } catch (error) {
       console.error('❌ Failed to fetch engine status:', error);
     }
