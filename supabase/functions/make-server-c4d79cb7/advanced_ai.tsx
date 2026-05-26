@@ -2757,6 +2757,54 @@ export class AdvancedAI {
       confidence = Math.max(50, Math.min(confidence, tierCeiling));
       bias = "Bearish";
       reasoning = `BUY_PUT [${bearTier}]: ${earlyBearScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBearScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? " OVEREXPANDED!" : ""}${pullbackQualityBear ? " Sniper pullback!" : ""}${reversalBearEntry ? " Reversal entry!" : ""}${continuationBear ? " Continuation!" : ""}${h1AlignedBear ? " 1H aligned!" : ""}`;
+    }
+
+    // ===== EXHAUSTION / TOP-BUY GUARD (prevents buying at top of breakout) =====
+    // Blocks BUY_CALL when price is already extended (RSI overbought + above upper BB +
+    // stretched from VWAP) or bearish RSI divergence is forming. Mirror for BUY_PUT.
+    if (action === "BUY_CALL") {
+      const bbStretchUp = bollinger.upper > 0 && lastCandle.close >= bollinger.upper;
+      const vwapStretchUp = vwapDistance > 0.45; // > 0.45% above VWAP = extended
+      const exhaustedUp =
+        (rsi >= 72 && (bbStretchUp || vwapStretchUp)) ||
+        rsiDivergenceObj.bear ||
+        (rsi >= 78);
+      // Failed breakout: last candle made new high but closed in lower 35% of its range
+      const lastRange = Math.max(lastCandle.high - lastCandle.low, 1e-9);
+      const closePosUp = (lastCandle.close - lastCandle.low) / lastRange;
+      const failedBreakoutUp =
+        lastCandle.high > prevCandle.high && closePosUp < 0.35;
+      if (exhaustedUp || failedBreakoutUp) {
+        const why = failedBreakoutUp
+          ? `failed breakout (new high, weak close ${(closePosUp * 100).toFixed(0)}% of range)`
+          : `exhaustion (RSI ${rsi.toFixed(1)}${bbStretchUp ? ", above upper BB" : ""}${vwapStretchUp ? `, VWAP+${vwapDistance.toFixed(2)}%` : ""}${rsiDivergenceObj.bear ? ", bearish RSI divergence" : ""})`;
+        action = "WAIT";
+        confidence = 35;
+        bias = "Neutral";
+        reasoning = `⛔ BUY_CALL blocked — ${why}. Avoiding top-buy before reversal.`;
+      }
+    } else if (action === "BUY_PUT") {
+      const bbStretchDn = bollinger.lower > 0 && lastCandle.close <= bollinger.lower;
+      const vwapStretchDn = vwapDistance < -0.45;
+      const exhaustedDn =
+        (rsi <= 28 && (bbStretchDn || vwapStretchDn)) ||
+        rsiDivergenceObj.bull ||
+        (rsi <= 22);
+      const lastRange = Math.max(lastCandle.high - lastCandle.low, 1e-9);
+      const closePosDn = (lastCandle.high - lastCandle.close) / lastRange;
+      const failedBreakdownDn =
+        lastCandle.low < prevCandle.low && closePosDn < 0.35;
+      if (exhaustedDn || failedBreakdownDn) {
+        const why = failedBreakdownDn
+          ? `failed breakdown (new low, weak close ${(closePosDn * 100).toFixed(0)}% of range)`
+          : `exhaustion (RSI ${rsi.toFixed(1)}${bbStretchDn ? ", below lower BB" : ""}${vwapStretchDn ? `, VWAP${vwapDistance.toFixed(2)}%` : ""}${rsiDivergenceObj.bull ? ", bullish RSI divergence" : ""})`;
+        action = "WAIT";
+        confidence = 35;
+        bias = "Neutral";
+        reasoning = `⛔ BUY_PUT blocked — ${why}. Avoiding bottom-buy before reversal.`;
+      }
+    if (false) {  // placeholder to preserve following else-if chain
+
     } else if (consecutiveLossLockout) {
       action = "WAIT";
       confidence = 30;
