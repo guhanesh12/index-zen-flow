@@ -13,8 +13,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Play, Square, RefreshCw, Activity, Zap, TrendingUp } from 'lucide-react';
+import { Play, Square, RefreshCw, Activity, Zap, TrendingUp, AlertTriangle } from 'lucide-react';
 import { api, API_ENDPOINTS } from '../utils/apiService';
+import { supabase } from '@/integrations/supabase/client';
 
 interface EngineStatus {
   isRunning: boolean;
