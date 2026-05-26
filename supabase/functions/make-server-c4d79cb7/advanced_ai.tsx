@@ -2869,6 +2869,87 @@ export class AdvancedAI {
         reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} > prev high ${prevCandle.high.toFixed(2)}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
+
+    // ===== SLOW DRIFT DETECTOR =====
+    // Catches sustained one-way drifts that don't produce a dramatic breakout/breakdown bar
+    // on any single candle (today 2026-05-26 12:00–13:45: NIFTY drifted ~115 pts down with
+    // no individual 15m bar breaking the prior bar's low — strict detectors stayed silent).
+    if (action === "WAIT" && ohlcData.length >= 6) {
+      const c = ohlcData;
+      const n = c.length;
+      const last5 = c.slice(-5);
+      const redBars = last5.filter((b) => b.close < b.open).length;
+      const greenBars = last5.filter((b) => b.close > b.open).length;
+      const closeNow = c[n - 1].close;
+      const closeMinus3 = c[n - 4].close;
+      const lowerCloses =
+        c[n - 1].close < c[n - 2].close &&
+        c[n - 2].close < c[n - 3].close &&
+        c[n - 3].close < c[n - 4].close;
+      const higherCloses =
+        c[n - 1].close > c[n - 2].close &&
+        c[n - 2].close > c[n - 3].close &&
+        c[n - 3].close > c[n - 4].close;
+
+      // VWAP slope: compare current VWAP vs VWAP 5 bars ago (recomputed on truncated window)
+      const vwap5ago = this.calculateVWAP(c.slice(0, n - 5));
+      const vwapSlopeDown = vwap < vwap5ago;
+      const vwapSlopeUp = vwap > vwap5ago;
+
+      // EMA21 slope: current EMA21 vs EMA21 one bar ago
+      const ema21Prev = this.calculateEMA(c.slice(0, n - 1), 21);
+      const ema21SlopeDown = ema21 <= ema21Prev;
+      const ema21SlopeUp = ema21 >= ema21Prev;
+
+      // Previous RSI for "RSI falling/rising" check
+      const rsiPrev = this.calculateRSI(c.slice(0, n - 1));
+      const rsiFalling = rsi < rsiPrev;
+      const rsiRising = rsi > rsiPrev;
+
+      const driftBear =
+        (lowerCloses || redBars >= 4) &&
+        vwapDistance <= -0.20 &&
+        vwapSlopeDown &&
+        ema9 < ema21 &&
+        ema21SlopeDown &&
+        rsi >= 35 && rsi <= 55 &&
+        rsiFalling &&
+        adx >= 15 &&
+        closeNow < closeMinus3;
+
+      const driftBull =
+        (higherCloses || greenBars >= 4) &&
+        vwapDistance >= 0.20 &&
+        vwapSlopeUp &&
+        ema9 > ema21 &&
+        ema21SlopeUp &&
+        rsi >= 45 && rsi <= 65 &&
+        rsiRising &&
+        adx >= 15 &&
+        closeNow > closeMinus3;
+
+      if (driftBear) {
+        let conf = 72;
+        if (redBars >= 4) conf += 4;
+        if (rsi < 45) conf += 4;
+        if (h1Align === "bear" || htfAlign === "bear") conf += 4;
+        if (avgVolume > 0 && c[n - 1].volume >= avgVolume * 1.1) conf += 3;
+        confidence = Math.min(88, conf);
+        action = "BUY_PUT";
+        bias = "Bearish";
+        reasoning = `📉 DRIFT BUY_PUT — ${redBars}/5 red bars, ${(closeMinus3 - closeNow).toFixed(2)}pt drop over 3 bars, VWAP${vwapDistance.toFixed(2)}%, EMA9<EMA21 (slope down), RSI ${rsi.toFixed(1)} falling from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
+      } else if (driftBull) {
+        let conf = 72;
+        if (greenBars >= 4) conf += 4;
+        if (rsi > 55) conf += 4;
+        if (h1Align === "bull" || htfAlign === "bull") conf += 4;
+        if (avgVolume > 0 && c[n - 1].volume >= avgVolume * 1.1) conf += 3;
+        confidence = Math.min(88, conf);
+        action = "BUY_CALL";
+        bias = "Bullish";
+        reasoning = `📈 DRIFT BUY_CALL — ${greenBars}/5 green bars, +${(closeNow - closeMinus3).toFixed(2)}pt over 3 bars, VWAP+${vwapDistance.toFixed(2)}%, EMA9>EMA21 (slope up), RSI ${rsi.toFixed(1)} rising from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
+      }
+    }
     if (false) {  // placeholder to preserve following else-if chain
 
 
