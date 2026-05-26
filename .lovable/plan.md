@@ -1,42 +1,49 @@
-## Why no PUT trade was taken after 12 PM
+## Why no PUT signal fired between 12:00 and 13:45 today
 
-Two independent bugs caused the miss:
+Confirmed from `trading_signals` + `trading_engine_state`:
 
-1. **Strategy bias** — Between 12:00 and 13:45 the engine produced 0 qualifying BUY_PUT signals despite a 120+ pt drop. The bullish path is aggressive (95% on trend+ADX+volume), but the bearish path requires too many simultaneous confirmations and the new exhaustion guard only *blocks* CALLs without ever flipping to PUT.
-2. **Broker token** — The one 95% BUY_PUT that did fire at 13:45 (NIFTY 23500 PE) was rejected by Dhan: `TOKEN_EXPIRED`. Same error blocked 7+ other orders today silently.
+- Engine was **running the entire day** (heartbeat alive until 15:31 IST). Not a VPS issue.
+- No Dhan `TOKEN_EXPIRED` rows hit between 12:00–13:45. Not a token issue.
+- NIFTY price path: 24073 (10:45) → 24062 (11:45) → **23958 (13:45)** — a ~115 pt slow grind down over ~2 hours.
+- Strategy returned `WAIT` for every 15m close in that window (12:15, 12:30, 12:45, 13:00, 13:15, 13:30). Only one weak `BUY_PUT @ 59%` fired at 12:00 (below 70% auto-execute threshold), then nothing until a 95% PUT at 13:45 — too late, the move was already done.
 
-## Fix Plan
+**Root cause:** the breakdown detector I added earlier requires three things to happen on the SAME candle:
+1. `close < previous candle low` (break prior bar low)
+2. close in lower 35% of the candle's range
+3. price below VWAP by ≥ 0.15%
 
-### A. Strategy: symmetric Breakdown + Auto-Flip (file: `supabase/functions/make-server-c4d79cb7/advanced_ai.tsx`)
+In a slow drift-down (today's pattern), individual 15m candles zigzag — each bar rarely takes out the previous bar's low *and* closes weak. So the detector stayed silent for 90 minutes while the index lost 100+ points. The "main" bearish path requires ADX ≥ 20 + EMA9<EMA21 cross + high volume simultaneously, which a slow grind also fails.
 
-1. **Breakdown Detector (mirror of breakout)** — trigger BUY_PUT when:
-   - Price breaks pivot-low of last 5 candles AND closes in lower 35% of candle range, OR
-   - EMA9 crosses below EMA21 with ADX ≥ 20 and volume ≥ 1.3× avg, OR
-   - Price < VWAP − 0.35% with RSI falling through 50 from above.
-   Confidence base 80%, +5 each extra confirmation (cap 95%).
+## Fix Plan (single file: `supabase/functions/make-server-c4d79cb7/advanced_ai.tsx`)
 
-2. **Auto-Flip on Exhaustion** — when the existing exhaustion guard blocks BUY_CALL (RSI≥72 + upper BB / VWAP stretch / failed breakout), instead of returning `WAIT`, emit a **BUY_PUT at 75% confidence** if the next candle confirms (close below prior candle low). This is what would have caught the 12:00–12:30 top.
+### 1. Add a "Slow Drift" PUT detector (mirror for CALL)
+After the strict breakdown block, if action is still `WAIT`, evaluate a softer drift trigger that doesn't need a single dramatic candle:
 
-3. **Lower auto-execute threshold for PUT during confirmed downtrend** — if last 3 candles all lower-low + lower-high, accept BUY_PUT ≥ 65% (instead of 70/80%). Today's 12:00 59% would still be skipped, but 12:15/12:30 candles would have qualified.
+Trigger BUY_PUT when **all** of these hold on the closed 15m bar:
+- Last 3 closes are each lower than the close 3 bars ago (sustained lower closes), **OR** last 4 of 5 bars closed red.
+- Current close is below VWAP by ≥ 0.20%, AND VWAP slope over last 5 bars is negative.
+- EMA9 < EMA21 (no cross required, just current state) AND EMA21 slope ≤ 0.
+- RSI(14) between 35 and 55 and falling (current < prior).
+- ADX ≥ 15 (lower than the 20 used elsewhere — drifts don't show strong ADX).
 
-### B. Broker token visibility (files: `BackendEngineMonitor.tsx` + new banner component)
+Confidence: base **72**, +4 if 4-of-5 red bars, +4 if RSI < 45, +4 if H1/HTF alignment = bear, +3 if volume ≥ 1.1× avg. Cap 88. Reason string: `📉 DRIFT BUY_PUT — N lower closes, VWAP-X.XX%, EMA stack bear, RSI YY falling.` Symmetric `DRIFT BUY_CALL` for upside drift.
 
-1. Poll `broker_credentials.last_status` / `access_token_expiry`; when status = `TOKEN_EXPIRED` or expiry < now, render a **sticky red banner** at top of dashboard: *"Dhan token expired — orders are being rejected. Click to update."* with a button linking to Broker Setup.
-2. Same banner if `vps_subscription` flag = expired.
-3. Add a row in the Engine status panel: "Last order failure reason" so silent broker failures stop hiding.
+### 2. Auto-execute threshold tweak for confirmed drift only
+In `persistent_engine.tsx` order placement gate (where the 70/80 threshold currently lives — same gate that skipped the 59% BUY_PUT at 12:00), allow execution at **≥ 65%** *only* when the signal's `reasoning` starts with `📉 DRIFT` or `📈 DRIFT` (i.e., drift detector fired). All other signals keep their current threshold. This prevents the 59% noise signals from sneaking through while letting the new, evidence-based drift signals trade.
 
-### C. Logging
+### 3. Persist explanation for every cycle (debuggability)
+Currently `saveSignalToDb` early-returns when action is `WAIT`, so we have no record of *why* the engine stayed silent at 12:15, 12:30, etc. Change it to write a lightweight row (signal_type `WAIT`) with a short `raw_data.skip_reason` (e.g. `"drift conditions not met: VWAP+0.05%, RSI 52 not falling"`) only at the end of each 15m bucket per index (max 4 WAIT rows per hour per index, so we don't flood the table). Next time the user asks "why no trade at 12:30?" we can answer from one SQL query.
 
-Persist `reason` and `blocked_by` into `trading_signals.raw_data` so future "why no trade" questions can be answered in one query instead of reading code.
+### 4. No changes elsewhere
+- Exhaustion guard, breakout detector, position monitor, SL/TGT, broker code, UI panels — untouched.
+- No DB migration (uses existing `raw_data` jsonb).
 
-## Files to change
+## Expected behavior on today's tape (replay)
 
-- `supabase/functions/make-server-c4d79cb7/advanced_ai.tsx` — breakdown detector, auto-flip, lower PUT threshold during downtrend, persist reason.
-- `src/app/components/BackendEngineMonitor.tsx` — broker/VPS status banner + last failure row.
-- (no DB migration needed — `raw_data` is already jsonb.)
+With the drift detector, candles around 12:15–12:45 would have produced:
+- 3 lower closes ✓, VWAP slope down ✓, EMA9<EMA21 ✓, RSI falling through 50 ✓ → **BUY_PUT 72–80%** → executed at 65% threshold for DRIFT signals → caught the bulk of the 100+ pt drop.
 
 ## Out of scope
 
-- No change to UI layout beyond the banner + one status row.
-- No change to position monitor / target / SL logic.
-- I will not touch the Dhan token itself — you must renew it in Broker Setup; the banner makes that obvious going forward.
+- Token / VPS UI banners (already added, user confirmed both are fine today).
+- Any change to morning CALL logic, position monitor exits, or option contract resolution.
