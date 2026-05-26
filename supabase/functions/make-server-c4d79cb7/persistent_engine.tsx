@@ -26,6 +26,7 @@ import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
+import { sendPushToUser } from "./push_notifications.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -1206,26 +1207,28 @@ class PersistentTradingEngine {
 
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
 
-          if (action !== "WAIT")
+          if (action !== "WAIT") {
             await this.saveUserNotification(userId, {
               id: `signal_${userId}_${indexName}_${currentCandleTimestamp}_${action}`,
               type: "SIGNAL_DETECTED",
-              title: action === "WAIT" ? `⏸️ ${indexName} - Market Not Suitable` : `📊 ${indexName} Signal Detected`,
-              message:
-                action === "WAIT"
-                  ? `WAIT ${indexName}${confidence ? ` (${confidence}% confidence)` : ""}${reason ? ` - ${reason.substring(0, 60)}...` : ""}`
-                  : `BUY ${indexName}${confidence ? ` (${confidence}% confidence)` : ""}`,
+              title: `📊 ${indexName} Signal Detected`,
+              message: `BUY ${indexName}${confidence ? ` (${confidence}% confidence)` : ""}`,
               timestamp: Date.now(),
               read: false,
               data: {
-                index: indexName,
-                symbol: indexName,
-                action: action === "WAIT" ? "WAIT" : "BUY",
-                confidence,
-                reasoning: reason,
+                index: indexName, symbol: indexName,
+                action: "BUY", confidence, reasoning: reason,
                 timeframe: state.candleInterval,
               },
             });
+            // 🔔 FCM push to user device (mobile/web)
+            sendPushToUser(userId, {
+              title: `${action === "BUY_CALL" ? "📈" : "📉"} ${indexName} ${action === "BUY_CALL" ? "CALL" : "PUT"} Signal`,
+              body: `${confidence}% confidence • ${(reason || "").slice(0, 80)}`,
+              targetUrl: "/dashboard",
+              data: { type: "TRADE_SIGNAL", index: indexName, action, confidence: String(confidence) },
+            }).catch((e) => console.error("FCM push (signal) failed:", e));
+          }
 
           // ⚡ Save signal log to user's persistent logs
           await this.appendSharedLog(userId, {
@@ -1339,6 +1342,13 @@ class PersistentTradingEngine {
                 reason: exitReason,
                 message: `🚪 POSITION CLOSED: ${reversalPosition.symbolName} | ${exitReason} | P&L: ${(reversalPosition.pnl || 0) >= 0 ? "+" : ""}₹${Number(reversalPosition.pnl || 0).toFixed(2)}`,
               });
+              const _pnl = Number(reversalPosition.pnl || 0);
+              sendPushToUser(userId, {
+                title: `${_pnl >= 0 ? "✅ Profit Booked" : "🛑 Loss Booked"}: ${reversalPosition.symbolName}`,
+                body: `P&L: ${_pnl >= 0 ? "+" : ""}₹${_pnl.toFixed(2)} • ${exitReason}`,
+                targetUrl: "/dashboard",
+                data: { type: "POSITION_CLOSED", symbol: String(reversalPosition.symbolName || ""), pnl: String(_pnl) },
+              }).catch((e) => console.error("FCM push (close) failed:", e));
               state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
             } else {
               console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${exitResult.error}`);
@@ -1639,6 +1649,15 @@ class PersistentTradingEngine {
                   reason: exitReason,
                   message: `🚪 POSITION CLOSED: ${sameIndexPosition.symbolName} | ${exitReason} | P&L: ${(sameIndexPosition.pnl || 0) >= 0 ? "+" : ""}₹${Number(sameIndexPosition.pnl || 0).toFixed(2)}`,
                 });
+                {
+                  const _pnl2 = Number(sameIndexPosition.pnl || 0);
+                  sendPushToUser(userId, {
+                    title: `${_pnl2 >= 0 ? "✅ Profit Booked" : "🛑 Loss Booked"}: ${sameIndexPosition.symbolName}`,
+                    body: `P&L: ${_pnl2 >= 0 ? "+" : ""}₹${_pnl2.toFixed(2)} • ${exitReason}`,
+                    targetUrl: "/dashboard",
+                    data: { type: "POSITION_CLOSED", symbol: String(sameIndexPosition.symbolName || ""), pnl: String(_pnl2) },
+                  }).catch((e) => console.error("FCM push (close2) failed:", e));
+                }
                 state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
               } else {
                 console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
