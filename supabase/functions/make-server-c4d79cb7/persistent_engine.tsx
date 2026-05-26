@@ -2392,6 +2392,11 @@ class PersistentTradingEngine {
         const _strongWith = !!currentSignal && _alignedNow && momentumStrength >= 4;
         const _baseTgtForCalc = Math.max(_baseTarget, effectiveTarget) || 0;
         const _baseSLForCalc = Math.max(_baseSL, Math.abs(effectiveSL)) || 0;
+        // Grace period: don't allow predictive/AI-reversal exits in the first 45s after entry.
+        // Hard TP / SL / trailing SL above still apply.
+        const _entryTs = Number((position as any).entryTime || (position as any).createdAt || (position as any).entryTimestamp || 0);
+        const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
+        const _withinGrace = _ageMs < 45_000;
 
         // 1) PROFIT PROTECTION — exit when we've captured meaningful profit and trend is reversing.
         //    Skipped if trend is still strongly with the position (let winners run).
