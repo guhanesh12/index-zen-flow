@@ -2400,7 +2400,7 @@ class PersistentTradingEngine {
 
         // 1) PROFIT PROTECTION — exit when we've captured meaningful profit and trend is reversing.
         //    Skipped if trend is still strongly with the position (let winners run).
-        if (!shouldExit && (position.highestPnl || 0) > 0 && pnl > 0 && !_strongWith) {
+        if (!shouldExit && !_withinGrace && (position.highestPnl || 0) > 0 && pnl > 0 && !_strongWith) {
           const peak = position.highestPnl || 0;
           const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.4 : Math.max(150, peak * 0.5);
           const inProfitZone = peak >= profitFloor;
@@ -2413,7 +2413,7 @@ class PersistentTradingEngine {
         }
 
         // 2) EARLY LOSS CUT — exit before full SL when market is strongly against us.
-        if (!shouldExit && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
+        if (!shouldExit && !_withinGrace && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
           const lossPct = Math.abs(pnl) / _baseSLForCalc;
           if (lossPct >= 0.45) {
             shouldExit = true;
@@ -2422,7 +2422,7 @@ class PersistentTradingEngine {
         }
 
         // 3) AI REVERSAL CONFIRMED — lower confidence required when momentum strongly confirms.
-        if (!shouldExit && currentSignal) {
+        if (!shouldExit && !_withinGrace && currentSignal) {
           const opp = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
           const conf = Number(currentSignal.confidence || 0);
           if (currentSignal.action === opp && conf >= 75 && _strongAgainst) {
@@ -2432,7 +2432,7 @@ class PersistentTradingEngine {
         }
 
         // 4) Original strong-reversal signal-based exit (90%+ conf) — kept as final safety net.
-        if (!shouldExit && signalShouldExit) {
+        if (!shouldExit && !_withinGrace && signalShouldExit) {
           // Suppress if strongly with trend AND in healthy profit (let winners run)
           if (!(_strongWith && pnl > 0 && giveBackPct < 40)) {
             shouldExit = true;
