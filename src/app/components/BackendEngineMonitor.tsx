@@ -13,8 +13,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Play, Square, RefreshCw, Activity, Zap, TrendingUp } from 'lucide-react';
+import { Play, Square, RefreshCw, Activity, Zap, TrendingUp, AlertTriangle } from 'lucide-react';
 import { api, API_ENDPOINTS } from '../utils/apiService';
+import { supabase } from '@/integrations/supabase/client';
 
 interface EngineStatus {
   isRunning: boolean;
@@ -50,8 +51,46 @@ export function BackendEngineMonitor({
   const [signals, setSignals] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
-  
+  const [brokerAlert, setBrokerAlert] = useState<string | null>(null);
+  const [lastOrderFailure, setLastOrderFailure] = useState<string | null>(null);
+
   const statusCheckInterval = useRef<NodeJS.Timeout | null>(null);
+
+  // ⚡ CHECK BROKER TOKEN / VPS / LAST FAILED ORDER
+  const checkBrokerHealth = async () => {
+    try {
+      const { data: cred } = await supabase
+        .from('broker_credentials')
+        .select('last_status,last_error,access_token_expiry')
+        .maybeSingle();
+      const now = Date.now();
+      const expiry = cred?.access_token_expiry ? new Date(cred.access_token_expiry).getTime() : 0;
+      const status = (cred?.last_status || '').toUpperCase();
+      const err = cred?.last_error || '';
+      if (status.includes('TOKEN_EXPIRED') || /TOKEN_EXPIRED|access token/i.test(err) || (expiry > 0 && expiry < now)) {
+        setBrokerAlert('Dhan access token expired — all orders are being rejected. Update it in Broker Setup → Dhan Credentials.');
+      } else if (/VPS|subscription/i.test(err)) {
+        setBrokerAlert('Dedicated VPS subscription expired — orders are being rejected. Renew in Broker Setup.');
+      } else {
+        setBrokerAlert(null);
+      }
+
+      const { data: orderFail } = await supabase
+        .from('trading_orders')
+        .select('symbol,error_message,created_at')
+        .eq('status', 'failed')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (orderFail && orderFail[0]) {
+        const o = orderFail[0] as any;
+        setLastOrderFailure(`${new Date(o.created_at).toLocaleTimeString()} · ${o.symbol} · ${o.error_message || 'unknown'}`);
+      } else {
+        setLastOrderFailure(null);
+      }
+    } catch (e) {
+      console.warn('broker health check failed', e);
+    }
+  };
 
   // ⚡ FETCH ENGINE STATUS FROM BACKEND (every 2 seconds)
   const fetchEngineStatus = async () => {
@@ -70,6 +109,7 @@ export function BackendEngineMonitor({
       setOrders(ordersData.orders || []);
       setPositions(positionsData.positions || []);
 
+      checkBrokerHealth();
     } catch (error) {
       console.error('❌ Failed to fetch engine status:', error);
     }
@@ -249,10 +289,25 @@ export function BackendEngineMonitor({
       </CardHeader>
 
       <CardContent>
+        {brokerAlert && (
+          <div className="mb-4 p-3 rounded-lg border-2 border-red-500 bg-red-500/15 flex items-start gap-2">
+            <AlertTriangle className="size-5 text-red-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-300">Broker connection issue — orders are being rejected</p>
+              <p className="text-sm text-red-200 mt-1">{brokerAlert}</p>
+            </div>
+          </div>
+        )}
+        {lastOrderFailure && (
+          <div className="mb-4 p-2 rounded border border-amber-500/30 bg-amber-500/5 text-xs text-amber-200">
+            <span className="font-semibold">Last order failure: </span>{lastOrderFailure}
+          </div>
+        )}
         {engineStatus ? (
           <div className="space-y-4">
             {/* Status Info */}
             <div className="grid grid-cols-3 gap-4">
+
               <div>
                 <p className="text-sm text-slate-400">Candle Interval</p>
                 <p className="text-lg font-bold text-white">{engineStatus.candleInterval}M</p>
