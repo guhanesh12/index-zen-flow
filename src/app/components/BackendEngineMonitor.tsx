@@ -51,8 +51,46 @@ export function BackendEngineMonitor({
   const [signals, setSignals] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [positions, setPositions] = useState<any[]>([]);
-  
+  const [brokerAlert, setBrokerAlert] = useState<string | null>(null);
+  const [lastOrderFailure, setLastOrderFailure] = useState<string | null>(null);
+
   const statusCheckInterval = useRef<NodeJS.Timeout | null>(null);
+
+  // ⚡ CHECK BROKER TOKEN / VPS / LAST FAILED ORDER
+  const checkBrokerHealth = async () => {
+    try {
+      const { data: cred } = await supabase
+        .from('broker_credentials')
+        .select('last_status,last_error,access_token_expiry')
+        .maybeSingle();
+      const now = Date.now();
+      const expiry = cred?.access_token_expiry ? new Date(cred.access_token_expiry).getTime() : 0;
+      const status = (cred?.last_status || '').toUpperCase();
+      const err = cred?.last_error || '';
+      if (status.includes('TOKEN_EXPIRED') || /TOKEN_EXPIRED|access token/i.test(err) || (expiry > 0 && expiry < now)) {
+        setBrokerAlert('Dhan access token expired — all orders are being rejected. Update it in Broker Setup → Dhan Credentials.');
+      } else if (/VPS|subscription/i.test(err)) {
+        setBrokerAlert('Dedicated VPS subscription expired — orders are being rejected. Renew in Broker Setup.');
+      } else {
+        setBrokerAlert(null);
+      }
+
+      const { data: orderFail } = await supabase
+        .from('trading_orders')
+        .select('symbol,error_message,created_at')
+        .eq('status', 'failed')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (orderFail && orderFail[0]) {
+        const o = orderFail[0] as any;
+        setLastOrderFailure(`${new Date(o.created_at).toLocaleTimeString()} · ${o.symbol} · ${o.error_message || 'unknown'}`);
+      } else {
+        setLastOrderFailure(null);
+      }
+    } catch (e) {
+      console.warn('broker health check failed', e);
+    }
+  };
 
   // ⚡ FETCH ENGINE STATUS FROM BACKEND (every 2 seconds)
   const fetchEngineStatus = async () => {
