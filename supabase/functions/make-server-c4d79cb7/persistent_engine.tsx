@@ -99,8 +99,14 @@ function normalizeOptionType(value: any): "CE" | "PE" | "" {
   const rawValue = String(value ?? "")
     .toUpperCase()
     .trim();
+  if (!rawValue) return "";
   if (rawValue === "CE" || rawValue === "CALL") return "CE";
   if (rawValue === "PE" || rawValue === "PUT") return "PE";
+  // Handle full trading symbols like "NIFTY-MAY2026-24100-CE" or "SENSEX26MAY76500PE"
+  if (/(^|[^A-Z])CE($|[^A-Z])/.test(rawValue) || /CALL/.test(rawValue)) return "CE";
+  if (/(^|[^A-Z])PE($|[^A-Z])/.test(rawValue) || /PUT/.test(rawValue)) return "PE";
+  if (rawValue.endsWith("CE")) return "CE";
+  if (rawValue.endsWith("PE")) return "PE";
   return "";
 }
 
