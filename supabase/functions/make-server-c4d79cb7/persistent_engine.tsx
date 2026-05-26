@@ -1063,6 +1063,7 @@ class PersistentTradingEngine {
           const securityIdMap: Record<string, string> = { NIFTY: "13", BANKNIFTY: "25", SENSEX: "51" };
           const securityId = securityIdMap[indexName] || "13";
           let aiSignal: any = null;
+          let ohlcData: any[] = [];
           try {
             const dhanSvc = new DhanService({ clientId: dhanClientId, accessToken: dhanAccessToken });
             const ohlcDataRaw = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
@@ -1105,7 +1106,7 @@ class PersistentTradingEngine {
               return out;
             };
             const tfMin = Number(state.candleInterval);
-            const ohlcData = stripForming(ohlcDataRaw, tfMin);
+            ohlcData = stripForming(ohlcDataRaw, tfMin);
             let real15mData = stripForming(real15mDataRaw, 15);
             const real1hDataClosed = stripForming(real1hData, 60);
             // Fallback: if separate 15m feed is sparse, resample primary
@@ -1376,7 +1377,11 @@ class PersistentTradingEngine {
 
             if (autoSlots && autoSlots.length > 0) {
               autoSlotCount = autoSlots.length;
-              const spotLtp = Number(ohlcData[ohlcData.length - 1]?.close) || 0;
+              const spotLtp =
+                Number(ohlcData[ohlcData.length - 1]?.close) ||
+                Number(aiSignal?.signal?.riskManagement?.suggestedEntry) ||
+                Number(aiSignal?.signal?.price) ||
+                0;
               if (spotLtp > 0) {
                 const resolved: any[] = [];
                 for (const slot of autoSlots) {
