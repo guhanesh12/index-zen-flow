@@ -2275,8 +2275,20 @@ export class AdvancedAI {
     const macdHistWeakeningBear = macdData.histogram < prevMacdData.histogram;
     const priceTouchedEmaZoneBull = lastCandle.low <= ema9 + atr14 * 0.3 || lastCandle.low <= ema21 + atr14 * 0.4;
     const priceTouchedEmaZoneBear = lastCandle.high >= ema9 - atr14 * 0.3 || lastCandle.high >= ema21 - atr14 * 0.4;
-    const institutionalContinuationBull = adx > 28 && ema9 > ema21 && rsi > 45 && rsi < 78 && macdHistImprovingBull;
-    const institutionalContinuationBear = adx > 28 && ema9 < ema21 && rsi < 55 && rsi > 22 && macdHistWeakeningBear;
+    const institutionalContinuationBull =
+      adx >= 22 &&
+      ema9 > ema21 &&
+      rsi > 45 &&
+      rsi < 78 &&
+      macdHistImprovingBull &&
+      (marketRegime.type === "TRENDING_UP" || adx >= 25 || totalBullScore >= requiredConfirmations);
+    const institutionalContinuationBear =
+      adx >= 22 &&
+      ema9 < ema21 &&
+      rsi < 55 &&
+      rsi > 22 &&
+      macdHistWeakeningBear &&
+      (marketRegime.type === "TRENDING_DOWN" || adx >= 25 || totalBearScore >= requiredConfirmations);
     const continuationBull =
       institutionalContinuationBull &&
       (priceTouchedEmaZoneBull ||
@@ -2950,7 +2962,75 @@ export class AdvancedAI {
         reasoning = `📈 DRIFT BUY_CALL — ${greenBars}/5 green bars, +${(closeNow - closeMinus3).toFixed(2)}pt over 3 bars, VWAP+${vwapDistance.toFixed(2)}%, EMA9>EMA21 (slope up), RSI ${rsi.toFixed(1)} rising from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
-    if (false) {  // placeholder to preserve following else-if chain
+
+    // ===== NO-BREAKOUT TREND OVERRIDE =====
+    // 27/05 issue: market moved in a clean trend but never closed outside the broad
+    // breakout/order-block range, so logs showed 6–8 confirmations yet final WAIT.
+    // This allows tradeable trend-continuation entries when confirmations, EMA, RSI,
+    // MACD and regime agree even without a fresh breakout candle.
+    if (action === "WAIT") {
+      const noBreakoutBullTrend =
+        !breakoutConfirmedBull &&
+        marketRegime.type === "TRENDING_UP" &&
+        totalBullScore >= requiredConfirmations &&
+        ema9 > ema21 &&
+        lastCandle.close > ema21 &&
+        rsi >= 46 &&
+        rsi <= 68 &&
+        macdHistImprovingBull &&
+        (lastCandle.close > prevCandle.close || lastCandle.close > vwap || vwapSlopingUp) &&
+        !noiseFilter5m &&
+        !weakMidSessionTrap &&
+        !cooldownBlocksBull &&
+        !liquidityBlocksBull &&
+        !overboughtRejectionBlocksBull &&
+        !consecutiveLossLockout &&
+        !lateNewEntryBlocked &&
+        !newsVolatilityShock;
+
+      const noBreakoutBearTrend =
+        !breakoutConfirmedBear &&
+        marketRegime.type === "TRENDING_DOWN" &&
+        totalBearScore >= requiredConfirmations &&
+        ema9 < ema21 &&
+        lastCandle.close < ema21 &&
+        rsi >= 32 &&
+        rsi <= 54 &&
+        macdHistWeakeningBear &&
+        (lastCandle.close < prevCandle.close || lastCandle.close < vwap || vwapSlopingDown) &&
+        !noiseFilter5m &&
+        !weakMidSessionTrap &&
+        !cooldownBlocksBear &&
+        !liquidityBlocksBear &&
+        !oversoldBounceBlocksBear &&
+        !consecutiveLossLockout &&
+        !lateNewEntryBlocked &&
+        !newsVolatilityShock;
+
+      if (noBreakoutBearTrend) {
+        let conf = 68 + Math.max(0, totalBearScore - requiredConfirmations) * 4;
+        if (adx >= 25) conf += 4;
+        if (lastCandle.close < vwap) conf += 3;
+        if (h1Align === "bear" || htfAlign === "bear") conf += 4;
+        confidence = Math.min(86, conf);
+        action = "BUY_PUT";
+        bias = "Bearish";
+        reasoning = `📉 TREND OVERRIDE BUY_PUT — no fresh breakdown, but ${totalBearScore}/${requiredConfirmations} confirmations agree: TRENDING_DOWN, EMA9<EMA21, RSI ${rsi.toFixed(1)}, MACD weakening, ADX ${adx.toFixed(1)}, VWAP${vwapDistance.toFixed(2)}%. Breakout/order-block not allowed to block this continuation.`;
+      } else if (noBreakoutBullTrend) {
+        let conf = 68 + Math.max(0, totalBullScore - requiredConfirmations) * 4;
+        if (adx >= 25) conf += 4;
+        if (lastCandle.close > vwap) conf += 3;
+        if (h1Align === "bull" || htfAlign === "bull") conf += 4;
+        confidence = Math.min(86, conf);
+        action = "BUY_CALL";
+        bias = "Bullish";
+        reasoning = `📈 TREND OVERRIDE BUY_CALL — no fresh breakout, but ${totalBullScore}/${requiredConfirmations} confirmations agree: TRENDING_UP, EMA9>EMA21, RSI ${rsi.toFixed(1)}, MACD improving, ADX ${adx.toFixed(1)}, VWAP+${vwapDistance.toFixed(2)}%. Breakout/order-block not allowed to block this continuation.`;
+      }
+    }
+
+    if (action !== "WAIT") {
+      // A valid breakout, drift, reversal, or no-breakout trend signal has already
+      // been selected. Do not let the fallback WAIT diagnosis overwrite it.
 
 
     } else if (consecutiveLossLockout) {
