@@ -3156,29 +3156,26 @@ export class AdvancedAI {
 
     // ⚡ PHASE 1: REGIME ALIGNMENT CHECK (CRITICAL!) ⚡
     // Block counter-trend trades unless at key S/R levels or squeeze
+    // 🔓 EXECUTION MODE: regime-alignment counter-trend block is demoted from WAIT to a
+    // confidence trim so valid reversal/exhaustion signals still place orders.
     if (action !== "WAIT") {
       if (marketRegime.type === "TRENDING_UP" && bias === "Bearish") {
-        // Bearish signal in uptrend - only allow if at resistance or squeeze
         if (!nearResistance && !bollingerSqueeze) {
-          action = "WAIT";
-          bias = "Neutral";
-          confidence = 35;
-          reasoning = `⚠️ WAIT: Bearish signal in TRENDING_UP market requires resistance or squeeze. Current: mid-range.`;
+          confidence = Math.max(55, confidence - 8);
+          reasoning += ` ⚠️ Counter-trend (bearish vs TRENDING_UP) — signal kept, confidence trimmed.`;
         } else {
           reasoning += ` ✅ Counter-trend allowed: ${nearResistance ? "At resistance" : "Bollinger squeeze"}.`;
         }
       }
 
       if (marketRegime.type === "TRENDING_DOWN" && bias === "Bullish") {
-        // Bullish signal in downtrend - only allow if at support or squeeze
         if (!nearSupport && !bollingerSqueeze) {
-          action = "WAIT";
-          bias = "Neutral";
-          confidence = 35;
-          reasoning = `⚠️ WAIT: Bullish signal in TRENDING_DOWN market requires support or squeeze. Current: mid-range.`;
+          confidence = Math.max(55, confidence - 8);
+          reasoning += ` ⚠️ Counter-trend (bullish vs TRENDING_DOWN) — signal kept, confidence trimmed.`;
         } else {
           reasoning += ` ✅ Counter-trend allowed: ${nearSupport ? "At support" : "Bollinger squeeze"}.`;
         }
+
       }
     }
 
