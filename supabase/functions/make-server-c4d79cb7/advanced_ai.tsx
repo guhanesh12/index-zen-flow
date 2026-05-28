@@ -2800,13 +2800,14 @@ export class AdvancedAI {
           bias = "Bearish";
           reasoning = `🔄 AUTO-FLIP CALL→PUT — ${why}. Bear confirm: close ${lastCandle.close.toFixed(2)} < prev low ${prevCandle.low.toFixed(2)}.`;
         } else {
-          action = "WAIT";
-          confidence = 35;
-          bias = "Neutral";
-          reasoning = `⛔ BUY_CALL blocked — ${why}. Avoiding top-buy before reversal.`;
+          // 🔓 EXECUTION MODE: do NOT downgrade a valid BUY_CALL to WAIT just for top-buy concern.
+          // Keep the signal but trim confidence and tag the warning so the trader/UI sees it.
+          confidence = Math.max(55, confidence - 10);
+          reasoning += ` ⚠️ Top-buy warning: ${why} (signal kept for execution).`;
         }
       }
     } else if (action === "BUY_PUT") {
+
       const bbStretchDn = bollinger.lower > 0 && lastCandle.close <= bollinger.lower;
       const vwapStretchDn = vwapDistance < -0.45;
       const exhaustedDn =
