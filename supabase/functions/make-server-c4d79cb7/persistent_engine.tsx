@@ -1143,14 +1143,16 @@ class PersistentTradingEngine {
                 lastSignalDirection,
                 lastStopLossTimestamp,
                 lastStopLossDirection,
-                stopLossCooldownBars: 2,
+                // 🔓 EXECUTION MODE: every unwanted block disabled so valid signals reach the order router.
+                stopLossCooldownBars: 0,                  // no post-SL bar lockout
                 consecutiveLossCount,
                 lastLossTimestamp,
-                consecutiveLossThreshold: 3,
-                consecutiveLossCooldownMs: 30 * 60 * 1000,
-                minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
-                blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
+                consecutiveLossThreshold: 9999,           // disable consecutive-loss lockout
+                consecutiveLossCooldownMs: 0,
+                minimumBarsBetweenSignals: 0,             // allow back-to-back same-direction signals
+                blockNewEntriesAfterMinutes: 15 * 60 + 25,// 15:25 IST cutoff retained (post-25 entries are unsafe)
               });
+
               if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
                 await kv.set(
                   `last_signal_ts:${userId}:${indexName}`,
