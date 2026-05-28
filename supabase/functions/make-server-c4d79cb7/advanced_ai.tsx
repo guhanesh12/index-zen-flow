@@ -2832,13 +2832,13 @@ export class AdvancedAI {
           bias = "Bullish";
           reasoning = `🔄 AUTO-FLIP PUT→CALL — ${why}. Bull confirm: close ${lastCandle.close.toFixed(2)} > prev high ${prevCandle.high.toFixed(2)}.`;
         } else {
-          action = "WAIT";
-          confidence = 35;
-          bias = "Neutral";
-          reasoning = `⛔ BUY_PUT blocked — ${why}. Avoiding bottom-buy before reversal.`;
+          // 🔓 EXECUTION MODE: do NOT downgrade a valid BUY_PUT to WAIT just for bottom-buy concern.
+          confidence = Math.max(55, confidence - 10);
+          reasoning += ` ⚠️ Bottom-buy warning: ${why} (signal kept for execution).`;
         }
       }
     }
+
 
     // ===== BREAKDOWN DETECTOR (symmetric to breakout) =====
     // If action is still WAIT but the last candle shows a clean breakdown,
