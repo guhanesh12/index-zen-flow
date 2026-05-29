@@ -1674,9 +1674,30 @@ class PersistentTradingEngine {
             );
 
             if (hasPosition) {
-              console.log(
-                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${symbol.name}). Skipping ${action} on next candle.`,
+              const activePosition = state.activePositions.find(
+                (p: any) =>
+                  p.status === "ACTIVE" &&
+                  (p.symbolName === normalizedSymbolName ||
+                    p.securityId === normalizedSecurityId ||
+                    (p.index && indexName && p.index === indexName)),
               );
+              const activeOptionType = normalizeOptionType(activePosition?.optionType || activePosition?.symbolName);
+              console.log(
+                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${activePosition?.symbolName || symbol.name}, ${activeOptionType || "UNKNOWN"}). Skipping ${action}; same-index reversal requires 90% confidence.`,
+              );
+              await this.appendSharedLog(userId, {
+                type: "SKIP",
+                timestamp: Date.now(),
+                message: `⏸️ ${indexName} ${action} skipped — active ${activeOptionType || "option"} position already running (${activePosition?.symbolName || symbol.name}).`,
+                data: {
+                  index: indexName,
+                  action,
+                  confidence,
+                  activeSymbol: activePosition?.symbolName || normalizedSymbolName,
+                  activeOptionType,
+                  reason: "active-position-same-index",
+                },
+              });
               return;
             }
 
