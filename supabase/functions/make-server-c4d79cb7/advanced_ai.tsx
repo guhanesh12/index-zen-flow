@@ -2275,20 +2275,8 @@ export class AdvancedAI {
     const macdHistWeakeningBear = macdData.histogram < prevMacdData.histogram;
     const priceTouchedEmaZoneBull = lastCandle.low <= ema9 + atr14 * 0.3 || lastCandle.low <= ema21 + atr14 * 0.4;
     const priceTouchedEmaZoneBear = lastCandle.high >= ema9 - atr14 * 0.3 || lastCandle.high >= ema21 - atr14 * 0.4;
-    const institutionalContinuationBull =
-      adx >= 22 &&
-      ema9 > ema21 &&
-      rsi > 45 &&
-      rsi < 78 &&
-      macdHistImprovingBull &&
-      (marketRegime.type === "TRENDING_UP" || adx >= 25 || totalBullScore >= requiredConfirmations);
-    const institutionalContinuationBear =
-      adx >= 22 &&
-      ema9 < ema21 &&
-      rsi < 55 &&
-      rsi > 22 &&
-      macdHistWeakeningBear &&
-      (marketRegime.type === "TRENDING_DOWN" || adx >= 25 || totalBearScore >= requiredConfirmations);
+    const institutionalContinuationBull = adx > 28 && ema9 > ema21 && rsi > 45 && rsi < 78 && macdHistImprovingBull;
+    const institutionalContinuationBear = adx > 28 && ema9 < ema21 && rsi < 55 && rsi > 22 && macdHistWeakeningBear;
     const continuationBull =
       institutionalContinuationBull &&
       (priceTouchedEmaZoneBull ||
@@ -2800,14 +2788,13 @@ export class AdvancedAI {
           bias = "Bearish";
           reasoning = `🔄 AUTO-FLIP CALL→PUT — ${why}. Bear confirm: close ${lastCandle.close.toFixed(2)} < prev low ${prevCandle.low.toFixed(2)}.`;
         } else {
-          // 🔓 EXECUTION MODE: do NOT downgrade a valid BUY_CALL to WAIT just for top-buy concern.
-          // Keep the signal but trim confidence and tag the warning so the trader/UI sees it.
-          confidence = Math.max(55, confidence - 10);
-          reasoning += ` ⚠️ Top-buy warning: ${why} (signal kept for execution).`;
+          action = "WAIT";
+          confidence = 35;
+          bias = "Neutral";
+          reasoning = `⛔ BUY_CALL blocked — ${why}. Avoiding top-buy before reversal.`;
         }
       }
     } else if (action === "BUY_PUT") {
-
       const bbStretchDn = bollinger.lower > 0 && lastCandle.close <= bollinger.lower;
       const vwapStretchDn = vwapDistance < -0.45;
       const exhaustedDn =
@@ -2832,13 +2819,13 @@ export class AdvancedAI {
           bias = "Bullish";
           reasoning = `🔄 AUTO-FLIP PUT→CALL — ${why}. Bull confirm: close ${lastCandle.close.toFixed(2)} > prev high ${prevCandle.high.toFixed(2)}.`;
         } else {
-          // 🔓 EXECUTION MODE: do NOT downgrade a valid BUY_PUT to WAIT just for bottom-buy concern.
-          confidence = Math.max(55, confidence - 10);
-          reasoning += ` ⚠️ Bottom-buy warning: ${why} (signal kept for execution).`;
+          action = "WAIT";
+          confidence = 35;
+          bias = "Neutral";
+          reasoning = `⛔ BUY_PUT blocked — ${why}. Avoiding bottom-buy before reversal.`;
         }
       }
     }
-
 
     // ===== BREAKDOWN DETECTOR (symmetric to breakout) =====
     // If action is still WAIT but the last candle shows a clean breakdown,
@@ -2963,75 +2950,7 @@ export class AdvancedAI {
         reasoning = `📈 DRIFT BUY_CALL — ${greenBars}/5 green bars, +${(closeNow - closeMinus3).toFixed(2)}pt over 3 bars, VWAP+${vwapDistance.toFixed(2)}%, EMA9>EMA21 (slope up), RSI ${rsi.toFixed(1)} rising from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
-
-    // ===== NO-BREAKOUT TREND OVERRIDE =====
-    // 27/05 issue: market moved in a clean trend but never closed outside the broad
-    // breakout/order-block range, so logs showed 6–8 confirmations yet final WAIT.
-    // This allows tradeable trend-continuation entries when confirmations, EMA, RSI,
-    // MACD and regime agree even without a fresh breakout candle.
-    if (action === "WAIT") {
-      const noBreakoutBullTrend =
-        !breakoutConfirmedBull &&
-        marketRegime.type === "TRENDING_UP" &&
-        totalBullScore >= requiredConfirmations &&
-        ema9 > ema21 &&
-        lastCandle.close > ema21 &&
-        rsi >= 46 &&
-        rsi <= 68 &&
-        macdHistImprovingBull &&
-        (lastCandle.close > prevCandle.close || lastCandle.close > vwap || vwapSlopingUp) &&
-        !noiseFilter5m &&
-        !weakMidSessionTrap &&
-        !cooldownBlocksBull &&
-        !liquidityBlocksBull &&
-        !overboughtRejectionBlocksBull &&
-        !consecutiveLossLockout &&
-        !lateNewEntryBlocked &&
-        !newsVolatilityShock;
-
-      const noBreakoutBearTrend =
-        !breakoutConfirmedBear &&
-        marketRegime.type === "TRENDING_DOWN" &&
-        totalBearScore >= requiredConfirmations &&
-        ema9 < ema21 &&
-        lastCandle.close < ema21 &&
-        rsi >= 32 &&
-        rsi <= 54 &&
-        macdHistWeakeningBear &&
-        (lastCandle.close < prevCandle.close || lastCandle.close < vwap || vwapSlopingDown) &&
-        !noiseFilter5m &&
-        !weakMidSessionTrap &&
-        !cooldownBlocksBear &&
-        !liquidityBlocksBear &&
-        !oversoldBounceBlocksBear &&
-        !consecutiveLossLockout &&
-        !lateNewEntryBlocked &&
-        !newsVolatilityShock;
-
-      if (noBreakoutBearTrend) {
-        let conf = 68 + Math.max(0, totalBearScore - requiredConfirmations) * 4;
-        if (adx >= 25) conf += 4;
-        if (lastCandle.close < vwap) conf += 3;
-        if (h1Align === "bear" || htfAlign === "bear") conf += 4;
-        confidence = Math.min(86, conf);
-        action = "BUY_PUT";
-        bias = "Bearish";
-        reasoning = `📉 TREND OVERRIDE BUY_PUT — no fresh breakdown, but ${totalBearScore}/${requiredConfirmations} confirmations agree: TRENDING_DOWN, EMA9<EMA21, RSI ${rsi.toFixed(1)}, MACD weakening, ADX ${adx.toFixed(1)}, VWAP${vwapDistance.toFixed(2)}%. Breakout/order-block not allowed to block this continuation.`;
-      } else if (noBreakoutBullTrend) {
-        let conf = 68 + Math.max(0, totalBullScore - requiredConfirmations) * 4;
-        if (adx >= 25) conf += 4;
-        if (lastCandle.close > vwap) conf += 3;
-        if (h1Align === "bull" || htfAlign === "bull") conf += 4;
-        confidence = Math.min(86, conf);
-        action = "BUY_CALL";
-        bias = "Bullish";
-        reasoning = `📈 TREND OVERRIDE BUY_CALL — no fresh breakout, but ${totalBullScore}/${requiredConfirmations} confirmations agree: TRENDING_UP, EMA9>EMA21, RSI ${rsi.toFixed(1)}, MACD improving, ADX ${adx.toFixed(1)}, VWAP+${vwapDistance.toFixed(2)}%. Breakout/order-block not allowed to block this continuation.`;
-      }
-    }
-
-    if (action !== "WAIT") {
-      // A valid breakout, drift, reversal, or no-breakout trend signal has already
-      // been selected. Do not let the fallback WAIT diagnosis overwrite it.
+    if (false) {  // placeholder to preserve following else-if chain
 
 
     } else if (consecutiveLossLockout) {
@@ -3156,26 +3075,29 @@ export class AdvancedAI {
 
     // ⚡ PHASE 1: REGIME ALIGNMENT CHECK (CRITICAL!) ⚡
     // Block counter-trend trades unless at key S/R levels or squeeze
-    // 🔓 EXECUTION MODE: regime-alignment counter-trend block is demoted from WAIT to a
-    // confidence trim so valid reversal/exhaustion signals still place orders.
     if (action !== "WAIT") {
       if (marketRegime.type === "TRENDING_UP" && bias === "Bearish") {
+        // Bearish signal in uptrend - only allow if at resistance or squeeze
         if (!nearResistance && !bollingerSqueeze) {
-          confidence = Math.max(55, confidence - 8);
-          reasoning += ` ⚠️ Counter-trend (bearish vs TRENDING_UP) — signal kept, confidence trimmed.`;
+          action = "WAIT";
+          bias = "Neutral";
+          confidence = 35;
+          reasoning = `⚠️ WAIT: Bearish signal in TRENDING_UP market requires resistance or squeeze. Current: mid-range.`;
         } else {
           reasoning += ` ✅ Counter-trend allowed: ${nearResistance ? "At resistance" : "Bollinger squeeze"}.`;
         }
       }
 
       if (marketRegime.type === "TRENDING_DOWN" && bias === "Bullish") {
+        // Bullish signal in downtrend - only allow if at support or squeeze
         if (!nearSupport && !bollingerSqueeze) {
-          confidence = Math.max(55, confidence - 8);
-          reasoning += ` ⚠️ Counter-trend (bullish vs TRENDING_DOWN) — signal kept, confidence trimmed.`;
+          action = "WAIT";
+          bias = "Neutral";
+          confidence = 35;
+          reasoning = `⚠️ WAIT: Bullish signal in TRENDING_DOWN market requires support or squeeze. Current: mid-range.`;
         } else {
           reasoning += ` ✅ Counter-trend allowed: ${nearSupport ? "At support" : "Bollinger squeeze"}.`;
         }
-
       }
     }
 

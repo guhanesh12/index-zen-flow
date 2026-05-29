@@ -1143,16 +1143,14 @@ class PersistentTradingEngine {
                 lastSignalDirection,
                 lastStopLossTimestamp,
                 lastStopLossDirection,
-                // 🔓 EXECUTION MODE: every unwanted block disabled so valid signals reach the order router.
-                stopLossCooldownBars: 0,                  // no post-SL bar lockout
+                stopLossCooldownBars: 2,
                 consecutiveLossCount,
                 lastLossTimestamp,
-                consecutiveLossThreshold: 9999,           // disable consecutive-loss lockout
-                consecutiveLossCooldownMs: 0,
-                minimumBarsBetweenSignals: 0,             // allow back-to-back same-direction signals
-                blockNewEntriesAfterMinutes: 15 * 60 + 25,// 15:25 IST cutoff retained (post-25 entries are unsafe)
+                consecutiveLossThreshold: 3,
+                consecutiveLossCooldownMs: 30 * 60 * 1000,
+                minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
+                blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
               });
-
               if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
                 await kv.set(
                   `last_signal_ts:${userId}:${indexName}`,
@@ -2131,8 +2129,8 @@ class PersistentTradingEngine {
         let _baseTarget = Number(position.targetAmount || 0);
         let _baseSL = Number(position.stopLossAmount || 0);
 
-        // 🤖 AUTO-DEFAULT RISK — ONLY when user has NOT configured Target AND SL.
-        // If either is set (>0) we respect the user's values exactly and never override.
+        // 🤖 AUTO-DEFAULT RISK (for manual symbols / positions without user-configured Tgt/SL)
+        // 5% target, 2.5% SL of notional (R:R ≈ 2:1). Trailing auto-enabled with sensible jumps.
         if (_baseTarget <= 0 && _baseSL <= 0 && entryPrice > 0 && quantity > 0) {
           const notional = entryPrice * quantity;
           _baseTarget = Math.max(100, Math.round(notional * 0.05));
@@ -2143,13 +2141,11 @@ class PersistentTradingEngine {
           position.currentStopLossAmount = _baseSL;
           if (!position.trailingActivationAmount || position.trailingActivationAmount <= 0) {
             position.trailingEnabled = true;
-            position.trailingActivationAmount = Math.round(_baseTarget * 0.5);
+            position.trailingActivationAmount = Math.round(_baseTarget * 0.5); // activate at 50% of target
             position.targetJumpAmount = Math.round(_baseTarget * 0.25);
             position.stopLossJumpAmount = Math.round(_baseSL * 0.35);
           }
-          console.log(`🤖 [AUTO-RISK DEFAULT APPLIED] ${position.symbolName} → Tgt ₹${_baseTarget} SL ₹${_baseSL} (user had no Tgt/SL)`);
         }
-
 
         const _activation = Number(position.trailingActivationAmount ?? 0);
         const _targetJump = Number(position.targetJumpAmount ?? 0);
@@ -2421,22 +2417,47 @@ class PersistentTradingEngine {
         const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
         const _withinGrace = _ageMs < 45_000;
 
-        // 🔒 USER-CONFIGURED SL IS THE SOURCE OF TRUTH
-        // Predictive early exits (Profit Protection, Early Reversal Cut, AI Reversal Confirmed)
-        // are DISABLED so the position exits ONLY at the user-configured Target / Stop Loss
-        // (or trailing SL once trailing activates). Strong-reversal signal exit below is also
-        // gated to never close a still-in-SL-range losing trade prematurely.
+        // 1) PROFIT PROTECTION — exit when we've captured meaningful profit and trend is reversing.
+        //    Skipped if trend is still strongly with the position (let winners run).
+        if (!shouldExit && !_withinGrace && (position.highestPnl || 0) > 0 && pnl > 0 && !_strongWith) {
+          const peak = position.highestPnl || 0;
+          const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.4 : Math.max(150, peak * 0.5);
+          const inProfitZone = peak >= profitFloor;
+          const heavyGiveBack = giveBackPct >= 55;
+          const reversingMomentum = momentumScore < 0;
+          if (inProfitZone && heavyGiveBack && reversingMomentum) {
+            shouldExit = true;
+            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, momentum reversing)`;
+          }
+        }
 
+        // 2) EARLY LOSS CUT — exit before full SL when market is strongly against us.
+        if (!shouldExit && !_withinGrace && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
+          const lossPct = Math.abs(pnl) / _baseSLForCalc;
+          if (lossPct >= 0.45) {
+            shouldExit = true;
+            exitReason = `Early Reversal Cut (${marketMomentum} strongly against ${_posDir}, Loss ₹${pnl.toFixed(2)} = ${(lossPct * 100).toFixed(0)}% of SL)`;
+          }
+        }
 
-        // 4) Strong-reversal signal exit — only allowed when position is in PROFIT
-        //    (protects winners). Losing trades must reach the user-configured SL.
-        if (!shouldExit && !_withinGrace && signalShouldExit && pnl > 0) {
+        // 3) AI REVERSAL CONFIRMED — lower confidence required when momentum strongly confirms.
+        if (!shouldExit && !_withinGrace && currentSignal) {
+          const opp = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
+          const conf = Number(currentSignal.confidence || 0);
+          if (currentSignal.action === opp && conf >= 75 && _strongAgainst) {
+            shouldExit = true;
+            exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%, momentum ${momentumStrength}/6 against)`;
+          }
+        }
+
+        // 4) Original strong-reversal signal-based exit (90%+ conf) — kept as final safety net.
+        if (!shouldExit && !_withinGrace && signalShouldExit) {
+          // Suppress if strongly with trend AND in healthy profit (let winners run)
           if (!(_strongWith && pnl > 0 && giveBackPct < 40)) {
             shouldExit = true;
             exitReason = signalExitReason;
           }
         }
-
 
         (position as any).monitorDecision = shouldExit ? "EXIT" : monitorDecision;
 
