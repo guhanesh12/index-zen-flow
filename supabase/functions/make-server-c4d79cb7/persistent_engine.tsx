@@ -2131,8 +2131,8 @@ class PersistentTradingEngine {
         let _baseTarget = Number(position.targetAmount || 0);
         let _baseSL = Number(position.stopLossAmount || 0);
 
-        // 🤖 AUTO-DEFAULT RISK (for manual symbols / positions without user-configured Tgt/SL)
-        // 5% target, 2.5% SL of notional (R:R ≈ 2:1). Trailing auto-enabled with sensible jumps.
+        // 🤖 AUTO-DEFAULT RISK — ONLY when user has NOT configured Target AND SL.
+        // If either is set (>0) we respect the user's values exactly and never override.
         if (_baseTarget <= 0 && _baseSL <= 0 && entryPrice > 0 && quantity > 0) {
           const notional = entryPrice * quantity;
           _baseTarget = Math.max(100, Math.round(notional * 0.05));
@@ -2143,11 +2143,13 @@ class PersistentTradingEngine {
           position.currentStopLossAmount = _baseSL;
           if (!position.trailingActivationAmount || position.trailingActivationAmount <= 0) {
             position.trailingEnabled = true;
-            position.trailingActivationAmount = Math.round(_baseTarget * 0.5); // activate at 50% of target
+            position.trailingActivationAmount = Math.round(_baseTarget * 0.5);
             position.targetJumpAmount = Math.round(_baseTarget * 0.25);
             position.stopLossJumpAmount = Math.round(_baseSL * 0.35);
           }
+          console.log(`🤖 [AUTO-RISK DEFAULT APPLIED] ${position.symbolName} → Tgt ₹${_baseTarget} SL ₹${_baseSL} (user had no Tgt/SL)`);
         }
+
 
         const _activation = Number(position.trailingActivationAmount ?? 0);
         const _targetJump = Number(position.targetJumpAmount ?? 0);
