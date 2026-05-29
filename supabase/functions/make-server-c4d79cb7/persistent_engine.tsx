@@ -2426,14 +2426,15 @@ class PersistentTradingEngine {
         // gated to never close a still-in-SL-range losing trade prematurely.
 
 
-        // 4) Original strong-reversal signal-based exit (90%+ conf) — kept as final safety net.
-        if (!shouldExit && !_withinGrace && signalShouldExit) {
-          // Suppress if strongly with trend AND in healthy profit (let winners run)
+        // 4) Strong-reversal signal exit — only allowed when position is in PROFIT
+        //    (protects winners). Losing trades must reach the user-configured SL.
+        if (!shouldExit && !_withinGrace && signalShouldExit && pnl > 0) {
           if (!(_strongWith && pnl > 0 && giveBackPct < 40)) {
             shouldExit = true;
             exitReason = signalExitReason;
           }
         }
+
 
         (position as any).monitorDecision = shouldExit ? "EXIT" : monitorDecision;
 
