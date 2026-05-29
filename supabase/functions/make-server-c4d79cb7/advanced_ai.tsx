@@ -2092,7 +2092,9 @@ export class AdvancedAI {
     const h1AlignedBull = h1Align === "bull";
     const h1AlignedBear = h1Align === "bear";
 
-    // Breakout confirmation: close beyond level, or previous breakout + current candle holds the level.
+    // Breakout confirmation: close beyond local level, today's high/low, or previous breakout + hold.
+    // Important: local rolling highs keep fast continuation working, while day high/low catches
+    // true second-session breakouts after the morning range has already been set.
     const breakoutLookback = Math.min(12, Math.max(5, priorLevelData.length));
     const breakoutBase = priorLevelData.slice(-breakoutLookback);
     const fallbackBase = ohlcData.slice(-Math.min(12, ohlcData.length - 1), -1);
@@ -2100,8 +2102,38 @@ export class AdvancedAI {
     const breakoutHigh = Math.max(...levelCandles.map((c) => c.high));
     const breakoutLow = Math.min(...levelCandles.map((c) => c.low));
     const breakoutHoldTol = atr14 * 0.15;
+    const priorSessionHigh = priorLevelData.length ? Math.max(...priorLevelData.map((c) => c.high)) : breakoutHigh;
+    const priorSessionLow = priorLevelData.length ? Math.min(...priorLevelData.map((c) => c.low)) : breakoutLow;
+    const openingRangeCandles = priorLevelData.filter((c) => {
+      const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
+      const mins = this.getIstMinutes(tsMs);
+      return mins >= 9 * 60 + 15 && mins <= 10 * 60 + 30;
+    });
+    const openingRangeHigh = openingRangeCandles.length
+      ? Math.max(...openingRangeCandles.map((c) => c.high))
+      : priorSessionHigh;
+    const openingRangeLow = openingRangeCandles.length
+      ? Math.min(...openingRangeCandles.map((c) => c.low))
+      : priorSessionLow;
+    const dayBreakoutHigh = Math.max(priorSessionHigh, openingRangeHigh);
+    const dayBreakoutLow = Math.min(priorSessionLow, openingRangeLow);
+    const breakoutCandleRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
+    const breakoutCloseNearHigh = (lastCandle.close - lastCandle.low) / breakoutCandleRange > 0.55;
+    const breakoutCloseNearLow = (lastCandle.high - lastCandle.close) / breakoutCandleRange > 0.55;
     const bullishBreakoutClose = lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
     const bearishBreakdownClose = lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
+    const bullishDayHighBreakout =
+      dayBreakoutHigh > 0 &&
+      (lastCandle.close > dayBreakoutHigh ||
+        (lastCandle.high > dayBreakoutHigh && lastCandle.close >= dayBreakoutHigh - breakoutHoldTol)) &&
+      lastCandle.close > lastCandle.open &&
+      breakoutCloseNearHigh;
+    const bearishDayLowBreakdown =
+      dayBreakoutLow > 0 &&
+      (lastCandle.close < dayBreakoutLow ||
+        (lastCandle.low < dayBreakoutLow && lastCandle.close <= dayBreakoutLow + breakoutHoldTol)) &&
+      lastCandle.close < lastCandle.open &&
+      breakoutCloseNearLow;
     const bullishBreakoutHold =
       prevCandle.close > breakoutHigh &&
       lastCandle.close > breakoutHigh &&
@@ -2110,8 +2142,8 @@ export class AdvancedAI {
       prevCandle.close < breakoutLow &&
       lastCandle.close < breakoutLow &&
       lastCandle.high <= breakoutLow + breakoutHoldTol;
-    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold;
-    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold;
+    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold || bullishDayHighBreakout;
+    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold || bearishDayLowBreakdown;
 
     const earlyBullChecks = [
       breakoutConfirmedBull,
