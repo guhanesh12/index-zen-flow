@@ -2793,7 +2793,15 @@ class PersistentTradingEngine {
       const normalizedIndex = normalizeIndexName(symbol);
       const normalizedSymbolName = getSymbolDisplayName(symbol);
       const action = aiSignal?.signal?.action || "WAIT";
-      if (action === "WAIT") return;
+
+      if (action === "WAIT") {
+        const tsRaw = aiSignal?.signal?.timestamp || Date.now();
+        const tsMs = Number(tsRaw) < 1e12 ? Number(tsRaw) * 1000 : Number(tsRaw);
+        const bucket = Math.floor(tsMs / (15 * 60 * 1000)) * (15 * 60 * 1000);
+        const waitKey = `wait_saved:${userId}:${normalizedIndex}:${bucket}`;
+        if (await kv.get(waitKey)) return;
+        await kv.set(waitKey, true);
+      }
 
       const targetOptionType =
         action === "BUY_CALL"
