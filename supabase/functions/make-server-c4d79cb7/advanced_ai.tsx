@@ -718,6 +718,36 @@ export class AdvancedAI {
   }
 
   /**
+   * Stable breakout anchors: last CONFIRMED swing high/low from prior candles only.
+   * This prevents the trigger level from moving to each newly-created candle low/high,
+   * which was causing valid continuation breakouts to be missed after the first push.
+   */
+  private static getConfirmedBreakoutAnchors(
+    data: OHLCCandle[],
+    lookback: number = 80,
+    left: number = 2,
+    right: number = 2,
+  ): { high?: number; low?: number } {
+    const slice = data.slice(-lookback);
+    if (slice.length < left + right + 3) return {};
+
+    let high: number | undefined;
+    let low: number | undefined;
+    for (let i = left; i < slice.length - right; i++) {
+      let isPivotHigh = true;
+      let isPivotLow = true;
+      for (let j = i - left; j <= i + right; j++) {
+        if (j === i) continue;
+        if (slice[j].high >= slice[i].high) isPivotHigh = false;
+        if (slice[j].low <= slice[i].low) isPivotLow = false;
+      }
+      if (isPivotHigh) high = slice[i].high;
+      if (isPivotLow) low = slice[i].low;
+    }
+    return { high, low };
+  }
+
+  /**
    * Calculate Fibonacci Retracement Levels
    */
   private static calculateFibonacci(data: OHLCCandle[]): {
