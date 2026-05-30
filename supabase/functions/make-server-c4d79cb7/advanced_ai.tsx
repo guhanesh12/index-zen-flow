@@ -718,6 +718,36 @@ export class AdvancedAI {
   }
 
   /**
+   * Stable breakout anchors: last CONFIRMED swing high/low from prior candles only.
+   * This prevents the trigger level from moving to each newly-created candle low/high,
+   * which was causing valid continuation breakouts to be missed after the first push.
+   */
+  private static getConfirmedBreakoutAnchors(
+    data: OHLCCandle[],
+    lookback: number = 80,
+    left: number = 2,
+    right: number = 2,
+  ): { high?: number; low?: number } {
+    const slice = data.slice(-lookback);
+    if (slice.length < left + right + 3) return {};
+
+    let high: number | undefined;
+    let low: number | undefined;
+    for (let i = left; i < slice.length - right; i++) {
+      let isPivotHigh = true;
+      let isPivotLow = true;
+      for (let j = i - left; j <= i + right; j++) {
+        if (j === i) continue;
+        if (slice[j].high >= slice[i].high) isPivotHigh = false;
+        if (slice[j].low <= slice[i].low) isPivotLow = false;
+      }
+      if (isPivotHigh) high = slice[i].high;
+      if (isPivotLow) low = slice[i].low;
+    }
+    return { high, low };
+  }
+
+  /**
    * Calculate Fibonacci Retracement Levels
    */
   private static calculateFibonacci(data: OHLCCandle[]): {
@@ -2092,16 +2122,19 @@ export class AdvancedAI {
     const h1AlignedBull = h1Align === "bull";
     const h1AlignedBear = h1Align === "bear";
 
-    // Breakout confirmation: close beyond local level, today's high/low, or previous breakout + hold.
-    // Important: local rolling highs keep fast continuation working, while day high/low catches
-    // true second-session breakouts after the morning range has already been set.
+    // Breakout confirmation: compare current candle with STABLE prior levels only.
+    // Do not use a rolling min/max that includes every fresh lower-low/higher-high, because that
+    // moves the breakout trigger away in trending moves and blocks follow-through entries.
     const breakoutLookback = Math.min(12, Math.max(5, priorLevelData.length));
     const breakoutBase = priorLevelData.slice(-breakoutLookback);
     const fallbackBase = ohlcData.slice(-Math.min(12, ohlcData.length - 1), -1);
     const levelCandles = breakoutBase.length >= 3 ? breakoutBase : fallbackBase;
-    const breakoutHigh = Math.max(...levelCandles.map((c) => c.high));
-    const breakoutLow = Math.min(...levelCandles.map((c) => c.low));
-    const breakoutHoldTol = atr14 * 0.15;
+    const swingAnchors = this.getConfirmedBreakoutAnchors(priorLevelData.length >= 8 ? priorLevelData : fallbackBase);
+    const breakoutHigh = swingAnchors.high ?? Math.max(...levelCandles.map((c) => c.high));
+    const breakoutLow = swingAnchors.low ?? Math.min(...levelCandles.map((c) => c.low));
+    const previousCandleHigh = Math.max(...levelCandles.map((c) => c.high));
+    const previousCandleLow = Math.min(...levelCandles.map((c) => c.low));
+    const breakoutHoldTol = atr14 * 0.2;
     const priorSessionHigh = priorLevelData.length ? Math.max(...priorLevelData.map((c) => c.high)) : breakoutHigh;
     const priorSessionLow = priorLevelData.length ? Math.min(...priorLevelData.map((c) => c.low)) : breakoutLow;
     const openingRangeCandles = priorLevelData.filter((c) => {
@@ -2122,6 +2155,10 @@ export class AdvancedAI {
     const breakoutCloseNearLow = (lastCandle.high - lastCandle.close) / breakoutCandleRange > 0.55;
     const bullishBreakoutClose = lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
     const bearishBreakdownClose = lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
+    const bullishPriorHighBreakout =
+      lastCandle.close > previousCandleHigh && lastCandle.close > lastCandle.open && breakoutCloseNearHigh;
+    const bearishPriorLowBreakdown =
+      lastCandle.close < previousCandleLow && lastCandle.close < lastCandle.open && breakoutCloseNearLow;
     const bullishDayHighBreakout =
       dayBreakoutHigh > 0 &&
       (lastCandle.close > dayBreakoutHigh ||
@@ -2142,8 +2179,8 @@ export class AdvancedAI {
       prevCandle.close < breakoutLow &&
       lastCandle.close < breakoutLow &&
       lastCandle.high <= breakoutLow + breakoutHoldTol;
-    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold || bullishDayHighBreakout;
-    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold || bearishDayLowBreakdown;
+    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold || bullishDayHighBreakout || bullishPriorHighBreakout;
+    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold || bearishDayLowBreakdown || bearishPriorLowBreakdown;
 
     const earlyBullChecks = [
       breakoutConfirmedBull,
@@ -2870,14 +2907,14 @@ export class AdvancedAI {
 
       const bearBreakdown =
         closePosLow > 0.65 &&
-        (lastCandle.close < prevCandle.low || bearishDayLowBreakdown) &&
+        (lastCandle.close < prevCandle.low || lastCandle.close < breakoutLow || bearishPriorLowBreakdown || bearishDayLowBreakdown) &&
         lastCandle.close < lastCandle.open &&
-        vwapDistance < -0.15;
+        (vwapDistance < -0.15 || (adx >= 25 && ema9 < ema21));
       const bullBreakout =
         closePosHigh > 0.65 &&
-        (lastCandle.close > prevCandle.high || bullishDayHighBreakout) &&
+        (lastCandle.close > prevCandle.high || lastCandle.close > breakoutHigh || bullishPriorHighBreakout || bullishDayHighBreakout) &&
         lastCandle.close > lastCandle.open &&
-        vwapDistance > 0.15;
+        (vwapDistance > 0.15 || (adx >= 25 && ema9 > ema21));
 
       if (bearBreakdown) {
         let conf = 70;
@@ -2888,7 +2925,8 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_PUT";
         bias = "Bearish";
-        reasoning = `📉 BREAKDOWN BUY_PUT — close ${lastCandle.close.toFixed(2)} broke ${bearishDayLowBreakdown ? `day low ${dayBreakoutLow.toFixed(2)}` : `prev low ${prevCandle.low.toFixed(2)}`}, close at ${(closePosLow * 100).toFixed(0)}% of low, VWAP${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
+        const brokenLevel = bearishDayLowBreakdown ? dayBreakoutLow : bearishPriorLowBreakdown ? previousCandleLow : Math.min(prevCandle.low, breakoutLow);
+        reasoning = `📉 BREAKDOWN BUY_PUT — close ${lastCandle.close.toFixed(2)} broke ${bearishDayLowBreakdown ? "day low" : bearishPriorLowBreakdown ? "rolling prior low" : "confirmed swing/prev low"} ${brokenLevel.toFixed(2)}, close at ${(closePosLow * 100).toFixed(0)}% of low, VWAP${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       } else if (bullBreakout) {
         let conf = 70;
         if (rsi > 50) conf += 5;
@@ -2898,7 +2936,8 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_CALL";
         bias = "Bullish";
-        reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} broke ${bullishDayHighBreakout ? `day high ${dayBreakoutHigh.toFixed(2)}` : `prev high ${prevCandle.high.toFixed(2)}`}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
+        const brokenLevel = bullishDayHighBreakout ? dayBreakoutHigh : bullishPriorHighBreakout ? previousCandleHigh : Math.max(prevCandle.high, breakoutHigh);
+        reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} broke ${bullishDayHighBreakout ? "day high" : bullishPriorHighBreakout ? "rolling prior high" : "confirmed swing/prev high"} ${brokenLevel.toFixed(2)}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
 

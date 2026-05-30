@@ -1158,6 +1158,7 @@ class PersistentTradingEngine {
                 );
                 await kv.set(`last_signal_dir:${userId}:${indexName}`, sig.action);
               }
+              (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
               aiSignal = { signal: sig };
             }
           } catch (e) {
@@ -1190,8 +1191,8 @@ class PersistentTradingEngine {
           const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
           state.stats.totalSignals++;
           await this.incrementSignalStats(userId, "signal");
+          await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
           if (action !== "WAIT") {
-            await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
             await kv.set(
               `last_signal_ts:${userId}:${indexName}`,
               aiSignal.signal?.riskManagement?.suggestedEntry ? aiSignal.signal?.timestamp || Date.now() : Date.now(),
@@ -2792,7 +2793,15 @@ class PersistentTradingEngine {
       const normalizedIndex = normalizeIndexName(symbol);
       const normalizedSymbolName = getSymbolDisplayName(symbol);
       const action = aiSignal?.signal?.action || "WAIT";
-      if (action === "WAIT") return;
+
+      if (action === "WAIT") {
+        const tsRaw = aiSignal?.signal?.timestamp || Date.now();
+        const tsMs = Number(tsRaw) < 1e12 ? Number(tsRaw) * 1000 : Number(tsRaw);
+        const bucket = Math.floor(tsMs / (15 * 60 * 1000)) * (15 * 60 * 1000);
+        const waitKey = `wait_saved:${userId}:${normalizedIndex}:${bucket}`;
+        if (await kv.get(waitKey)) return;
+        await kv.set(waitKey, true);
+      }
 
       const targetOptionType =
         action === "BUY_CALL"
