@@ -2907,14 +2907,14 @@ export class AdvancedAI {
 
       const bearBreakdown =
         closePosLow > 0.65 &&
-        (lastCandle.close < prevCandle.low || bearishDayLowBreakdown) &&
+        (lastCandle.close < prevCandle.low || lastCandle.close < breakoutLow || bearishPriorLowBreakdown || bearishDayLowBreakdown) &&
         lastCandle.close < lastCandle.open &&
-        vwapDistance < -0.15;
+        (vwapDistance < -0.15 || (adx >= 25 && ema9 < ema21));
       const bullBreakout =
         closePosHigh > 0.65 &&
-        (lastCandle.close > prevCandle.high || bullishDayHighBreakout) &&
+        (lastCandle.close > prevCandle.high || lastCandle.close > breakoutHigh || bullishPriorHighBreakout || bullishDayHighBreakout) &&
         lastCandle.close > lastCandle.open &&
-        vwapDistance > 0.15;
+        (vwapDistance > 0.15 || (adx >= 25 && ema9 > ema21));
 
       if (bearBreakdown) {
         let conf = 70;
@@ -2925,7 +2925,8 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_PUT";
         bias = "Bearish";
-        reasoning = `📉 BREAKDOWN BUY_PUT — close ${lastCandle.close.toFixed(2)} broke ${bearishDayLowBreakdown ? `day low ${dayBreakoutLow.toFixed(2)}` : `prev low ${prevCandle.low.toFixed(2)}`}, close at ${(closePosLow * 100).toFixed(0)}% of low, VWAP${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
+        const brokenLevel = bearishDayLowBreakdown ? dayBreakoutLow : bearishPriorLowBreakdown ? previousCandleLow : Math.min(prevCandle.low, breakoutLow);
+        reasoning = `📉 BREAKDOWN BUY_PUT — close ${lastCandle.close.toFixed(2)} broke ${bearishDayLowBreakdown ? "day low" : bearishPriorLowBreakdown ? "rolling prior low" : "confirmed swing/prev low"} ${brokenLevel.toFixed(2)}, close at ${(closePosLow * 100).toFixed(0)}% of low, VWAP${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       } else if (bullBreakout) {
         let conf = 70;
         if (rsi > 50) conf += 5;
@@ -2935,7 +2936,8 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_CALL";
         bias = "Bullish";
-        reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} broke ${bullishDayHighBreakout ? `day high ${dayBreakoutHigh.toFixed(2)}` : `prev high ${prevCandle.high.toFixed(2)}`}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
+        const brokenLevel = bullishDayHighBreakout ? dayBreakoutHigh : bullishPriorHighBreakout ? previousCandleHigh : Math.max(prevCandle.high, breakoutHigh);
+        reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} broke ${bullishDayHighBreakout ? "day high" : bullishPriorHighBreakout ? "rolling prior high" : "confirmed swing/prev high"} ${brokenLevel.toFixed(2)}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
 
