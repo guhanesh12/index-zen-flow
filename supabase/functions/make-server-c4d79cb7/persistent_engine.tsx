@@ -1158,6 +1158,7 @@ class PersistentTradingEngine {
                 );
                 await kv.set(`last_signal_dir:${userId}:${indexName}`, sig.action);
               }
+              (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
               aiSignal = { signal: sig };
             }
           } catch (e) {
@@ -1190,8 +1191,8 @@ class PersistentTradingEngine {
           const pseudoSymbol = { index: indexName, symbolName: indexName, name: indexName };
           state.stats.totalSignals++;
           await this.incrementSignalStats(userId, "signal");
+          await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
           if (action !== "WAIT") {
-            await this.saveSignalToDB(userId, pseudoSymbol, aiSignal);
             await kv.set(
               `last_signal_ts:${userId}:${indexName}`,
               aiSignal.signal?.riskManagement?.suggestedEntry ? aiSignal.signal?.timestamp || Date.now() : Date.now(),
