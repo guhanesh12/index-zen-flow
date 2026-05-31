@@ -3062,10 +3062,7 @@ export class AdvancedAI {
         reasoning = `📈 DRIFT BUY_CALL — ${greenBars}/5 green bars, +${(closeNow - closeMinus3).toFixed(2)}pt over 3 bars, VWAP+${vwapDistance.toFixed(2)}%, EMA9>EMA21 (slope up), RSI ${rsi.toFixed(1)} rising from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
-    if (false) {  // placeholder to preserve following else-if chain
-
-
-    } else if (consecutiveLossLockout) {
+    if (consecutiveLossLockout) {
       action = "WAIT";
       confidence = 30;
       bias = "Neutral";
@@ -3111,13 +3108,14 @@ export class AdvancedAI {
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Mid-session trap only because ADX is weak/not rising, volume is weak, and VWAP is flat.`;
-    } else if (trendExhausted) {
+    } else if (action === "WAIT" && trendExhausted) {
       // FIX 6: trend exhaustion guard
       action = "WAIT";
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Trend exhausted — price ${distFromEma21Atr.toFixed(2)} ATR from EMA21 (>4). Avoid chasing.`;
     } else if (
+      action === "WAIT" &&
       !breakoutConfirmedBull &&
       !breakoutConfirmedBear &&
       !continuationBull &&
@@ -3142,8 +3140,9 @@ export class AdvancedAI {
               : "Neutral";
       reasoning = `WAIT: No breakout, no continuation pullback, no reversal pattern (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
     } else if (
-      (confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry && !ultraFastOpeningBull) ||
-      (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry && !ultraFastOpeningBear)
+      action === "WAIT" &&
+      ((confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry && !ultraFastOpeningBull) ||
+        (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry && !ultraFastOpeningBear))
     ) {
       action = "WAIT";
       confidence = 40;
@@ -3158,7 +3157,7 @@ export class AdvancedAI {
               ? "Bearish"
               : "Neutral";
       reasoning = `WAIT: Confirmations incomplete (bull ${totalBullScore}/8, bear ${totalBearScore}/8; need ${requiredConfirmations}, ADX ${adx.toFixed(1)}). No continuation/reversal setup.`;
-    } else if ((bodySize < minimumBodySize || !hasAcceptableVolume) && adx < 25) {
+    } else if (action === "WAIT" && (bodySize < minimumBodySize || !hasAcceptableVolume) && adx < 25) {
       // FIX 3 + 10: Volume / body only hard-blocks when ADX < 25 (no trend energy).
       // In trending markets (ADX >= 25), low volume / weak body should NOT block continuation entries.
       if (!hasStrongPattern) {
@@ -3178,7 +3177,7 @@ export class AdvancedAI {
               ? `WAIT: Weak candle (${bodyText}), ADX ${adx.toFixed(1)} < 25.`
               : `WAIT: Low ${volumeText}, ADX ${adx.toFixed(1)} < 25.`;
       }
-    } else {
+    } else if (action === "WAIT") {
       action = "WAIT";
       confidence = 45;
       bias = "Neutral";
