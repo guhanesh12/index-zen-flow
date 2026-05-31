@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AdminSecurityPanel } from './AdminSecurityPanel';
+import { SecurityActivityMonitor } from './SecurityActivityMonitor';
 import { AdvancedMonitoring } from './AdvancedMonitoring';
 import { AdminPushNotifications } from './AdminPushNotifications';
 import { SystemHealth } from './SystemHealth';
