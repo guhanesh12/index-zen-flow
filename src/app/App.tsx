@@ -9,7 +9,10 @@ import { PWADebugger } from './components/PWADebugger';
 import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
-import { initializeSecurity } from '@/utils-ext/security/SecurityHardening';
+import { initializeSecurity, SessionManager } from '@/utils-ext/security/SecurityHardening';
+import { AuditLogger } from '@/utils-ext/security/AuditLogger';
+import { supabase } from '@/integrations/supabase/client';
+
 
 // Extend Window interface for hotkey system
 declare global {
@@ -30,10 +33,29 @@ export default function App() {
     // 🔄 START AUTO-VERSION CHECK (prevents cache issues!)
     startVersionCheck();
     
-    // 🔒 Initialize Security System
+    // 🔒 Initialize Security System (bank-level hardening)
     initializeSecurity({
-      enableDevToolsMonitor: false, // Enable in production if needed
+      enableDevToolsMonitor: import.meta.env.PROD, // Production only
+      onSessionTimeout: async () => {
+        try {
+          await AuditLogger.log({ action: 'session_timeout', status: 'success' });
+          await supabase.auth.signOut();
+        } catch {}
+        // Hard redirect to clear all in-memory state
+        window.location.href = '/login';
+      },
+      onSessionWarning: () => {
+        console.warn('🔒 Session will expire in 5 minutes due to inactivity.');
+      },
     });
+
+    // Reset idle timer on auth events
+    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        SessionManager.extend();
+      }
+    });
+
     
     // Initialize hotkey system
     window.adminHotkeys = ['GUHAN']; // Default fallback
@@ -107,7 +129,10 @@ export default function App() {
       window.removeEventListener('admin-hotkeys-updated', handleHotkeyUpdate);
       clearInterval(hotkeyRefreshInterval);
       clearTimeout(window.adminKeyTimeout);
+      authSub?.subscription?.unsubscribe?.();
+      SessionManager.stop();
     };
+
   }, []);
 
   // Load admin hotkeys from server

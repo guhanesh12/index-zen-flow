@@ -167,6 +167,36 @@ export type Database = {
         }
         Relationships: []
       }
+      failed_login_attempts: {
+        Row: {
+          attempt_type: string
+          created_at: string
+          id: string
+          identifier: string
+          ip_address: string | null
+          reason: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          attempt_type?: string
+          created_at?: string
+          id?: string
+          identifier: string
+          ip_address?: string | null
+          reason?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          attempt_type?: string
+          created_at?: string
+          id?: string
+          identifier?: string
+          ip_address?: string | null
+          reason?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       instrument_master: {
         Row: {
           exchange_segment: string
@@ -611,6 +641,48 @@ export type Database = {
           rewarded_at?: string | null
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      security_audit_log: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_user_id: string | null
+          created_at: string
+          id: string
+          ip_address: string | null
+          metadata: Json
+          resource: string | null
+          resource_id: string | null
+          status: string
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json
+          resource?: string | null
+          resource_id?: string | null
+          status?: string
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json
+          resource?: string | null
+          resource_id?: string | null
+          status?: string
+          user_agent?: string | null
         }
         Relationships: []
       }
@@ -1110,7 +1182,12 @@ export type Database = {
         Args: { curlopt: string; value: string }
         Returns: boolean
       }
+      is_login_locked: {
+        Args: { _identifier: string; _ip?: string }
+        Returns: boolean
+      }
       is_trading_day: { Args: { d?: string }; Returns: boolean }
+      referral_code_exists: { Args: { _code: string }; Returns: boolean }
       text_to_bytea: { Args: { data: string }; Returns: string }
       urlencode:
         | { Args: { data: Json }; Returns: string }
