@@ -115,7 +115,11 @@ export interface AdvancedIndicators {
   slopeBullish?: boolean;
   slopeBearish?: boolean;
   rangeExpansion?: boolean;
-  fibImpulse?: { swingHigh: number; swingLow: number; direction: "UP" | "DOWN" };
+  fibImpulse?: {
+    swingHigh: number;
+    swingLow: number;
+    direction: "UP" | "DOWN";
+  };
   gap?: { type: "GAP_UP" | "GAP_DOWN" | "NONE"; size: number; filled: boolean };
 }
 
@@ -190,7 +194,12 @@ export interface AdvancedSignal {
     positionSize: number;
     maxLoss: number;
     expectedProfit: number;
-    trailingStop?: { initial: number; trigger: number; trailDistance: number; breakeven: number };
+    trailingStop?: {
+      initial: number;
+      trigger: number;
+      trailDistance: number;
+      breakeven: number;
+    };
   };
 
   // Market regime
@@ -275,18 +284,27 @@ export class AdvancedAI {
     return istDate.getUTCHours() * 60 + istDate.getUTCMinutes();
   }
 
-  private static getCurrentSessionCandles(data: OHLCCandle[], includeLast = true): OHLCCandle[] {
+  private static getCurrentSessionCandles(
+    data: OHLCCandle[],
+    includeLast = true,
+  ): OHLCCandle[] {
     if (!data.length) return [];
     const last = data[data.length - 1];
-    const lastTsMs = last.timestamp < 1e12 ? last.timestamp * 1000 : last.timestamp;
-    const istDayKey = (tsMs: number) => new Date(tsMs + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const lastTsMs =
+      last.timestamp < 1e12 ? last.timestamp * 1000 : last.timestamp;
+    const istDayKey = (tsMs: number) =>
+      new Date(tsMs + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const targetDay = istDayKey(lastTsMs);
     const sessionStart = 9 * 60 + 15;
     const sessionEnd = 15 * 60 + 30;
     const session = data.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
       const mins = this.getIstMinutes(tsMs);
-      return istDayKey(tsMs) === targetDay && mins >= sessionStart && mins <= sessionEnd;
+      return (
+        istDayKey(tsMs) === targetDay &&
+        mins >= sessionStart &&
+        mins <= sessionEnd
+      );
     });
     return includeLast ? session : session.filter((c) => c !== last);
   }
@@ -355,22 +373,46 @@ export class AdvancedAI {
     // Bearish patterns should be at resistance
     if (pattern.direction === "BEARISH") {
       if (nearResistance && volumeIncrease) {
-        return { isValid: true, weight: 2, reason: "Strong bearish pattern at resistance with volume" };
+        return {
+          isValid: true,
+          weight: 2,
+          reason: "Strong bearish pattern at resistance with volume",
+        };
       } else if (nearResistance || volumeIncrease) {
-        return { isValid: true, weight: 1, reason: "Moderate bearish pattern (partial validation)" };
+        return {
+          isValid: true,
+          weight: 1,
+          reason: "Moderate bearish pattern (partial validation)",
+        };
       } else {
-        return { isValid: false, weight: 1, reason: "Weak bearish pattern (not at resistance, low volume)" };
+        return {
+          isValid: false,
+          weight: 1,
+          reason: "Weak bearish pattern (not at resistance, low volume)",
+        };
       }
     }
 
     // Bullish patterns should be at support
     if (pattern.direction === "BULLISH") {
       if (nearSupport && volumeIncrease) {
-        return { isValid: true, weight: 2, reason: "Strong bullish pattern at support with volume" };
+        return {
+          isValid: true,
+          weight: 2,
+          reason: "Strong bullish pattern at support with volume",
+        };
       } else if (nearSupport || volumeIncrease) {
-        return { isValid: true, weight: 1, reason: "Moderate bullish pattern (partial validation)" };
+        return {
+          isValid: true,
+          weight: 1,
+          reason: "Moderate bullish pattern (partial validation)",
+        };
       } else {
-        return { isValid: false, weight: 1, reason: "Weak bullish pattern (not at support, low volume)" };
+        return {
+          isValid: false,
+          weight: 1,
+          reason: "Weak bullish pattern (not at support, low volume)",
+        };
       }
     }
 
@@ -420,7 +462,9 @@ export class AdvancedAI {
       cumulativeTPV += typicalPrice * (candle.volume || 1);
       cumulativeVolume += candle.volume || 1;
     }
-    return cumulativeVolume > 0 ? cumulativeTPV / cumulativeVolume : data[data.length - 1].close;
+    return cumulativeVolume > 0
+      ? cumulativeTPV / cumulativeVolume
+      : data[data.length - 1].close;
   }
 
   /**
@@ -481,7 +525,11 @@ export class AdvancedAI {
   /**
    * Calculate MACD with TRUE EMA-of-MACD-series signal line
    */
-  private static calculateMACD(data: OHLCCandle[]): { macd: number; signal: number; histogram: number } {
+  private static calculateMACD(data: OHLCCandle[]): {
+    macd: number;
+    signal: number;
+    histogram: number;
+  } {
     if (data.length < 26) {
       const macd = this.calculateEMA(data, 12) - this.calculateEMA(data, 26);
       return { macd, signal: macd, histogram: 0 };
@@ -491,7 +539,8 @@ export class AdvancedAI {
     const ema26s = this.emaSeries(closes, 26);
     const macdSeries: number[] = [];
     for (let i = 0; i < closes.length; i++) {
-      if (!isNaN(ema12s[i]) && !isNaN(ema26s[i])) macdSeries.push(ema12s[i] - ema26s[i]);
+      if (!isNaN(ema12s[i]) && !isNaN(ema26s[i]))
+        macdSeries.push(ema12s[i] - ema26s[i]);
     }
     if (macdSeries.length === 0) return { macd: 0, signal: 0, histogram: 0 };
     const signalSeries = this.emaSeries(macdSeries, 9);
@@ -542,13 +591,18 @@ export class AdvancedAI {
       const low = data[i].low;
       const prevClose = data[i - 1].close;
 
-      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      const tr = Math.max(
+        high - low,
+        Math.abs(high - prevClose),
+        Math.abs(low - prevClose),
+      );
 
       trueRanges.push(tr);
     }
 
     // Calculate ATR using EMA-like smoothing
-    let atr = trueRanges.slice(0, period).reduce((sum, tr) => sum + tr, 0) / period;
+    let atr =
+      trueRanges.slice(0, period).reduce((sum, tr) => sum + tr, 0) / period;
 
     for (let i = period; i < trueRanges.length; i++) {
       atr = (atr * (period - 1) + trueRanges[i]) / period;
@@ -560,7 +614,10 @@ export class AdvancedAI {
   /**
    * Calculate ADX with proper Wilder's smoothing of +DI, -DI and DX
    */
-  private static calculateADXSeries(data: OHLCCandle[], period: number = 14): number[] {
+  private static calculateADXSeries(
+    data: OHLCCandle[],
+    period: number = 14,
+  ): number[] {
     if (data.length < period * 2 + 1) {
       // fallback to simple version when not enough data
       if (data.length < period + 1) return [0];
@@ -653,7 +710,10 @@ export class AdvancedAI {
   /**
    * Stochastic with proper %D = 3-period SMA of %K
    */
-  private static calculateStochastic(data: OHLCCandle[], period: number = 14): { k: number; d: number } {
+  private static calculateStochastic(
+    data: OHLCCandle[],
+    period: number = 14,
+  ): { k: number; d: number } {
     if (data.length < period) return { k: 50, d: 50 };
     const kVals: number[] = [];
     const start = Math.max(period, data.length - (period + 3));
@@ -708,8 +768,15 @@ export class AdvancedAI {
       }
       // weight by touches (group length) — keep multi-touch zones
       return groups
-        .map((g) => ({ price: g.reduce((a, b) => a + b, 0) / g.length, touches: g.length }))
-        .sort((a, b) => b.touches - a.touches || Math.abs(a.price - last) - Math.abs(b.price - last))
+        .map((g) => ({
+          price: g.reduce((a, b) => a + b, 0) / g.length,
+          touches: g.length,
+        }))
+        .sort(
+          (a, b) =>
+            b.touches - a.touches ||
+            Math.abs(a.price - last) - Math.abs(b.price - last),
+        )
         .map((x) => x.price);
     };
     const resistances = cluster(highs.filter((h) => h > last));
@@ -730,7 +797,8 @@ export class AdvancedAI {
     atr: number = 0,
   ): { high?: number; low?: number; bullLegBars: number; bearLegBars: number } {
     const slice = data.slice(-lookback);
-    if (slice.length < left + right + 3) return { bullLegBars: 0, bearLegBars: 0 };
+    if (slice.length < left + right + 3)
+      return { bullLegBars: 0, bearLegBars: 0 };
 
     const lastClose = slice[slice.length - 1]?.close || 0;
     const tolerance = Math.max(atr * 0.12, lastClose * 0.00035, 0.01);
@@ -741,8 +809,12 @@ export class AdvancedAI {
         const prev = slice[i - 1];
         const continues =
           direction === "DOWN"
-            ? (cur.low <= prev.low + tolerance || cur.close <= prev.close + tolerance) && cur.high <= prev.high + tolerance * 3
-            : (cur.high >= prev.high - tolerance || cur.close >= prev.close - tolerance) && cur.low >= prev.low - tolerance * 3;
+            ? (cur.low <= prev.low + tolerance ||
+                cur.close <= prev.close + tolerance) &&
+              cur.high <= prev.high + tolerance * 3
+            : (cur.high >= prev.high - tolerance ||
+                cur.close >= prev.close - tolerance) &&
+              cur.low >= prev.low - tolerance * 3;
         if (!continues) break;
         bars++;
       }
@@ -751,8 +823,14 @@ export class AdvancedAI {
 
     const bearLegBars = countLegBars("DOWN");
     const bullLegBars = countLegBars("UP");
-    const bearBase = bearLegBars >= 2 ? slice.slice(0, Math.max(left + right + 3, slice.length - bearLegBars)) : slice;
-    const bullBase = bullLegBars >= 2 ? slice.slice(0, Math.max(left + right + 3, slice.length - bullLegBars)) : slice;
+    const bearBase =
+      bearLegBars >= 2
+        ? slice.slice(0, Math.max(left + right + 3, slice.length - bearLegBars))
+        : slice;
+    const bullBase =
+      bullLegBars >= 2
+        ? slice.slice(0, Math.max(left + right + 3, slice.length - bullLegBars))
+        : slice;
 
     const findLastPivot = (base: OHLCCandle[], kind: "HIGH" | "LOW") => {
       let pivot: number | undefined;
@@ -770,8 +848,12 @@ export class AdvancedAI {
 
     const recentHighBase = bullBase.slice(-Math.min(12, bullBase.length));
     const recentLowBase = bearBase.slice(-Math.min(12, bearBase.length));
-    const high = findLastPivot(bullBase, "HIGH") ?? Math.max(...recentHighBase.map((c) => c.high));
-    const low = findLastPivot(bearBase, "LOW") ?? Math.min(...recentLowBase.map((c) => c.low));
+    const high =
+      findLastPivot(bullBase, "HIGH") ??
+      Math.max(...recentHighBase.map((c) => c.high));
+    const low =
+      findLastPivot(bearBase, "LOW") ??
+      Math.min(...recentLowBase.map((c) => c.low));
     return { high, low, bullLegBars, bearLegBars };
   }
 
@@ -818,7 +900,8 @@ export class AdvancedAI {
 
     const currentBody = Math.abs(current.close - current.open);
     const currentRange = current.high - current.low;
-    const currentBodyPercent = currentRange > 0 ? (currentBody / currentRange) * 100 : 0;
+    const currentBodyPercent =
+      currentRange > 0 ? (currentBody / currentRange) * 100 : 0;
 
     const prevBody = Math.abs(prev.close - prev.open);
     const prevRange = prev.high - prev.low;
@@ -978,10 +1061,12 @@ export class AdvancedAI {
     }
 
     const totalPressure = buyPressure + sellPressure;
-    const buyPercent = totalPressure > 0 ? (buyPressure / totalPressure) * 100 : 50;
+    const buyPercent =
+      totalPressure > 0 ? (buyPressure / totalPressure) * 100 : 50;
     const sellPercent = 100 - buyPercent;
 
-    const orderFlow = buyPercent > 60 ? "BULLISH" : sellPercent > 60 ? "BEARISH" : "NEUTRAL";
+    const orderFlow =
+      buyPercent > 60 ? "BULLISH" : sellPercent > 60 ? "BEARISH" : "NEUTRAL";
 
     return { buyPressure: buyPercent, sellPressure: sellPercent, orderFlow };
   }
@@ -1006,8 +1091,10 @@ export class AdvancedAI {
     const isTrending = adx > 18;
 
     // Check EMA alignment for trend direction
-    const emaUptrend = indicators.ema9 > indicators.ema21 && indicators.ema21 > indicators.ema50;
-    const emaDowntrend = indicators.ema9 < indicators.ema21 && indicators.ema21 < indicators.ema50;
+    const emaUptrend =
+      indicators.ema9 > indicators.ema21 && indicators.ema21 > indicators.ema50;
+    const emaDowntrend =
+      indicators.ema9 < indicators.ema21 && indicators.ema21 < indicators.ema50;
 
     // ===== PRICE-ACTION OVERRIDE (FIX A: fast reversal detection) =====
     // If the last 3 closes form a clean stair-step against EMA50, classify by price action FIRST,
@@ -1031,10 +1118,18 @@ export class AdvancedAI {
         c2.open - c2.close > (c2.high - c2.low) * 0.55;
       // FIX: require ADX >= 25 so we don't flag TRENDING in ranging markets (ADX 20-24)
       if (strongBullSequence && adx >= 25) {
-        return { type: "TRENDING_UP", strength: Math.max(adx, 28), suitable_for_trading: true };
+        return {
+          type: "TRENDING_UP",
+          strength: Math.max(adx, 28),
+          suitable_for_trading: true,
+        };
       }
       if (strongBearSequence && adx >= 25) {
-        return { type: "TRENDING_DOWN", strength: Math.max(adx, 28), suitable_for_trading: true };
+        return {
+          type: "TRENDING_DOWN",
+          strength: Math.max(adx, 28),
+          suitable_for_trading: true,
+        };
       }
     }
 
@@ -1042,16 +1137,28 @@ export class AdvancedAI {
     if (isTrending) {
       // Check price action for trend direction
       const last5 = data.slice(-5);
-      const higherHighs = last5.every((candle, i) => i === 0 || candle.high >= last5[i - 1].high);
-      const lowerLows = last5.every((candle, i) => i === 0 || candle.low <= last5[i - 1].low);
+      const higherHighs = last5.every(
+        (candle, i) => i === 0 || candle.high >= last5[i - 1].high,
+      );
+      const lowerLows = last5.every(
+        (candle, i) => i === 0 || candle.low <= last5[i - 1].low,
+      );
 
       // EMA alignment OR price action confirms trend
       if (emaUptrend || higherHighs) {
-        return { type: "TRENDING_UP", strength: adx, suitable_for_trading: true };
+        return {
+          type: "TRENDING_UP",
+          strength: adx,
+          suitable_for_trading: true,
+        };
       }
 
       if (emaDowntrend || lowerLows) {
-        return { type: "TRENDING_DOWN", strength: adx, suitable_for_trading: true };
+        return {
+          type: "TRENDING_DOWN",
+          strength: adx,
+          suitable_for_trading: true,
+        };
       }
 
       // ADX high but no clear direction = volatile
@@ -1060,7 +1167,11 @@ export class AdvancedAI {
 
     // Low ADX = ranging or quiet
     if (adx < 20 && bollingerWidth < 0.02) {
-      return { type: "QUIET", strength: 100 - adx, suitable_for_trading: false };
+      return {
+        type: "QUIET",
+        strength: 100 - adx,
+        suitable_for_trading: false,
+      };
     }
 
     if (adx < 25) {
@@ -1071,7 +1182,9 @@ export class AdvancedAI {
     return { type: "RANGING", strength: 50, suitable_for_trading: false };
   }
 
-  private static detectHigherTimeframeTrend(data?: OHLCCandle[]): "bull" | "bear" | "neutral" {
+  private static detectHigherTimeframeTrend(
+    data?: OHLCCandle[],
+  ): "bull" | "bear" | "neutral" {
     if (!data || data.length < 5) return "neutral"; // 5 bars minimum — use partial data rather than blocking
     const last = data[data.length - 1];
     const ema9 = this.calculateEMA(data, 9);
@@ -1088,8 +1201,16 @@ export class AdvancedAI {
       if (adxNow >= 35 && ema9 < ema21) return "bear";
     }
     // Vote-based fallback for mid-strength trends
-    const bullVotes = [last.close > ema9, ema9 > ema21, last.close > ema21].filter(Boolean).length;
-    const bearVotes = [last.close < ema9, ema9 < ema21, last.close < ema21].filter(Boolean).length;
+    const bullVotes = [
+      last.close > ema9,
+      ema9 > ema21,
+      last.close > ema21,
+    ].filter(Boolean).length;
+    const bearVotes = [
+      last.close < ema9,
+      ema9 < ema21,
+      last.close < ema21,
+    ].filter(Boolean).length;
     if (adxNow >= 20 && bullVotes >= 2) return "bull";
     if (adxNow >= 20 && bearVotes >= 2) return "bear";
     // Strict fallback
@@ -1128,7 +1249,12 @@ export class AdvancedAI {
   }
 
   /** Fractal pivot indexes */
-  private static findPivots(values: number[], left = 2, right = 2, type: "high" | "low" = "high"): number[] {
+  private static findPivots(
+    values: number[],
+    left = 2,
+    right = 2,
+    type: "high" | "low" = "high",
+  ): number[] {
     const pivots: number[] = [];
     for (let i = left; i < values.length - right; i++) {
       let ok = true;
@@ -1149,8 +1275,12 @@ export class AdvancedAI {
   }
 
   /** Real RSI divergence using last two pivots */
-  private static detectRSIDivergence(data: OHLCCandle[], rsiArr: number[]): { bull: boolean; bear: boolean } {
-    if (data.length < 20 || rsiArr.length < 20) return { bull: false, bear: false };
+  private static detectRSIDivergence(
+    data: OHLCCandle[],
+    rsiArr: number[],
+  ): { bull: boolean; bear: boolean } {
+    if (data.length < 20 || rsiArr.length < 20)
+      return { bull: false, bear: false };
     const window = 25;
     const slice = data.slice(-window);
     const rsiSlice = rsiArr.slice(-window);
@@ -1161,21 +1291,46 @@ export class AdvancedAI {
     let bull = false,
       bear = false;
     if (lowPivots.length >= 2) {
-      const [a, b] = [lowPivots[lowPivots.length - 2], lowPivots[lowPivots.length - 1]];
-      if (lows[b] < lows[a] && !isNaN(rsiSlice[a]) && !isNaN(rsiSlice[b]) && rsiSlice[b] > rsiSlice[a]) bull = true;
+      const [a, b] = [
+        lowPivots[lowPivots.length - 2],
+        lowPivots[lowPivots.length - 1],
+      ];
+      if (
+        lows[b] < lows[a] &&
+        !isNaN(rsiSlice[a]) &&
+        !isNaN(rsiSlice[b]) &&
+        rsiSlice[b] > rsiSlice[a]
+      )
+        bull = true;
     }
     if (highPivots.length >= 2) {
-      const [a, b] = [highPivots[highPivots.length - 2], highPivots[highPivots.length - 1]];
-      if (highs[b] > highs[a] && !isNaN(rsiSlice[a]) && !isNaN(rsiSlice[b]) && rsiSlice[b] < rsiSlice[a]) bear = true;
+      const [a, b] = [
+        highPivots[highPivots.length - 2],
+        highPivots[highPivots.length - 1],
+      ];
+      if (
+        highs[b] > highs[a] &&
+        !isNaN(rsiSlice[a]) &&
+        !isNaN(rsiSlice[b]) &&
+        rsiSlice[b] < rsiSlice[a]
+      )
+        bear = true;
     }
     return { bull, bear };
   }
 
   /** EMA slope (% per bar over lookback). Pass `currentEma` to reuse cached value. */
-  private static emaSlope(data: OHLCCandle[], period: number, lookback: number = 5, currentEma?: number): number {
+  private static emaSlope(
+    data: OHLCCandle[],
+    period: number,
+    lookback: number = 5,
+    currentEma?: number,
+  ): number {
     if (data.length < period + lookback) return 0;
     const now =
-      typeof currentEma === "number" && Number.isFinite(currentEma) ? currentEma : this.calculateEMA(data, period);
+      typeof currentEma === "number" && Number.isFinite(currentEma)
+        ? currentEma
+        : this.calculateEMA(data, period);
     const prev = this.calculateEMA(data.slice(0, -lookback), period);
     if (prev === 0 || !Number.isFinite(prev)) return 0;
     return (((now - prev) / prev) * 100) / lookback;
@@ -1192,8 +1347,12 @@ export class AdvancedAI {
     const lows = slice.map((c) => c.low);
     const hp = this.findPivots(highs, 2, 2, "high");
     const lp = this.findPivots(lows, 2, 2, "low");
-    const lastHighIdx = hp.length ? hp[hp.length - 1] : highs.indexOf(Math.max(...highs));
-    const lastLowIdx = lp.length ? lp[lp.length - 1] : lows.indexOf(Math.min(...lows));
+    const lastHighIdx = hp.length
+      ? hp[hp.length - 1]
+      : highs.indexOf(Math.max(...highs));
+    const lastLowIdx = lp.length
+      ? lp[lp.length - 1]
+      : lows.indexOf(Math.min(...lows));
     return {
       swingHigh: highs[lastHighIdx],
       swingLow: lows[lastLowIdx],
@@ -1202,7 +1361,9 @@ export class AdvancedAI {
   }
 
   /** Smart-money bias via delta approximation + absorption */
-  private static detectSmartMoney(data: OHLCCandle[]): "BULLISH" | "BEARISH" | "NEUTRAL" {
+  private static detectSmartMoney(
+    data: OHLCCandle[],
+  ): "BULLISH" | "BEARISH" | "NEUTRAL" {
     const last20 = data.slice(-20);
     let cumDelta = 0;
     let absorptionBull = 0,
@@ -1225,8 +1386,14 @@ export class AdvancedAI {
     const body = Math.abs(last.close - last.open);
     const range = last.high - last.low;
     const imbalance = range > 0 ? body / range : 0;
-    const bullScore = (cumDelta > 0 ? 1 : 0) + absorptionBull + (imbalance > 0.7 && last.close > last.open ? 1 : 0);
-    const bearScore = (cumDelta < 0 ? 1 : 0) + absorptionBear + (imbalance > 0.7 && last.close < last.open ? 1 : 0);
+    const bullScore =
+      (cumDelta > 0 ? 1 : 0) +
+      absorptionBull +
+      (imbalance > 0.7 && last.close > last.open ? 1 : 0);
+    const bearScore =
+      (cumDelta < 0 ? 1 : 0) +
+      absorptionBear +
+      (imbalance > 0.7 && last.close < last.open ? 1 : 0);
     if (bullScore >= 2 && bullScore > bearScore) return "BULLISH";
     if (bearScore >= 2 && bearScore > bullScore) return "BEARISH";
     return "NEUTRAL";
@@ -1249,7 +1416,8 @@ export class AdvancedAI {
     const lows = slice.map((c) => c.low);
     const hp = this.findPivots(highs, 2, 2, "high");
     const lp = this.findPivots(lows, 2, 2, "low");
-    if (hp.length < 2 || lp.length < 2) return { type: "RANGE", bos: "NONE", choch: "NONE" };
+    if (hp.length < 2 || lp.length < 2)
+      return { type: "RANGE", bos: "NONE", choch: "NONE" };
     const hh = highs[hp[hp.length - 1]] > highs[hp[hp.length - 2]];
     const ll = lows[lp[lp.length - 1]] < lows[lp[lp.length - 2]];
     const hl = lows[lp[lp.length - 1]] > lows[lp[lp.length - 2]];
@@ -1261,7 +1429,8 @@ export class AdvancedAI {
     const range = Math.max(1e-9, last.high - last.low);
     const bodyPct = Math.abs(last.close - last.open) / range;
     const strongBody = bodyPct >= 0.55;
-    const volumeOk = avgVolume > 0 ? (last.volume || 0) >= avgVolume * 1.1 : true;
+    const volumeOk =
+      avgVolume > 0 ? (last.volume || 0) >= avgVolume * 1.1 : true;
     const breakOk = strongBody && volumeOk;
     let bos: "BULL" | "BEAR" | "NONE" = "NONE";
     let choch: "BULL" | "BEAR" | "NONE" = "NONE";
@@ -1289,20 +1458,34 @@ export class AdvancedAI {
     const priorHigh = Math.max(...lookback.map((c) => c.high));
     const priorLow = Math.min(...lookback.map((c) => c.low));
     const range = last.high - last.low;
-    if (range <= 0) return { buySideSweep: false, sellSideSweep: false, stopHunt: false };
+    if (range <= 0)
+      return { buySideSweep: false, sellSideSweep: false, stopHunt: false };
     const body = Math.abs(last.close - last.open);
     const upperWick = last.high - Math.max(last.open, last.close);
     const lowerWick = Math.min(last.open, last.close) - last.low;
     const wickThreshold = atr14 * 0.6; // ~1.5× of typical sub-ATR wick
-    const volumeSpike = avgVolume > 0 ? (last.volume || 0) > avgVolume * 1.3 : true; // if no feed, ignore vol check
+    const volumeSpike =
+      avgVolume > 0 ? (last.volume || 0) > avgVolume * 1.3 : true; // if no feed, ignore vol check
     const bodyToRange = body / range;
     // Strong rejection: small body relative to range
     const rejection = bodyToRange < 0.4;
     const buySideSweep =
-      last.high > priorHigh && last.close < priorHigh && upperWick >= wickThreshold && rejection && volumeSpike;
+      last.high > priorHigh &&
+      last.close < priorHigh &&
+      upperWick >= wickThreshold &&
+      rejection &&
+      volumeSpike;
     const sellSideSweep =
-      last.low < priorLow && last.close > priorLow && lowerWick >= wickThreshold && rejection && volumeSpike;
-    return { buySideSweep, sellSideSweep, stopHunt: buySideSweep || sellSideSweep };
+      last.low < priorLow &&
+      last.close > priorLow &&
+      lowerWick >= wickThreshold &&
+      rejection &&
+      volumeSpike;
+    return {
+      buySideSweep,
+      sellSideSweep,
+      stopHunt: buySideSweep || sellSideSweep,
+    };
   }
 
   /** Gap detection at session open */
@@ -1316,14 +1499,19 @@ export class AdvancedAI {
     const prev = data[data.length - 2];
     const gap = last.open - prev.close;
     const threshold = prev.close * 0.0015; // 0.15% gap
-    if (Math.abs(gap) < threshold) return { type: "NONE", size: 0, filled: false };
+    if (Math.abs(gap) < threshold)
+      return { type: "NONE", size: 0, filled: false };
     const type: "GAP_UP" | "GAP_DOWN" = gap > 0 ? "GAP_UP" : "GAP_DOWN";
-    const filled = type === "GAP_UP" ? last.low <= prev.close : last.high >= prev.close;
+    const filled =
+      type === "GAP_UP" ? last.low <= prev.close : last.high >= prev.close;
     return { type, size: Math.abs(gap), filled };
   }
 
   /** Minimal safe WAIT result used when input data is invalid or insufficient */
-  private static emptyWaitResult(reason: string, startTime: number): AdvancedSignal {
+  private static emptyWaitResult(
+    reason: string,
+    startTime: number,
+  ): AdvancedSignal {
     const zeroInd = {
       ema9: 0,
       ema21: 0,
@@ -1365,7 +1553,14 @@ export class AdvancedAI {
       support_levels: { s1: 0, s2: 0, s3: 0 },
       nearResistance: false,
       nearSupport: false,
-      fibLevels: { level_0: 0, level_236: 0, level_382: 0, level_50: 0, level_618: 0, level_100: 0 },
+      fibLevels: {
+        level_0: 0,
+        level_236: 0,
+        level_382: 0,
+        level_50: 0,
+        level_618: 0,
+        level_100: 0,
+      },
       nearFibLevel: false,
     } as AdvancedIndicators;
     return {
@@ -1441,7 +1636,10 @@ export class AdvancedAI {
 
     // ===== SAFETY: validate input data =====
     if (!Array.isArray(ohlcData) || ohlcData.length < 30) {
-      return this.emptyWaitResult(`WAIT: Insufficient candle data (${ohlcData?.length ?? 0}/30 minimum).`, startTime);
+      return this.emptyWaitResult(
+        `WAIT: Insufficient candle data (${ohlcData?.length ?? 0}/30 minimum).`,
+        startTime,
+      );
     }
     // Drop any malformed candles defensively
     const cleanData = ohlcData.filter(
@@ -1456,7 +1654,10 @@ export class AdvancedAI {
         c.low > 0,
     );
     if (cleanData.length < 30) {
-      return this.emptyWaitResult(`WAIT: Too many invalid candles (clean ${cleanData.length}/30).`, startTime);
+      return this.emptyWaitResult(
+        `WAIT: Too many invalid candles (clean ${cleanData.length}/30).`,
+        startTime,
+      );
     }
     ohlcData = cleanData;
 
@@ -1468,11 +1669,17 @@ export class AdvancedAI {
     // Block evaluation of forming live candles. Caller may set options.enforceClosedCandle=false
     // for backtests where timestamps refer to close-time instead of open-time.
     const _tfMin = options.timeframeMinutes || 5;
-    const _candleTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const _candleTsMs =
+      lastCandle.timestamp < 1e12
+        ? lastCandle.timestamp * 1000
+        : lastCandle.timestamp;
     const _tsDate = new Date(_candleTsMs + 5.5 * 60 * 60 * 1000);
     const _tsIstMinutes = _tsDate.getUTCHours() * 60 + _tsDate.getUTCMinutes();
-    const _looksLikeDhanCloseTime = _tsIstMinutes >= 9 * 60 + 15 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
-    const _candleCloseMs = _looksLikeDhanCloseTime ? _candleTsMs : _candleTsMs + _tfMin * 60 * 1000;
+    const _looksLikeDhanCloseTime =
+      _tsIstMinutes >= 9 * 60 + 15 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
+    const _candleCloseMs = _looksLikeDhanCloseTime
+      ? _candleTsMs
+      : _candleTsMs + _tfMin * 60 * 1000;
     const _enforceClosed = options.enforceClosedCandle !== false;
     const _candleClosed = !_enforceClosed || Date.now() >= _candleCloseMs;
     if (!_candleClosed) {
@@ -1511,11 +1718,16 @@ export class AdvancedAI {
 
     // MACD
     const macdData = this.calculateMACD(ohlcData);
-    const prevMacdData = ohlcData.length > 30 ? this.calculateMACD(ohlcData.slice(0, -1)) : macdData;
+    const prevMacdData =
+      ohlcData.length > 30
+        ? this.calculateMACD(ohlcData.slice(0, -1))
+        : macdData;
     const macdBullish = macdData.macd > macdData.signal;
     const macdCrossover = macdData.histogram > 0;
-    const macdHistogramExpandingBull = macdData.histogram > prevMacdData.histogram;
-    const macdHistogramExpandingBear = macdData.histogram < prevMacdData.histogram;
+    const macdHistogramExpandingBull =
+      macdData.histogram > prevMacdData.histogram;
+    const macdHistogramExpandingBear =
+      macdData.histogram < prevMacdData.histogram;
     calculationsPerformed += 1;
 
     // ATR — compute ONCE, reuse everywhere (perf)
@@ -1528,7 +1740,10 @@ export class AdvancedAI {
 
     // Bollinger Bands — adaptive squeeze (ATR-normalized, uses cached ATR)
     const bollinger = this.calculateBollingerBands(ohlcData);
-    const prevBollinger = ohlcData.length > 25 ? this.calculateBollingerBands(ohlcData.slice(0, -1)) : bollinger;
+    const prevBollinger =
+      ohlcData.length > 25
+        ? this.calculateBollingerBands(ohlcData.slice(0, -1))
+        : bollinger;
     // FIX: stricter BB proximity (0.5% instead of 2%) to avoid both bands triggering simultaneously
     const priceNearUpperBand = lastCandle.close >= bollinger.upper * 0.995;
     const priceNearLowerBand = lastCandle.close <= bollinger.lower * 1.005;
@@ -1546,7 +1761,8 @@ export class AdvancedAI {
 
     // ADX
     const adx = this.calculateADX(ohlcData);
-    const prevAdx = ohlcData.length > 30 ? this.calculateADX(ohlcData.slice(0, -1)) : adx;
+    const prevAdx =
+      ohlcData.length > 30 ? this.calculateADX(ohlcData.slice(0, -1)) : adx;
     const adxRising = adx > prevAdx;
     const adxStrong = adx > 18;
     const adxVeryStrong = adx > 50;
@@ -1563,35 +1779,45 @@ export class AdvancedAI {
     // against previous-day highs/lows hundreds of points away.
     const currentSessionCandles = this.getCurrentSessionCandles(ohlcData, true);
     const priorSessionCandles = this.getCurrentSessionCandles(ohlcData, false);
-    const levelData = currentSessionCandles.length >= 5 ? currentSessionCandles : ohlcData.slice(-50);
-    const priorLevelData = priorSessionCandles.length >= 3 ? priorSessionCandles : levelData.slice(0, -1);
+    const levelData =
+      currentSessionCandles.length >= 5
+        ? currentSessionCandles
+        : ohlcData.slice(-50);
+    const priorLevelData =
+      priorSessionCandles.length >= 3
+        ? priorSessionCandles
+        : levelData.slice(0, -1);
     const swing = this.calculateSwingLevels(levelData, 80, 2, 2);
     // Fallback to extremes if no pivots found yet (early warm-up)
-    const sortedHighs = levelData
-      .map((c) => c.high)
-      .sort((a, b) => b - a);
-    const sortedLows = levelData
-      .map((c) => c.low)
-      .sort((a, b) => a - b);
+    const sortedHighs = levelData.map((c) => c.high).sort((a, b) => b - a);
+    const sortedLows = levelData.map((c) => c.low).sort((a, b) => a - b);
     const resistance1 = swing.resistances[0] ?? sortedHighs[0];
-    const resistance2 = swing.resistances[1] ?? sortedHighs[Math.floor(sortedHighs.length * 0.2)];
-    const resistance3 = swing.resistances[2] ?? sortedHighs[Math.floor(sortedHighs.length * 0.4)];
+    const resistance2 =
+      swing.resistances[1] ?? sortedHighs[Math.floor(sortedHighs.length * 0.2)];
+    const resistance3 =
+      swing.resistances[2] ?? sortedHighs[Math.floor(sortedHighs.length * 0.4)];
     const support1 = swing.supports[0] ?? sortedLows[0];
-    const support2 = swing.supports[1] ?? sortedLows[Math.floor(sortedLows.length * 0.2)];
-    const support3 = swing.supports[2] ?? sortedLows[Math.floor(sortedLows.length * 0.4)];
+    const support2 =
+      swing.supports[1] ?? sortedLows[Math.floor(sortedLows.length * 0.2)];
+    const support3 =
+      swing.supports[2] ?? sortedLows[Math.floor(sortedLows.length * 0.4)];
     // "Near" tolerance scaled by ATR (~0.5 ATR) so it adapts to volatility instead of fixed 2%
     const nearTol = Math.max(lastCandle.close * 0.003, safeAtr * 0.5);
     const nearResistance = resistance1
-      ? resistance1 - lastCandle.close <= nearTol && lastCandle.close <= resistance1 + nearTol
+      ? resistance1 - lastCandle.close <= nearTol &&
+        lastCandle.close <= resistance1 + nearTol
       : false;
     const nearSupport = support1
-      ? lastCandle.close - support1 <= nearTol && lastCandle.close >= support1 - nearTol
+      ? lastCandle.close - support1 <= nearTol &&
+        lastCandle.close >= support1 - nearTol
       : false;
     calculationsPerformed += 1;
 
     // Fibonacci
     const fibLevels = this.calculateFibonacci(ohlcData);
-    const nearFibLevel = Math.abs(lastCandle.close - fibLevels.level_618) < lastCandle.close * 0.005;
+    const nearFibLevel =
+      Math.abs(lastCandle.close - fibLevels.level_618) <
+      lastCandle.close * 0.005;
     calculationsPerformed += 1;
 
     // Candle Patterns
@@ -1613,16 +1839,26 @@ export class AdvancedAI {
       Number.isFinite(c?.low) &&
       Math.abs((c.close || 0) - (c.open || 0)) > 0 &&
       (c.high || 0) - (c.low || 0) > 0;
-    const fallbackCandle = [...searchWindow].reverse().find(hasRealBody) || lastCandle;
-    const lastCandleBody = Math.abs((lastCandle.close || 0) - (lastCandle.open || 0));
+    const fallbackCandle =
+      [...searchWindow].reverse().find(hasRealBody) || lastCandle;
+    const lastCandleBody = Math.abs(
+      (lastCandle.close || 0) - (lastCandle.open || 0),
+    );
     const lastCandleRange = (lastCandle.high || 0) - (lastCandle.low || 0);
-    const bodyRefCandle = lastCandleBody > 0 && lastCandleRange > 0 ? lastCandle : fallbackCandle;
-    const volumeRefCandle = (lastCandle.volume || 0) > 0 ? lastCandle : bodyRefCandle;
+    const bodyRefCandle =
+      lastCandleBody > 0 && lastCandleRange > 0 ? lastCandle : fallbackCandle;
+    const volumeRefCandle =
+      (lastCandle.volume || 0) > 0 ? lastCandle : bodyRefCandle;
     const completedVolumeCandles = ohlcData
       .slice(-31, -1)
       .filter((c) => Number.isFinite(c.volume) && c.volume > 0);
-    const sameSessionVolumeCandles = priorSessionCandles.filter((c) => Number.isFinite(c.volume) && c.volume > 0).slice(-30);
-    const volumeBaselineCandles = sameSessionVolumeCandles.length >= 5 ? sameSessionVolumeCandles : completedVolumeCandles;
+    const sameSessionVolumeCandles = priorSessionCandles
+      .filter((c) => Number.isFinite(c.volume) && c.volume > 0)
+      .slice(-30);
+    const volumeBaselineCandles =
+      sameSessionVolumeCandles.length >= 5
+        ? sameSessionVolumeCandles
+        : completedVolumeCandles;
     // ⚡ FIX: Use MEDIAN baseline (not mean) so opening-bell mega-volume candles don't crush the ratio.
     // TradingView and Dhan platforms display volume ratios using median-style normalization — this aligns us with them.
     const sortedVols = volumeBaselineCandles
@@ -1632,26 +1868,38 @@ export class AdvancedAI {
     const medianVolume = sortedVols.length
       ? sortedVols.length % 2 === 1
         ? sortedVols[(sortedVols.length - 1) >> 1]
-        : (sortedVols[sortedVols.length / 2 - 1] + sortedVols[sortedVols.length / 2]) / 2
+        : (sortedVols[sortedVols.length / 2 - 1] +
+            sortedVols[sortedVols.length / 2]) /
+          2
       : 0;
     const meanVolume = volumeBaselineCandles.length
-      ? volumeBaselineCandles.reduce((sum, c) => sum + (c.volume || 0), 0) / volumeBaselineCandles.length
+      ? volumeBaselineCandles.reduce((sum, c) => sum + (c.volume || 0), 0) /
+        volumeBaselineCandles.length
       : 0;
     // Prefer median; fall back to mean if median is 0
     const avgVolume = medianVolume > 0 ? medianVolume : meanVolume;
     const refVolume = volumeRefCandle.volume || 0;
-    const volumeRatio = avgVolume > 0 && Number.isFinite(refVolume / avgVolume) ? refVolume / avgVolume : 0;
+    const volumeRatio =
+      avgVolume > 0 && Number.isFinite(refVolume / avgVolume)
+        ? refVolume / avgVolume
+        : 0;
     const isHighVolume = volumeRatio > 1.5;
     const isVolumeSpike = volumeRatio > 2.0;
-    let bodySize = Math.abs((bodyRefCandle.close || 0) - (bodyRefCandle.open || 0));
-    let refRange = Math.max(0, (bodyRefCandle.high || 0) - (bodyRefCandle.low || 0));
+    let bodySize = Math.abs(
+      (bodyRefCandle.close || 0) - (bodyRefCandle.open || 0),
+    );
+    let refRange = Math.max(
+      0,
+      (bodyRefCandle.high || 0) - (bodyRefCandle.low || 0),
+    );
     // Final safety net: if body is still 0 (all recent candles flat / bad feed), approximate
     // body strength from ATR so the engine doesn't permanently lock on "body 0.0pts".
     if (bodySize === 0 && safeAtr > 0) {
       bodySize = safeAtr * 0.5;
       refRange = Math.max(refRange, safeAtr);
     }
-    const bodyPercent = refRange > 0 ? Math.min(100, (bodySize / refRange) * 100) : 0;
+    const bodyPercent =
+      refRange > 0 ? Math.min(100, (bodySize / refRange) * 100) : 0;
     const smartMoney = bodyPercent > 60 && isVolumeSpike;
 
     // Order Flow
@@ -1675,17 +1923,24 @@ export class AdvancedAI {
     const gap = this.detectGap(ohlcData);
 
     // Range expansion: current candle range vs avg of last 5 (excluding current)
-    const prev5Ranges = ohlcData.slice(-6, -1).map((c) => Math.max(0, c.high - c.low));
-    const avgPrev5Range = prev5Ranges.length ? prev5Ranges.reduce((a, b) => a + b, 0) / prev5Ranges.length : 0;
+    const prev5Ranges = ohlcData
+      .slice(-6, -1)
+      .map((c) => Math.max(0, c.high - c.low));
+    const avgPrev5Range = prev5Ranges.length
+      ? prev5Ranges.reduce((a, b) => a + b, 0) / prev5Ranges.length
+      : 0;
     const currentRange = Math.max(0, lastCandle.high - lastCandle.low);
     // FIX 2: relaxed expansion threshold (1.3 → 1.1) so afternoon/grinding trends pass.
     // Strong (1.3x) still tracked separately for breakoutQuality scoring below.
-    const rangeExpansion = avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.1;
+    const rangeExpansion =
+      avgPrev5Range > 0 && currentRange > avgPrev5Range * 1.1;
 
     // Volume normalization (session-time aware: morning vs afternoon)
     const istNowForVol = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const istMinForVol = istNowForVol.getUTCHours() * 60 + istNowForVol.getUTCMinutes();
-    const isMorningSession = istMinForVol >= 9 * 60 + 15 && istMinForVol < 11 * 60;
+    const istMinForVol =
+      istNowForVol.getUTCHours() * 60 + istNowForVol.getUTCMinutes();
+    const isMorningSession =
+      istMinForVol >= 9 * 60 + 15 && istMinForVol < 11 * 60;
     const volumeAdjustment = isMorningSession ? 0.85 : 1.0; // morning naturally has higher volume
     const adjustedVolumeRatio = volumeRatio * volumeAdjustment;
 
@@ -1790,20 +2045,35 @@ export class AdvancedAI {
 
     // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
     const useTrendBias = adx > 18; // Changed from 40 to 25!
-    const confirmationBullish = useTrendBias ? trendBias === "bullish" : isBullish;
-    const confirmationBearish = useTrendBias ? trendBias === "bearish" : isBearish;
+    const confirmationBullish = useTrendBias
+      ? trendBias === "bullish"
+      : isBullish;
+    const confirmationBearish = useTrendBias
+      ? trendBias === "bearish"
+      : isBearish;
 
     // ⚡ FIX 1: VWAP Confirmation — SLOPE-AWARE (Weight: 2)
     // Real trends often hug VWAP. Don't reject just because price is close — check VWAP slope.
-    const vwapNormalized = this.normalizeVWAPDistance(lastCandle.close, vwap, atr14, adx);
-    const _prevVwapForSlope = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
-    const vwapSlopeStrength = (vwap - _prevVwapForSlope) / Math.max(atr14, 1e-6); // ATR-normalized slope
+    const vwapNormalized = this.normalizeVWAPDistance(
+      lastCandle.close,
+      vwap,
+      atr14,
+      adx,
+    );
+    const _prevVwapForSlope =
+      ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
+    const vwapSlopeStrength =
+      (vwap - _prevVwapForSlope) / Math.max(atr14, 1e-6); // ATR-normalized slope
     const vwapSlopingUp = vwapSlopeStrength > 0.02; // FIX 1: relaxed from 0.04 for slow grinding trends
     const vwapSlopingDown = vwapSlopeStrength < -0.02;
     const vwapSlopeFlat = !vwapSlopingUp && !vwapSlopingDown;
 
-    const vwapBullOK = priceAboveVWAP && (vwapNormalized.interpretation === "ACCEPTABLE" || vwapSlopingUp);
-    const vwapBearOK = !priceAboveVWAP && (vwapNormalized.interpretation === "ACCEPTABLE" || vwapSlopingDown);
+    const vwapBullOK =
+      priceAboveVWAP &&
+      (vwapNormalized.interpretation === "ACCEPTABLE" || vwapSlopingUp);
+    const vwapBearOK =
+      !priceAboveVWAP &&
+      (vwapNormalized.interpretation === "ACCEPTABLE" || vwapSlopingDown);
 
     if (confirmationBullish && vwapBullOK) {
       confirmations.vwap = true;
@@ -1818,12 +2088,18 @@ export class AdvancedAI {
         `✅ VWAP: Below VWAP, slope=${vwapSlopeStrength.toFixed(2)} (${vwapNormalized.distanceATR.toFixed(2)} ATR)`,
       );
     } else if (vwapNormalized.interpretation === "EXTENDED") {
-      confirmationDetails.push(`⚠️ VWAP: Extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`);
+      confirmationDetails.push(
+        `⚠️ VWAP: Extended (${vwapNormalized.distanceATR.toFixed(2)} ATR - reversal risk)`,
+      );
     } else if (vwapSlopeFlat && Math.abs(ema9Slope) < 0.015) {
-      confirmationDetails.push("❌ VWAP: Flat + EMA flat (no directional bias)");
+      confirmationDetails.push(
+        "❌ VWAP: Flat + EMA flat (no directional bias)",
+      );
     } else {
       // Soft pass — slope agrees but price wrong side, or other mismatch. Don't credit but don't shout.
-      confirmationDetails.push(`⚪ VWAP: Neutral (slope=${vwapSlopeStrength.toFixed(2)})`);
+      confirmationDetails.push(
+        `⚪ VWAP: Neutral (slope=${vwapSlopeStrength.toFixed(2)})`,
+      );
     }
 
     // 2. EMA Confirmation (Weight: 1) — RELAXED in strong trends
@@ -1832,18 +2108,32 @@ export class AdvancedAI {
     // ⚡ FIX 1: When ADX > 30, require only ema9/ema21 alignment + price within 0.75 ATR of EMA21
     // (allows pullback / retest entries without losing full ema50 alignment requirement)
     const emaStrongTrend = adx > 30;
-    const emaBullRelaxed = emaStrongTrend && ema9 > ema21 && lastCandle.close >= ema21 - atr14 * 0.75;
-    const emaBearRelaxed = emaStrongTrend && ema9 < ema21 && lastCandle.close <= ema21 + atr14 * 0.75;
-    const priceNearEma9Bullish = lastCandle.close > ema9 || lastCandle.close > ema9 - atr14 * 0.5;
-    const priceNearEma9Bearish = lastCandle.close < ema9 || lastCandle.close < ema9 + atr14 * 0.5;
+    const emaBullRelaxed =
+      emaStrongTrend &&
+      ema9 > ema21 &&
+      lastCandle.close >= ema21 - atr14 * 0.75;
+    const emaBearRelaxed =
+      emaStrongTrend &&
+      ema9 < ema21 &&
+      lastCandle.close <= ema21 + atr14 * 0.75;
+    const priceNearEma9Bullish =
+      lastCandle.close > ema9 || lastCandle.close > ema9 - atr14 * 0.5;
+    const priceNearEma9Bearish =
+      lastCandle.close < ema9 || lastCandle.close < ema9 + atr14 * 0.5;
 
-    if (confirmationBullish && ((emaUptrend && priceNearEma9Bullish) || emaBullRelaxed)) {
+    if (
+      confirmationBullish &&
+      ((emaUptrend && priceNearEma9Bullish) || emaBullRelaxed)
+    ) {
       confirmations.ema = true;
       totalWeightedScore += 1;
       confirmationDetails.push(
         `✅ EMA: Bullish trend (${emaBullRelaxed && !emaUptrend ? "9>21 relaxed, ADX strong" : "9>21>50"})`,
       );
-    } else if (confirmationBearish && ((emaDowntrend && priceNearEma9Bearish) || emaBearRelaxed)) {
+    } else if (
+      confirmationBearish &&
+      ((emaDowntrend && priceNearEma9Bearish) || emaBearRelaxed)
+    ) {
       confirmations.ema = true;
       totalWeightedScore += 1;
       confirmationDetails.push(
@@ -1860,28 +2150,51 @@ export class AdvancedAI {
     if (!isRangingMarket && confirmationBullish && rsi > 45 && rsi < 75) {
       confirmations.rsi = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push("✅ RSI: Bullish momentum (>45, flexible trend start)");
-    } else if (!isRangingMarket && confirmationBearish && rsi < 55 && rsi > 25) {
+      confirmationDetails.push(
+        "✅ RSI: Bullish momentum (>45, flexible trend start)",
+      );
+    } else if (
+      !isRangingMarket &&
+      confirmationBearish &&
+      rsi < 55 &&
+      rsi > 25
+    ) {
       confirmations.rsi = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push("✅ RSI: Bearish momentum (<55, flexible trend start)");
-    } else if (rsiOversold && confirmationBearish && (emaDowntrend || marketRegime.type === "TRENDING_DOWN")) {
+      confirmationDetails.push(
+        "✅ RSI: Bearish momentum (<55, flexible trend start)",
+      );
+    } else if (
+      rsiOversold &&
+      confirmationBearish &&
+      (emaDowntrend || marketRegime.type === "TRENDING_DOWN")
+    ) {
       // ⚡ FIX: RSI oversold in strong downtrend = continuation, not reversal!
       confirmations.rsi = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ RSI: Oversold (${rsi.toFixed(1)}) + downtrend continuation`);
-    } else if (rsiOverbought && confirmationBullish && (emaUptrend || marketRegime.type === "TRENDING_UP")) {
+      confirmationDetails.push(
+        `✅ RSI: Oversold (${rsi.toFixed(1)}) + downtrend continuation`,
+      );
+    } else if (
+      rsiOverbought &&
+      confirmationBullish &&
+      (emaUptrend || marketRegime.type === "TRENDING_UP")
+    ) {
       // ⚡ FIX: RSI overbought in strong uptrend = continuation, not reversal!
       confirmations.rsi = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ RSI: Overbought (${rsi.toFixed(1)}) + uptrend continuation`);
+      confirmationDetails.push(
+        `✅ RSI: Overbought (${rsi.toFixed(1)}) + uptrend continuation`,
+      );
     } else if (rsiOverbought) {
       confirmationDetails.push("⚠️ RSI: Overbought (>70)");
     } else if (rsiOversold) {
       confirmationDetails.push("⚠️ RSI: Oversold (<30)");
     } else if (isRangingMarket) {
       // ⚡ FIX BUG #3: In ranging markets, RSI doesn't count!
-      confirmationDetails.push(`❌ RSI: Unreliable in ranging market (ADX ${adx.toFixed(1)} < 20)`);
+      confirmationDetails.push(
+        `❌ RSI: Unreliable in ranging market (ADX ${adx.toFixed(1)} < 20)`,
+      );
     } else {
       confirmationDetails.push("❌ RSI: Neutral");
     }
@@ -1895,7 +2208,11 @@ export class AdvancedAI {
       confirmationDetails.push(
         `✅ MACD: Histogram expanding bullish (${prevMacdData.histogram.toFixed(2)} → ${macdData.histogram.toFixed(2)})`,
       );
-    } else if (!isRangingMarket && confirmationBearish && macdHistogramExpandingBear) {
+    } else if (
+      !isRangingMarket &&
+      confirmationBearish &&
+      macdHistogramExpandingBear
+    ) {
       confirmations.macd = true;
       totalWeightedScore += 1; // Weight: 1
       confirmationDetails.push(
@@ -1903,17 +2220,27 @@ export class AdvancedAI {
       );
     } else if (isRangingMarket) {
       // ⚡ FIX BUG #3: In ranging markets, MACD doesn't count!
-      confirmationDetails.push(`❌ MACD: Unreliable in ranging market (ADX ${adx.toFixed(1)} < 20)`);
+      confirmationDetails.push(
+        `❌ MACD: Unreliable in ranging market (ADX ${adx.toFixed(1)} < 20)`,
+      );
     } else {
       confirmationDetails.push("❌ MACD: No clear signal");
     }
 
     // 5. Bollinger Bands Confirmation (Weight: 1)
-    if (isBullish && lastCandle.close > bollinger.middle && !priceNearUpperBand) {
+    if (
+      isBullish &&
+      lastCandle.close > bollinger.middle &&
+      !priceNearUpperBand
+    ) {
       confirmations.bollinger = true;
       totalWeightedScore += 1; // Weight: 1
       confirmationDetails.push("✅ BB: Price above middle, room to upper band");
-    } else if (isBearish && lastCandle.close < bollinger.middle && !priceNearLowerBand) {
+    } else if (
+      isBearish &&
+      lastCandle.close < bollinger.middle &&
+      !priceNearLowerBand
+    ) {
       confirmations.bollinger = true;
       totalWeightedScore += 1; // Weight: 1
       confirmationDetails.push("✅ BB: Price below middle, room to lower band");
@@ -1929,14 +2256,20 @@ export class AdvancedAI {
     if ((isBullish || isBearish) && isHighVolume && bodyPercent > 40) {
       confirmations.volume = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`);
+      confirmationDetails.push(
+        `✅ Volume: High (${volumeRatio.toFixed(2)}x) + strong candle`,
+      );
     } else {
       confirmationDetails.push("❌ Volume: Low or weak candle");
     }
 
     // 7. ADX Confirmation (Trend Strength) (Weight: 1)
     // ⚡ FIX: Use confirmationBullish/Bearish (trend bias) instead of candle color!
-    if (trending && ((confirmationBullish && emaUptrend) || (confirmationBearish && emaDowntrend))) {
+    if (
+      trending &&
+      ((confirmationBullish && emaUptrend) ||
+        (confirmationBearish && emaDowntrend))
+    ) {
       confirmations.adx = true;
       totalWeightedScore += 1; // Weight: 1
       confirmationDetails.push(
@@ -1956,29 +2289,55 @@ export class AdvancedAI {
     const stochRising = stoch.k > stoch.d;
     const stochFalling = stoch.k < stoch.d;
     if (adx > 30) {
-      confirmationDetails.push(`➖ Stochastic: Ignored in strong trend (ADX ${adx.toFixed(1)})`);
+      confirmationDetails.push(
+        `➖ Stochastic: Ignored in strong trend (ADX ${adx.toFixed(1)})`,
+      );
     } else if (isBullish && stochOversold) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + bullish reversal`);
+      confirmationDetails.push(
+        `✅ Stochastic: Oversold (${stoch.k.toFixed(1)}) + bullish reversal`,
+      );
     } else if (isBearish && stochOverbought) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: Overbought (${stoch.k.toFixed(1)}) + bearish reversal`);
-    } else if (confirmationBullish && stochRising && stoch.k > 20 && stoch.k < 80) {
+      confirmationDetails.push(
+        `✅ Stochastic: Overbought (${stoch.k.toFixed(1)}) + bearish reversal`,
+      );
+    } else if (
+      confirmationBullish &&
+      stochRising &&
+      stoch.k > 20 &&
+      stoch.k < 80
+    ) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: %K(${stoch.k.toFixed(1)}) > %D(${stoch.d.toFixed(1)}) rising in trend`);
-    } else if (confirmationBearish && stochFalling && stoch.k > 20 && stoch.k < 80) {
+      confirmationDetails.push(
+        `✅ Stochastic: %K(${stoch.k.toFixed(1)}) > %D(${stoch.d.toFixed(1)}) rising in trend`,
+      );
+    } else if (
+      confirmationBearish &&
+      stochFalling &&
+      stoch.k > 20 &&
+      stoch.k < 80
+    ) {
       confirmations.stochastic = true;
       totalWeightedScore += 1;
-      confirmationDetails.push(`✅ Stochastic: %K(${stoch.k.toFixed(1)}) < %D(${stoch.d.toFixed(1)}) falling in trend`);
+      confirmationDetails.push(
+        `✅ Stochastic: %K(${stoch.k.toFixed(1)}) < %D(${stoch.d.toFixed(1)}) falling in trend`,
+      );
     } else if (stochOverbought) {
-      confirmationDetails.push(`⚠️ Stochastic: Overbought (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`);
+      confirmationDetails.push(
+        `⚠️ Stochastic: Overbought (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`,
+      );
     } else if (stochOversold) {
-      confirmationDetails.push(`⚠️ Stochastic: Oversold (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`);
+      confirmationDetails.push(
+        `⚠️ Stochastic: Oversold (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)}) — no chase`,
+      );
     } else {
-      confirmationDetails.push(`❌ Stochastic: Neutral (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)})`);
+      confirmationDetails.push(
+        `❌ Stochastic: Neutral (${stoch.k.toFixed(1)}/${stoch.d.toFixed(1)})`,
+      );
     }
 
     // 9. Pattern Confirmation with Validation (Weight: 1-2 based on context)
@@ -2020,8 +2379,10 @@ export class AdvancedAI {
 
     // 10. Price Action Confirmation (Higher Highs/Lower Lows) (Weight: 1)
     const last5 = ohlcData.slice(-5);
-    const higherHighs = last5[4].high > last5[3].high && last5[3].high > last5[2].high;
-    const lowerLows = last5[4].low < last5[3].low && last5[3].low < last5[2].low;
+    const higherHighs =
+      last5[4].high > last5[3].high && last5[3].high > last5[2].high;
+    const lowerLows =
+      last5[4].low < last5[3].low && last5[3].low < last5[2].low;
 
     // ⚡ FIX BUG #12: If ADX > 25 (trending), use trend bias instead of strict higher highs/lower lows
     // In strong trends, minor pullbacks don't invalidate the trend!
@@ -2030,11 +2391,15 @@ export class AdvancedAI {
     if (trendingMarket && confirmationBullish) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong uptrend (ADX ${adx.toFixed(1)})`);
+      confirmationDetails.push(
+        `✅ Price Action: Strong uptrend (ADX ${adx.toFixed(1)})`,
+      );
     } else if (trendingMarket && confirmationBearish) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
-      confirmationDetails.push(`✅ Price Action: Strong downtrend (ADX ${adx.toFixed(1)})`);
+      confirmationDetails.push(
+        `✅ Price Action: Strong downtrend (ADX ${adx.toFixed(1)})`,
+      );
     } else if (confirmationBullish && higherHighs) {
       confirmations.priceAction = true;
       totalWeightedScore += 1; // Weight: 1
@@ -2056,13 +2421,22 @@ export class AdvancedAI {
     // ATR-based stop loss combined with swing structure (FIX 9: smarter stoploss)
     const atrStop = atr14 * 2;
     const swingLookback = ohlcData.slice(-15);
-    const swingLow = swingLookback.length ? Math.min(...swingLookback.map((c) => c.low)) : currentPrice - atrStop;
-    const swingHigh = swingLookback.length ? Math.max(...swingLookback.map((c) => c.high)) : currentPrice + atrStop;
+    const swingLow = swingLookback.length
+      ? Math.min(...swingLookback.map((c) => c.low))
+      : currentPrice - atrStop;
+    const swingHigh = swingLookback.length
+      ? Math.max(...swingLookback.map((c) => c.high))
+      : currentPrice + atrStop;
     const swingStopBull = currentPrice - swingLow + atr14 * 0.2; // give 0.2 ATR buffer below swing low
     const swingStopBear = swingHigh - currentPrice + atr14 * 0.2;
     // Use the WIDER of ATR-stop vs swing-stop (more protective) — but cap at 3.5x ATR to keep RR sane.
-    const stopLossDistance = Math.min(atr14 * 3.5, Math.max(atrStop, isBullish ? swingStopBull : swingStopBear));
-    const suggestedStopLoss = isBullish ? currentPrice - stopLossDistance : currentPrice + stopLossDistance;
+    const stopLossDistance = Math.min(
+      atr14 * 3.5,
+      Math.max(atrStop, isBullish ? swingStopBull : swingStopBear),
+    );
+    const suggestedStopLoss = isBullish
+      ? currentPrice - stopLossDistance
+      : currentPrice + stopLossDistance;
 
     // Dynamic RR based on regime and trend strength:
     //   - Strong trend (ADX>40) + suitable regime → 3.0  (let winners run)
@@ -2079,7 +2453,9 @@ export class AdvancedAI {
       riskRewardRatio = 1.5;
 
     const targetDistance = stopLossDistance * riskRewardRatio;
-    const suggestedTarget = isBullish ? currentPrice + targetDistance : currentPrice - targetDistance;
+    const suggestedTarget = isBullish
+      ? currentPrice + targetDistance
+      : currentPrice - targetDistance;
 
     const riskAmount = accountBalance * 0.02;
     const positionSize = Math.floor(riskAmount / Math.max(stopLossDistance, 1));
@@ -2117,18 +2493,29 @@ export class AdvancedAI {
     const minimumBodySize = Math.max(10, atr14 * 0.4);
     const isVeryStrongTrend = adx > 50;
     const minimumVolumeRatio = isVeryStrongTrend ? 0.5 : 0.8;
-    const volumeFeedReliable = avgVolume > 0 && refVolume > 0 && isFinite(volumeRatio) && volumeRatio > 0;
-    const hasAcceptableVolume = !volumeFeedReliable ? bodyPercent >= 35 : volumeRatio >= minimumVolumeRatio;
+    const volumeFeedReliable =
+      avgVolume > 0 &&
+      refVolume > 0 &&
+      isFinite(volumeRatio) &&
+      volumeRatio > 0;
+    const hasAcceptableVolume = !volumeFeedReliable
+      ? bodyPercent >= 35
+      : volumeRatio >= minimumVolumeRatio;
 
     const hasStrongPattern = patterns.some(
       (p) =>
         p.confidence >= 80 &&
-        ((confirmationBullish && p.direction === "BULLISH") || (confirmationBearish && p.direction === "BEARISH")),
+        ((confirmationBullish && p.direction === "BULLISH") ||
+          (confirmationBearish && p.direction === "BEARISH")),
     );
 
     // Professional MTF: use REAL 15m candles passed by caller. Never resample 5m candles into fake 15m.
-    const htfDataProvided = Boolean(options.higherTimeframeData && options.higherTimeframeData.length >= 15);
-    const htfAlign = htfDataProvided ? this.detectHigherTimeframeTrend(options.higherTimeframeData) : "neutral";
+    const htfDataProvided = Boolean(
+      options.higherTimeframeData && options.higherTimeframeData.length >= 15,
+    );
+    const htfAlign = htfDataProvided
+      ? this.detectHigherTimeframeTrend(options.higherTimeframeData)
+      : "neutral";
     const htfAgreesBull = htfDataProvided ? htfAlign === "bull" : true;
     const htfAgreesBear = htfDataProvided ? htfAlign === "bear" : true;
 
@@ -2157,14 +2544,26 @@ export class AdvancedAI {
     const breakoutBase = priorLevelData.slice(-breakoutLookback);
     const fallbackBase = ohlcData.slice(-Math.min(12, ohlcData.length - 1), -1);
     const levelCandles = breakoutBase.length >= 3 ? breakoutBase : fallbackBase;
-    const swingAnchors = this.getConfirmedBreakoutAnchors(priorLevelData.length >= 8 ? priorLevelData : fallbackBase, 80, 2, 2, atr14);
-    const breakoutHigh = swingAnchors.high ?? Math.max(...levelCandles.map((c) => c.high));
-    const breakoutLow = swingAnchors.low ?? Math.min(...levelCandles.map((c) => c.low));
+    const swingAnchors = this.getConfirmedBreakoutAnchors(
+      priorLevelData.length >= 8 ? priorLevelData : fallbackBase,
+      80,
+      2,
+      2,
+      atr14,
+    );
+    const breakoutHigh =
+      swingAnchors.high ?? Math.max(...levelCandles.map((c) => c.high));
+    const breakoutLow =
+      swingAnchors.low ?? Math.min(...levelCandles.map((c) => c.low));
     const previousCandleHigh = Math.max(...levelCandles.map((c) => c.high));
     const previousCandleLow = Math.min(...levelCandles.map((c) => c.low));
     const breakoutHoldTol = atr14 * 0.2;
-    const priorSessionHigh = priorLevelData.length ? Math.max(...priorLevelData.map((c) => c.high)) : breakoutHigh;
-    const priorSessionLow = priorLevelData.length ? Math.min(...priorLevelData.map((c) => c.low)) : breakoutLow;
+    const priorSessionHigh = priorLevelData.length
+      ? Math.max(...priorLevelData.map((c) => c.high))
+      : breakoutHigh;
+    const priorSessionLow = priorLevelData.length
+      ? Math.min(...priorLevelData.map((c) => c.low))
+      : breakoutLow;
     const openingRangeCandles = priorLevelData.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
       const mins = this.getIstMinutes(tsMs);
@@ -2178,9 +2577,14 @@ export class AdvancedAI {
       : priorSessionLow;
     const dayBreakoutHigh = Math.max(priorSessionHigh, openingRangeHigh);
     const dayBreakoutLow = Math.min(priorSessionLow, openingRangeLow);
-    const breakoutCandleRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
-    const breakoutCloseNearHigh = (lastCandle.close - lastCandle.low) / breakoutCandleRange > 0.55;
-    const breakoutCloseNearLow = (lastCandle.high - lastCandle.close) / breakoutCandleRange > 0.55;
+    const breakoutCandleRange = Math.max(
+      lastCandle.high - lastCandle.low,
+      1e-6,
+    );
+    const breakoutCloseNearHigh =
+      (lastCandle.close - lastCandle.low) / breakoutCandleRange > 0.55;
+    const breakoutCloseNearLow =
+      (lastCandle.high - lastCandle.close) / breakoutCandleRange > 0.55;
     const anchorBreakTol = Math.max(atr14 * 0.08, lastCandle.close * 0.00025);
     const establishedBearBreak =
       swingAnchors.bearLegBars >= 2 &&
@@ -2192,22 +2596,30 @@ export class AdvancedAI {
       lastCandle.close > breakoutHigh + anchorBreakTol &&
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
-    const bullishBreakoutClose = lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
-    const bearishBreakdownClose = lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
+    const bullishBreakoutClose =
+      lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
+    const bearishBreakdownClose =
+      lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
     const bullishPriorHighBreakout =
-      lastCandle.close > previousCandleHigh && lastCandle.close > lastCandle.open && breakoutCloseNearHigh;
+      lastCandle.close > previousCandleHigh &&
+      lastCandle.close > lastCandle.open &&
+      breakoutCloseNearHigh;
     const bearishPriorLowBreakdown =
-      lastCandle.close < previousCandleLow && lastCandle.close < lastCandle.open && breakoutCloseNearLow;
+      lastCandle.close < previousCandleLow &&
+      lastCandle.close < lastCandle.open &&
+      breakoutCloseNearLow;
     const bullishDayHighBreakout =
       dayBreakoutHigh > 0 &&
       (lastCandle.close > dayBreakoutHigh ||
-        (lastCandle.high > dayBreakoutHigh && lastCandle.close >= dayBreakoutHigh - breakoutHoldTol)) &&
+        (lastCandle.high > dayBreakoutHigh &&
+          lastCandle.close >= dayBreakoutHigh - breakoutHoldTol)) &&
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
     const bearishDayLowBreakdown =
       dayBreakoutLow > 0 &&
       (lastCandle.close < dayBreakoutLow ||
-        (lastCandle.low < dayBreakoutLow && lastCandle.close <= dayBreakoutLow + breakoutHoldTol)) &&
+        (lastCandle.low < dayBreakoutLow &&
+          lastCandle.close <= dayBreakoutLow + breakoutHoldTol)) &&
       lastCandle.close < lastCandle.open &&
       breakoutCloseNearLow;
     const bullishBreakoutHold =
@@ -2218,20 +2630,32 @@ export class AdvancedAI {
       prevCandle.close < breakoutLow &&
       lastCandle.close < breakoutLow &&
       lastCandle.high <= breakoutLow + breakoutHoldTol;
-    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold || bullishDayHighBreakout || bullishPriorHighBreakout || establishedBullBreak;
-    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold || bearishDayLowBreakdown || bearishPriorLowBreakdown || establishedBearBreak;
+    const breakoutConfirmedBull =
+      bullishBreakoutClose ||
+      bullishBreakoutHold ||
+      bullishDayHighBreakout ||
+      bullishPriorHighBreakout ||
+      establishedBullBreak;
+    const breakoutConfirmedBear =
+      bearishBreakdownClose ||
+      bearishBreakdownHold ||
+      bearishDayLowBreakdown ||
+      bearishPriorLowBreakdown ||
+      establishedBearBreak;
 
     const earlyBullChecks = [
       breakoutConfirmedBull,
       ema9 > ema21 && lastCandle.close >= ema9 - atr14 * 0.2,
       lastCandle.close > vwap,
-      hasAcceptableVolume && (bodySize >= minimumBodySize * 0.6 || bodyPercent >= 35),
+      hasAcceptableVolume &&
+        (bodySize >= minimumBodySize * 0.6 || bodyPercent >= 35),
     ];
     const earlyBearChecks = [
       breakoutConfirmedBear,
       ema9 < ema21 && lastCandle.close <= ema9 + atr14 * 0.2,
       lastCandle.close < vwap,
-      hasAcceptableVolume && (bodySize >= minimumBodySize * 0.6 || bodyPercent >= 35),
+      hasAcceptableVolume &&
+        (bodySize >= minimumBodySize * 0.6 || bodyPercent >= 35),
     ];
     const earlyBullScore = earlyBullChecks.filter(Boolean).length;
     const earlyBearScore = earlyBearChecks.filter(Boolean).length;
@@ -2239,13 +2663,23 @@ export class AdvancedAI {
     const momentumBull = macdHistogramExpandingBull || adxRising;
     const momentumBear = macdHistogramExpandingBear || adxRising;
 
-    const currentTsMs = lastCandle.timestamp < 1e12 ? lastCandle.timestamp * 1000 : lastCandle.timestamp;
+    const currentTsMs =
+      lastCandle.timestamp < 1e12
+        ? lastCandle.timestamp * 1000
+        : lastCandle.timestamp;
     const analysisTimeMs = currentTsMs || Date.now();
     const istMinutes = this.getIstMinutes(analysisTimeMs);
-    const inMidSessionTrapWindow = istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
-    const prevVwap = ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
+    const inMidSessionTrapWindow =
+      istMinutes >= 11 * 60 && istMinutes <= 13 * 60 + 30;
+    const prevVwap =
+      ohlcData.length > 5 ? this.calculateVWAP(ohlcData.slice(0, -1)) : vwap;
     const vwapFlat = Math.abs(vwap - prevVwap) <= Math.max(1, atr14 * 0.05);
-    const weakMidSessionTrap = inMidSessionTrapWindow && adx < 22 && !adxRising && !hasAcceptableVolume && vwapFlat;
+    const weakMidSessionTrap =
+      inMidSessionTrapWindow &&
+      adx < 22 &&
+      !adxRising &&
+      !hasAcceptableVolume &&
+      vwapFlat;
 
     const timeframeMinutes = options.timeframeMinutes || 5;
     const lastSignalTsMs = options.lastSignalTimestamp
@@ -2255,22 +2689,34 @@ export class AdvancedAI {
       : 0;
     const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 1; // ⚡ FAST MODE default 1 bar
     const barsSinceLastSignal =
-      lastSignalTsMs > 0 ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000) : Infinity;
-    const cooldownActive = isFinite(barsSinceLastSignal) && Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
+      lastSignalTsMs > 0
+        ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000)
+        : Infinity;
+    const cooldownActive =
+      isFinite(barsSinceLastSignal) &&
+      Math.abs(barsSinceLastSignal) < minimumBarsBetweenSignals;
     // FIX 3: directional cooldown — block only same-direction repeats; allow opposite reversal.
-    const cooldownBlocksBull = cooldownActive && options.lastSignalDirection === "BUY_CALL";
-    const cooldownBlocksBear = cooldownActive && options.lastSignalDirection === "BUY_PUT";
+    const cooldownBlocksBull =
+      cooldownActive && options.lastSignalDirection === "BUY_CALL";
+    const cooldownBlocksBear =
+      cooldownActive && options.lastSignalDirection === "BUY_PUT";
 
     // ===== FIX 6: FAKE BREAKOUT DETECTION =====
     // Breakout candle but weak close, dominant wick, no volume expansion, no BB expansion.
     const _fbBody = Math.abs(lastCandle.close - lastCandle.open);
     const _fbRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
-    const _fbUpperWick = lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
-    const _fbLowerWick = Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
-    const _fbWickDominant = Math.max(_fbUpperWick, _fbLowerWick) > _fbBody * 1.2;
+    const _fbUpperWick =
+      lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
+    const _fbLowerWick =
+      Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
+    const _fbWickDominant =
+      Math.max(_fbUpperWick, _fbLowerWick) > _fbBody * 1.2;
     const _fbWeakClose = _fbBody / _fbRange < 0.45;
     const fakeBreakout =
-      (bullishBreakoutClose || bearishBreakdownClose || bullishBreakoutHold || bearishBreakdownHold) &&
+      (bullishBreakoutClose ||
+        bearishBreakdownClose ||
+        bullishBreakoutHold ||
+        bearishBreakdownHold) &&
       _fbWickDominant &&
       _fbWeakClose &&
       !hasAcceptableVolume &&
@@ -2286,11 +2732,14 @@ export class AdvancedAI {
     // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
     // ⚡ FAST OPENING: first 75min (09:15-10:30) drop confirmation so the 09:30/09:45/10:00
     //   closed momentum candles can fire before slow indicators fully settle.
-    const earlyOpeningSession = istMinutes >= 9 * 60 + 15 && istMinutes <= 10 * 60 + 30;
+    const earlyOpeningSession =
+      istMinutes >= 9 * 60 + 15 && istMinutes <= 10 * 60 + 30;
     const openingRelief = earlyOpeningSession ? 1 : 0;
     const requiredConfirmations = Math.max(
       3,
-      (adx > 35 ? 4 : adx >= 22 ? 5 : 6) + lunchExtraConfirmation - openingRelief,
+      (adx > 35 ? 4 : adx >= 22 ? 5 : 6) +
+        lunchExtraConfirmation -
+        openingRelief,
     );
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [
@@ -2307,9 +2756,21 @@ export class AdvancedAI {
     const totalBullScore = earlyBullScore + strongConfirmationScore;
     const totalBearScore = earlyBearScore + strongConfirmationScore;
     const bullTier: "NONE" | "FAST" | "STRONG" | "HIGH" =
-      totalBullScore >= 6 ? "HIGH" : totalBullScore >= 5 ? "STRONG" : totalBullScore >= 3 ? "FAST" : "NONE";
+      totalBullScore >= 6
+        ? "HIGH"
+        : totalBullScore >= 5
+          ? "STRONG"
+          : totalBullScore >= 3
+            ? "FAST"
+            : "NONE";
     const bearTier: "NONE" | "FAST" | "STRONG" | "HIGH" =
-      totalBearScore >= 6 ? "HIGH" : totalBearScore >= 5 ? "STRONG" : totalBearScore >= 3 ? "FAST" : "NONE";
+      totalBearScore >= 6
+        ? "HIGH"
+        : totalBearScore >= 5
+          ? "STRONG"
+          : totalBearScore >= 3
+            ? "FAST"
+            : "NONE";
 
     // ===== FAST BREAKOUT ENTRY =====
     const fastBullEntry =
@@ -2339,24 +2800,42 @@ export class AdvancedAI {
       prevCandle.close < prevCandle.open &&
       lastCandle.close < prevCandle.close &&
       hasAcceptableVolume;
-    const reversalBullValid = reversalBullFollowThrough && (marketStructure.choch === "BULL" || rsiDivergenceObj.bull);
-    const reversalBearValid = reversalBearFollowThrough && (marketStructure.choch === "BEAR" || rsiDivergenceObj.bear);
+    const reversalBullValid =
+      reversalBullFollowThrough &&
+      (marketStructure.choch === "BULL" || rsiDivergenceObj.bull);
+    const reversalBearValid =
+      reversalBearFollowThrough &&
+      (marketStructure.choch === "BEAR" || rsiDivergenceObj.bear);
 
     // ===== INSTITUTIONAL FILTERS =====
     // 1) Liquidity sweep BLOCKS counter-direction entries (stop hunts → reversal incoming)
     const liquidityBlocksBull = liquidity.buySideSweep; // upside sweep ⇒ avoid longs
     const liquidityBlocksBear = liquidity.sellSideSweep; // downside sweep ⇒ avoid shorts
     // 2) Range expansion required for breakout entries (rejects weak breakouts)
-    const trendAnchorBreakBull = establishedBullBreak && adx >= 20 && ema9 > ema21 && lastCandle.close > vwap;
-    const trendAnchorBreakBear = establishedBearBreak && adx >= 20 && ema9 < ema21 && lastCandle.close < vwap;
-    const breakoutQualityBull = breakoutConfirmedBull && (rangeExpansion || bbSqueezeBreakout === "BULL" || trendAnchorBreakBull);
-    const breakoutQualityBear = breakoutConfirmedBear && (rangeExpansion || bbSqueezeBreakout === "BEAR" || trendAnchorBreakBear);
+    const trendAnchorBreakBull =
+      establishedBullBreak &&
+      adx >= 20 &&
+      ema9 > ema21 &&
+      lastCandle.close > vwap;
+    const trendAnchorBreakBear =
+      establishedBearBreak &&
+      adx >= 20 &&
+      ema9 < ema21 &&
+      lastCandle.close < vwap;
+    const breakoutQualityBull =
+      breakoutConfirmedBull &&
+      (rangeExpansion || bbSqueezeBreakout === "BULL" || trendAnchorBreakBull);
+    const breakoutQualityBear =
+      breakoutConfirmedBear &&
+      (rangeExpansion || bbSqueezeBreakout === "BEAR" || trendAnchorBreakBear);
     // 3) Slope filter: trend must actually be moving
     const slopeOkBull = slopeBullish || ema9Slope > 0;
     const slopeOkBear = slopeBearish || ema9Slope < 0;
     // 4) Market structure must not contradict
-    const structureOkBull = marketStructure.type !== "DOWNTREND" || marketStructure.choch === "BULL";
-    const structureOkBear = marketStructure.type !== "UPTREND" || marketStructure.choch === "BEAR";
+    const structureOkBull =
+      marketStructure.type !== "DOWNTREND" || marketStructure.choch === "BULL";
+    const structureOkBear =
+      marketStructure.type !== "UPTREND" || marketStructure.choch === "BEAR";
     // 5) Smart money agreement boost (not a hard block)
     const smartMoneyAgreesBull = smartMoneyBias !== "BEARISH";
     const smartMoneyAgreesBear = smartMoneyBias !== "BULLISH";
@@ -2373,20 +2852,32 @@ export class AdvancedAI {
     // BEAR: mirror
     const _body = Math.abs(lastCandle.close - lastCandle.open);
     const _range = Math.max(lastCandle.high - lastCandle.low, 1e-6);
-    const _lowerWick = Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
-    const _upperWick = lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
-    const bullishRejectionCandle = _lowerWick > _body * 1.2 && lastCandle.close > lastCandle.open;
-    const bearishRejectionCandle = _upperWick > _body * 1.2 && lastCandle.close < lastCandle.open;
+    const _lowerWick =
+      Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
+    const _upperWick =
+      lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
+    const bullishRejectionCandle =
+      _lowerWick > _body * 1.2 && lastCandle.close > lastCandle.open;
+    const bearishRejectionCandle =
+      _upperWick > _body * 1.2 && lastCandle.close < lastCandle.open;
     const strongBullishClose =
-      lastCandle.close > lastCandle.open && (lastCandle.close - lastCandle.low) / _range > 0.65;
+      lastCandle.close > lastCandle.open &&
+      (lastCandle.close - lastCandle.low) / _range > 0.65;
     const strongBearishClose =
-      lastCandle.close < lastCandle.open && (lastCandle.high - lastCandle.close) / _range > 0.65;
+      lastCandle.close < lastCandle.open &&
+      (lastCandle.high - lastCandle.close) / _range > 0.65;
     const macdHistImprovingBull = macdData.histogram > prevMacdData.histogram;
     const macdHistWeakeningBear = macdData.histogram < prevMacdData.histogram;
-    const priceTouchedEmaZoneBull = lastCandle.low <= ema9 + atr14 * 0.3 || lastCandle.low <= ema21 + atr14 * 0.4;
-    const priceTouchedEmaZoneBear = lastCandle.high >= ema9 - atr14 * 0.3 || lastCandle.high >= ema21 - atr14 * 0.4;
-    const institutionalContinuationBull = adx > 28 && ema9 > ema21 && rsi > 45 && rsi < 78 && macdHistImprovingBull;
-    const institutionalContinuationBear = adx > 28 && ema9 < ema21 && rsi < 55 && rsi > 22 && macdHistWeakeningBear;
+    const priceTouchedEmaZoneBull =
+      lastCandle.low <= ema9 + atr14 * 0.3 ||
+      lastCandle.low <= ema21 + atr14 * 0.4;
+    const priceTouchedEmaZoneBear =
+      lastCandle.high >= ema9 - atr14 * 0.3 ||
+      lastCandle.high >= ema21 - atr14 * 0.4;
+    const institutionalContinuationBull =
+      adx > 28 && ema9 > ema21 && rsi > 45 && rsi < 78 && macdHistImprovingBull;
+    const institutionalContinuationBear =
+      adx > 28 && ema9 < ema21 && rsi < 55 && rsi > 22 && macdHistWeakeningBear;
     const continuationBull =
       institutionalContinuationBull &&
       (priceTouchedEmaZoneBull ||
@@ -2406,21 +2897,32 @@ export class AdvancedAI {
     const hasBearReversalPattern = patterns.some(
       (p) =>
         p.direction === "BEARISH" &&
-        (p.type === "SHOOTING_STAR" || p.type === "EVENING_STAR" || p.type === "BEARISH_ENGULFING"),
+        (p.type === "SHOOTING_STAR" ||
+          p.type === "EVENING_STAR" ||
+          p.type === "BEARISH_ENGULFING"),
     );
     const hasBullReversalPattern = patterns.some(
       (p) =>
         p.direction === "BULLISH" &&
-        (p.type === "HAMMER" || p.type === "MORNING_STAR" || p.type === "BULLISH_ENGULFING"),
+        (p.type === "HAMMER" ||
+          p.type === "MORNING_STAR" ||
+          p.type === "BULLISH_ENGULFING"),
     );
     const reversalBearEntry =
-      hasBearReversalPattern && adx > 18 && macdHistWeakeningBear && lastCandle.close < lastCandle.open;
+      hasBearReversalPattern &&
+      adx > 18 &&
+      macdHistWeakeningBear &&
+      lastCandle.close < lastCandle.open;
     const reversalBullEntry =
-      hasBullReversalPattern && adx > 18 && macdHistImprovingBull && lastCandle.close > lastCandle.open;
+      hasBullReversalPattern &&
+      adx > 18 &&
+      macdHistImprovingBull &&
+      lastCandle.close > lastCandle.open;
 
     // ===== FIX 6: TREND EXHAUSTION GUARD =====
     // Block chasing entries when price is > 4 ATR away from EMA21 (overextended).
-    const distFromEma21Atr = Math.abs(lastCandle.close - ema21) / Math.max(atr14, 1e-6);
+    const distFromEma21Atr =
+      Math.abs(lastCandle.close - ema21) / Math.max(atr14, 1e-6);
     const trendExhausted = distFromEma21Atr > 4;
 
     // ===== FIX 7: SESSION-AWARE CONFIDENCE MODIFIER =====
@@ -2429,12 +2931,18 @@ export class AdvancedAI {
     const inHighPrioritySession =
       (_istMinSess >= 9 * 60 + 20 && _istMinSess <= 11 * 60 + 15) ||
       (_istMinSess >= 13 * 60 + 45 && _istMinSess <= 15 * 60);
-    const inLunchChopSession = _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
+    const inLunchChopSession =
+      _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
 
     // ===== FIX 4: SESSION-BASED MARKET BEHAVIOR =====
     // 09:15–10:30 volatile breakout | 10:30–13:00 trend continuation
     // 13:00–14:15 sideways          | 14:15–15:30 trend expansion
-    type SessionBehavior = "VOLATILE_BREAKOUT" | "TREND_CONTINUATION" | "SIDEWAYS" | "TREND_EXPANSION" | "OFF_HOURS";
+    type SessionBehavior =
+      | "VOLATILE_BREAKOUT"
+      | "TREND_CONTINUATION"
+      | "SIDEWAYS"
+      | "TREND_EXPANSION"
+      | "OFF_HOURS";
     let sessionBehavior: SessionBehavior = "OFF_HOURS";
     let sessionBehaviorModifier = 0;
     if (_istMinSess >= 9 * 60 + 15 && _istMinSess < 10 * 60 + 30) {
@@ -2451,7 +2959,8 @@ export class AdvancedAI {
       sessionBehaviorModifier = 4; // late-day expansion
     }
     const sessionConfidenceModifier =
-      (inHighPrioritySession ? 4 : inLunchChopSession ? -8 : 0) + sessionBehaviorModifier;
+      (inHighPrioritySession ? 4 : inLunchChopSession ? -8 : 0) +
+      sessionBehaviorModifier;
 
     // ===== FIX 1: OVER-EXPANDED CANDLE FILTER =====
     // Avoid chasing vertical candles; range > 2.5 × ATR14 = exhaustion bar.
@@ -2460,12 +2969,20 @@ export class AdvancedAI {
 
     // ===== FIX 2: TREND PULLBACK QUALITY BOOST =====
     // Sniper continuation: EMA9/21 retest + rejection wick OR engulfing pattern.
-    const hasBullEngulfing = patterns.some((p) => p.type === "BULLISH_ENGULFING" && p.direction === "BULLISH");
-    const hasBearEngulfing = patterns.some((p) => p.type === "BEARISH_ENGULFING" && p.direction === "BEARISH");
+    const hasBullEngulfing = patterns.some(
+      (p) => p.type === "BULLISH_ENGULFING" && p.direction === "BULLISH",
+    );
+    const hasBearEngulfing = patterns.some(
+      (p) => p.type === "BEARISH_ENGULFING" && p.direction === "BEARISH",
+    );
     const pullbackQualityBull =
-      continuationBull && (bullishRejectionCandle || hasBullEngulfing) && priceTouchedEmaZoneBull;
+      continuationBull &&
+      (bullishRejectionCandle || hasBullEngulfing) &&
+      priceTouchedEmaZoneBull;
     const pullbackQualityBear =
-      continuationBear && (bearishRejectionCandle || hasBearEngulfing) && priceTouchedEmaZoneBear;
+      continuationBear &&
+      (bearishRejectionCandle || hasBearEngulfing) &&
+      priceTouchedEmaZoneBear;
 
     // ===== FIX 7: MOMENTUM SCORING (0-6) =====
     const _bodyPct = bodyPercent;
@@ -2475,14 +2992,20 @@ export class AdvancedAI {
       (macdHistogramExpandingBull ? 1 : 0) +
       (rsi > 50 && rsi > (indicators as any).prevRsi ? 1 : 0) +
       (hasAcceptableVolume ? 1 : 0) +
-      (breakoutConfirmedBull && (lastCandle.close - lastCandle.low) / Math.max(currentRange, 1e-6) > 0.6 ? 1 : 0);
+      (breakoutConfirmedBull &&
+      (lastCandle.close - lastCandle.low) / Math.max(currentRange, 1e-6) > 0.6
+        ? 1
+        : 0);
     const momentumPointsBear =
       (_bodyPct >= 60 && lastCandle.close < lastCandle.open ? 1 : 0) +
       (rangeExpansion ? 1 : 0) +
       (macdHistogramExpandingBear ? 1 : 0) +
       (rsi < 50 ? 1 : 0) +
       (hasAcceptableVolume ? 1 : 0) +
-      (breakoutConfirmedBear && (lastCandle.high - lastCandle.close) / Math.max(currentRange, 1e-6) > 0.6 ? 1 : 0);
+      (breakoutConfirmedBear &&
+      (lastCandle.high - lastCandle.close) / Math.max(currentRange, 1e-6) > 0.6
+        ? 1
+        : 0);
     const momentumScore = Math.max(momentumPointsBull, momentumPointsBear);
     const momentumStrong = momentumScore >= 4;
 
@@ -2508,28 +3031,58 @@ export class AdvancedAI {
     // ===== FIX 4: REAL TREND REVERSAL DETECTION =====
     const last3 = ohlcData.slice(-3);
     const macdHist3RisingBull =
-      last3.length === 3 && (indicators as any).macdHist3 ? false : macdHistogramExpandingBull;
-    const higherLowsForming = last3.length === 3 && last3[2].low > last3[1].low && last3[1].low > last3[0].low;
-    const lowerHighsForming = last3.length === 3 && last3[2].high < last3[1].high && last3[1].high < last3[0].high;
-    const reclaimsEma9Bull = lastCandle.close > ema9 && prevCandle.close <= ema9;
-    const reclaimsEma9Bear = lastCandle.close < ema9 && prevCandle.close >= ema9;
+      last3.length === 3 && (indicators as any).macdHist3
+        ? false
+        : macdHistogramExpandingBull;
+    const higherLowsForming =
+      last3.length === 3 &&
+      last3[2].low > last3[1].low &&
+      last3[1].low > last3[0].low;
+    const lowerHighsForming =
+      last3.length === 3 &&
+      last3[2].high < last3[1].high &&
+      last3[1].high < last3[0].high;
+    const reclaimsEma9Bull =
+      lastCandle.close > ema9 && prevCandle.close <= ema9;
+    const reclaimsEma9Bear =
+      lastCandle.close < ema9 && prevCandle.close >= ema9;
     const trendReversalBull =
-      macdHistogramExpandingBull && rsi > 30 && rsi < 55 && higherLowsForming && reclaimsEma9Bull;
+      macdHistogramExpandingBull &&
+      rsi > 30 &&
+      rsi < 55 &&
+      higherLowsForming &&
+      reclaimsEma9Bull;
     const trendReversalBear =
-      macdHistogramExpandingBear && rsi < 70 && rsi > 45 && lowerHighsForming && reclaimsEma9Bear;
-    const trendReversalDetected = trendReversalBull ? "BULL_REVERSAL" : trendReversalBear ? "BEAR_REVERSAL" : null;
+      macdHistogramExpandingBear &&
+      rsi < 70 &&
+      rsi > 45 &&
+      lowerHighsForming &&
+      reclaimsEma9Bear;
+    const trendReversalDetected = trendReversalBull
+      ? "BULL_REVERSAL"
+      : trendReversalBear
+        ? "BEAR_REVERSAL"
+        : null;
 
     // Gate uses totalBullScore (0-8) so the new 4/5/7 thresholds map across early+momentum.
     // Continuation setup bypasses the score requirement when ADX strong.
     // Trend exhausted: block continuation, allow only reversal entries (institutional rule)
-    const exhaustionBlocksContinuationBull = trendExhausted && !reversalBullEntry;
-    const exhaustionBlocksContinuationBear = trendExhausted && !reversalBearEntry;
+    const exhaustionBlocksContinuationBull =
+      trendExhausted && !reversalBullEntry;
+    const exhaustionBlocksContinuationBear =
+      trendExhausted && !reversalBearEntry;
 
     // FIX 1 reinforcement: overexpanded fresh breakouts blocked unless continuation/reversal/pullback present.
     const overExpandedBlocksBull =
-      overExpandedCandle && !continuationBull && !reversalBullEntry && !pullbackQualityBull;
+      overExpandedCandle &&
+      !continuationBull &&
+      !reversalBullEntry &&
+      !pullbackQualityBull;
     const overExpandedBlocksBear =
-      overExpandedCandle && !continuationBear && !reversalBearEntry && !pullbackQualityBear;
+      overExpandedCandle &&
+      !continuationBear &&
+      !reversalBearEntry &&
+      !pullbackQualityBear;
 
     // ===== NEW FIX: OVERSOLD / OVERBOUGHT EXHAUSTION BOUNCE GUARD =====
     // Real-market bug: at 10:15 IST BANKNIFTY fired BUY_PUT while RSI=29, Stoch=15,
@@ -2537,9 +3090,15 @@ export class AdvancedAI {
     // but FAST-continuation path ignored Stochastic because ADX was strong (38).
     // Block PUT when 3+ of 4 oversold-exhaustion signals fire together.
     const oversoldSignalCount =
-      (rsi < 32 ? 1 : 0) + (stoch.k < 20 ? 1 : 0) + (priceNearLowerBand ? 1 : 0) + (nearSupport ? 1 : 0);
+      (rsi < 32 ? 1 : 0) +
+      (stoch.k < 20 ? 1 : 0) +
+      (priceNearLowerBand ? 1 : 0) +
+      (nearSupport ? 1 : 0);
     const overboughtSignalCount =
-      (rsi > 68 ? 1 : 0) + (stoch.k > 80 ? 1 : 0) + (priceNearUpperBand ? 1 : 0) + (nearResistance ? 1 : 0);
+      (rsi > 68 ? 1 : 0) +
+      (stoch.k > 80 ? 1 : 0) +
+      (priceNearUpperBand ? 1 : 0) +
+      (nearResistance ? 1 : 0);
     // Block PUT into oversold bounce zone unless we have a fresh BOS-down or
     // genuine high-volume breakdown (real continuation, not a grind into support).
     // Relaxed: require 4+ signals (was 3), and escape if EMA9 still sloping with trend strongly.
@@ -2570,8 +3129,10 @@ export class AdvancedAI {
     const atrSpike = currentRange > atr14 * 1.8;
     const volRatio = volumeRatio || 1;
     const climaxVolume = volumeFeedReliable && volRatio >= 2.0;
-    const climaxExhaustionBull = expansionStreakBull >= 3 && rsi > 78 && atrSpike && climaxVolume;
-    const climaxExhaustionBear = expansionStreakBear >= 3 && rsi < 22 && atrSpike && climaxVolume;
+    const climaxExhaustionBull =
+      expansionStreakBull >= 3 && rsi > 78 && atrSpike && climaxVolume;
+    const climaxExhaustionBear =
+      expansionStreakBear >= 3 && rsi < 22 && atrSpike && climaxVolume;
 
     // ===== NEW FIX D: POST-SL COOLDOWN (revenge-trade guard) =====
     const slCooldownBars = options.stopLossCooldownBars ?? 2;
@@ -2580,24 +3141,41 @@ export class AdvancedAI {
         ? options.lastStopLossTimestamp * 1000
         : options.lastStopLossTimestamp
       : 0;
-    const barsSinceSl = lastSlMs > 0 ? (currentTsMs - lastSlMs) / (timeframeMinutes * 60 * 1000) : Infinity;
-    const slCooldownActive = isFinite(barsSinceSl) && barsSinceSl < slCooldownBars;
-    const slBlocksBull = slCooldownActive && options.lastStopLossDirection === "BUY_CALL";
-    const slBlocksBear = slCooldownActive && options.lastStopLossDirection === "BUY_PUT";
+    const barsSinceSl =
+      lastSlMs > 0
+        ? (currentTsMs - lastSlMs) / (timeframeMinutes * 60 * 1000)
+        : Infinity;
+    const slCooldownActive =
+      isFinite(barsSinceSl) && barsSinceSl < slCooldownBars;
+    const slBlocksBull =
+      slCooldownActive && options.lastStopLossDirection === "BUY_CALL";
+    const slBlocksBear =
+      slCooldownActive && options.lastStopLossDirection === "BUY_PUT";
 
     // ===== NEW FIX B: AFTERNOON CONFIDENCE DECAY =====
     // After 13:30 IST, low-volume continuation candles get a graded penalty (up to -10).
     const afternoonStartMin = 13 * 60 + 30;
     const afternoonEndMin = 15 * 60;
-    const inAfternoonWindow = _istMinSess >= afternoonStartMin && _istMinSess <= afternoonEndMin;
-    const lowVolumeAfternoon = inAfternoonWindow && (!volumeFeedReliable ? bodyPercent < 50 : volRatio < 0.9);
+    const inAfternoonWindow =
+      _istMinSess >= afternoonStartMin && _istMinSess <= afternoonEndMin;
+    const lowVolumeAfternoon =
+      inAfternoonWindow &&
+      (!volumeFeedReliable ? bodyPercent < 50 : volRatio < 0.9);
     const afternoonDecay = lowVolumeAfternoon
-      ? -Math.min(10, Math.round(((_istMinSess - afternoonStartMin) / (afternoonEndMin - afternoonStartMin)) * 10))
+      ? -Math.min(
+          10,
+          Math.round(
+            ((_istMinSess - afternoonStartMin) /
+              (afternoonEndMin - afternoonStartMin)) *
+              10,
+          ),
+        )
       : 0;
 
     // ===== NEW FIX E: 5M NOISE FILTER =====
     // On 5m timeframe, candles whose range < 40% of ATR14 are noise — skip entries.
-    const noiseFilter5m = timeframeMinutes === 5 && currentRange > 0 && currentRange < atr14 * 0.4;
+    const noiseFilter5m =
+      timeframeMinutes === 5 && currentRange > 0 && currentRange < atr14 * 0.4;
 
     // ===== NEW FIX F: NEWS / EVENT VOLATILITY FILTER =====
     // Compute average ATR over previous 20 bars (excluding latest). If atr14 spikes > 2.5x avg → likely
@@ -2628,8 +3206,10 @@ export class AdvancedAI {
         ? options.lastLossTimestamp * 1000
         : options.lastLossTimestamp
       : 0;
-    const msSinceLastLoss = lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
-    const consecutiveLossLockout = lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
+    const msSinceLastLoss =
+      lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
+    const consecutiveLossLockout =
+      lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
     // ⚡ FIX: Relaxed late-entry gate from 15:15 → 15:25 IST so the 15:15 candle close still produces a tradeable signal.
     const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 25; // 15:25 IST
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
@@ -2641,8 +3221,16 @@ export class AdvancedAI {
         reversalBullEntry ||
         (momentumStrong && adx > 30) ||
         ultraFastOpeningBull) &&
-      (breakoutQualityBull || adxStrong || continuationBull || reversalBullEntry || ultraFastOpeningBull) &&
-      (momentumBull || adxStrong || continuationBull || reversalBullEntry || ultraFastOpeningBull) &&
+      (breakoutQualityBull ||
+        adxStrong ||
+        continuationBull ||
+        reversalBullEntry ||
+        ultraFastOpeningBull) &&
+      (momentumBull ||
+        adxStrong ||
+        continuationBull ||
+        reversalBullEntry ||
+        ultraFastOpeningBull) &&
       (slopeOkBull || adxStrong || continuationBull || reversalBullEntry) &&
       structureOkBull &&
       !liquidityBlocksBull &&
@@ -2666,8 +3254,16 @@ export class AdvancedAI {
         reversalBearEntry ||
         (momentumStrong && adx > 30) ||
         ultraFastOpeningBear) &&
-      (breakoutQualityBear || adxStrong || continuationBear || reversalBearEntry || ultraFastOpeningBear) &&
-      (momentumBear || adxStrong || continuationBear || reversalBearEntry || ultraFastOpeningBear) &&
+      (breakoutQualityBear ||
+        adxStrong ||
+        continuationBear ||
+        reversalBearEntry ||
+        ultraFastOpeningBear) &&
+      (momentumBear ||
+        adxStrong ||
+        continuationBear ||
+        reversalBearEntry ||
+        ultraFastOpeningBear) &&
       (slopeOkBear || adxStrong || continuationBear || reversalBearEntry) &&
       structureOkBear &&
       !liquidityBlocksBear &&
@@ -2688,35 +3284,50 @@ export class AdvancedAI {
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
     const breakoutClose = lastCandle.close;
     const breakoutBodyRange =
-      (Math.max(breakoutClose, lastCandle.open) - Math.min(breakoutClose, lastCandle.open)) / Math.max(_range, 1e-6);
+      (Math.max(breakoutClose, lastCandle.open) -
+        Math.min(breakoutClose, lastCandle.open)) /
+      Math.max(_range, 1e-6);
     const prevRanges = ohlcData.slice(-6, -1).map((c) => c.high - c.low);
-    const avgPrevRange = prevRanges.length > 0 ? prevRanges.reduce((a, b) => a + b, 0) / prevRanges.length : _range;
+    const avgPrevRange =
+      prevRanges.length > 0
+        ? prevRanges.reduce((a, b) => a + b, 0) / prevRanges.length
+        : _range;
     const rangeExpansionStrong = _range > avgPrevRange * 1.3;
     const closeNearHigh = (breakoutClose - lastCandle.low) / _range > 0.7;
     const closeNearLow = (lastCandle.high - breakoutClose) / _range > 0.7;
-    const breakoutQuality: "STRONG" | "WEAK" | "NONE" | "FAKE_BREAKOUT" = fakeBreakout
-      ? "FAKE_BREAKOUT"
-      : ((breakoutConfirmedBull && closeNearHigh) || (breakoutConfirmedBear && closeNearLow)) &&
-          rangeExpansionStrong &&
-          bbExpansion
-        ? "STRONG"
-        : breakoutConfirmedBull || breakoutConfirmedBear
-          ? "WEAK"
-          : "NONE";
+    const breakoutQuality: "STRONG" | "WEAK" | "NONE" | "FAKE_BREAKOUT" =
+      fakeBreakout
+        ? "FAKE_BREAKOUT"
+        : ((breakoutConfirmedBull && closeNearHigh) ||
+              (breakoutConfirmedBear && closeNearLow)) &&
+            rangeExpansionStrong &&
+            bbExpansion
+          ? "STRONG"
+          : breakoutConfirmedBull || breakoutConfirmedBear
+            ? "WEAK"
+            : "NONE";
 
     // ===== FIX 8: ENTRY QUALITY SCORE (0-100) =====
     let entryQualityScore = 0;
     entryQualityScore += Math.min(25, adx * 0.6); // trend strength up to 25
     entryQualityScore += confirmations.ema ? 12 : 0; // EMA alignment
     entryQualityScore += confirmations.adx ? 8 : 0; // ADX confirm
-    entryQualityScore += breakoutQuality === "STRONG" ? 15 : breakoutQuality === "WEAK" ? 7 : 0;
     entryQualityScore +=
-      strongBullishClose || strongBearishClose ? 10 : bullishRejectionCandle || bearishRejectionCandle ? 6 : 0;
+      breakoutQuality === "STRONG" ? 15 : breakoutQuality === "WEAK" ? 7 : 0;
+    entryQualityScore +=
+      strongBullishClose || strongBearishClose
+        ? 10
+        : bullishRejectionCandle || bearishRejectionCandle
+          ? 6
+          : 0;
     entryQualityScore += smartMoneyBias !== "NEUTRAL" ? 10 : 0;
     entryQualityScore += confirmations.macd ? 8 : 0;
     entryQualityScore += liquidity.stopHunt ? -10 : 0;
     entryQualityScore += continuationBull || continuationBear ? 12 : 0;
-    entryQualityScore = Math.max(0, Math.min(100, Math.round(entryQualityScore)));
+    entryQualityScore = Math.max(
+      0,
+      Math.min(100, Math.round(entryQualityScore)),
+    );
     const entryQualityTier =
       entryQualityScore >= 90
         ? "SNIPER"
@@ -2729,17 +3340,30 @@ export class AdvancedAI {
     // ⚡ SIDEWAYS / NO-TRADE ZONE (STRICT): only block when market clearly has no direction.
     // Require ALL key conditions: weak ADX + flat slopes + low ATR + (VWAP flat OR squeeze).
     // NEVER block when ADX confirms a trending regime.
-    const emaMixed = !((ema9 > ema21 && ema21 > ema50) || (ema9 < ema21 && ema21 < ema50));
+    const emaMixed = !(
+      (ema9 > ema21 && ema21 > ema50) ||
+      (ema9 < ema21 && ema21 < ema50)
+    );
     const atrLow = atr14 < safeClose * 0.0035; // < 0.35% of price
-    const slopesFlat = Math.abs(ema9Slope) < 0.015 && Math.abs(ema21Slope) < 0.01;
+    const slopesFlat =
+      Math.abs(ema9Slope) < 0.015 && Math.abs(ema21Slope) < 0.01;
     const squeezeWithoutExpansion = bollingerSqueeze && !bbExpansion;
-    const inTrendingRegime = marketRegime.type === "TRENDING_UP" || marketRegime.type === "TRENDING_DOWN";
+    const inTrendingRegime =
+      marketRegime.type === "TRENDING_UP" ||
+      marketRegime.type === "TRENDING_DOWN";
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
-      !inTrendingRegime && adx < 18 && ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
-    const sidewaysSignals = [adx < 18, atrLow, vwapFlat, slopesFlat, squeezeWithoutExpansion, emaMixed].filter(
-      Boolean,
-    ).length;
+      !inTrendingRegime &&
+      adx < 18 &&
+      ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
+    const sidewaysSignals = [
+      adx < 18,
+      atrLow,
+      vwapFlat,
+      slopesFlat,
+      squeezeWithoutExpansion,
+      emaMixed,
+    ].filter(Boolean).length;
 
     if (noTradeZone) {
       const executionTimeNT = performance.now() - startTime;
@@ -2754,12 +3378,27 @@ export class AdvancedAI {
         confirmations,
         volumeAnalysis: (() => {
           const candleStrength =
-            bodyPercent >= 60 ? "STRONG" : bodyPercent >= 35 ? "DECISIVE" : bodyPercent >= 25 ? "MODERATE" : "WEAK";
-          const coverageBase = Math.max(1, Math.min(10, volumeBaselineCandles.length || ohlcData.slice(-10).length));
-          const candlesWithVolume = volumeBaselineCandles.slice(-10).filter((c) => (c.volume || 0) > 0).length;
+            bodyPercent >= 60
+              ? "STRONG"
+              : bodyPercent >= 35
+                ? "DECISIVE"
+                : bodyPercent >= 25
+                  ? "MODERATE"
+                  : "WEAK";
+          const coverageBase = Math.max(
+            1,
+            Math.min(
+              10,
+              volumeBaselineCandles.length || ohlcData.slice(-10).length,
+            ),
+          );
+          const candlesWithVolume = volumeBaselineCandles
+            .slice(-10)
+            .filter((c) => (c.volume || 0) > 0).length;
           const volumeCoverage = candlesWithVolume / coverageBase;
           const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
-          const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
+          const safeRatio =
+            isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
           return {
             current_volume: refVolume,
             average_volume: avgVolume || 0,
@@ -2805,8 +3444,14 @@ export class AdvancedAI {
     // ===== TREND-CONTINUATION FILTER =====
     // In strong trends (ADX > 35), block counter-trend reversal signals
     // unless market structure has already flipped (CHoCH confirmed).
-    const blockBearByTrend = adx > 35 && marketStructure.type === "UPTREND" && marketStructure.choch !== "BEAR";
-    const blockBullByTrend = adx > 35 && marketStructure.type === "DOWNTREND" && marketStructure.choch !== "BULL";
+    const blockBearByTrend =
+      adx > 35 &&
+      marketStructure.type === "UPTREND" &&
+      marketStructure.choch !== "BEAR";
+    const blockBullByTrend =
+      adx > 35 &&
+      marketStructure.type === "DOWNTREND" &&
+      marketStructure.choch !== "BULL";
     const allowBullish = strongBullish && !volatilitySpike && !blockBullByTrend;
     const allowBearish = strongBearish && !volatilitySpike && !blockBearByTrend;
 
@@ -2818,20 +3463,24 @@ export class AdvancedAI {
     } else if (allowBullish) {
       action = "BUY_CALL";
       // Tier-based base + ceiling: FAST stays conservative, HIGH can run hot.
-      const tierBase = bullTier === "HIGH" ? 70 : bullTier === "STRONG" ? 64 : 58;
-      const tierCeiling = bullTier === "HIGH" ? 95 : bullTier === "STRONG" ? 88 : 78;
+      const tierBase =
+        bullTier === "HIGH" ? 70 : bullTier === "STRONG" ? 64 : 58;
+      const tierCeiling =
+        bullTier === "HIGH" ? 95 : bullTier === "STRONG" ? 88 : 78;
       confidence = tierBase + earlyBullScore * 5 + strongConfirmationScore * 3;
       // Institutional boosts
       if (smartMoneyBias === "BULLISH") confidence += 5;
       if (marketStructure.bos === "BULL") confidence += 4;
       // CHoCH / RSI divergence only boosts AFTER follow-through + volume confirms
-      if (reversalBullValid && marketStructure.choch === "BULL") confidence += 4;
+      if (reversalBullValid && marketStructure.choch === "BULL")
+        confidence += 4;
       if (reversalBullValid && rsiDivergenceObj.bull) confidence += 3;
       if (bbSqueezeBreakout === "BULL") confidence += 3;
       // Confidence decay
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
-      if (gap.type === "GAP_UP" && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      if (gap.type === "GAP_UP" && !gap.filled && currentRange < avgPrev5Range)
+        confidence -= 4;
       if (overExpandedCandle) confidence -= 15; // FIX 1: avoid chasing vertical bars
       if (pullbackQualityBull) confidence += 8; // FIX 2: sniper pullback boost
       if (h1AlignedBull)
@@ -2844,19 +3493,27 @@ export class AdvancedAI {
       reasoning = `BUY_CALL [${bullTier}]: ${earlyBullScore}/4 entry + ${strongConfirmationScore}/4 momentum (total ${totalBullScore}/8). 15m=${htfAlign}, 1H=${h1Align}(ADX${h1Adx.toFixed(0)}), structure=${marketStructure.type}, session=${sessionBehavior}, sessionMod=${sessionConfidenceModifier}, expansion=${candleExpansion.toFixed(2)}x.${overExpandedCandle ? " OVEREXPANDED!" : ""}${pullbackQualityBull ? " Sniper pullback!" : ""}${reversalBullEntry ? " Reversal entry!" : ""}${continuationBull ? " Continuation!" : ""}${h1AlignedBull ? " 1H aligned!" : ""}`;
     } else if (allowBearish) {
       action = "BUY_PUT";
-      const tierBase = bearTier === "HIGH" ? 70 : bearTier === "STRONG" ? 64 : 58;
-      const tierCeiling = bearTier === "HIGH" ? 95 : bearTier === "STRONG" ? 88 : 78;
+      const tierBase =
+        bearTier === "HIGH" ? 70 : bearTier === "STRONG" ? 64 : 58;
+      const tierCeiling =
+        bearTier === "HIGH" ? 95 : bearTier === "STRONG" ? 88 : 78;
       confidence = tierBase + earlyBearScore * 5 + strongConfirmationScore * 3;
       // Institutional boosts
       if (smartMoneyBias === "BEARISH") confidence += 5;
       if (marketStructure.bos === "BEAR") confidence += 4;
-      if (reversalBearValid && marketStructure.choch === "BEAR") confidence += 4;
+      if (reversalBearValid && marketStructure.choch === "BEAR")
+        confidence += 4;
       if (reversalBearValid && rsiDivergenceObj.bear) confidence += 3;
       if (bbSqueezeBreakout === "BEAR") confidence += 3;
       // Confidence decay
       if (!rangeExpansion) confidence -= 5;
       if (!adxRising) confidence -= 3;
-      if (gap.type === "GAP_DOWN" && !gap.filled && currentRange < avgPrev5Range) confidence -= 4;
+      if (
+        gap.type === "GAP_DOWN" &&
+        !gap.filled &&
+        currentRange < avgPrev5Range
+      )
+        confidence -= 4;
       if (overExpandedCandle) confidence -= 15; // FIX 1
       if (pullbackQualityBear) confidence += 8; // FIX 2
       if (h1AlignedBear)
@@ -2874,12 +3531,13 @@ export class AdvancedAI {
     // (close below prev low for bull→bear, or above prev high for bear→bull),
     // emit OPPOSITE-direction signal at 75% confidence instead of just WAIT.
     if (action === "BUY_CALL") {
-      const bbStretchUp = bollinger.upper > 0 && lastCandle.close >= bollinger.upper;
+      const bbStretchUp =
+        bollinger.upper > 0 && lastCandle.close >= bollinger.upper;
       const vwapStretchUp = vwapDistance > 0.45;
       const exhaustedUp =
         (rsi >= 72 && (bbStretchUp || vwapStretchUp)) ||
         rsiDivergenceObj.bear ||
-        (rsi >= 78);
+        rsi >= 78;
       const lastRange = Math.max(lastCandle.high - lastCandle.low, 1e-9);
       const closePosUp = (lastCandle.close - lastCandle.low) / lastRange;
       const failedBreakoutUp =
@@ -2905,12 +3563,13 @@ export class AdvancedAI {
         }
       }
     } else if (action === "BUY_PUT") {
-      const bbStretchDn = bollinger.lower > 0 && lastCandle.close <= bollinger.lower;
+      const bbStretchDn =
+        bollinger.lower > 0 && lastCandle.close <= bollinger.lower;
       const vwapStretchDn = vwapDistance < -0.45;
       const exhaustedDn =
         (rsi <= 28 && (bbStretchDn || vwapStretchDn)) ||
         rsiDivergenceObj.bull ||
-        (rsi <= 22);
+        rsi <= 22;
       const lastRange = Math.max(lastCandle.high - lastCandle.low, 1e-9);
       const closePosDn = (lastCandle.high - lastCandle.close) / lastRange;
       const failedBreakdownDn =
@@ -2948,12 +3607,20 @@ export class AdvancedAI {
 
       const bearBreakdown =
         closePosLow > 0.65 &&
-        (lastCandle.close < prevCandle.low || lastCandle.close < breakoutLow || bearishPriorLowBreakdown || bearishDayLowBreakdown || establishedBearBreak) &&
+        (lastCandle.close < prevCandle.low ||
+          lastCandle.close < breakoutLow ||
+          bearishPriorLowBreakdown ||
+          bearishDayLowBreakdown ||
+          establishedBearBreak) &&
         lastCandle.close < lastCandle.open &&
         (vwapDistance < -0.15 || (adx >= 25 && ema9 < ema21));
       const bullBreakout =
         closePosHigh > 0.65 &&
-        (lastCandle.close > prevCandle.high || lastCandle.close > breakoutHigh || bullishPriorHighBreakout || bullishDayHighBreakout || establishedBullBreak) &&
+        (lastCandle.close > prevCandle.high ||
+          lastCandle.close > breakoutHigh ||
+          bullishPriorHighBreakout ||
+          bullishDayHighBreakout ||
+          establishedBullBreak) &&
         lastCandle.close > lastCandle.open &&
         (vwapDistance > 0.15 || (adx >= 25 && ema9 > ema21));
 
@@ -2966,7 +3633,13 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_PUT";
         bias = "Bearish";
-        const brokenLevel = bearishDayLowBreakdown ? dayBreakoutLow : establishedBearBreak ? breakoutLow : bearishPriorLowBreakdown ? previousCandleLow : Math.min(prevCandle.low, breakoutLow);
+        const brokenLevel = bearishDayLowBreakdown
+          ? dayBreakoutLow
+          : establishedBearBreak
+            ? breakoutLow
+            : bearishPriorLowBreakdown
+              ? previousCandleLow
+              : Math.min(prevCandle.low, breakoutLow);
         reasoning = `📉 BREAKDOWN BUY_PUT — close ${lastCandle.close.toFixed(2)} broke ${bearishDayLowBreakdown ? "day low" : establishedBearBreak ? "fixed trend anchor low" : bearishPriorLowBreakdown ? "rolling prior low" : "confirmed swing/prev low"} ${brokenLevel.toFixed(2)}, close at ${(closePosLow * 100).toFixed(0)}% of low, VWAP${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       } else if (bullBreakout) {
         let conf = 70;
@@ -2977,7 +3650,13 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_CALL";
         bias = "Bullish";
-        const brokenLevel = bullishDayHighBreakout ? dayBreakoutHigh : establishedBullBreak ? breakoutHigh : bullishPriorHighBreakout ? previousCandleHigh : Math.max(prevCandle.high, breakoutHigh);
+        const brokenLevel = bullishDayHighBreakout
+          ? dayBreakoutHigh
+          : establishedBullBreak
+            ? breakoutHigh
+            : bullishPriorHighBreakout
+              ? previousCandleHigh
+              : Math.max(prevCandle.high, breakoutHigh);
         reasoning = `📈 BREAKOUT BUY_CALL — close ${lastCandle.close.toFixed(2)} broke ${bullishDayHighBreakout ? "day high" : establishedBullBreak ? "fixed trend anchor high" : bullishPriorHighBreakout ? "rolling prior high" : "confirmed swing/prev high"} ${brokenLevel.toFixed(2)}, close at ${(closePosHigh * 100).toFixed(0)}% of high, VWAP+${vwapDistance.toFixed(2)}%, RSI ${rsi.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
@@ -3020,22 +3699,24 @@ export class AdvancedAI {
 
       const driftBear =
         (lowerCloses || redBars >= 4) &&
-        vwapDistance <= -0.20 &&
+        vwapDistance <= -0.2 &&
         vwapSlopeDown &&
         ema9 < ema21 &&
         ema21SlopeDown &&
-        rsi >= 35 && rsi <= 55 &&
+        rsi >= 35 &&
+        rsi <= 55 &&
         rsiFalling &&
         adx >= 15 &&
         closeNow < closeMinus3;
 
       const driftBull =
         (higherCloses || greenBars >= 4) &&
-        vwapDistance >= 0.20 &&
+        vwapDistance >= 0.2 &&
         vwapSlopeUp &&
         ema9 > ema21 &&
         ema21SlopeUp &&
-        rsi >= 45 && rsi <= 65 &&
+        rsi >= 45 &&
+        rsi <= 65 &&
         rsiRising &&
         adx >= 15 &&
         closeNow > closeMinus3;
@@ -3066,7 +3747,10 @@ export class AdvancedAI {
       action = "WAIT";
       confidence = 30;
       bias = "Neutral";
-      const minsLeft = Math.max(0, Math.ceil((lossCooldownMs - msSinceLastLoss) / 60000));
+      const minsLeft = Math.max(
+        0,
+        Math.ceil((lossCooldownMs - msSinceLastLoss) / 60000),
+      );
       reasoning = `WAIT: Consecutive-loss lockout — ${lossCount} losses in a row. Cooldown ${minsLeft}m remaining (avoid revenge trades).`;
     } else if (newsVolatilityShock) {
       action = "WAIT";
@@ -3076,8 +3760,15 @@ export class AdvancedAI {
     } else if (lateNewEntryBlocked) {
       action = "WAIT";
       confidence = 32;
-      bias = useTrendBias && trendBias !== "neutral" ? (trendBias === "bullish" ? "Bullish" : "Bearish") : "Neutral";
-      reasoning = `WAIT: Late-entry gate — no fresh intraday entries after ${Math.floor(lastEntryMinute / 60)
+      bias =
+        useTrendBias && trendBias !== "neutral"
+          ? trendBias === "bullish"
+            ? "Bullish"
+            : "Bearish"
+          : "Neutral";
+      reasoning = `WAIT: Late-entry gate — no fresh intraday entries after ${Math.floor(
+        lastEntryMinute / 60,
+      )
         .toString()
         .padStart(
           2,
@@ -3098,7 +3789,9 @@ export class AdvancedAI {
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
-    } else if (false /* HTF disagreement is now soft-scored, never a hard WAIT */) {
+    } else if (
+      false /* HTF disagreement is now soft-scored, never a hard WAIT */
+    ) {
       action = "WAIT";
       confidence = 38;
       bias = "Neutral";
@@ -3141,8 +3834,16 @@ export class AdvancedAI {
       reasoning = `WAIT: No breakout, no continuation pullback, no reversal pattern (high ${breakoutHigh.toFixed(2)}, low ${breakoutLow.toFixed(2)}).`;
     } else if (
       action === "WAIT" &&
-      ((confirmationBullish && totalBullScore < requiredConfirmations && !continuationBull && !reversalBullEntry && !ultraFastOpeningBull) ||
-        (confirmationBearish && totalBearScore < requiredConfirmations && !continuationBear && !reversalBearEntry && !ultraFastOpeningBear))
+      ((confirmationBullish &&
+        totalBullScore < requiredConfirmations &&
+        !continuationBull &&
+        !reversalBullEntry &&
+        !ultraFastOpeningBull) ||
+        (confirmationBearish &&
+          totalBearScore < requiredConfirmations &&
+          !continuationBear &&
+          !reversalBearEntry &&
+          !ultraFastOpeningBear))
     ) {
       action = "WAIT";
       confidence = 40;
@@ -3157,7 +3858,11 @@ export class AdvancedAI {
               ? "Bearish"
               : "Neutral";
       reasoning = `WAIT: Confirmations incomplete (bull ${totalBullScore}/8, bear ${totalBearScore}/8; need ${requiredConfirmations}, ADX ${adx.toFixed(1)}). No continuation/reversal setup.`;
-    } else if (action === "WAIT" && (bodySize < minimumBodySize || !hasAcceptableVolume) && adx < 25) {
+    } else if (
+      action === "WAIT" &&
+      (bodySize < minimumBodySize || !hasAcceptableVolume) &&
+      adx < 25
+    ) {
       // FIX 3 + 10: Volume / body only hard-blocks when ADX < 25 (no trend energy).
       // In trending markets (ADX >= 25), low volume / weak body should NOT block continuation entries.
       if (!hasStrongPattern) {
@@ -3229,18 +3934,33 @@ export class AdvancedAI {
       volumeAnalysis: (() => {
         // Always-available candle metrics (independent of volume feed)
         const candleStrength =
-          bodyPercent >= 60 ? "STRONG" : bodyPercent >= 35 ? "DECISIVE" : bodyPercent >= 25 ? "MODERATE" : "WEAK";
+          bodyPercent >= 60
+            ? "STRONG"
+            : bodyPercent >= 35
+              ? "DECISIVE"
+              : bodyPercent >= 25
+                ? "MODERATE"
+                : "WEAK";
 
         // Volume feed reliability: index feeds (NIFTY/BANKNIFTY/SENSEX) often
         // ship 0 volume. Detect that and surface candle-based confirmation
         // instead of blocking/erasing the panel.
-        const coverageBase = Math.max(1, Math.min(10, volumeBaselineCandles.length || ohlcData.slice(-10).length));
-        const candlesWithVolume = volumeBaselineCandles.slice(-10).filter((c) => (c.volume || 0) > 0).length;
+        const coverageBase = Math.max(
+          1,
+          Math.min(
+            10,
+            volumeBaselineCandles.length || ohlcData.slice(-10).length,
+          ),
+        );
+        const candlesWithVolume = volumeBaselineCandles
+          .slice(-10)
+          .filter((c) => (c.volume || 0) > 0).length;
         const volumeCoverage = candlesWithVolume / coverageBase;
         // Feed is reliable when historical coverage is good, even if the
         // current bar is still forming (volume=0 mid-candle).
         const hasVolumeData = avgVolume > 0 && volumeCoverage >= 0.5;
-        const safeRatio = isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
+        const safeRatio =
+          isFinite(volumeRatio) && volumeRatio > 0 ? volumeRatio : 0;
 
         return {
           // Display-friendly snake_case (preferred by UI normalizer)
@@ -3295,7 +4015,10 @@ export class AdvancedAI {
         breakoutHigh: +breakoutHigh.toFixed(2),
         breakoutLow: +breakoutLow.toFixed(2),
         breakoutAnchorType: `${swingAnchors.bullLegBars >= 2 ? "fixed-bull" : "recent-bull"}/${swingAnchors.bearLegBars >= 2 ? "fixed-bear" : "recent-bear"}`,
-        anchorLegBars: { bull: swingAnchors.bullLegBars, bear: swingAnchors.bearLegBars },
+        anchorLegBars: {
+          bull: swingAnchors.bullLegBars,
+          bear: swingAnchors.bearLegBars,
+        },
         establishedBullBreak,
         establishedBearBreak,
         trendAnchorBreakBull,
@@ -3306,7 +4029,12 @@ export class AdvancedAI {
         openingRangeLow: +openingRangeLow.toFixed(2),
         dayHighBreakout: bullishDayHighBreakout,
         dayLowBreakdown: bearishDayLowBreakdown,
-        smartMoneyScore: smartMoneyBias === "BULLISH" ? 75 : smartMoneyBias === "BEARISH" ? -75 : 0,
+        smartMoneyScore:
+          smartMoneyBias === "BULLISH"
+            ? 75
+            : smartMoneyBias === "BEARISH"
+              ? -75
+              : 0,
         liquidityWarnings: [
           liquidity.buySideSweep ? "buy-side-sweep" : "",
           liquidity.sellSideSweep ? "sell-side-sweep" : "",
@@ -3345,7 +4073,11 @@ export class AdvancedAI {
         cooldownDirection: options.lastSignalDirection ?? null,
         vwapSlopeStrength: +vwapSlopeStrength.toFixed(3),
         distFromEma21Atr: +distFromEma21Atr.toFixed(2),
-        sessionPriority: inHighPrioritySession ? "HIGH" : inLunchChopSession ? "LOW" : "NORMAL",
+        sessionPriority: inHighPrioritySession
+          ? "HIGH"
+          : inLunchChopSession
+            ? "LOW"
+            : "NORMAL",
         sessionBehavior,
         istMinutes: _istMinSess,
         lateNewEntryBlocked,
@@ -3361,7 +4093,9 @@ export class AdvancedAI {
         h1Adx: +h1Adx.toFixed(1),
         h1Provided,
         sessionConfidenceModifier,
-        cooldownBars: isFinite(barsSinceLastSignal) ? +barsSinceLastSignal.toFixed(1) : null,
+        cooldownBars: isFinite(barsSinceLastSignal)
+          ? +barsSinceLastSignal.toFixed(1)
+          : null,
         scoreBreakdown: {
           totalBullScore,
           totalBearScore,
@@ -3378,29 +4112,50 @@ export class AdvancedAI {
         trendReversalDetected,
         sessionType: sessionBehavior,
         overExtended: overExpandedCandle,
-        continuationSetup: continuationBull ? "BULL" : continuationBear ? "BEAR" : null,
+        continuationSetup: continuationBull
+          ? "BULL"
+          : continuationBear
+            ? "BEAR"
+            : null,
         blockedBy:
           action === "WAIT"
             ? [
-                overExpandedBlocksBull || overExpandedBlocksBear ? "over-expanded" : "",
-                exhaustionBlocksContinuationBull || exhaustionBlocksContinuationBear ? "trend-exhausted" : "",
+                overExpandedBlocksBull || overExpandedBlocksBear
+                  ? "over-expanded"
+                  : "",
+                exhaustionBlocksContinuationBull ||
+                exhaustionBlocksContinuationBear
+                  ? "trend-exhausted"
+                  : "",
                 cooldownActive ? "cooldown" : "",
                 slCooldownActive ? "sl-cooldown" : "",
-                climaxExhaustionBull || climaxExhaustionBear ? "climax-exhaustion" : "",
+                climaxExhaustionBull || climaxExhaustionBear
+                  ? "climax-exhaustion"
+                  : "",
                 fakeBreakout ? "fake-breakout" : "",
                 weakMidSessionTrap ? "mid-session-trap" : "",
-                totalBullScore < requiredConfirmations && totalBearScore < requiredConfirmations
+                totalBullScore < requiredConfirmations &&
+                totalBearScore < requiredConfirmations
                   ? "insufficient-confirmations"
                   : "",
-                (htfDisagreeBull || htfDisagreeBear) && !htfAdxStrong ? "htf-disagree" : "",
+                (htfDisagreeBull || htfDisagreeBear) && !htfAdxStrong
+                  ? "htf-disagree"
+                  : "",
                 noiseFilter5m ? "5m-noise" : "",
                 newsVolatilityShock ? "news-volatility" : "",
                 consecutiveLossLockout ? "consecutive-loss-lockout" : "",
               ].filter(Boolean)
             : [],
         finalDecisionReason: reasoning,
-        climaxExhaustion: climaxExhaustionBull ? "BULL" : climaxExhaustionBear ? "BEAR" : null,
-        expansionStreak: { bull: expansionStreakBull, bear: expansionStreakBear },
+        climaxExhaustion: climaxExhaustionBull
+          ? "BULL"
+          : climaxExhaustionBear
+            ? "BEAR"
+            : null,
+        expansionStreak: {
+          bull: expansionStreakBull,
+          bear: expansionStreakBear,
+        },
         atrSpike,
         climaxVolume,
         afternoonDecay,
@@ -3422,7 +4177,8 @@ export class AdvancedAI {
           earlyBull: earlyBullChecks.map(Boolean),
           earlyBear: earlyBearChecks.map(Boolean),
           required: requiredConfirmations,
-          adxBand: adx > 35 ? "STRONG(4)" : adx >= 25 ? "MODERATE(5)" : "WEAK(7)",
+          adxBand:
+            adx > 35 ? "STRONG(4)" : adx >= 25 ? "MODERATE(5)" : "WEAK(7)",
         },
       },
 
