@@ -388,6 +388,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             <Shield className="size-4 mr-2" />
             Security
           </TabsTrigger>
+          <TabsTrigger value="activity-monitor">
+            <Activity className="size-4 mr-2" />
+            Activity Monitor
+          </TabsTrigger>
           <TabsTrigger value="monitoring">
             <Activity className="size-4 mr-2" />
             Advanced Monitoring
