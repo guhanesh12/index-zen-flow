@@ -248,12 +248,13 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   );
 }
 
-// Admin Route wrapper - verifies unique code from URL
+// Admin Route wrapper - verifies unique code from URL + IP/geo guard
 function AdminRoute({ children }: { children: ReactNode }) {
   const { uniqueCode } = useParams<{ uniqueCode: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  
+  const [guard, setGuard] = useState<{ status: 'checking' | 'allowed' | 'denied'; reason?: string; ip?: string; country?: string }>({ status: 'checking' });
+
   // Store/update the unique code from URL when present
   useEffect(() => {
     if (uniqueCode) {
@@ -261,49 +262,89 @@ function AdminRoute({ children }: { children: ReactNode }) {
       const hasAdminToken = sessionStorage.getItem('admin_access_token');
       const hasAdminUser = sessionStorage.getItem('admin_user');
       const hasAdminSession = hasAdminToken && hasAdminUser;
-      
-      console.log('🔍 AdminRoute Check:', {
-        urlCode: uniqueCode,
-        storedCode: storedCode,
-        hasToken: !!hasAdminToken,
-        hasUser: !!hasAdminUser,
-        hasSession: hasAdminSession,
-        pathname: location.pathname
-      });
-      
-      // If this is a DIFFERENT unique code AND we have an existing admin session, clear it
+
       if (storedCode && storedCode !== uniqueCode && hasAdminSession) {
-        console.log('🔄 Different admin unique code detected, clearing old session');
-        console.log(`   Old code: ${storedCode}, New code: ${uniqueCode}`);
         sessionStorage.removeItem('admin_access_token');
         sessionStorage.removeItem('admin_user');
-        
-        // If not on login page, redirect to login with new code
         if (!location.pathname.includes('/login')) {
-          console.log('🔒 Redirecting to login with new unique code');
           navigate(`/admin/hotkey/${uniqueCode}/login`, { replace: true });
           return;
         }
       }
-      
-      // Always update the stored code to match the URL (even if no session exists yet)
       if (storedCode !== uniqueCode) {
-        console.log('🔑 Updating admin unique code:', uniqueCode);
         sessionStorage.setItem('admin_unique_code', uniqueCode);
-      } else {
-        console.log('✅ Admin unique code already matches:', uniqueCode);
       }
     }
   }, [uniqueCode, location.pathname, navigate]);
-  
-  // If no unique code in URL, deny access
-  if (!uniqueCode) {
-    console.error('🔒 AdminRoute: No unique code in URL');
-    return <Navigate to="/" replace />;
+
+  // IP allowlist + geo-block check via edge function
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const adminUserRaw = sessionStorage.getItem('admin_user');
+        const adminUser = adminUserRaw ? JSON.parse(adminUserRaw) : null;
+        const { data, error } = await supabase.functions.invoke('admin-access-guard', {
+          body: { userId: adminUser?.id ?? null, email: adminUser?.email ?? null },
+        });
+        if (cancelled) return;
+        if (error) {
+          // Fail-open on infra error but log; this prevents lockout from a transient network blip
+          console.warn('admin-access-guard error, allowing:', error);
+          setGuard({ status: 'allowed' });
+          return;
+        }
+        if (data?.allowed) setGuard({ status: 'allowed', ip: data.ip, country: data.country });
+        else setGuard({ status: 'denied', reason: data?.reason, ip: data?.ip, country: data?.country });
+      } catch (e) {
+        console.warn('admin-access-guard exception, allowing:', e);
+        if (!cancelled) setGuard({ status: 'allowed' });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [location.pathname]);
+
+  if (!uniqueCode) return <Navigate to="/" replace />;
+
+  if (guard.status === 'checking') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
+        <div className="text-center space-y-3">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto" />
+          <p className="text-sm text-muted-foreground">Verifying secure access…</p>
+        </div>
+      </div>
+    );
   }
-  
+
+  if (guard.status === 'denied') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">
+        <div className="max-w-md w-full border border-destructive/40 rounded-lg p-6 bg-card shadow-lg space-y-4">
+          <div className="text-4xl">🛡️</div>
+          <h1 className="text-xl font-bold text-destructive">Access Blocked</h1>
+          <p className="text-sm text-muted-foreground">
+            Your network is not authorized to access the admin panel. This attempt has been logged.
+          </p>
+          <div className="text-xs bg-muted/40 rounded p-3 font-mono space-y-1">
+            <div><span className="text-muted-foreground">Reason:</span> {guard.reason}</div>
+            {guard.ip && <div><span className="text-muted-foreground">IP:</span> {guard.ip}</div>}
+            {guard.country && <div><span className="text-muted-foreground">Country:</span> {guard.country}</div>}
+          </div>
+          <button
+            onClick={() => navigate('/', { replace: true })}
+            className="w-full bg-primary text-primary-foreground rounded-md py-2 text-sm font-medium hover:opacity-90"
+          >
+            Go to home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return <>{children}</>;
 }
+
 
 // Wrapper components for routes with params
 function AdminLoginPage() {

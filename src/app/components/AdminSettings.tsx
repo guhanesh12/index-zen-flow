@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AdminSecurityPanel } from './AdminSecurityPanel';
 import { SecurityActivityMonitor } from './SecurityActivityMonitor';
+import { AdminAccessControl } from './AdminAccessControl';
 import { AdvancedMonitoring } from './AdvancedMonitoring';
 import { AdminPushNotifications } from './AdminPushNotifications';
 import { SystemHealth } from './SystemHealth';
@@ -392,6 +393,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             <Activity className="size-4 mr-2" />
             Activity Monitor
           </TabsTrigger>
+          <TabsTrigger value="access-control">
+            <Shield className="size-4 mr-2" />
+            Access Control
+          </TabsTrigger>
           <TabsTrigger value="monitoring">
             <Activity className="size-4 mr-2" />
             Advanced Monitoring
@@ -755,6 +760,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
 
         <TabsContent value="activity-monitor" className="space-y-4">
           <SecurityActivityMonitor />
+        </TabsContent>
+
+        <TabsContent value="access-control" className="space-y-4">
+          <AdminAccessControl />
         </TabsContent>
 
         {/* Push Notifications Tab */}
