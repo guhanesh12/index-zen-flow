@@ -753,6 +753,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
           <AdminSecurityPanel />
         </TabsContent>
 
+        <TabsContent value="activity-monitor" className="space-y-4">
+          <SecurityActivityMonitor />
+        </TabsContent>
+
         {/* Push Notifications Tab */}
         <TabsContent value="push-notifications" className="space-y-4">
           <AdminPushNotifications serverUrl={serverUrl} accessToken={accessToken} />
