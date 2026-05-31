@@ -727,24 +727,52 @@ export class AdvancedAI {
     lookback: number = 80,
     left: number = 2,
     right: number = 2,
-  ): { high?: number; low?: number } {
+    atr: number = 0,
+  ): { high?: number; low?: number; bullLegBars: number; bearLegBars: number } {
     const slice = data.slice(-lookback);
-    if (slice.length < left + right + 3) return {};
+    if (slice.length < left + right + 3) return { bullLegBars: 0, bearLegBars: 0 };
 
-    let high: number | undefined;
-    let low: number | undefined;
-    for (let i = left; i < slice.length - right; i++) {
-      let isPivotHigh = true;
-      let isPivotLow = true;
-      for (let j = i - left; j <= i + right; j++) {
-        if (j === i) continue;
-        if (slice[j].high >= slice[i].high) isPivotHigh = false;
-        if (slice[j].low <= slice[i].low) isPivotLow = false;
+    const lastClose = slice[slice.length - 1]?.close || 0;
+    const tolerance = Math.max(atr * 0.12, lastClose * 0.00035, 0.01);
+    const countLegBars = (direction: "UP" | "DOWN") => {
+      let bars = 0;
+      for (let i = slice.length - 1; i > 0; i--) {
+        const cur = slice[i];
+        const prev = slice[i - 1];
+        const continues =
+          direction === "DOWN"
+            ? (cur.low <= prev.low + tolerance || cur.close <= prev.close + tolerance) && cur.high <= prev.high + tolerance * 3
+            : (cur.high >= prev.high - tolerance || cur.close >= prev.close - tolerance) && cur.low >= prev.low - tolerance * 3;
+        if (!continues) break;
+        bars++;
       }
-      if (isPivotHigh) high = slice[i].high;
-      if (isPivotLow) low = slice[i].low;
-    }
-    return { high, low };
+      return bars;
+    };
+
+    const bearLegBars = countLegBars("DOWN");
+    const bullLegBars = countLegBars("UP");
+    const bearBase = bearLegBars >= 2 ? slice.slice(0, Math.max(left + right + 3, slice.length - bearLegBars)) : slice;
+    const bullBase = bullLegBars >= 2 ? slice.slice(0, Math.max(left + right + 3, slice.length - bullLegBars)) : slice;
+
+    const findLastPivot = (base: OHLCCandle[], kind: "HIGH" | "LOW") => {
+      let pivot: number | undefined;
+      for (let i = left; i < base.length - right; i++) {
+        let ok = true;
+        for (let j = i - left; j <= i + right; j++) {
+          if (j === i) continue;
+          if (kind === "HIGH" && base[j].high >= base[i].high) ok = false;
+          if (kind === "LOW" && base[j].low <= base[i].low) ok = false;
+        }
+        if (ok) pivot = kind === "HIGH" ? base[i].high : base[i].low;
+      }
+      return pivot;
+    };
+
+    const recentHighBase = bullBase.slice(-Math.min(12, bullBase.length));
+    const recentLowBase = bearBase.slice(-Math.min(12, bearBase.length));
+    const high = findLastPivot(bullBase, "HIGH") ?? Math.max(...recentHighBase.map((c) => c.high));
+    const low = findLastPivot(bearBase, "LOW") ?? Math.min(...recentLowBase.map((c) => c.low));
+    return { high, low, bullLegBars, bearLegBars };
   }
 
   /**
