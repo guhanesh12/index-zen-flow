@@ -1,49 +1,66 @@
-## Why no PUT signal fired between 12:00 and 13:45 today
 
-Confirmed from `trading_signals` + `trading_engine_state`:
+# Security Activity Monitor & Auto-Suspend
 
-- Engine was **running the entire day** (heartbeat alive until 15:31 IST). Not a VPS issue.
-- No Dhan `TOKEN_EXPIRED` rows hit between 12:00–13:45. Not a token issue.
-- NIFTY price path: 24073 (10:45) → 24062 (11:45) → **23958 (13:45)** — a ~115 pt slow grind down over ~2 hours.
-- Strategy returned `WAIT` for every 15m close in that window (12:15, 12:30, 12:45, 13:00, 13:15, 13:30). Only one weak `BUY_PUT @ 59%` fired at 12:00 (below 70% auto-execute threshold), then nothing until a 95% PUT at 13:45 — too late, the move was already done.
+Build a new Settings → Security Activity panel that shows all user and admin activity in real-time and auto-suspends suspicious accounts so they lose all database access.
 
-**Root cause:** the breakdown detector I added earlier requires three things to happen on the SAME candle:
-1. `close < previous candle low` (break prior bar low)
-2. close in lower 35% of the candle's range
-3. price below VWAP by ≥ 0.15%
+## What you'll get
 
-In a slow drift-down (today's pattern), individual 15m candles zigzag — each bar rarely takes out the previous bar's low *and* closes weak. So the detector stayed silent for 90 minutes while the index lost 100+ points. The "main" bearish path requires ADX ≥ 20 + EMA9<EMA21 cross + high volume simultaneously, which a slow grind also fails.
+1. **New `SecurityActivityMonitor` component** (in Settings section)
+   - Live feed of all activity from `security_audit_log` and `failed_login_attempts`
+   - Filters: by user / by admin / by event type / by status / by date
+   - Severity badges (info / warning / critical)
+   - Search by email, IP, action
+   - Stats cards: total events today, failed logins, blocked IPs, suspended users
+   - Manual suspend / unsuspend buttons (admin only)
 
-## Fix Plan (single file: `supabase/functions/make-server-c4d79cb7/advanced_ai.tsx`)
+2. **Auto-Suspend Engine** (database + RLS)
+   - New `account_status` flag on `profiles` → `active | suspended | banned`
+   - New `suspended_users` table with reason, suspended_at, suspended_by, auto/manual flag
+   - Detection rules (run on every audit log insert via trigger):
+     - 5+ failed logins in 15 min → auto-suspend
+     - 10+ different IPs in 1 hour → auto-suspend (account sharing / bot)
+     - Access attempt from blocked IP → auto-suspend
+     - Admin action without 2FA → flag + alert
+   - **Block all DB access** for suspended users via new RLS helper `is_account_active(uid)` added to every user-facing policy
 
-### 1. Add a "Slow Drift" PUT detector (mirror for CALL)
-After the strict breakdown block, if action is still `WAIT`, evaluate a softer drift trigger that doesn't need a single dramatic candle:
+3. **Activity Logger Hook** (`useActivityLogger`)
+   - Wraps key actions across the app (login, trade, order, settings change, admin action)
+   - Writes to `security_audit_log` with action, resource, IP, user agent, metadata
+   - Already-built `AuditLogger.ts` will be extended with batching + offline queue
 
-Trigger BUY_PUT when **all** of these hold on the closed 15m bar:
-- Last 3 closes are each lower than the close 3 bars ago (sustained lower closes), **OR** last 4 of 5 bars closed red.
-- Current close is below VWAP by ≥ 0.20%, AND VWAP slope over last 5 bars is negative.
-- EMA9 < EMA21 (no cross required, just current state) AND EMA21 slope ≤ 0.
-- RSI(14) between 35 and 55 and falling (current < prior).
-- ADX ≥ 15 (lower than the 20 used elsewhere — drifts don't show strong ADX).
+4. **Frontend API integration** (`src/app/utils/securityApi.ts`)
+   - Wrappers for all 9 security endpoints already built in backend
+   - CAPTCHA UI component for login/register
+   - Password strength meter component
+   - Email validator on signup form
 
-Confidence: base **72**, +4 if 4-of-5 red bars, +4 if RSI < 45, +4 if H1/HTF alignment = bear, +3 if volume ≥ 1.1× avg. Cap 88. Reason string: `📉 DRIFT BUY_PUT — N lower closes, VWAP-X.XX%, EMA stack bear, RSI YY falling.` Symmetric `DRIFT BUY_CALL` for upside drift.
+5. **Admin alerts**
+   - Toast notification when auto-suspend fires
+   - Optional email to platform owner via existing send-email function
 
-### 2. Auto-execute threshold tweak for confirmed drift only
-In `persistent_engine.tsx` order placement gate (where the 70/80 threshold currently lives — same gate that skipped the 59% BUY_PUT at 12:00), allow execution at **≥ 65%** *only* when the signal's `reasoning` starts with `📉 DRIFT` or `📈 DRIFT` (i.e., drift detector fired). All other signals keep their current threshold. This prevents the 59% noise signals from sneaking through while letting the new, evidence-based drift signals trade.
+## Technical details
 
-### 3. Persist explanation for every cycle (debuggability)
-Currently `saveSignalToDb` early-returns when action is `WAIT`, so we have no record of *why* the engine stayed silent at 12:15, 12:30, etc. Change it to write a lightweight row (signal_type `WAIT`) with a short `raw_data.skip_reason` (e.g. `"drift conditions not met: VWAP+0.05%, RSI 52 not falling"`) only at the end of each 15m bucket per index (max 4 WAIT rows per hour per index, so we don't flood the table). Next time the user asks "why no trade at 12:30?" we can answer from one SQL query.
+**Database migration:**
+- `ALTER TABLE profiles` — add CHECK constraint on `account_status`, default `active`
+- `CREATE TABLE suspended_users` (user_id, reason, rule_triggered, suspended_at, suspended_by, auto, unsuspended_at)
+- `CREATE FUNCTION is_account_active(uid)` SECURITY DEFINER
+- `CREATE FUNCTION auto_suspend_check()` trigger function on `failed_login_attempts` INSERT
+- Update RLS on all user tables (`trading_orders`, `trading_signals`, `user_symbols`, `user_symbol_config`, `position_monitor_state`, `trading_engine_state`, `broker_credentials`, `wallet_transactions`, `notification_preferences`) to add `AND is_account_active(auth.uid())`
 
-### 4. No changes elsewhere
-- Exhaustion guard, breakout detector, position monitor, SL/TGT, broker code, UI panels — untouched.
-- No DB migration (uses existing `raw_data` jsonb).
+**Files to create:**
+- `src/app/components/SecurityActivityMonitor.tsx` — main UI
+- `src/app/components/CaptchaWidget.tsx` — reusable CAPTCHA
+- `src/app/components/PasswordStrengthMeter.tsx` — reusable meter
+- `src/app/utils/securityApi.ts` — endpoint wrappers
+- `src/app/hooks/useActivityLogger.ts` — logging hook
+- Migration file for suspend system
 
-## Expected behavior on today's tape (replay)
+**Files to edit:**
+- `src/utils-ext/security/AuditLogger.ts` — add batching + activity types
+- `SettingsPanel.tsx` — add "Security Activity" tab
+- Login/Register screens — wire CAPTCHA + password meter + email validator
 
-With the drift detector, candles around 12:15–12:45 would have produced:
-- 3 lower closes ✓, VWAP slope down ✓, EMA9<EMA21 ✓, RSI falling through 50 ✓ → **BUY_PUT 72–80%** → executed at 65% threshold for DRIFT signals → caught the bulk of the 100+ pt drop.
-
-## Out of scope
-
-- Token / VPS UI banners (already added, user confirmed both are fine today).
-- Any change to morning CALL logic, position monitor exits, or option contract resolution.
+## Out of scope (ask later if needed)
+- Geo-IP lookup / country blocking
+- ML-based anomaly detection
+- 2FA enforcement changes (already in place per your earlier message)
