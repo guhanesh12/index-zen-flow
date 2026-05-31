@@ -2157,7 +2157,7 @@ export class AdvancedAI {
     const breakoutBase = priorLevelData.slice(-breakoutLookback);
     const fallbackBase = ohlcData.slice(-Math.min(12, ohlcData.length - 1), -1);
     const levelCandles = breakoutBase.length >= 3 ? breakoutBase : fallbackBase;
-    const swingAnchors = this.getConfirmedBreakoutAnchors(priorLevelData.length >= 8 ? priorLevelData : fallbackBase);
+    const swingAnchors = this.getConfirmedBreakoutAnchors(priorLevelData.length >= 8 ? priorLevelData : fallbackBase, 80, 2, 2, atr14);
     const breakoutHigh = swingAnchors.high ?? Math.max(...levelCandles.map((c) => c.high));
     const breakoutLow = swingAnchors.low ?? Math.min(...levelCandles.map((c) => c.low));
     const previousCandleHigh = Math.max(...levelCandles.map((c) => c.high));
@@ -2181,6 +2181,17 @@ export class AdvancedAI {
     const breakoutCandleRange = Math.max(lastCandle.high - lastCandle.low, 1e-6);
     const breakoutCloseNearHigh = (lastCandle.close - lastCandle.low) / breakoutCandleRange > 0.55;
     const breakoutCloseNearLow = (lastCandle.high - lastCandle.close) / breakoutCandleRange > 0.55;
+    const anchorBreakTol = Math.max(atr14 * 0.08, lastCandle.close * 0.00025);
+    const establishedBearBreak =
+      swingAnchors.bearLegBars >= 2 &&
+      lastCandle.close < breakoutLow - anchorBreakTol &&
+      lastCandle.close < lastCandle.open &&
+      breakoutCloseNearLow;
+    const establishedBullBreak =
+      swingAnchors.bullLegBars >= 2 &&
+      lastCandle.close > breakoutHigh + anchorBreakTol &&
+      lastCandle.close > lastCandle.open &&
+      breakoutCloseNearHigh;
     const bullishBreakoutClose = lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
     const bearishBreakdownClose = lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
     const bullishPriorHighBreakout =
@@ -2207,8 +2218,8 @@ export class AdvancedAI {
       prevCandle.close < breakoutLow &&
       lastCandle.close < breakoutLow &&
       lastCandle.high <= breakoutLow + breakoutHoldTol;
-    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold || bullishDayHighBreakout || bullishPriorHighBreakout;
-    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold || bearishDayLowBreakdown || bearishPriorLowBreakdown;
+    const breakoutConfirmedBull = bullishBreakoutClose || bullishBreakoutHold || bullishDayHighBreakout || bullishPriorHighBreakout || establishedBullBreak;
+    const breakoutConfirmedBear = bearishBreakdownClose || bearishBreakdownHold || bearishDayLowBreakdown || bearishPriorLowBreakdown || establishedBearBreak;
 
     const earlyBullChecks = [
       breakoutConfirmedBull,
