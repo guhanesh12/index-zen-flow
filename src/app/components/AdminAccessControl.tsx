@@ -37,15 +37,31 @@ export function AdminAccessControl() {
 
   async function load() {
     setLoading(true);
-    const [{ data: c }, { data: i }, { data: l }] = await Promise.all([
-      supabase.from('admin_security_config').select('*').eq('id', 1).maybeSingle(),
-      supabase.from('admin_ip_allowlist').select('*').order('created_at', { ascending: false }),
-      supabase.from('admin_access_log').select('*').order('created_at', { ascending: false }).limit(50),
-    ]);
-    if (c) { setCfg(c as Config); setCountriesInput((c.allowed_countries ?? ['IN']).join(',')); }
-    setIps((i ?? []) as IpRow[]);
-    setLogs((l ?? []) as LogRow[]);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+        body: { action: 'load' },
+      });
+      if (error) throw new Error(error.message);
+      if ((data as any)?.error) throw new Error((data as any).error);
+      const d = data as { cfg: Config; ips: IpRow[]; logs: LogRow[] };
+      if (d.cfg) { setCfg(d.cfg); setCountriesInput((d.cfg.allowed_countries ?? ['IN']).join(',')); }
+      setIps(d.ips ?? []);
+      setLogs(d.logs ?? []);
+    } catch (e: any) {
+      toast.error('Failed to load access controls: ' + (e?.message ?? 'unknown'));
+      // Fallback so UI still renders
+      setCfg({
+        id: 1,
+        ip_allowlist_enabled: false,
+        geo_restrict_enabled: false,
+        allowed_countries: ['IN'],
+        alert_email: null,
+        alert_on_auto_suspend: true,
+        alert_on_critical_event: true,
+      });
+    } finally {
+      setLoading(false);
+    }
     // Best-effort fetch current public IP
     try {
       const r = await fetch('https://api.ipify.org?format=json');
@@ -59,37 +75,38 @@ export function AdminAccessControl() {
   async function saveConfig(patch: Partial<Config>) {
     if (!cfg) return;
     setSaving(true);
-    const next = { ...cfg, ...patch };
-    const { error } = await supabase.from('admin_security_config').update({
-      ip_allowlist_enabled: next.ip_allowlist_enabled,
-      geo_restrict_enabled: next.geo_restrict_enabled,
-      allowed_countries: next.allowed_countries,
-      alert_email: next.alert_email,
-      alert_on_auto_suspend: next.alert_on_auto_suspend,
-      alert_on_critical_event: next.alert_on_critical_event,
-      updated_at: new Date().toISOString(),
-    }).eq('id', 1);
+    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+      body: { action: 'save_config', patch },
+    });
     setSaving(false);
-    if (error) { toast.error('Failed to save: ' + error.message); return; }
-    setCfg(next);
+    if (error || (data as any)?.error) {
+      toast.error('Failed to save: ' + (error?.message ?? (data as any)?.error));
+      return;
+    }
+    setCfg((data as any).cfg as Config);
     toast.success('Saved');
   }
 
   async function addIp(ip: string, label?: string) {
     const v = ip.trim();
     if (!v) return;
-    const { error } = await supabase.from('admin_ip_allowlist').insert({ ip_address: v, label: label?.trim() || null });
-    if (error) { toast.error(error.message); return; }
+    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+      body: { action: 'add_ip', ip: v, label: label?.trim() || null },
+    });
+    if (error || (data as any)?.error) { toast.error(error?.message ?? (data as any)?.error); return; }
     setNewIp(''); setNewIpLabel('');
     toast.success('IP added to allowlist');
     load();
   }
 
   async function removeIp(id: string) {
-    const { error } = await supabase.from('admin_ip_allowlist').delete().eq('id', id);
-    if (error) { toast.error(error.message); return; }
+    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+      body: { action: 'remove_ip', id },
+    });
+    if (error || (data as any)?.error) { toast.error(error?.message ?? (data as any)?.error); return; }
     toast.success('Removed'); load();
   }
+
 
   async function sendTestAlert() {
     if (!cfg?.alert_email) { toast.error('Set alert email first'); return; }
