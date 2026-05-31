@@ -129,7 +129,10 @@ export default function App() {
       window.removeEventListener('admin-hotkeys-updated', handleHotkeyUpdate);
       clearInterval(hotkeyRefreshInterval);
       clearTimeout(window.adminKeyTimeout);
+      authSub?.subscription?.unsubscribe?.();
+      SessionManager.stop();
     };
+
   }, []);
 
   // Load admin hotkeys from server
