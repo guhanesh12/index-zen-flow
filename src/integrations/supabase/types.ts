@@ -731,6 +731,45 @@ export type Database = {
         }
         Relationships: []
       }
+      suspended_users: {
+        Row: {
+          auto: boolean
+          id: string
+          metadata: Json
+          reason: string
+          rule_triggered: string | null
+          suspended_at: string
+          suspended_by: string | null
+          unsuspended_at: string | null
+          unsuspended_by: string | null
+          user_id: string
+        }
+        Insert: {
+          auto?: boolean
+          id?: string
+          metadata?: Json
+          reason: string
+          rule_triggered?: string | null
+          suspended_at?: string
+          suspended_by?: string | null
+          unsuspended_at?: string | null
+          unsuspended_by?: string | null
+          user_id: string
+        }
+        Update: {
+          auto?: boolean
+          id?: string
+          metadata?: Json
+          reason?: string
+          rule_triggered?: string | null
+          suspended_at?: string
+          suspended_by?: string | null
+          unsuspended_at?: string | null
+          unsuspended_by?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       trading_engine_state: {
         Row: {
           auto_resume: boolean
@@ -1182,6 +1221,7 @@ export type Database = {
         Args: { curlopt: string; value: string }
         Returns: boolean
       }
+      is_account_active: { Args: { _user_id: string }; Returns: boolean }
       is_login_locked: {
         Args: { _identifier: string; _ip?: string }
         Returns: boolean
