@@ -33,10 +33,29 @@ export default function App() {
     // 🔄 START AUTO-VERSION CHECK (prevents cache issues!)
     startVersionCheck();
     
-    // 🔒 Initialize Security System
+    // 🔒 Initialize Security System (bank-level hardening)
     initializeSecurity({
-      enableDevToolsMonitor: false, // Enable in production if needed
+      enableDevToolsMonitor: import.meta.env.PROD, // Production only
+      onSessionTimeout: async () => {
+        try {
+          await AuditLogger.log({ action: 'session_timeout', status: 'success' });
+          await supabase.auth.signOut();
+        } catch {}
+        // Hard redirect to clear all in-memory state
+        window.location.href = '/login';
+      },
+      onSessionWarning: () => {
+        console.warn('🔒 Session will expire in 5 minutes due to inactivity.');
+      },
     });
+
+    // Reset idle timer on auth events
+    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        SessionManager.extend();
+      }
+    });
+
     
     // Initialize hotkey system
     window.adminHotkeys = ['GUHAN']; // Default fallback
