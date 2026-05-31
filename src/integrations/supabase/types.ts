@@ -14,19 +14,118 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_access_log: {
+        Row: {
+          allowed: boolean
+          country_code: string | null
+          created_at: string
+          email: string | null
+          id: string
+          ip_address: string | null
+          reason: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          allowed: boolean
+          country_code?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          ip_address?: string | null
+          reason?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          allowed?: boolean
+          country_code?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          ip_address?: string | null
+          reason?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      admin_ip_allowlist: {
+        Row: {
+          added_by: string | null
+          created_at: string
+          id: string
+          ip_address: string
+          label: string | null
+        }
+        Insert: {
+          added_by?: string | null
+          created_at?: string
+          id?: string
+          ip_address: string
+          label?: string | null
+        }
+        Update: {
+          added_by?: string | null
+          created_at?: string
+          id?: string
+          ip_address?: string
+          label?: string | null
+        }
+        Relationships: []
+      }
+      admin_security_config: {
+        Row: {
+          alert_email: string | null
+          alert_on_auto_suspend: boolean
+          alert_on_critical_event: boolean
+          allowed_countries: string[]
+          geo_restrict_enabled: boolean
+          id: number
+          ip_allowlist_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          alert_email?: string | null
+          alert_on_auto_suspend?: boolean
+          alert_on_critical_event?: boolean
+          allowed_countries?: string[]
+          geo_restrict_enabled?: boolean
+          id?: number
+          ip_allowlist_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          alert_email?: string | null
+          alert_on_auto_suspend?: boolean
+          alert_on_critical_event?: boolean
+          allowed_countries?: string[]
+          geo_restrict_enabled?: boolean
+          id?: number
+          ip_allowlist_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       broker_credentials: {
         Row: {
           access_token: string | null
+          access_token_encrypted: string | null
           access_token_expiry: string | null
           api_key: string | null
           api_key_expiry: string | null
           api_secret: string | null
+          api_secret_encrypted: string | null
           auth_method: string
           broker: string
           created_at: string
           dhan_client_id: string | null
           dhan_client_name: string | null
           dhan_client_ucc: string | null
+          encrypted_at: string | null
           given_power_of_attorney: boolean | null
           id: string
           last_consent_app_id: string | null
@@ -40,16 +139,19 @@ export type Database = {
         }
         Insert: {
           access_token?: string | null
+          access_token_encrypted?: string | null
           access_token_expiry?: string | null
           api_key?: string | null
           api_key_expiry?: string | null
           api_secret?: string | null
+          api_secret_encrypted?: string | null
           auth_method?: string
           broker?: string
           created_at?: string
           dhan_client_id?: string | null
           dhan_client_name?: string | null
           dhan_client_ucc?: string | null
+          encrypted_at?: string | null
           given_power_of_attorney?: boolean | null
           id?: string
           last_consent_app_id?: string | null
@@ -63,16 +165,19 @@ export type Database = {
         }
         Update: {
           access_token?: string | null
+          access_token_encrypted?: string | null
           access_token_expiry?: string | null
           api_key?: string | null
           api_key_expiry?: string | null
           api_secret?: string | null
+          api_secret_encrypted?: string | null
           auth_method?: string
           broker?: string
           created_at?: string
           dhan_client_id?: string | null
           dhan_client_name?: string | null
           dhan_client_ucc?: string | null
+          encrypted_at?: string | null
           given_power_of_attorney?: boolean | null
           id?: string
           last_consent_app_id?: string | null
@@ -1087,8 +1192,11 @@ export type Database = {
     }
     Functions: {
       bytea_to_text: { Args: { data: string }; Returns: string }
+      decrypt_broker_secret: { Args: { _ciphertext: string }; Returns: string }
+      encrypt_broker_secret: { Args: { _plaintext: string }; Returns: string }
       execute_backend_engine: { Args: never; Returns: undefined }
       generate_client_id: { Args: never; Returns: string }
+      get_broker_encryption_key: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
