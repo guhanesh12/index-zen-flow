@@ -3103,7 +3103,7 @@ export class AdvancedAI {
       confidence = 38;
       bias = "Neutral";
       reasoning = `WAIT: (deprecated HTF block — kept for cascade structure).`;
-    } else if (weakMidSessionTrap) {
+    } else if (action === "WAIT" && weakMidSessionTrap) {
       action = "WAIT";
       confidence = 35;
       bias = "Neutral";
