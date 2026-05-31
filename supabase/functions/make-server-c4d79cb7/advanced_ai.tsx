@@ -2347,8 +2347,10 @@ export class AdvancedAI {
     const liquidityBlocksBull = liquidity.buySideSweep; // upside sweep ⇒ avoid longs
     const liquidityBlocksBear = liquidity.sellSideSweep; // downside sweep ⇒ avoid shorts
     // 2) Range expansion required for breakout entries (rejects weak breakouts)
-    const breakoutQualityBull = breakoutConfirmedBull && (rangeExpansion || bbSqueezeBreakout === "BULL");
-    const breakoutQualityBear = breakoutConfirmedBear && (rangeExpansion || bbSqueezeBreakout === "BEAR");
+    const trendAnchorBreakBull = establishedBullBreak && adx >= 20 && ema9 > ema21 && lastCandle.close > vwap;
+    const trendAnchorBreakBear = establishedBearBreak && adx >= 20 && ema9 < ema21 && lastCandle.close < vwap;
+    const breakoutQualityBull = breakoutConfirmedBull && (rangeExpansion || bbSqueezeBreakout === "BULL" || trendAnchorBreakBull);
+    const breakoutQualityBear = breakoutConfirmedBear && (rangeExpansion || bbSqueezeBreakout === "BEAR" || trendAnchorBreakBear);
     // 3) Slope filter: trend must actually be moving
     const slopeOkBull = slopeBullish || ema9Slope > 0;
     const slopeOkBear = slopeBearish || ema9Slope < 0;
