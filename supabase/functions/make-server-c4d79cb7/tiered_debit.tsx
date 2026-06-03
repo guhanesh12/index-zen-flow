@@ -158,9 +158,20 @@ export async function checkAndDebitTiered(
       };
     }
 
-    // Deduct from wallet
-    const newBalance = wallet.balance - additionalCharge;
-    const newTotalDeducted = (wallet.totalDeducted || 0) + additionalCharge;
+    // 🔒 ATOMIC IDEMPOTENCY GUARD — prevents concurrent double-debit for the same tier today.
+    const gotLock = await acquireTierLock(userId, today, currentTier.tier);
+    if (!gotLock) {
+      console.log(`⛔ Tier ${currentTier.tier} already debited today (lock held). Skipping.`);
+      return {
+        success: true,
+        deducted: false,
+        currentTier: currentTier.name,
+        currentTierFee: currentTier.fee,
+        message: `Already charged for ${currentTier.name} today`,
+      };
+    }
+
+
 
     await kv.set(`wallet:${userId}`, {
       ...wallet,
