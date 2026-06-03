@@ -133,13 +133,30 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
         throw new Error(orderData.error || 'Failed to create order');
       }
 
+      // Detect Lovable preview iframe — Razorpay modal cannot render there.
+      let inIframe = false;
+      try { inIframe = window.self !== window.top; } catch { inIframe = true; }
+
+      if (inIframe) {
+        // Open the live app in a new tab so Razorpay can render properly.
+        const liveUrl = 'https://indexpilotai.com/dashboard?openWallet=1';
+        const win = window.open(liveUrl, '_blank', 'noopener,noreferrer');
+        if (!win) {
+          setError('Razorpay cannot open inside the preview. Please open https://indexpilotai.com in a new tab to recharge.');
+        } else {
+          setError('Opened indexpilotai.com in a new tab — complete your recharge there. (Razorpay is blocked inside the preview iframe.)');
+        }
+        setRecharging(false);
+        return;
+      }
+
       const openCheckout = () => {
         if (!(window as any).Razorpay) {
-          setError('Razorpay SDK failed to load. Please disable ad-blocker and retry.');
+          setError('Razorpay SDK failed to load. Disable ad-blocker and retry.');
           setRecharging(false);
           return;
         }
-        const options = {
+        const options: any = {
           key: orderData.razorpayKeyId,
           amount: orderData.order.amount,
           currency: 'INR',
@@ -194,6 +211,10 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
           setRecharging(false);
         }
       };
+
+
+
+
 
       // Reuse SDK if already on window; otherwise load (idempotent)
       if ((window as any).Razorpay) {
