@@ -2,6 +2,28 @@
 // This module handles automatic wallet deductions based on daily profit tiers
 
 import * as kv from "./kv_store.tsx";
+import { createClient } from "npm:@supabase/supabase-js@2.45.0";
+
+// Atomic insert-only lock to guarantee each (user, date, tier) is charged at most once.
+// Returns true if THIS caller acquired the lock (and should proceed with debit).
+async function acquireTierLock(userId: string, date: string, tier: number): Promise<boolean> {
+  const sb = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const key = `tier_debit_lock:${userId}:${date}:${tier}`;
+  // INSERT (not upsert) — primary key collision => another concurrent caller already debited.
+  const { error } = await sb.from("kv_store_c4d79cb7").insert({
+    key,
+    value: { acquired_at: Date.now() },
+  });
+  if (error) {
+    // 23505 = unique_violation; treat any error here as "someone else got it" to be safe.
+    return false;
+  }
+  return true;
+}
+
 
 export interface TieredDebitResult {
   success: boolean;
