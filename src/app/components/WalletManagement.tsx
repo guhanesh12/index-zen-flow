@@ -133,19 +133,27 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
         throw new Error(orderData.error || 'Failed to create order');
       }
 
+      // Detect if we're running inside an iframe (e.g. Lovable preview) where
+      // Razorpay's popup checkout is blocked. Use full-page redirect there.
+      let inIframe = false;
+      try { inIframe = window.self !== window.top; } catch { inIframe = true; }
+
       const openCheckout = () => {
         if (!(window as any).Razorpay) {
-          setError('Razorpay SDK failed to load. Please disable ad-blocker and retry.');
+          setError('Razorpay SDK failed to load. Disable ad-blocker and retry.');
           setRecharging(false);
           return;
         }
-        const options = {
+        const options: any = {
           key: orderData.razorpayKeyId,
           amount: orderData.order.amount,
           currency: 'INR',
           name: 'IndexpilotAI',
           description: 'Wallet Recharge',
           order_id: orderData.order.id,
+          // ⚡ In iframes (preview) Razorpay's modal won't render — use redirect.
+          redirect: inIframe,
+          callback_url: inIframe ? `${window.location.origin}/dashboard?rzp_order=${orderData.order.id}` : undefined,
           handler: async (response: any) => {
             try {
               const verifyResponse = await fetch(`${serverUrl}/wallet/verify-payment`, {
@@ -188,12 +196,26 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
             setError(resp?.error?.description || 'Payment failed');
             setRecharging(false);
           });
-          rzp.open();
+          if (inIframe) {
+            // Open Razorpay checkout in a NEW TAB so the iframe sandbox can't block it.
+            const url = `https://api.razorpay.com/v1/checkout/embedded?key_id=${encodeURIComponent(orderData.razorpayKeyId)}&order_id=${encodeURIComponent(orderData.order.id)}&amount=${orderData.order.amount}&currency=INR&name=${encodeURIComponent('IndexpilotAI')}&description=${encodeURIComponent('Wallet Recharge')}&prefill[email]=${encodeURIComponent(session.user.email || '')}&prefill[contact]=${encodeURIComponent(session.user.user_metadata?.phone || '')}`;
+            const win = window.open(url, '_blank', 'noopener,noreferrer');
+            if (!win) {
+              setError('Popup blocked. Please allow popups OR open the app in a new tab to recharge.');
+            } else {
+              setError('Razorpay opened in a new tab. Complete payment there; wallet will refresh after success.');
+            }
+            setRecharging(false);
+          } else {
+            rzp.open();
+          }
         } catch (e: any) {
           setError(e?.message || 'Unable to open Razorpay');
           setRecharging(false);
         }
       };
+
+
 
       // Reuse SDK if already on window; otherwise load (idempotent)
       if ((window as any).Razorpay) {
