@@ -171,6 +171,9 @@ export async function checkAndDebitTiered(
       };
     }
 
+    // Deduct from wallet
+    const newBalance = wallet.balance - additionalCharge;
+    const newTotalDeducted = (wallet.totalDeducted || 0) + additionalCharge;
 
 
     await kv.set(`wallet:${userId}`, {
