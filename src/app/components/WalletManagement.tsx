@@ -133,13 +133,12 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
         throw new Error(orderData.error || 'Failed to create order');
       }
 
-      // Load Razorpay SDK
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.async = true;
-      document.body.appendChild(script);
-
-      script.onload = () => {
+      const openCheckout = () => {
+        if (!(window as any).Razorpay) {
+          setError('Razorpay SDK failed to load. Please disable ad-blocker and retry.');
+          setRecharging(false);
+          return;
+        }
         const options = {
           key: orderData.razorpayKeyId,
           amount: orderData.order.amount,
@@ -148,49 +147,76 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
           description: 'Wallet Recharge',
           order_id: orderData.order.id,
           handler: async (response: any) => {
-            // Verify payment
-            const verifyResponse = await fetch(`${serverUrl}/wallet/verify-payment`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${session.access_token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-              }),
-            });
-
-            const verifyData = await verifyResponse.json();
-            
-            if (verifyData.success) {
-              setRechargeAmount('');
-              await fetchWalletData();
-              alert('Wallet recharged successfully!');
-            } else {
-              setError('Payment verification failed');
+            try {
+              const verifyResponse = await fetch(`${serverUrl}/wallet/verify-payment`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${session.access_token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                }),
+              });
+              const verifyData = await verifyResponse.json();
+              if (verifyData.success) {
+                setRechargeAmount('');
+                await fetchWalletData();
+                alert('Wallet recharged successfully!');
+              } else {
+                setError(verifyData.error || 'Payment verification failed');
+              }
+            } catch (e: any) {
+              setError(e?.message || 'Verification error');
+            } finally {
+              setRecharging(false);
             }
-            setRecharging(false);
           },
           prefill: {
             name: session.user.user_metadata?.name || '',
             email: session.user.email || '',
             contact: session.user.user_metadata?.phone || '',
           },
-          theme: {
-            color: '#3B82F6',
-          },
-          modal: {
-            ondismiss: () => {
-              setRecharging(false);
-            },
-          },
+          theme: { color: '#3B82F6' },
+          modal: { ondismiss: () => setRecharging(false) },
         };
-
-        const razorpay = new (window as any).Razorpay(options);
-        razorpay.open();
+        try {
+          const rzp = new (window as any).Razorpay(options);
+          rzp.on('payment.failed', (resp: any) => {
+            setError(resp?.error?.description || 'Payment failed');
+            setRecharging(false);
+          });
+          rzp.open();
+        } catch (e: any) {
+          setError(e?.message || 'Unable to open Razorpay');
+          setRecharging(false);
+        }
       };
+
+      // Reuse SDK if already on window; otherwise load (idempotent)
+      if ((window as any).Razorpay) {
+        openCheckout();
+      } else {
+        let script = document.getElementById('razorpay-sdk') as HTMLScriptElement | null;
+        if (!script) {
+          script = document.createElement('script');
+          script.id = 'razorpay-sdk';
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.async = true;
+          document.body.appendChild(script);
+        }
+        script.onload = () => openCheckout();
+        script.onerror = () => {
+          setError('Failed to load Razorpay. Check network/ad-blocker.');
+          setRecharging(false);
+        };
+        // Fallback in case script was cached and onload doesn't fire
+        setTimeout(() => {
+          if ((window as any).Razorpay) openCheckout();
+        }, 2000);
+      }
     } catch (err: any) {
       console.error('Recharge error:', err);
       setError(err.message || 'Failed to process recharge');
