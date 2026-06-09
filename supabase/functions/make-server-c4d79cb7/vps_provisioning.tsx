@@ -219,7 +219,15 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
   const job = await getUserProvisioningJob(userId);
   if (!job) return null;
 
-  if (job.status === 'ready' || job.status === 'active' || job.status === 'failed') {
+  if ((job.status === 'ready' || job.status === 'active') && job.ipAddress) {
+    const assignment = await IPPoolManager.getUserIPAssignment(userId);
+    if (!assignment || assignment.ipAddress !== job.ipAddress || assignment.subscriptionStatus !== 'active') {
+      return await finalizeProvisioningJob(job, job.ipAddress);
+    }
+    return job;
+  }
+
+  if (job.status === 'failed') {
     return job;
   }
 
