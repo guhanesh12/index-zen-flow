@@ -5802,7 +5802,21 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
 
+    const assignmentBeforeRecovery = await IPPoolManager.getUserIPAssignment(user.id);
+    const jobBeforeRecovery = await VPSProvisioning.getUserProvisioningJob(user.id);
+    await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (!assignmentBeforeRecovery && existingAssignment && jobBeforeRecovery?.ipAddress === existingAssignment.ipAddress) {
+      return c.json({
+        success: true,
+        isRecovered: true,
+        provisioning: false,
+        message: `Your existing VPS ${existingAssignment.ipAddress} has been recovered and linked. No wallet debit was made.`,
+        assignment: existingAssignment,
+        wallet: { deducted: 0 }
+      });
+    }
+
     if (existingAssignment) {
       const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
       if (wallet.balance < DEDICATED_IP_FEE) {
@@ -6276,7 +6290,18 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
     const DEDICATED_IP_FEE = 599; // ₹599/month
 
     // Existing users can pay this same order as a renewal. Renewal never creates a new VPS.
+    const assignmentBeforeRecovery = await IPPoolManager.getUserIPAssignment(user.id);
+    const jobBeforeRecovery = await VPSProvisioning.getUserProvisioningJob(user.id);
+    await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
+    if (!assignmentBeforeRecovery && existingIP && jobBeforeRecovery?.ipAddress === existingIP.ipAddress) {
+      return c.json({
+        success: true,
+        recovered: true,
+        message: `Your existing VPS ${existingIP.ipAddress} has been recovered and linked. No payment was taken.`,
+        assignment: existingIP,
+      });
+    }
 
     // Create Razorpay order
     const razorpayKeyId = Deno.env.get('RAZORPAY_KEY_ID');
@@ -6389,6 +6414,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
       return c.json({ error: 'Invalid order' }, 400);
     }
 
+    await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
     if (existingAssignment) {
       const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, pendingOrder.amount, razorpay_payment_id);

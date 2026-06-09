@@ -68,6 +68,24 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
+async function readApiError(res: Response, fallback: string): Promise<any> {
+  const raw = await res.text();
+  if (!raw) return { error: fallback };
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { error: raw || fallback };
+  }
+}
+
+function getApiErrorMessage(data: any, fallback: string): string {
+  if (!data) return fallback;
+  if (typeof data.error === 'string' && data.error.trim()) return data.error;
+  if (typeof data.message === 'string' && data.message.trim()) return data.message;
+  if (typeof data.error === 'object') return JSON.stringify(data.error);
+  return fallback;
+}
+
 const READY_STATUSES = ['ready', 'active'] as const;
 
 function isVpsReady(status: string): boolean {
@@ -135,6 +153,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const [resettingProvisioning, setResettingProvisioning] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [vpsConnCheck, setVpsConnCheck] = useState<{
     loading: boolean;
     reachable?: boolean;
@@ -340,6 +359,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   // ── Payment ───────────────────────────────────────
 
   async function handlePaymentComplete(paymentId: string, method: 'razorpay' | 'wallet', paymentResponse?: any) {
+    setPaymentError(null);
     try {
       let endpoint = '';
       let body: any = {};
@@ -362,12 +382,15 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Payment processing failed');
+      const data = await readApiError(res, 'Payment processing failed');
+      if (!res.ok || !data.success) throw new Error(getApiErrorMessage(data, 'Payment processing failed'));
 
       setShowPaymentOptions(false);
 
-      if (data.isRenewal) {
+      if (data.isRecovered) {
+        toast.success(data.message || 'Existing VPS recovered and linked successfully.');
+        await loadStatus();
+      } else if (data.isRenewal) {
         toast.success(data.message || 'Subscription renewed successfully!');
         await loadStatus();
       } else {
@@ -376,13 +399,16 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         startPolling();
       }
     } catch (err: any) {
-      toast.error(err.message);
+      const message = err.message || 'Unable to process payment. Please try again.';
+      setPaymentError(message);
+      toast.error(message, { duration: 10000 });
     } finally {
       setLoading(false);
     }
   }
 
   async function handleRazorpayClick() {
+    setPaymentError(null);
     setLoading(true);
     try {
       const loaded = await loadRazorpayScript();
@@ -392,8 +418,16 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       });
-      const orderData = await orderRes.json();
-      if (!orderRes.ok || !orderData.success) throw new Error(orderData.error || 'Failed to create payment order');
+      const orderData = await readApiError(orderRes, 'Failed to create payment order');
+      if (!orderRes.ok || !orderData.success) throw new Error(getApiErrorMessage(orderData, 'Failed to create payment order'));
+
+      if (orderData.recovered) {
+        setShowPaymentOptions(false);
+        toast.success(orderData.message || 'Existing VPS recovered and linked successfully.');
+        await loadStatus();
+        setLoading(false);
+        return;
+      }
 
       const rzp = new window.Razorpay({
         key: orderData.keyId,
@@ -426,14 +460,19 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       });
       rzp.open();
     } catch (err: any) {
-      toast.error(err.message);
+      const message = err.message || 'Unable to open Razorpay. Please try again.';
+      setPaymentError(message);
+      toast.error(message, { duration: 10000 });
       setLoading(false);
     }
   }
 
   async function handleWalletClick() {
+    setPaymentError(null);
     if (!walletBalance || walletBalance < VPS_COST) {
-      toast.error(`Insufficient wallet balance. You need ₹${VPS_COST} but have ₹${walletBalance || 0}`);
+      const message = `Insufficient wallet balance. You need ₹${VPS_COST} but have ₹${walletBalance || 0}`;
+      setPaymentError(message);
+      toast.error(message, { duration: 10000 });
       return;
     }
     setLoading(true);
@@ -984,6 +1023,15 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
               <svg viewBox="0 0 24 24" className="w-3 h-3 text-zinc-500 fill-current"><path d="M12 2L3.5 6.5v5c0 5.25 3.7 10.15 8.5 11.35 4.8-1.2 8.5-6.1 8.5-11.35v-5L12 2zm-1 13l-3-3 1.41-1.41L11 12.17l5.59-5.58L18 8l-7 7z"/></svg>
               <span className="text-[10px] text-zinc-500">Payments secured by Razorpay · PCI DSS compliant · 256-bit SSL</span>
             </div>
+
+            {paymentError && (
+              <Alert className="border-red-500/40 bg-red-950/30">
+                <AlertTriangle className="h-4 w-4 text-red-400" />
+                <AlertDescription className="text-red-200 text-xs">
+                  {paymentError}
+                </AlertDescription>
+              </Alert>
+            )}
 
             {loading && (
               <div className="flex items-center justify-center gap-2 text-sm text-zinc-400 py-2">
