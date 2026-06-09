@@ -8449,6 +8449,16 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     console.log(`   Interval: ${candleInterval}M`);
     console.log(`   Symbols: ${activeSymbols.length}`);
 
+    // Engine-driven VPS: power ON before starting engine (best-effort)
+    try {
+      const pr = await VPSPower.userPowerOn(user.id);
+      console.log(`   VPS power-on: ${JSON.stringify(pr)}`);
+    } catch (e: any) {
+      console.warn(`   VPS power-on failed: ${e?.message}`);
+    }
+
+
+
     // Start engine (saves to both KV and DB)
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
