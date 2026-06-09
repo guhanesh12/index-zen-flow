@@ -6290,8 +6290,18 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
     const DEDICATED_IP_FEE = 599; // ₹599/month
 
     // Existing users can pay this same order as a renewal. Renewal never creates a new VPS.
+    const assignmentBeforeRecovery = await IPPoolManager.getUserIPAssignment(user.id);
+    const jobBeforeRecovery = await VPSProvisioning.getUserProvisioningJob(user.id);
     await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
+    if (!assignmentBeforeRecovery && existingIP && jobBeforeRecovery?.ipAddress === existingIP.ipAddress) {
+      return c.json({
+        success: true,
+        recovered: true,
+        message: `Your existing VPS ${existingIP.ipAddress} has been recovered and linked. No payment was taken.`,
+        assignment: existingIP,
+      });
+    }
 
     // Create Razorpay order
     const razorpayKeyId = Deno.env.get('RAZORPAY_KEY_ID');
