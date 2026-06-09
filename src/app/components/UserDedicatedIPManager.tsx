@@ -68,6 +68,24 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
+async function readApiError(res: Response, fallback: string): Promise<any> {
+  const raw = await res.text();
+  if (!raw) return { error: fallback };
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { error: raw || fallback };
+  }
+}
+
+function getApiErrorMessage(data: any, fallback: string): string {
+  if (!data) return fallback;
+  if (typeof data.error === 'string' && data.error.trim()) return data.error;
+  if (typeof data.message === 'string' && data.message.trim()) return data.message;
+  if (typeof data.error === 'object') return JSON.stringify(data.error);
+  return fallback;
+}
+
 const READY_STATUSES = ['ready', 'active'] as const;
 
 function isVpsReady(status: string): boolean {
@@ -362,8 +380,8 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Payment processing failed');
+      const data = await readApiError(res, 'Payment processing failed');
+      if (!res.ok || !data.success) throw new Error(getApiErrorMessage(data, 'Payment processing failed'));
 
       setShowPaymentOptions(false);
 
@@ -392,8 +410,8 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
       });
-      const orderData = await orderRes.json();
-      if (!orderRes.ok || !orderData.success) throw new Error(orderData.error || 'Failed to create payment order');
+      const orderData = await readApiError(orderRes, 'Failed to create payment order');
+      if (!orderRes.ok || !orderData.success) throw new Error(getApiErrorMessage(orderData, 'Failed to create payment order'));
 
       const rzp = new window.Razorpay({
         key: orderData.keyId,
@@ -426,7 +444,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       });
       rzp.open();
     } catch (err: any) {
-      toast.error(err.message);
+      toast.error(err.message || 'Unable to process wallet payment. Please try Razorpay or contact support.', { duration: 8000 });
       setLoading(false);
     }
   }
