@@ -153,6 +153,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const [resettingProvisioning, setResettingProvisioning] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [vpsConnCheck, setVpsConnCheck] = useState<{
     loading: boolean;
     reachable?: boolean;
@@ -358,6 +359,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   // ── Payment ───────────────────────────────────────
 
   async function handlePaymentComplete(paymentId: string, method: 'razorpay' | 'wallet', paymentResponse?: any) {
+    setPaymentError(null);
     try {
       let endpoint = '';
       let body: any = {};
@@ -394,13 +396,16 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         startPolling();
       }
     } catch (err: any) {
-      toast.error(err.message);
+      const message = err.message || 'Unable to process payment. Please try again.';
+      setPaymentError(message);
+      toast.error(message, { duration: 10000 });
     } finally {
       setLoading(false);
     }
   }
 
   async function handleRazorpayClick() {
+    setPaymentError(null);
     setLoading(true);
     try {
       const loaded = await loadRazorpayScript();
@@ -444,7 +449,9 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       });
       rzp.open();
     } catch (err: any) {
-      toast.error(err.message || 'Unable to process wallet payment. Please try Razorpay or contact support.', { duration: 8000 });
+      const message = err.message || 'Unable to open Razorpay. Please try again.';
+      setPaymentError(message);
+      toast.error(message, { duration: 10000 });
       setLoading(false);
     }
   }
