@@ -5802,6 +5802,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
 
+    await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
     if (existingAssignment) {
       const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
@@ -6276,6 +6277,7 @@ app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {
     const DEDICATED_IP_FEE = 599; // ₹599/month
 
     // Existing users can pay this same order as a renewal. Renewal never creates a new VPS.
+    await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingIP = await IPPoolManager.getUserIPAssignment(user.id);
 
     // Create Razorpay order
@@ -6389,6 +6391,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
       return c.json({ error: 'Invalid order' }, 400);
     }
 
+    await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
     if (existingAssignment) {
       const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, pendingOrder.amount, razorpay_payment_id);
