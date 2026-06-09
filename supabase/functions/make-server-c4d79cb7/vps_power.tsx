@@ -167,6 +167,11 @@ async function applyToAll(action: 'shutdown' | 'power_on', source: VpsPowerState
   return results;
 }
 
+/**
+ * 15:30 IST safety cutoff: force-stop ALL engines, then power OFF all VPS.
+ * Engine-driven model means VPS normally follows engine state; this cron
+ * guarantees nothing keeps running past market close.
+ */
 export async function autoShutdownAll() {
   if (!(await isScheduleEnabled())) return { skipped: 'schedule_disabled' };
   const special = await getSpecialSessionDate();
@@ -175,18 +180,14 @@ export async function autoShutdownAll() {
   }
   const dow = istDayOfWeek();
   if (dow === 0 || dow === 6) return { skipped: 'weekend' };
-  const results = await applyToAll('shutdown', 'cron');
-  // also stop trading engines for the day
   await stopAllEngines();
+  const results = await applyToAll('shutdown', 'cron');
   return { ok: true, results };
 }
 
+/** Engine-driven mode: VPS only powers ON when user starts engine. */
 export async function autoStartupAll() {
-  if (!(await isScheduleEnabled())) return { skipped: 'schedule_disabled' };
-  const dow = istDayOfWeek();
-  if (dow === 0 || dow === 6) return { skipped: 'weekend' };
-  const results = await applyToAll('power_on', 'cron');
-  return { ok: true, results };
+  return { skipped: 'engine_driven_mode' };
 }
 
 export async function adminAllOn(markSpecial = false) {
@@ -196,9 +197,51 @@ export async function adminAllOn(markSpecial = false) {
 }
 
 export async function adminAllOff() {
-  const results = await applyToAll('shutdown', 'admin');
   await stopAllEngines();
+  const results = await applyToAll('shutdown', 'admin');
   return { ok: true, results };
+}
+
+/** Engine-driven: power ON this user's VPS (called from engine/start). */
+export async function userPowerOn(userId: string): Promise<{ ok: boolean; error?: string; skipped?: string }> {
+  const list = await listAssignedVps();
+  const v = list.find(x => x.userId === userId);
+  if (!v) return { ok: false, skipped: 'no_vps_assigned' };
+  if (!v.dropletId) return { ok: false, skipped: 'no_droplet_id' };
+  const cur = await getDropletStatus(v.dropletId);
+  if (cur === 'active') {
+    await setPowerState({ userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'on', source: 'user', at: new Date().toISOString() });
+    return { ok: true, skipped: 'already_on' };
+  }
+  const r = await doAction(v.dropletId, 'power_on');
+  await setPowerState({
+    userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+    state: r.ok ? 'on' : 'unknown',
+    source: 'user', at: new Date().toISOString(),
+    lastError: r.ok ? undefined : r.error,
+  });
+  return r;
+}
+
+/** Engine-driven: power OFF this user's VPS (called from engine/stop). */
+export async function userPowerOff(userId: string): Promise<{ ok: boolean; error?: string; skipped?: string }> {
+  const list = await listAssignedVps();
+  const v = list.find(x => x.userId === userId);
+  if (!v) return { ok: false, skipped: 'no_vps_assigned' };
+  if (!v.dropletId) return { ok: false, skipped: 'no_droplet_id' };
+  const cur = await getDropletStatus(v.dropletId);
+  if (cur === 'off') {
+    await setPowerState({ userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'off', source: 'user', at: new Date().toISOString() });
+    return { ok: true, skipped: 'already_off' };
+  }
+  const r = await doAction(v.dropletId, 'shutdown');
+  await setPowerState({
+    userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+    state: r.ok ? 'off' : 'unknown',
+    source: 'user', at: new Date().toISOString(),
+    lastError: r.ok ? undefined : r.error,
+  });
+  return r;
 }
 
 export async function adminTogglePower(userId: string, target: 'on' | 'off') {
