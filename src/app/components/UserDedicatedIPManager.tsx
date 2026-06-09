@@ -387,7 +387,10 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
 
       setShowPaymentOptions(false);
 
-      if (data.isRenewal) {
+      if (data.isRecovered) {
+        toast.success(data.message || 'Existing VPS recovered and linked successfully.');
+        await loadStatus();
+      } else if (data.isRenewal) {
         toast.success(data.message || 'Subscription renewed successfully!');
         await loadStatus();
       } else {
@@ -417,6 +420,14 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       });
       const orderData = await readApiError(orderRes, 'Failed to create payment order');
       if (!orderRes.ok || !orderData.success) throw new Error(getApiErrorMessage(orderData, 'Failed to create payment order'));
+
+      if (orderData.recovered) {
+        setShowPaymentOptions(false);
+        toast.success(orderData.message || 'Existing VPS recovered and linked successfully.');
+        await loadStatus();
+        setLoading(false);
+        return;
+      }
 
       const rzp = new window.Razorpay({
         key: orderData.keyId,
