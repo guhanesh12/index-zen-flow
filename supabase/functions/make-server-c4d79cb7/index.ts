@@ -8521,6 +8521,14 @@ app.post("/make-server-c4d79cb7/engine/stop", async (c) => {
 
     const result = await PersistentTradingEngine.stopEngine(user.id);
 
+    // Engine-driven VPS: power OFF after stopping engine (best-effort)
+    try {
+      const pr = await VPSPower.userPowerOff(user.id);
+      console.log(`   VPS power-off: ${JSON.stringify(pr)}`);
+    } catch (e: any) {
+      console.warn(`   VPS power-off failed: ${e?.message}`);
+    }
+
     console.log(`   Result: ${result.message}`);
     console.log(`====================================================\n`);
 
