@@ -5802,8 +5802,21 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
 
     const DEDICATED_IP_FEE = 599; // ₹599/month for dedicated IP (auto-provisioned VPS)
 
+    const assignmentBeforeRecovery = await IPPoolManager.getUserIPAssignment(user.id);
+    const jobBeforeRecovery = await VPSProvisioning.getUserProvisioningJob(user.id);
     await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (!assignmentBeforeRecovery && existingAssignment && jobBeforeRecovery?.ipAddress === existingAssignment.ipAddress) {
+      return c.json({
+        success: true,
+        isRecovered: true,
+        provisioning: false,
+        message: `Your existing VPS ${existingAssignment.ipAddress} has been recovered and linked. No wallet debit was made.`,
+        assignment: existingAssignment,
+        wallet: { deducted: 0 }
+      });
+    }
+
     if (existingAssignment) {
       const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0 };
       if (wallet.balance < DEDICATED_IP_FEE) {
