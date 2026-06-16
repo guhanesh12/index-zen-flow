@@ -3167,6 +3167,12 @@ class PersistentTradingEngine {
     const candleMinute = Math.floor(minutes / interval) * interval;
     return `${hours.toString().padStart(2, "0")}:${candleMinute.toString().padStart(2, "0")}`;
   }
+
+  private static getCandleCloseTimeMs(istDate: Date, interval: number): number {
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const intervalMs = interval * 60 * 1000;
+    return Math.floor(istDate.getTime() / intervalMs) * intervalMs - istOffsetMs;
+  }
 }
 
 export { PersistentTradingEngine };
