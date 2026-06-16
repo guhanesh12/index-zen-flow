@@ -543,22 +543,17 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
   const ensurePositionMonitorLoop = () => {
     if (positionMonitorRef.current) return;
-    console.log('⚡ Starting 1-second position monitor sync loop.');
+    console.log('⚡ Starting dashboard-only position sync loop. Backend owns Dhan position monitoring.');
 
     positionMonitorRef.current = setInterval(async () => {
       if (!isPositionMonitorActiveRef.current) return;
       if (!activePositionsRef.current || activePositionsRef.current.length === 0) return;
       try {
-        const freshToken = await getFreshAccessToken();
-        await fetch(`${serverUrl}/position-monitor/tick`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${freshToken}` }
-        });
         await syncEngineState();
       } catch (error) {
-        console.warn('⚠️ Position monitor tick failed:', error);
+        console.warn('⚠️ Position monitor sync failed:', error);
       }
-    }, 1000);
+    }, 5000);
   };
 
   const clearPositionMonitorLoop = () => {
@@ -587,7 +582,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
     const lastFetchByIndex: Record<string, number> = { NIFTY: 0, BANKNIFTY: 0, SENSEX: 0 };
     const cachedAnalysisByIndex: Record<string, any> = {};
-    const ANALYSIS_INDEX_TTL_MS = 15000; // low-credit: reuse analysis and avoid Dhan overload
+    const ANALYSIS_INDEX_TTL_MS = 60000; // protect Dhan rate limits; backend remains source of truth
 
     const computeAnalysisForIndex = async (index: 'NIFTY' | 'BANKNIFTY' | 'SENSEX') => {
       const now = Date.now();
