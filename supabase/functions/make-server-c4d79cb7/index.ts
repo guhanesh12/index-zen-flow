@@ -7850,7 +7850,6 @@ app.get("/make-server-c4d79cb7/admin/monitoring", async (c) => {
 // Track page view
 app.post("/make-server-c4d79cb7/analytics/pageview", async (c) => {
   try {
-    const { trackVisitorSession } = await import('./analytics_tracker.tsx');
     const { page } = await c.req.json();
     const userAgent = c.req.header('user-agent') || 'Unknown';
     const ipAddressRaw = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'Unknown';
@@ -7858,12 +7857,10 @@ app.post("/make-server-c4d79cb7/analytics/pageview", async (c) => {
     // Parse IP to extract first real IP from comma-separated list
     const ipAddress = ipAddressRaw.split(',')[0].trim() || 'Unknown';
     
-    console.log(`📄 [PAGE VIEW] Received from ${ipAddress} (raw: ${ipAddressRaw}) on page: ${page}`);
-    console.log(`   User-Agent: ${userAgent}`);
-    
-    const session = await trackVisitorSession(ipAddress, userAgent, page);
-    
-    console.log(`✅ [PAGE VIEW] Session created/updated: ${session.sessionId} (active: ${session.isActive})`);
+    runBackgroundTask((async () => {
+      const { trackVisitorSession } = await import('./analytics_tracker.tsx');
+      await trackVisitorSession(ipAddress, userAgent, page);
+    })());
     
     return c.json({ success: true });
   } catch (error: any) {
@@ -7876,7 +7873,6 @@ app.post("/make-server-c4d79cb7/analytics/pageview", async (c) => {
 // Heartbeat to keep session alive (doesn't create new page views)
 app.post("/make-server-c4d79cb7/analytics/heartbeat", async (c) => {
   try {
-    const { trackVisitorSession } = await import('./analytics_tracker.tsx');
     const { page } = await c.req.json();
     const userAgent = c.req.header('user-agent') || 'Unknown';
     const ipAddressRaw = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'Unknown';
@@ -7884,12 +7880,10 @@ app.post("/make-server-c4d79cb7/analytics/heartbeat", async (c) => {
     // Parse IP to extract first real IP from comma-separated list
     const ipAddress = ipAddressRaw.split(',')[0].trim() || 'Unknown';
     
-    console.log(`💓 [HEARTBEAT] Received from ${ipAddress} on page: ${page}`);
-    
-    // Track visitor session WITHOUT creating a page view (pass false as last parameter)
-    const session = await trackVisitorSession(ipAddress, userAgent, page, undefined, false);
-    
-    console.log(`✅ [HEARTBEAT] Session updated: ${session.sessionId} (active: ${session.isActive})`);
+    runBackgroundTask((async () => {
+      const { trackVisitorSession } = await import('./analytics_tracker.tsx');
+      await trackVisitorSession(ipAddress, userAgent, page, undefined, false);
+    })());
     
     return c.json({ success: true });
   } catch (error: any) {
