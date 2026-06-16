@@ -307,6 +307,14 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: 
   }
 }
 
+function runBackgroundTask(promise: Promise<any>) {
+  if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(promise);
+    return;
+  }
+  promise.catch(() => {});
+}
+
 async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: any; error: any }> {
   const payload = parseJwtPayload(accessToken);
 
@@ -2154,7 +2162,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
     const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
     const positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
     if (positions && positions !== cachedPositions) {
-      EdgeRuntime?.waitUntil?.(kv.set(`last_positions:${effectiveUserId}`, positions).catch(() => {}));
+      runBackgroundTask(kv.set(`last_positions:${effectiveUserId}`, positions));
     }
     
     console.log('📊 ============ POSITIONS ENDPOINT RESPONSE ============');
@@ -2875,7 +2883,7 @@ app.get("/make-server-c4d79cb7/live-positions", async (c) => {
     const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
     const positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
     if (positions && positions !== cachedPositions) {
-      EdgeRuntime?.waitUntil?.(kv.set(`last_positions:${effectiveUserId}`, positions).catch(() => {}));
+      runBackgroundTask(kv.set(`last_positions:${effectiveUserId}`, positions));
     }
     return c.json({ positions, cached: positions === cachedPositions });
   } catch (error) {
