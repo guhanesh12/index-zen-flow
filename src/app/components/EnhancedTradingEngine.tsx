@@ -439,9 +439,21 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         }
     }
 
-    const timestamp = signalRecord?.created_at
-      ? new Date(signalRecord.created_at).getTime()
-      : (typeof signalRecord?.timestamp === 'number' ? signalRecord.timestamp : Date.now());
+    const normalizeSignalTimestamp = (value: any) => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value;
+      if (typeof value === 'string') {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) return numeric < 1e12 ? numeric * 1000 : numeric;
+        const parsed = Date.parse(value);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+      return 0;
+    };
+    const timestamp =
+      normalizeSignalTimestamp(rawSignal.timestamp) ||
+      normalizeSignalTimestamp(signalRecord?.timestamp) ||
+      normalizeSignalTimestamp(signalRecord?.created_at) ||
+      Date.now();
 
     return {
       ...rawSignal,
