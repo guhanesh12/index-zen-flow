@@ -8242,52 +8242,10 @@ function isSameUserNotification(existing: any, incoming: any) {
 
 app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    
-    console.log('📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📬 USER NOTIFICATION FETCH REQUEST');
-    console.log('📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📬 Auth Header:', authHeader ? 'Present' : 'Missing');
-    console.log('📬 Token:', authHeader?.split(' ')[1] ? `${authHeader.split(' ')[1].substring(0, 20)}...` : 'Missing');
-    
-    console.log('🔍 Validating token with Supabase...');
-    const { user, error } = await validateAuth(c);
-    
-    if (error || !user) {
-      console.error('❌ Token validation failed:', error?.message || 'No user found');
-      return c.json({ success: false, message: error?.message || 'Invalid token' }, error?.code || 401);
-    }
-    
-    console.log('✅ User authenticated successfully');
-    console.log(`📬 User ID: ${user.id}`);
-    console.log(`📬 User Email: ${user.email}`);
-    console.log(`📬 KV Store Key: user_notifications:${user.id}`);
-    console.log(`📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    
-    // Get user notifications from KV store
-    console.log(`🔍 Fetching notifications from KV store...`);
-    const notifications = await kv.get(`user_notifications:${user.id}`) || [];
-    
-    console.log(`📊 Found ${notifications.length} notifications for user ${user.id}`);
-    if (notifications.length > 0) {
-      console.log(`📋 First notification:`, notifications[0]);
-      console.log(`📋 All notification IDs:`, notifications.map((n: any) => n.id));
-    } else {
-      console.log(`⚠️ No notifications found in KV store`);
-      
-      // Let's check if there are any notifications at all
-      console.log(`🔍 Checking all user_notifications keys in KV store...`);
-      try {
-        const allUserNotifs = await kv.getByPrefix('user_notifications:');
-        console.log(`📊 Total user_notifications keys in KV: ${allUserNotifs.length}`);
-        if (allUserNotifs.length > 0) {
-          console.log(`📋 Available keys:`, allUserNotifs.map((item: any) => item.key));
-        }
-      } catch (checkError) {
-        console.error('❌ Error checking KV keys:', checkError);
-      }
-    }
-    console.log(`📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+    const notifications = await safeKVGet(`user_notifications:${userId}`, []);
     
     return c.json({ success: true, notifications });
   } catch (error: any) {
