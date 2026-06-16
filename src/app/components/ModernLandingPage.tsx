@@ -748,20 +748,17 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     decoding="async"
                   />
                 </motion.div>
-                <div className="absolute bottom-0 left-1/2 z-10 w-full max-w-md -translate-x-1/2 rounded-3xl border border-slate-800 bg-slate-950/80 p-4 backdrop-blur-xl">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-white">Download the Android app</p>
-                      <p className="text-xs text-slate-400">Open signals, broker, and analytics from Google Play</p>
-                    </div>
-                    <Button
-                      onClick={() => window.open(content.hero.playStoreLink, '_blank', 'noopener,noreferrer')}
-                      className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 text-white shrink-0"
-                    >
-                      Install App
-                    </Button>
-                  </div>
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8 }}
+                  className="absolute -bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-emerald-500/30 bg-slate-950/80 px-5 py-2 text-xs font-medium text-emerald-300 backdrop-blur-xl shadow-lg shadow-emerald-500/10"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Smartphone className="w-3.5 h-3.5" />
+                    Available on Google Play
+                  </span>
+                </motion.div>
               </div>
             </motion.div>
           </div>
@@ -797,8 +794,149 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
         </div>
       </section>
 
-      {/* How It Works Section - Fill the empty space */}
+      {/* Android App Download Section */}
+      <section id="android-app" className="relative overflow-hidden py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-950 via-black to-slate-950">
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute -top-32 left-1/4 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl"></div>
+          <div className="absolute bottom-0 right-1/4 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl"></div>
+        </div>
+        <div className="max-w-7xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="text-center mb-14"
+          >
+            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm font-medium mb-5">
+              <Smartphone className="w-4 h-4" />
+              Now on Google Play
+            </span>
+            <h2 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-4">
+              Trade Smarter with the{' '}
+              <span className="bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                IndexpilotAI Android App
+              </span>
+            </h2>
+            <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+              Real-time AI signals, broker controls, and live P&amp;L — all in your pocket. Install free and start in under a minute.
+            </p>
+          </motion.div>
+
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            <motion.div
+              initial={{ opacity: 0, x: -40 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.7 }}
+              className="relative flex justify-center items-end h-[520px] sm:h-[600px]"
+            >
+              <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/10 via-transparent to-cyan-500/10 rounded-[3rem] blur-2xl"></div>
+              <motion.div
+                animate={{ y: [0, -12, 0] }}
+                transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+                className="absolute left-0 bottom-12 w-[42%] z-10 rotate-[-8deg]"
+              >
+                <ImageWithFallback
+                  src={heroSignalsAsset.url}
+                  alt="IndexpilotAI signals screen on Android"
+                  className="w-full rounded-[2rem] border border-cyan-500/40 shadow-[0_25px_70px_rgba(34,211,238,0.25)]"
+                  loading="lazy"
+                />
+              </motion.div>
+              <motion.div
+                animate={{ y: [0, 12, 0] }}
+                transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+                className="absolute right-0 bottom-20 w-[42%] z-10 rotate-[8deg]"
+              >
+                <ImageWithFallback
+                  src={heroBrokerAsset.url}
+                  alt="IndexpilotAI broker screen on Android"
+                  className="w-full rounded-[2rem] border border-purple-500/40 shadow-[0_25px_70px_rgba(168,85,247,0.25)]"
+                  loading="lazy"
+                />
+              </motion.div>
+              <motion.div
+                whileHover={{ y: -8, scale: 1.02 }}
+                transition={{ type: 'spring', stiffness: 150, damping: 18 }}
+                className="relative z-20 w-[52%] max-w-[280px]"
+              >
+                <div className="absolute -inset-4 rounded-[3rem] bg-gradient-to-b from-emerald-500/30 via-cyan-500/20 to-blue-500/30 blur-2xl"></div>
+                <ImageWithFallback
+                  src={heroHomeAsset.url}
+                  alt="IndexpilotAI Android app home screen"
+                  className="relative w-full rounded-[2.5rem] border border-emerald-500/40 shadow-[0_30px_90px_rgba(16,185,129,0.3)]"
+                  loading="lazy"
+                />
+              </motion.div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, x: 40 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.7 }}
+              className="space-y-5"
+            >
+              {[
+                { icon: Zap, title: 'Instant AI Signals', desc: 'Push notifications the second a NIFTY, BANKNIFTY or SENSEX setup confirms.', color: 'from-cyan-500 to-blue-500' },
+                { icon: Shield, title: 'Secure Dhan Integration', desc: 'Your access token stays encrypted. Trade live with one-tap broker controls.', color: 'from-emerald-500 to-teal-500' },
+                { icon: LineChart, title: 'Live P&L & Positions', desc: 'Track every open position, daily P&L, and trade history in real time.', color: 'from-purple-500 to-pink-500' },
+                { icon: Bell, title: 'Smart Alerts', desc: 'Candle-close alerts, stop-loss hits, and exit signals — never miss a move.', color: 'from-orange-500 to-amber-500' },
+              ].map((f, i) => (
+                <motion.div
+                  key={f.title}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.4, delay: i * 0.1 }}
+                  whileHover={{ x: 6 }}
+                  className="group flex items-start gap-4 p-4 rounded-2xl border border-slate-800 bg-slate-900/50 backdrop-blur-xl hover:border-emerald-500/40 transition-colors"
+                >
+                  <div className={`shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br ${f.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
+                    <f.icon className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold mb-1">{f.title}</h3>
+                    <p className="text-sm text-slate-400">{f.desc}</p>
+                  </div>
+                </motion.div>
+              ))}
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.5 }}
+                className="pt-4 flex flex-col sm:flex-row items-center gap-4"
+              >
+                <motion.button
+                  whileHover={{ scale: 1.04, y: -2 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => window.open(content.hero.playStoreLink, '_blank', 'noopener,noreferrer')}
+                  className="group relative inline-flex items-center gap-3 px-6 py-4 rounded-2xl bg-black border border-emerald-500/40 text-white shadow-[0_15px_40px_rgba(16,185,129,0.25)] hover:border-emerald-400 transition-colors"
+                >
+                  <svg viewBox="0 0 24 24" className="w-8 h-8" fill="currentColor">
+                    <path d="M3.6 1.6c-.4.4-.6 1-.6 1.7v17.4c0 .7.2 1.3.6 1.7l11.3-10.8L3.6 1.6zm12.3 11.2l3.4-3.3-12.4-7.1 9 10.4zm-9 11.2l12.4-7.1-3.4-3.3-9 10.4zm12.9-7.5l3.5-2c.7-.4.7-1.4 0-1.8l-3.4-2-3.6 3.4 3.5 2.4z"/>
+                  </svg>
+                  <div className="text-left leading-tight">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Get it on</div>
+                    <div className="text-lg font-semibold">Google Play</div>
+                  </div>
+                </motion.button>
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  Free download · Android 7.0+
+                </div>
+              </motion.div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works Section */}
       <HowItWorksSection />
+
 
       {/* Dhan Integration Section */}
       <section className="relative py-20 px-4 sm:px-6 lg:px-8 bg-slate-950">
