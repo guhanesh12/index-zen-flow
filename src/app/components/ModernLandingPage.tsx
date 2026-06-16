@@ -829,46 +829,48 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.7 }}
-              className="relative flex justify-center items-end h-[520px] sm:h-[600px]"
+              className="relative mx-auto w-full max-w-[520px]"
             >
-              <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/10 via-transparent to-cyan-500/10 rounded-[3rem] blur-2xl"></div>
-              <motion.div
-                animate={{ y: [0, -12, 0] }}
-                transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute left-0 bottom-12 w-[42%] z-10 rotate-[-8deg]"
-              >
-                <ImageWithFallback
-                  src={heroSignalsAsset.url}
-                  alt="IndexpilotAI signals screen on Android"
-                  className="w-full rounded-[2rem] border border-cyan-500/40 shadow-[0_25px_70px_rgba(34,211,238,0.25)]"
-                  loading="lazy"
-                />
-              </motion.div>
-              <motion.div
-                animate={{ y: [0, 12, 0] }}
-                transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute right-0 bottom-20 w-[42%] z-10 rotate-[8deg]"
-              >
-                <ImageWithFallback
-                  src={heroBrokerAsset.url}
-                  alt="IndexpilotAI broker screen on Android"
-                  className="w-full rounded-[2rem] border border-purple-500/40 shadow-[0_25px_70px_rgba(168,85,247,0.25)]"
-                  loading="lazy"
-                />
-              </motion.div>
-              <motion.div
-                whileHover={{ y: -8, scale: 1.02 }}
-                transition={{ type: 'spring', stiffness: 150, damping: 18 }}
-                className="relative z-20 w-[52%] max-w-[280px]"
-              >
-                <div className="absolute -inset-4 rounded-[3rem] bg-gradient-to-b from-emerald-500/30 via-cyan-500/20 to-blue-500/30 blur-2xl"></div>
-                <ImageWithFallback
-                  src={heroHomeAsset.url}
-                  alt="IndexpilotAI Android app home screen"
-                  className="relative w-full rounded-[2.5rem] border border-emerald-500/40 shadow-[0_30px_90px_rgba(16,185,129,0.3)]"
-                  loading="lazy"
-                />
-              </motion.div>
+              <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/10 via-transparent to-cyan-500/10 rounded-[3rem] blur-3xl -z-10"></div>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 items-end">
+                <motion.div
+                  animate={{ y: [0, -10, 0] }}
+                  transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+                  className="rotate-[-6deg] mb-6"
+                >
+                  <ImageWithFallback
+                    src={heroSignalsAsset.url}
+                    alt="IndexpilotAI signals screen on Android"
+                    className="w-full rounded-[1.25rem] border border-cyan-500/40 shadow-[0_20px_50px_rgba(34,211,238,0.25)]"
+                    loading="lazy"
+                  />
+                </motion.div>
+                <motion.div
+                  whileHover={{ y: -8, scale: 1.02 }}
+                  transition={{ type: 'spring', stiffness: 150, damping: 18 }}
+                  className="relative z-10 -mt-6"
+                >
+                  <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-b from-emerald-500/30 via-cyan-500/20 to-blue-500/30 blur-2xl"></div>
+                  <ImageWithFallback
+                    src={heroHomeAsset.url}
+                    alt="IndexpilotAI Android app home screen"
+                    className="relative w-full rounded-[1.5rem] border border-emerald-500/40 shadow-[0_25px_70px_rgba(16,185,129,0.3)]"
+                    loading="lazy"
+                  />
+                </motion.div>
+                <motion.div
+                  animate={{ y: [0, 10, 0] }}
+                  transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+                  className="rotate-[6deg] mb-6"
+                >
+                  <ImageWithFallback
+                    src={heroBrokerAsset.url}
+                    alt="IndexpilotAI broker screen on Android"
+                    className="w-full rounded-[1.25rem] border border-purple-500/40 shadow-[0_20px_50px_rgba(168,85,247,0.25)]"
+                    loading="lazy"
+                  />
+                </motion.div>
+              </div>
             </motion.div>
 
             <motion.div
