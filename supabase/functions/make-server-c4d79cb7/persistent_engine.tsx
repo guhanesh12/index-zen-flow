@@ -1033,8 +1033,11 @@ class PersistentTradingEngine {
         return;
       }
 
-      // Check if new candle is ready for AI analysis
+      // Check if the selected timeframe candle has actually CLOSED.
+      // pg_cron can hit seconds before/after a boundary; only process once the
+      // close minute is reached, then label the signal with that candle close.
       const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
+      const currentCandleCloseTimeMs = this.getCandleCloseTimeMs(istTime, candleMinutes);
       const dbLastProcessedCandle = liveEngineState?.strategy_settings?.lastProcessedCandle || "";
 
       console.log(
@@ -1060,7 +1063,7 @@ class PersistentTradingEngine {
       const allIndices = ["NIFTY", "BANKNIFTY", "SENSEX"];
       const analyzedIndices = new Set<string>();
       const latestSignalsSnapshot: Record<string, any> = {};
-      const batchSignalTimestamp = Date.now();
+      const batchSignalTimestamp = currentCandleCloseTimeMs;
 
       await Promise.all(
         allIndices.map(async (indexName) => {
@@ -1205,6 +1208,8 @@ class PersistentTradingEngine {
             index: indexName,
             timeframe: aiSignal.signal.timeframe || `${state.candleInterval}M`,
             timestamp: signalTimestamp,
+            candleClose: currentCandleTimestamp,
+            generatedAt: Date.now(),
           };
 
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
