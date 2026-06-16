@@ -104,9 +104,12 @@ function normalizeMergedLogEntry(log: any, source = 'shared') {
 }
 
 async function getMergedUserLogs(userId: string) {
+  // Fast path for dashboard login: shared logs already contain engine/order events.
+  // Avoid prefix-scanning old per-entry engine_log_* KV rows on every 5s UI poll.
+  const includeLegacyEngineLogs = false;
   const [sharedLogs, engineLogRows] = await Promise.all([
     safeKVGet(`logs:${userId}`, []),
-    kv.getByPrefix(`engine_log_${userId}_`),
+    includeLegacyEngineLogs ? kv.getByPrefix(`engine_log_${userId}_`) : Promise.resolve([]),
   ]);
 
   const mergedLogs = [
@@ -285,6 +288,33 @@ function parseJwtPayload(token: string): any | null {
   }
 }
 
+function getFastUserIdFromRequest(c: any): string | null {
+  const bearerToken = c.req.header('Authorization')?.split(' ')[1] || '';
+  return extractUserIdFromJwt(bearerToken);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timer: any;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function runBackgroundTask(promise: Promise<any>) {
+  if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(promise);
+    return;
+  }
+  promise.catch(() => {});
+}
+
 async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: any; error: any }> {
   const payload = parseJwtPayload(accessToken);
 
@@ -325,14 +355,6 @@ async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: an
 // ⚡ AUTH HELPER: Validate access token and return user (WITH RETRY LOGIC)
 async function validateAuth(c: any, maxRetries = 3): Promise<{ user: any; error: any }> {
   const accessToken = c.req.header('Authorization')?.split(' ')[1];
-  
-  // Debug: Log token info
-  console.log('��� validateAuth - Token check:', {
-    hasToken: !!accessToken,
-    tokenLength: accessToken?.length || 0,
-    tokenPrefix: accessToken?.substring(0, 30) + '...',
-    tokenSuffix: '...' + accessToken?.substring(accessToken.length - 10),
-  });
   
   if (!accessToken) {
     // ⚡ Silent - this is expected for public endpoints
@@ -390,7 +412,7 @@ async function validateAuth(c: any, maxRetries = 3): Promise<{ user: any; error:
       } else {
         // Success!
         if (attempt > 1) console.log(`✅ Auth successful on attempt ${attempt}`);
-        console.log(`✅ User authenticated: ${user.email} (ID: ${user.id})`);
+        if (attempt > 1) console.log(`✅ User authenticated after retry: ${user.email} (ID: ${user.id})`);
         return { user, error: null };
       }
     } catch (e) {
@@ -2137,7 +2159,11 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
       accessToken: credentials.dhanAccessToken
     });
 
-    const positions = await dhanService.getPositions();
+    const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
+    const positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
+    if (positions && positions !== cachedPositions) {
+      runBackgroundTask(kv.set(`last_positions:${effectiveUserId}`, positions));
+    }
     
     console.log('📊 ============ POSITIONS ENDPOINT RESPONSE ============');
     console.log('📊 Total positions fetched:', positions.length);
@@ -2854,8 +2880,12 @@ app.get("/make-server-c4d79cb7/live-positions", async (c) => {
       accessToken: credentials.dhanAccessToken
     });
 
-    const positions = await dhanService.getPositions();
-    return c.json({ positions });
+    const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
+    const positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
+    if (positions && positions !== cachedPositions) {
+      runBackgroundTask(kv.set(`last_positions:${effectiveUserId}`, positions));
+    }
+    return c.json({ positions, cached: positions === cachedPositions });
   } catch (error) {
     console.log(`Error fetching positions: ${error}`);
     return c.json({ error: "Failed to fetch positions" }, 500);
@@ -2981,12 +3011,10 @@ app.post("/make-server-c4d79cb7/ai-analysis", async (c) => {
 // Get logs
 app.get("/make-server-c4d79cb7/logs", async (c) => {
   try {
-    const { user, error } = await validateAuth(c);
-    if (!user || error) {
-      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
-    }
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
-    const logs = await getMergedUserLogs(user.id);
+    const logs = await getMergedUserLogs(userId);
     return c.json({ logs });
   } catch (error) {
     console.log(`Error fetching logs: ${error}`);
@@ -5183,12 +5211,10 @@ app.post("/make-server-c4d79cb7/wallet/initialize", async (c) => {
 // Get wallet balance
 app.get("/make-server-c4d79cb7/wallet/balance", async (c) => {
   try {
-    const { user, error } = await validateAuth(c);
-    if (error || !user) {
-      return c.json({ code: error.code, message: error.message }, error.code);
-    }
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ code: 401, message: 'Unauthorized' }, 401);
 
-    const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0, totalProfit: 0, totalDeducted: 0 };
+    const wallet = await safeKVGet(`wallet:${userId}`, { balance: 0, totalProfit: 0, totalDeducted: 0 }, 1);
     
     return c.json({ 
       success: true, 
@@ -7824,7 +7850,6 @@ app.get("/make-server-c4d79cb7/admin/monitoring", async (c) => {
 // Track page view
 app.post("/make-server-c4d79cb7/analytics/pageview", async (c) => {
   try {
-    const { trackVisitorSession } = await import('./analytics_tracker.tsx');
     const { page } = await c.req.json();
     const userAgent = c.req.header('user-agent') || 'Unknown';
     const ipAddressRaw = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'Unknown';
@@ -7832,12 +7857,10 @@ app.post("/make-server-c4d79cb7/analytics/pageview", async (c) => {
     // Parse IP to extract first real IP from comma-separated list
     const ipAddress = ipAddressRaw.split(',')[0].trim() || 'Unknown';
     
-    console.log(`📄 [PAGE VIEW] Received from ${ipAddress} (raw: ${ipAddressRaw}) on page: ${page}`);
-    console.log(`   User-Agent: ${userAgent}`);
-    
-    const session = await trackVisitorSession(ipAddress, userAgent, page);
-    
-    console.log(`✅ [PAGE VIEW] Session created/updated: ${session.sessionId} (active: ${session.isActive})`);
+    runBackgroundTask((async () => {
+      const { trackVisitorSession } = await import('./analytics_tracker.tsx');
+      await trackVisitorSession(ipAddress, userAgent, page);
+    })());
     
     return c.json({ success: true });
   } catch (error: any) {
@@ -7850,7 +7873,6 @@ app.post("/make-server-c4d79cb7/analytics/pageview", async (c) => {
 // Heartbeat to keep session alive (doesn't create new page views)
 app.post("/make-server-c4d79cb7/analytics/heartbeat", async (c) => {
   try {
-    const { trackVisitorSession } = await import('./analytics_tracker.tsx');
     const { page } = await c.req.json();
     const userAgent = c.req.header('user-agent') || 'Unknown';
     const ipAddressRaw = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'Unknown';
@@ -7858,12 +7880,10 @@ app.post("/make-server-c4d79cb7/analytics/heartbeat", async (c) => {
     // Parse IP to extract first real IP from comma-separated list
     const ipAddress = ipAddressRaw.split(',')[0].trim() || 'Unknown';
     
-    console.log(`💓 [HEARTBEAT] Received from ${ipAddress} on page: ${page}`);
-    
-    // Track visitor session WITHOUT creating a page view (pass false as last parameter)
-    const session = await trackVisitorSession(ipAddress, userAgent, page, undefined, false);
-    
-    console.log(`✅ [HEARTBEAT] Session updated: ${session.sessionId} (active: ${session.isActive})`);
+    runBackgroundTask((async () => {
+      const { trackVisitorSession } = await import('./analytics_tracker.tsx');
+      await trackVisitorSession(ipAddress, userAgent, page, undefined, false);
+    })());
     
     return c.json({ success: true });
   } catch (error: any) {
@@ -8228,52 +8248,10 @@ function isSameUserNotification(existing: any, incoming: any) {
 
 app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
-    
-    console.log('📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📬 USER NOTIFICATION FETCH REQUEST');
-    console.log('📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📬 Auth Header:', authHeader ? 'Present' : 'Missing');
-    console.log('📬 Token:', authHeader?.split(' ')[1] ? `${authHeader.split(' ')[1].substring(0, 20)}...` : 'Missing');
-    
-    console.log('🔍 Validating token with Supabase...');
-    const { user, error } = await validateAuth(c);
-    
-    if (error || !user) {
-      console.error('❌ Token validation failed:', error?.message || 'No user found');
-      return c.json({ success: false, message: error?.message || 'Invalid token' }, error?.code || 401);
-    }
-    
-    console.log('✅ User authenticated successfully');
-    console.log(`📬 User ID: ${user.id}`);
-    console.log(`📬 User Email: ${user.email}`);
-    console.log(`📬 KV Store Key: user_notifications:${user.id}`);
-    console.log(`📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    
-    // Get user notifications from KV store
-    console.log(`🔍 Fetching notifications from KV store...`);
-    const notifications = await kv.get(`user_notifications:${user.id}`) || [];
-    
-    console.log(`📊 Found ${notifications.length} notifications for user ${user.id}`);
-    if (notifications.length > 0) {
-      console.log(`📋 First notification:`, notifications[0]);
-      console.log(`📋 All notification IDs:`, notifications.map((n: any) => n.id));
-    } else {
-      console.log(`⚠️ No notifications found in KV store`);
-      
-      // Let's check if there are any notifications at all
-      console.log(`🔍 Checking all user_notifications keys in KV store...`);
-      try {
-        const allUserNotifs = await kv.getByPrefix('user_notifications:');
-        console.log(`📊 Total user_notifications keys in KV: ${allUserNotifs.length}`);
-        if (allUserNotifs.length > 0) {
-          console.log(`📋 Available keys:`, allUserNotifs.map((item: any) => item.key));
-        }
-      } catch (checkError) {
-        console.error('❌ Error checking KV keys:', checkError);
-      }
-    }
-    console.log(`📬 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
+
+    const notifications = await safeKVGet(`user_notifications:${userId}`, []);
     
     return c.json({ success: true, notifications });
   } catch (error: any) {
@@ -11292,23 +11270,21 @@ app.post("/make-server-c4d79cb7/backend-engine/execute", async (c) => {
  */
 app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
   try {
-    const { user, error } = await validateAuth(c);
-    if (error || !user) {
-      return c.json({ error: error?.message || 'Unauthorized' }, 401);
-    }
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
     // Get engine state from DB
     const { data: engineState } = await supabase
       .from('trading_engine_state')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .maybeSingle();
 
     // Get active positions from DB
     const { data: positions } = await supabase
       .from('position_monitor_state')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('is_active', true);
 
     // Get today's stats
@@ -11316,7 +11292,7 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
     const { data: stats } = await supabase
       .from('signal_stats')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('stat_date', today)
       .maybeSingle();
 
@@ -11324,21 +11300,12 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
     const { data: signals } = await supabase
       .from('trading_signals')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(12);
 
-    // Get recent orders (last 50)
-    const { data: orders } = await supabase
-      .from('trading_orders')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    const storedLatestSignals = await safeKVGet(`latest_signals:${user.id}`, null);
+    const storedLatestSignals = await safeKVGet(`latest_signals:${userId}`, null, 1);
     const latestSignals = deriveLatestSignals(signals || [], storedLatestSignals);
-    const userLogs = await getMergedUserLogs(user.id);
 
     return c.json({
       success: true,
@@ -11354,8 +11321,8 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
       stats: stats || { signal_count: 0, order_count: 0, speed_count: 0, total_pnl: 0 },
       latestSignals,
       signals: signals || [],
-      orders: orders || [],
-      logs: userLogs
+      orders: [],
+      logs: []
     });
   } catch (error: any) {
     console.error('❌ Error getting DB engine status:', error);

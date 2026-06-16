@@ -165,22 +165,9 @@ export class DhanService {
         if (response.status === 429 || response.status === 400) {
           const responseText = await responseClone.text();
           if (responseText.includes('Rate_Limit') || responseText.includes('DH-904')) {
-            // ⚡ Auto-reset retry counter if last hit was long ago (>30s)
-            if (!(this as any)._lastRateLimitAt || Date.now() - (this as any)._lastRateLimitAt > 30000) {
-              this.rateLimitRetryCount = 0;
-            }
             (this as any)._lastRateLimitAt = Date.now();
-            if (this.rateLimitRetryCount >= this.MAX_RATE_LIMIT_RETRIES) {
-              console.warn(`⚠️ ${operationName} - RATE LIMIT still active after ${this.rateLimitRetryCount} retries; returning response for graceful fallback`);
-              return response;
-            }
-
-            this.rateLimitRetryCount++;
-            const waitTime = 2000 * Math.pow(2, this.rateLimitRetryCount); // Exponential backoff: 2s, 4s, 8s
-            console.warn(`⚠️ ${operationName} - RATE LIMIT HIT (attempt ${this.rateLimitRetryCount}/${this.MAX_RATE_LIMIT_RETRIES})`);
-            console.warn(`   Waiting ${waitTime}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            continue; // Retry
+            console.warn(`⚠️ ${operationName} - DH-904 rate limit hit; returning immediately for cached/graceful fallback`);
+            return response;
           }
         }
         
