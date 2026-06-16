@@ -748,20 +748,17 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     decoding="async"
                   />
                 </motion.div>
-                <div className="absolute bottom-0 left-1/2 z-10 w-full max-w-md -translate-x-1/2 rounded-3xl border border-slate-800 bg-slate-950/80 p-4 backdrop-blur-xl">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-white">Download the Android app</p>
-                      <p className="text-xs text-slate-400">Open signals, broker, and analytics from Google Play</p>
-                    </div>
-                    <Button
-                      onClick={() => window.open(content.hero.playStoreLink, '_blank', 'noopener,noreferrer')}
-                      className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 text-white shrink-0"
-                    >
-                      Install App
-                    </Button>
-                  </div>
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8 }}
+                  className="absolute -bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-emerald-500/30 bg-slate-950/80 px-5 py-2 text-xs font-medium text-emerald-300 backdrop-blur-xl shadow-lg shadow-emerald-500/10"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Smartphone className="w-3.5 h-3.5" />
+                    Available on Google Play
+                  </span>
+                </motion.div>
               </div>
             </motion.div>
           </div>
