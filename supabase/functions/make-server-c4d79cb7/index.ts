@@ -85,8 +85,10 @@ const MAX_SHARED_LOGS = 500;
 const ENGINE_SIGNAL_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'] as const;
 
 function normalizeTimestamp(value: any): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value;
   if (typeof value === 'string') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric < 1e12 ? numeric * 1000 : numeric;
     const parsed = Date.parse(value);
     if (!Number.isNaN(parsed)) return parsed;
   }
@@ -156,7 +158,10 @@ function deriveLatestSignals(signals: any[] = [], storedLatestSignals: any = nul
     }
 
     const signalTimestamp = normalizeTimestamp(
-      mergedLatestSignals[indexName]?.timestamp || mergedLatestSignals[indexName]?.created_at
+      mergedLatestSignals[indexName]?.timestamp ||
+      mergedLatestSignals[indexName]?.raw_data?.signal?.timestamp ||
+      mergedLatestSignals[indexName]?.raw_data?.timestamp ||
+      mergedLatestSignals[indexName]?.created_at
     );
 
     if (signalTimestamp > mergedLatestSignals.__timestamp) {
