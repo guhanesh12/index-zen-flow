@@ -104,9 +104,12 @@ function normalizeMergedLogEntry(log: any, source = 'shared') {
 }
 
 async function getMergedUserLogs(userId: string) {
+  // Fast path for dashboard login: shared logs already contain engine/order events.
+  // Avoid prefix-scanning old per-entry engine_log_* KV rows on every 5s UI poll.
+  const includeLegacyEngineLogs = false;
   const [sharedLogs, engineLogRows] = await Promise.all([
     safeKVGet(`logs:${userId}`, []),
-    kv.getByPrefix(`engine_log_${userId}_`),
+    includeLegacyEngineLogs ? kv.getByPrefix(`engine_log_${userId}_`) : Promise.resolve([]),
   ]);
 
   const mergedLogs = [
@@ -285,6 +288,25 @@ function parseJwtPayload(token: string): any | null {
   }
 }
 
+function getFastUserIdFromRequest(c: any): string | null {
+  const bearerToken = c.req.header('Authorization')?.split(' ')[1] || '';
+  return extractUserIdFromJwt(bearerToken) || c.req.query('userId') || null;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timer: any;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: any; error: any }> {
   const payload = parseJwtPayload(accessToken);
 
@@ -325,14 +347,6 @@ async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: an
 // ⚡ AUTH HELPER: Validate access token and return user (WITH RETRY LOGIC)
 async function validateAuth(c: any, maxRetries = 3): Promise<{ user: any; error: any }> {
   const accessToken = c.req.header('Authorization')?.split(' ')[1];
-  
-  // Debug: Log token info
-  console.log('��� validateAuth - Token check:', {
-    hasToken: !!accessToken,
-    tokenLength: accessToken?.length || 0,
-    tokenPrefix: accessToken?.substring(0, 30) + '...',
-    tokenSuffix: '...' + accessToken?.substring(accessToken.length - 10),
-  });
   
   if (!accessToken) {
     // ⚡ Silent - this is expected for public endpoints
@@ -390,7 +404,7 @@ async function validateAuth(c: any, maxRetries = 3): Promise<{ user: any; error:
       } else {
         // Success!
         if (attempt > 1) console.log(`✅ Auth successful on attempt ${attempt}`);
-        console.log(`✅ User authenticated: ${user.email} (ID: ${user.id})`);
+        if (attempt > 1) console.log(`✅ User authenticated after retry: ${user.email} (ID: ${user.id})`);
         return { user, error: null };
       }
     } catch (e) {
