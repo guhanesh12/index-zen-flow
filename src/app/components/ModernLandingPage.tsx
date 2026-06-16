@@ -914,10 +914,12 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 transition={{ delay: 0.5 }}
                 className="pt-4 flex flex-col sm:flex-row items-center gap-4"
               >
-                <motion.button
+                <motion.a
+                  href={content.hero.playStoreLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   whileHover={{ scale: 1.04, y: -2 }}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => window.open(content.hero.playStoreLink, '_blank', 'noopener,noreferrer')}
                   className="group relative inline-flex items-center gap-3 px-6 py-4 rounded-2xl bg-black border border-emerald-500/40 text-white shadow-[0_15px_40px_rgba(16,185,129,0.25)] hover:border-emerald-400 transition-colors"
                 >
                   <svg viewBox="0 0 24 24" className="w-8 h-8" fill="currentColor">
@@ -927,7 +929,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     <div className="text-[10px] uppercase tracking-wider text-slate-400">Get it on</div>
                     <div className="text-lg font-semibold">Google Play</div>
                   </div>
-                </motion.button>
+                </motion.a>
                 <div className="flex items-center gap-2 text-sm text-slate-400">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                   Free download · Android 7.0+
