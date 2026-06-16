@@ -2151,7 +2151,11 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
       accessToken: credentials.dhanAccessToken
     });
 
-    const positions = await dhanService.getPositions();
+    const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
+    const positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
+    if (positions && positions !== cachedPositions) {
+      EdgeRuntime?.waitUntil?.(kv.set(`last_positions:${effectiveUserId}`, positions).catch(() => {}));
+    }
     
     console.log('📊 ============ POSITIONS ENDPOINT RESPONSE ============');
     console.log('📊 Total positions fetched:', positions.length);
@@ -2868,8 +2872,12 @@ app.get("/make-server-c4d79cb7/live-positions", async (c) => {
       accessToken: credentials.dhanAccessToken
     });
 
-    const positions = await dhanService.getPositions();
-    return c.json({ positions });
+    const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
+    const positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
+    if (positions && positions !== cachedPositions) {
+      EdgeRuntime?.waitUntil?.(kv.set(`last_positions:${effectiveUserId}`, positions).catch(() => {}));
+    }
+    return c.json({ positions, cached: positions === cachedPositions });
   } catch (error) {
     console.log(`Error fetching positions: ${error}`);
     return c.json({ error: "Failed to fetch positions" }, 500);
