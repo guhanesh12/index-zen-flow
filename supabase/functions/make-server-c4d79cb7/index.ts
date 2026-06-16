@@ -3003,12 +3003,10 @@ app.post("/make-server-c4d79cb7/ai-analysis", async (c) => {
 // Get logs
 app.get("/make-server-c4d79cb7/logs", async (c) => {
   try {
-    const { user, error } = await validateAuth(c);
-    if (!user || error) {
-      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
-    }
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
-    const logs = await getMergedUserLogs(user.id);
+    const logs = await getMergedUserLogs(userId);
     return c.json({ logs });
   } catch (error) {
     console.log(`Error fetching logs: ${error}`);
@@ -5205,12 +5203,10 @@ app.post("/make-server-c4d79cb7/wallet/initialize", async (c) => {
 // Get wallet balance
 app.get("/make-server-c4d79cb7/wallet/balance", async (c) => {
   try {
-    const { user, error } = await validateAuth(c);
-    if (error || !user) {
-      return c.json({ code: error.code, message: error.message }, error.code);
-    }
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ code: 401, message: 'Unauthorized' }, 401);
 
-    const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0, totalProfit: 0, totalDeducted: 0 };
+    const wallet = await safeKVGet(`wallet:${userId}`, { balance: 0, totalProfit: 0, totalDeducted: 0 }, 1);
     
     return c.json({ 
       success: true, 
