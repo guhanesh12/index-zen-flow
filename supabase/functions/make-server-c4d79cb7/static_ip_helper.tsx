@@ -68,29 +68,33 @@ async function inspectVpsOrderServer(ipAddress: string): Promise<VpsServerInspec
   try {
     const response = await fetch(healthEndpoint, {
       signal: AbortSignal.timeout(4000),
-      headers: {
-        "Cache-Control": "no-cache",
-      },
+      headers: { "Cache-Control": "no-cache" },
     });
 
     if (!response.ok) {
-      throw new Error(`Health check failed with HTTP ${response.status}`);
+      console.warn(
+        `⚠️ [VPS HEALTH] ${ipAddress}:3000/health → HTTP ${response.status}. Proceeding anyway.`
+      );
+      return { version: "0.0.0", marketOnlyEnforced: false, isOutdated: true };
     }
 
     const healthData = await response.json().catch(() => ({}));
     const version = String(healthData?.version || "0.0.0");
     const marketOnlyEnforced = healthData?.marketOnlyEnforced === true;
-
     return {
       version,
       marketOnlyEnforced,
       isOutdated: !marketOnlyEnforced || compareSemver(version, REQUIRED_ORDER_SERVER_VERSION) < 0,
     };
   } catch (error: any) {
-    throw new Error(
-      `Cannot verify your dedicated VPS order server at ${ipAddress}:3000. ` +
-      `Please ensure the latest market-only order server is running on your VPS.`
+    // ⚡ NON-BLOCKING: /health probe failed (timeout / TCP / old server without /health).
+    // Do NOT block the trade. /place-order has its own 8s timeout and will surface the
+    // real error if the VPS is truly unreachable. Prevents false "VPS not running" skips
+    // on a freshly provisioned droplet that accepts /place-order but not /health.
+    console.warn(
+      `⚠️ [VPS HEALTH] Cannot probe ${ipAddress}:3000/health (${error?.message || error}). Proceeding with order.`
     );
+    return { version: "0.0.0", marketOnlyEnforced: false, isOutdated: true };
   }
 }
 
