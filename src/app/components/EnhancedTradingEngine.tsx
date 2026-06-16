@@ -787,8 +787,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     loadSymbols();
     loadAutoSymbolSlots();
     loadDhanClientId();
-    loadExistingPositions(); // ⚡ NEW: Load existing positions from Dhan
     syncEngineState(); // ⚡ NEW: Load engine state from backend
+    const existingPositionsKick = setTimeout(loadExistingPositions, 2500); // live Dhan refresh after first paint
     
     // Clock updates every second
     const clockInterval = setInterval(() => {
@@ -800,7 +800,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     // ⚡ Poll backend quickly so signals/status from another device appear fast
     const syncInterval = setInterval(() => {
       syncEngineState();
-    }, 1500);
+    }, 5000);
 
     // ⚡⚡⚡ LIVE SIGNAL SYNC ⚡⚡⚡
     // Only read the latest saved engine snapshot. Do NOT generate new UI-only
@@ -836,6 +836,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     return () => {
       clearInterval(clockInterval);
       clearInterval(syncInterval);
+      clearTimeout(existingPositionsKick);
       clearTimeout(liveSignalKick);
       if (liveSignalTimer) clearTimeout(liveSignalTimer);
       // ⚡ DON'T STOP ENGINE ON UNMOUNT - Keep it running in background
