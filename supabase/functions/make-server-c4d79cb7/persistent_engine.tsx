@@ -442,11 +442,12 @@ class PersistentTradingEngine {
     const marketClose = 15 * 60 + 30;
 
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
-      // ⚡ FAST MODE: Do NOT arm-and-wait. Leave lastProcessedCandle empty so the
-      // very next tick analyzes the current candle immediately (no skipped morning entry).
-      engineState.lastProcessedCandle = "";
+      // Start cleanly on the NEXT selected timeframe close. If the engine is
+      // started at 10:43 on 15M, do not generate a stale 10:30 snapshot and
+      // show it as a 10:43 signal in the UI.
+      engineState.lastProcessedCandle = this.getCurrentCandleTimestamp(istTime, parseInt(candleInterval));
       console.log(
-        `⚡ FAST MODE: Engine started for ${userId} - will analyze current ${candleInterval}M candle on next tick (no wait).`,
+        `⚡ SYNC MODE: Engine started for ${userId} - armed after ${engineState.lastProcessedCandle}; next signal on next ${candleInterval}M close.`,
       );
     }
 
@@ -1032,8 +1033,11 @@ class PersistentTradingEngine {
         return;
       }
 
-      // Check if new candle is ready for AI analysis
+      // Check if the selected timeframe candle has actually CLOSED.
+      // pg_cron can hit seconds before/after a boundary; only process once the
+      // close minute is reached, then label the signal with that candle close.
       const currentCandleTimestamp = this.getCurrentCandleTimestamp(istTime, candleMinutes);
+      const currentCandleCloseTimeMs = this.getCandleCloseTimeMs(istTime, candleMinutes);
       const dbLastProcessedCandle = liveEngineState?.strategy_settings?.lastProcessedCandle || "";
 
       console.log(
@@ -1059,7 +1063,7 @@ class PersistentTradingEngine {
       const allIndices = ["NIFTY", "BANKNIFTY", "SENSEX"];
       const analyzedIndices = new Set<string>();
       const latestSignalsSnapshot: Record<string, any> = {};
-      const batchSignalTimestamp = Date.now();
+      const batchSignalTimestamp = currentCandleCloseTimeMs;
 
       await Promise.all(
         allIndices.map(async (indexName) => {
@@ -1204,6 +1208,8 @@ class PersistentTradingEngine {
             index: indexName,
             timeframe: aiSignal.signal.timeframe || `${state.candleInterval}M`,
             timestamp: signalTimestamp,
+            candleClose: currentCandleTimestamp,
+            generatedAt: Date.now(),
           };
 
           console.log(`🎯 ${indexName} AI Decision: ${action} | Confidence: ${confidence}%`);
@@ -2775,10 +2781,14 @@ class PersistentTradingEngine {
   private static async saveLatestSignalsSnapshot(userId: string, latestSignals: Record<string, any>): Promise<void> {
     try {
       const existingSnapshot = (await kv.get(`latest_signals:${userId}`)) || {};
+      const signalTimestamps = Object.values(latestSignals)
+        .map((signal: any) => Number(signal?.timestamp || 0))
+        .filter((timestamp) => Number.isFinite(timestamp) && timestamp > 0);
+      const snapshotTimestamp = signalTimestamps.length > 0 ? Math.max(...signalTimestamps) : Date.now();
       await kv.set(`latest_signals:${userId}`, {
         ...existingSnapshot,
         ...latestSignals,
-        __timestamp: Date.now(),
+        __timestamp: snapshotTimestamp,
       });
     } catch (err) {
       console.error("❌ Failed to save latest signals snapshot:", err);
@@ -3156,6 +3166,12 @@ class PersistentTradingEngine {
     const minutes = istDate.getUTCMinutes();
     const candleMinute = Math.floor(minutes / interval) * interval;
     return `${hours.toString().padStart(2, "0")}:${candleMinute.toString().padStart(2, "0")}`;
+  }
+
+  private static getCandleCloseTimeMs(istDate: Date, interval: number): number {
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const intervalMs = interval * 60 * 1000;
+    return Math.floor(istDate.getTime() / intervalMs) * intervalMs - istOffsetMs;
   }
 }
 
