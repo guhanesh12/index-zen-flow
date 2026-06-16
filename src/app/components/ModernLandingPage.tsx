@@ -12,11 +12,13 @@ import {
 } from 'lucide-react';
 const logoWhite = "/logo-white.png";
 const logoColor = "/logo-color.png";
+import heroHomeAsset from '@/assets/hero-home.webp.asset.json';
+import heroSignalsAsset from '@/assets/hero-signals.webp.asset.json';
+import heroBrokerAsset from '@/assets/hero-broker.webp.asset.json';
 import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { AnimatedIndexTitle } from './AnimatedIndexTitle';
-import { AnimatedIndexCard } from './AnimatedIndexCard';
 import { HowItWorksSection } from './HowItWorksSection';
 import { SEO, SEO_CONFIGS } from '../utils/seo';
 
@@ -76,18 +78,20 @@ interface ModernLandingPageProps {
 const DEFAULT_CONTENT = {
   hero: {
     badge: "AI-Powered Trading Platform",
+    appBadge: "Android app available on Google Play",
     title: {
       part1: "Trade",
       part2: "NIFTY Options",
       part3: "with AI"
     },
-    description: "Automated trading powered by advanced AI algorithms. Real-time data from Dhan with lightning-fast execution and intelligent position monitoring.",
+    description: "Automated trading powered by advanced AI algorithms. Real-time data from Dhan with lightning-fast execution, intelligent position monitoring, and full Android access on Google Play.",
     buttons: {
       primary: "Start Free Trial",
-      secondary: "Watch Demo"
+      secondary: "Get on Google Play"
     },
     trustBadge: "5,000+ Active Traders",
-    dhanAccountLink: "https://login.dhan.co/?location=DH_WEB&refer=SMIL56887"
+    dhanAccountLink: "https://login.dhan.co/?location=DH_WEB&refer=SMIL56887",
+    playStoreLink: "https://play.google.com/store/apps/details?id=com.indexpilotai.app&pcampaignid=web_share"
   },
   stats: [
     { value: '68%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
@@ -364,7 +368,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
           hero: {
             ...DEFAULT_CONTENT.hero,
             ...(data.content.hero || {}),
-            dhanAccountLink: DEFAULT_CONTENT.hero.dhanAccountLink
+            dhanAccountLink: DEFAULT_CONTENT.hero.dhanAccountLink,
+            playStoreLink: DEFAULT_CONTENT.hero.playStoreLink
           },
           // Deep merge for nested objects to ensure trailingStopLoss section is always present
           trailingStopLoss: {
@@ -486,7 +491,6 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
 
       {/* Hero Section */}
       <section className="relative pt-32 pb-20 px-4 sm:px-6 lg:px-8 overflow-hidden">
-        {/* Animated Background */}
         <div className="absolute inset-0 bg-gradient-to-br from-black via-slate-950 to-black"></div>
         <motion.div 
           className="absolute top-20 left-10 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"
@@ -521,8 +525,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
           style={{ opacity: heroOpacity, scale: heroScale }}
           className="relative z-10 max-w-7xl mx-auto"
         >
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left Content */}
+          <div className="grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-12 items-center">
             <motion.div 
               className="space-y-8"
               variants={containerVariants}
@@ -530,52 +533,53 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
               animate="visible"
             >
               <motion.div variants={itemVariants}>
-                <motion.div 
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-500/10 border border-cyan-500/20 mb-6"
-                  whileHover={{ scale: 1.05, boxShadow: "0 0 20px rgba(6, 182, 212, 0.3)" }}
-                  animate={pulseAnimation}
-                >
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                <div className="flex flex-wrap items-center gap-3 mb-6">
+                  <motion.div 
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-500/10 border border-cyan-500/20"
+                    whileHover={{ scale: 1.05, boxShadow: "0 0 20px rgba(6, 182, 212, 0.3)" }}
+                    animate={pulseAnimation}
                   >
-                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                    >
+                      <Sparkles className="w-4 h-4 text-cyan-400" />
+                    </motion.div>
+                    <span className="text-sm text-cyan-400 font-semibold">{content.hero.badge}</span>
                   </motion.div>
-                  <span className="text-sm text-cyan-400 font-semibold">{content.hero.badge}</span>
-                </motion.div>
+                  <motion.div
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20"
+                    whileHover={{ scale: 1.05 }}
+                  >
+                    <Smartphone className="w-4 h-4 text-emerald-400" />
+                    <span className="text-sm text-emerald-400 font-semibold">{content.hero.appBadge}</span>
+                  </motion.div>
+                </div>
                 
                 <motion.h1 
                   className="text-5xl md:text-6xl lg:text-7xl font-bold leading-tight mb-6"
                   variants={itemVariants}
                 >
-                  <motion.span 
-                    className="text-white inline-block"
-                    whileHover={{ scale: 1.05 }}
-                  >
+                  <motion.span className="text-white inline-block" whileHover={{ scale: 1.05 }}>
                     Trade
                   </motion.span>
                   <br />
                   <AnimatedIndexTitle />{' '}
                   <motion.span 
                     className="bg-gradient-to-r from-blue-400 via-purple-500 to-purple-600 bg-clip-text text-transparent inline-block"
-                    animate={{ 
-                      backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
-                    }}
+                    animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                     transition={{ duration: 5, repeat: Infinity }}
                   >
                     Options
                   </motion.span>
                   <br />
-                  <motion.span 
-                    className="text-white inline-block"
-                    whileHover={{ scale: 1.05 }}
-                  >
+                  <motion.span className="text-white inline-block" whileHover={{ scale: 1.05 }}>
                     with AI
                   </motion.span>
                 </motion.h1>
 
                 <motion.p 
-                  className="text-xl text-slate-400 leading-relaxed mb-8"
+                  className="text-xl text-slate-400 leading-relaxed mb-8 max-w-2xl"
                   variants={itemVariants}
                 >
                   {content.hero.description}
@@ -607,17 +611,35 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     <Button 
                       variant="outline"
                       size="lg"
-                      onClick={() => document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth' })}
-                      className="border-slate-700 bg-transparent text-white hover:bg-slate-800 text-lg px-8 py-6"
+                      onClick={() => window.open(content.hero.playStoreLink, '_blank', 'noopener,noreferrer')}
+                      className="border-emerald-500/40 bg-emerald-500/10 text-white hover:bg-emerald-500/20 text-lg px-8 py-6"
                     >
+                      <Smartphone className="mr-2 w-5 h-5 text-emerald-400" />
                       {content.hero.buttons.secondary}
                     </Button>
                   </motion.div>
                 </motion.div>
 
-                {/* Dhan Account Opening CTA */}
+                <motion.div
+                  className="grid gap-3 sm:grid-cols-3"
+                  variants={itemVariants}
+                >
+                  {[
+                    'Official Android app listing',
+                    'Fast mobile signal access',
+                    'Clean live trading interface'
+                  ].map((point) => (
+                    <div key={point} className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3 text-sm text-slate-300 backdrop-blur-xl">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>{point}</span>
+                      </div>
+                    </div>
+                  ))}
+                </motion.div>
+
                 <motion.div 
-                  className="mt-6 p-4 rounded-2xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30"
+                  className="mt-2 p-4 rounded-2xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30"
                   variants={itemVariants}
                   whileHover={{ scale: 1.02, borderColor: 'rgba(249, 115, 22, 0.5)' }}
                 >
@@ -626,10 +648,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       <p className="text-sm text-orange-400 font-semibold mb-1">Don't have a Dhan account?</p>
                       <p className="text-xs text-slate-400">Open your trading account in minutes</p>
                     </div>
-                    <motion.div
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
+                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                       <Button 
                         onClick={() => window.open(content.hero.dhanAccountLink || 'https://login.dhan.co/', '_blank')}
                         size="lg"
@@ -642,11 +661,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   </div>
                 </motion.div>
 
-                {/* Trust Indicators */}
-                <motion.div 
-                  className="flex items-center gap-6 pt-8"
-                  variants={itemVariants}
-                >
+                <motion.div className="flex items-center gap-6 pt-8" variants={itemVariants}>
                   <div className="flex -space-x-2">
                     {[1, 2, 3, 4].map((i) => (
                       <motion.div 
@@ -681,14 +696,73 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
               </motion.div>
             </motion.div>
 
-            {/* Right Animated Card */}
             <motion.div
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.4 }}
-              className="relative"
+              className="relative mx-auto w-full max-w-2xl"
             >
-              <AnimatedIndexCard />
+              <div className="absolute inset-x-10 top-12 h-40 rounded-full bg-cyan-500/15 blur-3xl"></div>
+              <div className="relative min-h-[620px] sm:min-h-[700px]">
+                <motion.div
+                  animate={{ y: [0, -8, 0] }}
+                  transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+                  className="absolute left-0 top-24 hidden w-40 sm:block lg:w-44"
+                >
+                  <ImageWithFallback
+                    src={heroSignalsAsset.url}
+                    alt="IndexpilotAI Android app signals screen"
+                    className="w-full rounded-[2rem] border border-cyan-500/30 shadow-[0_20px_60px_rgba(34,211,238,0.2)]"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </motion.div>
+                <motion.div
+                  animate={{ y: [0, 10, 0] }}
+                  transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+                  className="absolute right-0 top-20 hidden w-40 sm:block lg:w-44"
+                >
+                  <ImageWithFallback
+                    src={heroBrokerAsset.url}
+                    alt="IndexpilotAI Android app broker screen"
+                    className="w-full rounded-[2rem] border border-purple-500/30 shadow-[0_20px_60px_rgba(168,85,247,0.2)]"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </motion.div>
+                <motion.div
+                  whileHover={{ y: -10 }}
+                  transition={{ type: 'spring', stiffness: 120, damping: 18 }}
+                  className="relative mx-auto w-[78%] max-w-[360px] sm:w-[70%]"
+                >
+                  <div className="absolute -inset-6 rounded-[3rem] bg-gradient-to-b from-cyan-500/20 via-blue-500/10 to-purple-500/20 blur-2xl"></div>
+                  <div className="absolute -top-6 left-1/2 z-10 -translate-x-1/2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-300 backdrop-blur-xl">
+                    Android app available now
+                  </div>
+                  <ImageWithFallback
+                    src={heroHomeAsset.url}
+                    alt="IndexpilotAI Android trading app home screen"
+                    className="relative w-full rounded-[2.5rem] border border-cyan-500/30 shadow-[0_30px_100px_rgba(6,182,212,0.25)]"
+                    loading="eager"
+                    fetchPriority="high"
+                    decoding="async"
+                  />
+                </motion.div>
+                <div className="absolute bottom-0 left-1/2 z-10 w-full max-w-md -translate-x-1/2 rounded-3xl border border-slate-800 bg-slate-950/80 p-4 backdrop-blur-xl">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Download the Android app</p>
+                      <p className="text-xs text-slate-400">Open signals, broker, and analytics from Google Play</p>
+                    </div>
+                    <Button
+                      onClick={() => window.open(content.hero.playStoreLink, '_blank', 'noopener,noreferrer')}
+                      className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 text-white shrink-0"
+                    >
+                      Install App
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </motion.div>
           </div>
         </motion.div>
