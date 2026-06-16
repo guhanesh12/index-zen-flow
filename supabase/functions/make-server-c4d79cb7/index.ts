@@ -290,7 +290,7 @@ function parseJwtPayload(token: string): any | null {
 
 function getFastUserIdFromRequest(c: any): string | null {
   const bearerToken = c.req.header('Authorization')?.split(' ')[1] || '';
-  return extractUserIdFromJwt(bearerToken) || c.req.query('userId') || null;
+  return extractUserIdFromJwt(bearerToken);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
