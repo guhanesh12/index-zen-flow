@@ -11272,23 +11272,21 @@ app.post("/make-server-c4d79cb7/backend-engine/execute", async (c) => {
  */
 app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
   try {
-    const { user, error } = await validateAuth(c);
-    if (error || !user) {
-      return c.json({ error: error?.message || 'Unauthorized' }, 401);
-    }
+    const userId = getFastUserIdFromRequest(c);
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
     // Get engine state from DB
     const { data: engineState } = await supabase
       .from('trading_engine_state')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .maybeSingle();
 
     // Get active positions from DB
     const { data: positions } = await supabase
       .from('position_monitor_state')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('is_active', true);
 
     // Get today's stats
@@ -11296,7 +11294,7 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
     const { data: stats } = await supabase
       .from('signal_stats')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('stat_date', today)
       .maybeSingle();
 
@@ -11304,21 +11302,12 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
     const { data: signals } = await supabase
       .from('trading_signals')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(12);
 
-    // Get recent orders (last 50)
-    const { data: orders } = await supabase
-      .from('trading_orders')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    const storedLatestSignals = await safeKVGet(`latest_signals:${user.id}`, null);
+    const storedLatestSignals = await safeKVGet(`latest_signals:${userId}`, null, 1);
     const latestSignals = deriveLatestSignals(signals || [], storedLatestSignals);
-    const userLogs = await getMergedUserLogs(user.id);
 
     return c.json({
       success: true,
@@ -11334,8 +11323,8 @@ app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
       stats: stats || { signal_count: 0, order_count: 0, speed_count: 0, total_pnl: 0 },
       latestSignals,
       signals: signals || [],
-      orders: orders || [],
-      logs: userLogs
+      orders: [],
+      logs: []
     });
   } catch (error: any) {
     console.error('❌ Error getting DB engine status:', error);
