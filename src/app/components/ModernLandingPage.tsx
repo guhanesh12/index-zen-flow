@@ -608,14 +608,16 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     whileTap={{ scale: 0.95 }}
                     transition={{ type: "spring", stiffness: 400, damping: 17 }}
                   >
-                    <Button 
+                    <Button
+                      asChild
                       variant="outline"
                       size="lg"
-                      onClick={() => window.open(content.hero.playStoreLink, '_blank', 'noopener,noreferrer')}
                       className="border-emerald-500/40 bg-emerald-500/10 text-white hover:bg-emerald-500/20 text-lg px-8 py-6"
                     >
-                      <Smartphone className="mr-2 w-5 h-5 text-emerald-400" />
-                      {content.hero.buttons.secondary}
+                      <a href={content.hero.playStoreLink} target="_blank" rel="noopener noreferrer">
+                        <Smartphone className="mr-2 w-5 h-5 text-emerald-400" />
+                        {content.hero.buttons.secondary}
+                      </a>
                     </Button>
                   </motion.div>
                 </motion.div>
