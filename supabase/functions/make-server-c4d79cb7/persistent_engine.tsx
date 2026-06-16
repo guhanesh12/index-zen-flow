@@ -2781,12 +2781,10 @@ class PersistentTradingEngine {
   private static async saveLatestSignalsSnapshot(userId: string, latestSignals: Record<string, any>): Promise<void> {
     try {
       const existingSnapshot = (await kv.get(`latest_signals:${userId}`)) || {};
-      const snapshotTimestamp = Math.max(
-        ...Object.values(latestSignals)
-          .map((signal: any) => Number(signal?.timestamp || 0))
-          .filter((timestamp) => Number.isFinite(timestamp) && timestamp > 0),
-        Date.now(),
-      );
+      const signalTimestamps = Object.values(latestSignals)
+        .map((signal: any) => Number(signal?.timestamp || 0))
+        .filter((timestamp) => Number.isFinite(timestamp) && timestamp > 0);
+      const snapshotTimestamp = signalTimestamps.length > 0 ? Math.max(...signalTimestamps) : Date.now();
       await kv.set(`latest_signals:${userId}`, {
         ...existingSnapshot,
         ...latestSignals,
