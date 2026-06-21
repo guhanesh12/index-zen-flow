@@ -11549,10 +11549,14 @@ app.patch("/make-server-c4d79cb7/profile/me", async (c) => {
   const user = await getUserFromAuth(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const body = await c.req.json();
-  const allowed: any = {};
-  for (const k of ['full_name', 'mobile', 'photo_url']) {
-    if (body[k] !== undefined) allowed[k] = String(body[k]).slice(0, 255);
-  }
+    const allowed: any = {};
+    for (const k of ['full_name', 'mobile', 'photo_url', 'welcome_popup_seen', 'tour_completed']) {
+      if (body[k] !== undefined) allowed[k] = body[k];
+    }
+    // Normalize string fields
+    for (const k of ['full_name', 'mobile', 'photo_url']) {
+      if (allowed[k] !== undefined) allowed[k] = String(allowed[k]).slice(0, 255);
+    }
   // Profile completion calc
   const { data: cur } = await supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle();
   const merged = { ...cur, ...allowed };
