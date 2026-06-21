@@ -609,6 +609,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
                 {/* Wallet Balance - Enhanced */}
                 <button
+                  id="tour-wallet-btn"
                   onClick={() => setShowWallet(true)}
                   className="group relative px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600/20 to-blue-600/20 border border-emerald-500/30 hover:border-emerald-400/50 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/20"
                 >
