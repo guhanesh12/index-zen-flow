@@ -557,10 +557,16 @@ export type Database = {
           photo_url: string | null
           profile_completion: number | null
           role: string | null
+          signup_bonus_amount: number
+          signup_bonus_credited: boolean
+          signup_bonus_expires_at: string | null
+          signup_bonus_remaining: number
           subscription_plan: string | null
+          tour_completed: boolean
           trading_level: string | null
           updated_at: string
           user_id: string
+          welcome_popup_seen: boolean
         }
         Insert: {
           account_status?: string | null
@@ -576,10 +582,16 @@ export type Database = {
           photo_url?: string | null
           profile_completion?: number | null
           role?: string | null
+          signup_bonus_amount?: number
+          signup_bonus_credited?: boolean
+          signup_bonus_expires_at?: string | null
+          signup_bonus_remaining?: number
           subscription_plan?: string | null
+          tour_completed?: boolean
           trading_level?: string | null
           updated_at?: string
           user_id: string
+          welcome_popup_seen?: boolean
         }
         Update: {
           account_status?: string | null
@@ -595,10 +607,16 @@ export type Database = {
           photo_url?: string | null
           profile_completion?: number | null
           role?: string | null
+          signup_bonus_amount?: number
+          signup_bonus_credited?: boolean
+          signup_bonus_expires_at?: string | null
+          signup_bonus_remaining?: number
           subscription_plan?: string | null
+          tour_completed?: boolean
           trading_level?: string | null
           updated_at?: string
           user_id?: string
+          welcome_popup_seen?: boolean
         }
         Relationships: []
       }
@@ -1195,6 +1213,7 @@ export type Database = {
       decrypt_broker_secret: { Args: { _ciphertext: string }; Returns: string }
       encrypt_broker_secret: { Args: { _plaintext: string }; Returns: string }
       execute_backend_engine: { Args: never; Returns: undefined }
+      expire_signup_bonuses: { Args: never; Returns: number }
       generate_client_id: { Args: never; Returns: string }
       get_broker_encryption_key: { Args: never; Returns: string }
       has_role: {
