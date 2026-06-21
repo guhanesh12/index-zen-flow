@@ -503,6 +503,43 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
                 </>
               )}
             </Button>
+
+            {/* Quick Test to ALL Users */}
+            <Button
+              variant="outline"
+              disabled={sending}
+              onClick={async () => {
+                try {
+                  setSending(true);
+                  setError(null);
+                  setSuccess(null);
+                  const res = await fetch(`${serverUrl}/push/send`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                    body: JSON.stringify({
+                      title: '🔔 IndexPilot Test Notification',
+                      description: 'If you can see this, push notifications are working perfectly on your device!',
+                      targetUrl: '/dashboard',
+                    }),
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    setSuccess(`✅ Test sent to ${data.delivered ?? data.totalDelivered ?? 'all'} subscribers`);
+                    fetchHistory();
+                  } else {
+                    setError(data.error || 'Failed to send test');
+                  }
+                } catch (e: any) {
+                  setError(e.message);
+                } finally {
+                  setSending(false);
+                }
+              }}
+              className="w-full border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+            >
+              <Bell className="size-4 mr-2" />
+              Send TEST Notification to ALL Users
+            </Button>
           </CardContent>
         </Card>
 

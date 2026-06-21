@@ -30,6 +30,7 @@ import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
 import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
+import { WelcomeOnboarding } from "./WelcomeOnboarding";
 
 interface TradingDashboardProps {
   accessToken: string;
@@ -519,6 +520,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   return (
     <div className="min-h-screen gradient-hero">
       <SEO {...SEO_CONFIGS.dashboard} />
+      <WelcomeOnboarding />
       {/* Indices ticker rail */}
       <div className="hidden md:block border-b border-border/40 bg-card/40 backdrop-blur-md">
         <div className="container mx-auto px-4 py-1.5">
@@ -609,6 +611,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
                 {/* Wallet Balance - Enhanced */}
                 <button
+                  id="tour-wallet-btn"
                   onClick={() => setShowWallet(true)}
                   className="group relative px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600/20 to-blue-600/20 border border-emerald-500/30 hover:border-emerald-400/50 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/20"
                 >
@@ -890,19 +893,19 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               </div>
             ) : (
               <TabsList className="grid grid-cols-8 w-full bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1">
-                <TabsTrigger value="dashboard" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                <TabsTrigger id="tour-tab-dashboard" value="dashboard" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
                   <BarChart3 className="w-4 h-4" />
                   <span className="hidden sm:inline">Dashboard</span>
                 </TabsTrigger>
-                <TabsTrigger value="symbols" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                <TabsTrigger id="tour-tab-symbols" value="symbols" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
                   <DollarSign className="w-4 h-4" />
                   <span className="hidden sm:inline">Symbols</span>
                 </TabsTrigger>
-                <TabsTrigger value="settings" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                <TabsTrigger id="tour-tab-settings" value="settings" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
                   <Settings className="w-4 h-4" />
                   <span className="hidden sm:inline">Broker Setup</span>
                 </TabsTrigger>
-                <TabsTrigger value="journal" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                <TabsTrigger id="tour-tab-journal" value="journal" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
                   <FileText className="w-4 h-4" />
                   <span className="hidden sm:inline">Journal</span>
                 </TabsTrigger>
