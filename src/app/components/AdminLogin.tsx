@@ -258,68 +258,58 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     }
   };
 
-  const verify2FA = (code: string, secret: string): boolean => {
+  // 🔒 Server-side TOTP verification. The secret stays on the server.
+  const verifyOnServer = async (
+    code: string,
+    opts: { adminEmail: string; secret?: string }
+  ): Promise<boolean> => {
     try {
-      const totp = new OTPAuth.TOTP({
-        issuer: 'AI Trading Platform',
-        label: adminData?.email || '',
-        algorithm: 'SHA1',
-        digits: 6,
-        period: 30,
-        secret: OTPAuth.Secret.fromBase32(secret),
+      const url = opts.secret
+        ? `${serverUrl}/auth/admin-2fa-secret`
+        : `${serverUrl}/auth/admin-2fa-verify`;
+      const body = opts.secret
+        ? { adminEmail: opts.adminEmail, secret: opts.secret, code }
+        : { adminEmail: opts.adminEmail, code };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-
-      const delta = totp.validate({ token: code, window: 1 });
-      return delta !== null;
+      const data = await res.json().catch(() => ({}));
+      return !!data?.success;
     } catch (err) {
-      console.error('2FA verification error:', err);
+      console.error('2FA server verification error:', err);
       return false;
     }
   };
 
-  const handle2FASetupComplete = () => {
+  const handle2FASetupComplete = async () => {
     if (!adminData) return;
-    
+
     if (otpCode.length !== 6) {
       setError('Please enter a 6-digit code');
       return;
     }
 
-    const isValid = verify2FA(otpCode, totpSecret);
-    
+    // Server validates the code AND persists the secret atomically.
+    // The TOTP secret is never stored in localStorage.
+    const isValid = await verifyOnServer(otpCode, {
+      adminEmail: adminData.email,
+      secret: totpSecret,
+    });
+
     if (!isValid) {
       setError('Invalid verification code');
       return;
     }
 
-    // Save 2FA secret to localStorage + server KV (for default admin)
-    if (adminData.email === DEFAULT_ADMIN.email) {
-      localStorage.setItem('default_admin_2fa', totpSecret);
-      // Persist to server KV so it survives deploys
-      fetch(`${serverUrl}/auth/admin-2fa-secret`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminEmail: adminData.email, secret: totpSecret }),
-      }).catch(() => {});
-      console.log('✅ Default admin 2FA setup complete - Secret SAVED to localStorage + server KV');
-    } else {
-      const admins = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = admins.findIndex((a: AdminUser) => a.id === adminData.id);
-      if (index !== -1) {
-        admins[index] = updatedAdmin;
-        localStorage.setItem('admin_users', JSON.stringify(admins));
-      }
-    }
-
     const updatedAdmin = {
       ...adminData,
-      twoFactorSecret: totpSecret,
       twoFactorEnabled: true,
       lastLogin: Date.now(),
       status: 'online' as const,
     };
 
-    // Log successful login
     if (typeof (window as any).logAdminActivity === 'function') {
       (window as any).logAdminActivity({
         adminId: updatedAdmin.id,
@@ -333,33 +323,26 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       });
     }
 
-    // 📊 Track successful admin login
     trackLogin(updatedAdmin.email, 'success', updatedAdmin.id);
-
-    // Pass the real access token back to parent
     onLogin(updatedAdmin, (adminData as any).realAccessToken);
   };
 
-  const handle2FAVerify = () => {
+  const handle2FAVerify = async () => {
     if (!adminData) return;
-    
+
     if (otpCode.length !== 6) {
       setError('Please enter a 6-digit code');
       return;
     }
 
-    const secret = adminData.email === DEFAULT_ADMIN.email
-      ? localStorage.getItem('default_admin_2fa') || ''
-      : adminData.twoFactorSecret || '';
+    // Server looks up the secret and validates; client never sees it.
+    const isValid = await verifyOnServer(otpCode, { adminEmail: adminData.email });
 
-    const isValid = verify2FA(otpCode, secret);
-    
     if (!isValid) {
       setError('Invalid verification code');
       setOtpCode('');
       otpInputRefs[0].current?.focus();
-      
-      // Log failed 2FA attempt
+
       if (typeof (window as any).logAdminActivity === 'function') {
         (window as any).logAdminActivity({
           adminId: adminData.id,
@@ -375,26 +358,12 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       return;
     }
 
-    // Update admin with login info
     const updatedAdmin = {
       ...adminData,
       lastLogin: Date.now(),
       status: 'online' as const,
     };
 
-    // Update localStorage
-    if (adminData.email === DEFAULT_ADMIN.email) {
-      // Default admin doesn't get stored in admin_users array
-    } else {
-      const admins = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = admins.findIndex((a: AdminUser) => a.id === adminData.id);
-      if (index !== -1) {
-        admins[index] = updatedAdmin;
-        localStorage.setItem('admin_users', JSON.stringify(admins));
-      }
-    }
-
-    // Log successful login
     if (typeof (window as any).logAdminActivity === 'function') {
       (window as any).logAdminActivity({
         adminId: updatedAdmin.id,
@@ -408,12 +377,10 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       });
     }
 
-    // 📊 Track successful admin login
     trackLogin(updatedAdmin.email, 'success', updatedAdmin.id);
-
-    // Pass the real access token back to parent
     onLogin(updatedAdmin, (adminData as any).realAccessToken);
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center p-4">
