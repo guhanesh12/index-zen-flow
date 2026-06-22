@@ -105,7 +105,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   home: {
     title: `${BRAND_NAME} - AI-Powered Options Trading Platform for India`,
-    description: 'Trade NSE & BSE options with AI-powered signals, automated strategies, and real-time Dhan API integration. Advanced risk management for NIFTY & BANK NIFTY options trading.',
+    description: 'Trade NSE & BSE options with AI-powered signals, automated strategies, and real-time Dhan API integration for NIFTY & BANK NIFTY.',
     canonical: BASE_URL,
     keywords: `${BRAND_NAME}, AI options trading India, NSE options, BSE trading, NIFTY options, BANK NIFTY, automated trading, algo trading, Dhan API`,
     ogType: 'website',
