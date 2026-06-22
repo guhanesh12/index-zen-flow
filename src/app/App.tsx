@@ -194,14 +194,14 @@ export default function App() {
         console.log(`🚀 Navigating to admin login: ${adminLoginPath}`);
         await router.navigate(adminLoginPath);
       } else {
-        console.error('❌ Failed to generate unique code:', data.message);
-        alert('Failed to generate admin access code. Please try again.');
+        // Silent — wrong sequence shouldn't reveal anything (avoids hotkey enumeration)
+        console.debug('Hotkey attempt rejected');
       }
     } catch (error) {
-      console.error('❌ Error generating unique code:', error);
-      alert('Failed to access admin panel. Please try again.');
+      console.debug('Hotkey attempt error (silent)');
     }
   };
+
 
   return (
     <HelmetProvider>
