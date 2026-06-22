@@ -32,27 +32,25 @@ function GlobalHotkeyListener() {
   useEffect(() => {
     console.log('🔑 Global hotkey listener active on:', location.pathname);
 
-    // Load admin hotkeys from server
+    // Probe server for whether any hotkey is configured (count only — value never leaves the server)
     const loadAdminHotkeys = async () => {
       try {
         const response = await fetch(`${getBaseUrl()}/admin/hotkeys`, {
           headers: { Authorization: `Bearer ${publicAnonKey}` }
         });
-        
         if (response.ok) {
           const data = await response.json();
-          if (data.hotkeys && Array.isArray(data.hotkeys) && data.hotkeys.length > 0) {
-            window.adminHotkeys = data.hotkeys;
-            console.log('🔑 Admin hotkeys loaded:', window.adminHotkeys);
-          }
+          const n = Number(data?.count || 0);
+          // Maintain a length-only sentinel so existing length checks still work.
+          window.adminHotkeys = Array.from({ length: n }, () => '');
         }
       } catch (error) {
-        console.error('Failed to load admin hotkeys:', error);
+        console.error('Failed to probe admin hotkeys:', error);
       }
     };
 
-    // Initialize
-    window.adminHotkeys = ['GUHAN'];
+    // Initialize — no hardcoded hotkey defaults
+    window.adminHotkeys = [];
     window.adminKeySequence = '';
     window.hotkeyDebugMode = false;
     loadAdminHotkeys();
@@ -60,10 +58,10 @@ function GlobalHotkeyListener() {
     // Refresh every 60s
     const interval = setInterval(loadAdminHotkeys, 60000);
 
-    // ⚡⚡⚡ KEYBOARD LISTENER (Works everywhere!) ⚡⚡⚡
+    // ⚡⚡⚡ KEYBOARD LISTENER — sequence captured locally, verified server-side ⚡⚡⚡
     const handleKeyPress = (e: KeyboardEvent) => {
       const modKey = e.ctrlKey || e.metaKey;
-      
+
       // Debug toggle: Ctrl/Cmd + Shift + H
       if (modKey && e.shiftKey && e.key.toLowerCase() === 'h') {
         e.preventDefault();
@@ -71,50 +69,46 @@ function GlobalHotkeyListener() {
         console.log(`🔍 Hotkey debug: ${window.hotkeyDebugMode ? 'ON' : 'OFF'}`);
         return;
       }
-      
+
       // Admin hotkey: Ctrl/Cmd + Alt + [Sequence]
       if (modKey && e.altKey && e.code?.startsWith('Key')) {
         e.preventDefault();
         const key = e.code.replace('Key', '').toUpperCase();
         window.adminKeySequence += key;
-        
+
         if (window.hotkeyDebugMode) {
           console.log(`🔑 Sequence: "${window.adminKeySequence}"`);
         }
-        
-        // Check against all hotkeys
-        const matched = window.adminHotkeys.some(hotkey => {
-          if (window.adminKeySequence === hotkey) {
-            console.log(`✅ HOTKEY MATCHED: "${hotkey}" → Navigating to /admin/login`);
-            
-            // ⚡ NAVIGATE TO ADMIN LOGIN
-            navigate('/admin/login');
-            
-            window.adminKeySequence = '';
-            return true;
-          }
-          return false;
-        });
-        
-        if (!matched && !window.adminHotkeys.some(h => h.startsWith(window.adminKeySequence))) {
-          if (window.hotkeyDebugMode) {
-            console.log(`❌ No match for "${window.adminKeySequence}"`);
-          }
-          window.adminKeySequence = '';
-        }
-        
-        // Reset after 3s
+
+        // Debounce — after the user stops typing, send the sequence to the
+        // server for verification. We never check it locally (the hotkey value
+        // is not known to the client).
         clearTimeout(window.adminKeyTimeout);
-        window.adminKeyTimeout = setTimeout(() => {
-          if (window.adminKeySequence) {
-            if (window.hotkeyDebugMode) {
-              console.log(`⏱️ Timeout - Reset sequence`);
+        window.adminKeyTimeout = setTimeout(async () => {
+          const attempt = window.adminKeySequence;
+          window.adminKeySequence = '';
+          if (!attempt || attempt.length < 3) return;
+          try {
+            const res = await fetch(`${getBaseUrl()}/admin/generate-unique-code`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${publicAnonKey}`,
+              },
+              body: JSON.stringify({ hotkey: attempt }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success && data?.uniqueCode) {
+              console.log('✅ Hotkey verified by server → navigating to admin');
+              navigate(`/admin/hotkey/${data.uniqueCode}/login`);
             }
-            window.adminKeySequence = '';
+          } catch {
+            // Silent
           }
-        }, 3000);
+        }, 600);
       }
     };
+
 
     document.addEventListener('keydown', handleKeyPress);
 
@@ -375,7 +369,7 @@ function AdminLogin({ onAdminLoginSuccess }: { onAdminLoginSuccess: () => void }
               <span className="text-3xl">🔒</span>
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">Admin Access</h1>
-            <p className="text-zinc-400 text-sm">Accessed via hotkey: Ctrl+Alt+{window.adminHotkeys?.[0] || 'GUHAN'}</p>
+            <p className="text-zinc-400 text-sm">Restricted access — use your configured admin hotkey</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -428,10 +422,10 @@ function AdminLogin({ onAdminLoginSuccess }: { onAdminLoginSuccess: () => void }
 
           <div className="mt-6 p-4 bg-zinc-800/30 border border-zinc-700/50 rounded-lg">
             <p className="text-xs text-zinc-500 text-center">
-              🔑 Access this page anytime using the hotkey:<br/>
-              <span className="text-zinc-300 font-mono">Ctrl+Alt+{window.adminHotkeys?.[0] || 'GUHAN'}</span>
+              🔑 Access this page using your configured admin hotkey.
             </p>
           </div>
+
         </div>
       </div>
     </div>
