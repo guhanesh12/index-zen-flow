@@ -85,7 +85,7 @@ export const WEBSITE_SCHEMA = {
 
 export const DEFAULT_SEO: SEOProps = {
   title: `${BRAND_NAME} - AI-Powered Options Trading Platform for India`,
-  description: 'AI-powered options trading platform for NSE & BSE with real-time market data, automated strategies, and intelligent risk management. Trade NIFTY & BANK NIFTY options with confidence.',
+  description: 'AI-powered NSE & BSE options trading with real-time signals, automated strategies, and smart risk management for NIFTY & BANK NIFTY traders.',
   canonical: BASE_URL,
   ogType: 'website',
   ogImage: BRAND_LOGO,
@@ -105,7 +105,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   home: {
     title: `${BRAND_NAME} - AI-Powered Options Trading Platform for India`,
-    description: 'Trade NSE & BSE options with AI-powered signals, automated strategies, and real-time Dhan API integration. Advanced risk management for NIFTY & BANK NIFTY options trading.',
+    description: 'Trade NSE & BSE options with AI-powered signals, automated strategies, and real-time Dhan API integration for NIFTY & BANK NIFTY.',
     canonical: BASE_URL,
     keywords: `${BRAND_NAME}, AI options trading India, NSE options, BSE trading, NIFTY options, BANK NIFTY, automated trading, algo trading, Dhan API`,
     ogType: 'website',
@@ -162,7 +162,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   login: {
     title: 'Login',
-    description: `Login to ${BRAND_NAME} - Access your AI-powered options trading dashboard with real-time market data, automated strategies, and position monitoring for NSE & BSE.`,
+    description: `Login to ${BRAND_NAME} — your AI-powered NSE & BSE options trading dashboard with live signals and position monitoring.`,
     canonical: `${BASE_URL}/login`,
     keywords: `${BRAND_NAME} login, trading login, options trading login, AI trading dashboard login`,
     ogType: 'website',
@@ -204,7 +204,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   register: {
     title: 'Sign Up',
-    description: `Create your ${BRAND_NAME} account - Start AI-powered options trading on NSE & BSE. Free signup with profit-based pricing. Trade NIFTY & BANK NIFTY with automated strategies.`,
+    description: `Create your ${BRAND_NAME} account and start AI-powered NSE & BSE options trading. Free signup with profit-based pricing.`,
     canonical: `${BASE_URL}/register`,
     keywords: `${BRAND_NAME} signup, create account, register, options trading signup, AI trading registration`,
     ogType: 'website',
@@ -245,7 +245,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   dashboard: {
     title: 'Trading Dashboard',
-    description: `${BRAND_NAME} real-time trading dashboard - Live NSE/BSE market data, AI-generated options signals, position monitoring, automated strategy execution, and comprehensive risk management.`,
+    description: `${BRAND_NAME} real-time trading dashboard with live NSE/BSE data, AI options signals, position monitoring, and risk management.`,
     canonical: `${BASE_URL}/dashboard`,
     keywords: 'trading dashboard, live trading, options platform, AI signals, position monitoring, risk management',
     ogType: 'website',
@@ -271,7 +271,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   pwaSetup: {
     title: `${BRAND_NAME} Mobile App`,
-    description: `Install ${BRAND_NAME} as a mobile app on your device. Get quick access to AI-powered options trading with offline capabilities, push notifications, and native app experience for NSE & BSE trading.`,
+    description: `Install ${BRAND_NAME} as a mobile app — AI options trading with push notifications and a native app experience for NSE & BSE.`,
     canonical: `${BASE_URL}/pwa-setup`,
     keywords: `${BRAND_NAME} app, mobile app, install app, PWA, progressive web app, trading app download`,
     ogType: 'website',
@@ -312,7 +312,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   api: {
     title: `${BRAND_NAME} API`,
-    description: `${BRAND_NAME} API documentation - Integrate AI-powered options trading signals into your applications. RESTful API for NSE/BSE market data, automated trading, and position management.`,
+    description: `${BRAND_NAME} API docs — integrate AI options trading signals via a REST API for NSE/BSE market data and automated trading.`,
     canonical: `${BASE_URL}/api`,
     keywords: `${BRAND_NAME} API, trading API, options API, NSE API, BSE API, algorithmic trading API`,
     ogType: 'website',
