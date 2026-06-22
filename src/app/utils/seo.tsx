@@ -271,7 +271,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   pwaSetup: {
     title: `${BRAND_NAME} Mobile App`,
-    description: `Install ${BRAND_NAME} as a mobile app on your device. Get quick access to AI-powered options trading with offline capabilities, push notifications, and native app experience for NSE & BSE trading.`,
+    description: `Install ${BRAND_NAME} as a mobile app — AI options trading with push notifications and a native app experience for NSE & BSE.`,
     canonical: `${BASE_URL}/pwa-setup`,
     keywords: `${BRAND_NAME} app, mobile app, install app, PWA, progressive web app, trading app download`,
     ogType: 'website',
