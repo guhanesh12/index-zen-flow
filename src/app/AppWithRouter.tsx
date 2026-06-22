@@ -422,10 +422,10 @@ function AdminLogin({ onAdminLoginSuccess }: { onAdminLoginSuccess: () => void }
 
           <div className="mt-6 p-4 bg-zinc-800/30 border border-zinc-700/50 rounded-lg">
             <p className="text-xs text-zinc-500 text-center">
-              🔑 Access this page anytime using the hotkey:<br/>
-              <span className="text-zinc-300 font-mono">Ctrl+Alt+{window.adminHotkeys?.[0] || 'GUHAN'}</span>
+              🔑 Access this page using your configured admin hotkey.
             </p>
           </div>
+
         </div>
       </div>
     </div>
