@@ -9149,11 +9149,17 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     const { email, password } = await c.req.json();
     
     // Hardcoded admin credentials
-    const DEFAULT_ADMIN_EMAIL = 'airoboengin@smilykat.com';
-    const DEFAULT_ADMIN_PASSWORD = '9600727185Aa@';
-    
-    // Validate credentials
+    // Admin credentials loaded from server-side secrets (never hardcoded).
+    const DEFAULT_ADMIN_EMAIL = Deno.env.get('PLATFORM_OWNER_EMAIL') || Deno.env.get('DEFAULT_ADMIN_EMAIL') || '';
+    const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+
+    if (!DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
+      console.error('❌ Admin credentials secrets not configured');
+      return c.json({ success: false, message: 'Admin login is not configured on the server' }, 503);
+    }
+
     if (email !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
+
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
     
