@@ -20,11 +20,14 @@ interface AdminLoginProps {
   pressedHotkey?: string; // Track which hotkey was pressed to access login
 }
 
-// Default admin account
+// Default admin identifier (email only — used to recognize the platform owner
+// session after server-side authentication). The password is NEVER stored
+// client-side; it lives in server-side secrets (DEFAULT_ADMIN_PASSWORD /
+// PLATFORM_OWNER_EMAIL) and is validated by the edge function only.
 const DEFAULT_ADMIN: AdminUser = {
   id: 'admin_001',
   email: 'airoboengin@smilykat.com',
-  password: '9600727185Aa@',
+  password: '', // intentionally blank — server validates the real password
   role: {
     dashboard: true,
     users: true,
@@ -35,7 +38,7 @@ const DEFAULT_ADMIN: AdminUser = {
     support: true,
     landing: true,
     adminUsers: true,
-    adminManagement: true, // Full admin access including admin management
+    adminManagement: true,
   },
   hotkey: {
     windows: 'Control+Alt+GUHAN',
@@ -43,6 +46,7 @@ const DEFAULT_ADMIN: AdminUser = {
   },
   twoFactorEnabled: false,
 };
+
 
 export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHotkey }: AdminLoginProps) {
   const [email, setEmail] = useState('');
