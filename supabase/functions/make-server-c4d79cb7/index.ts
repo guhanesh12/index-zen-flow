@@ -1014,32 +1014,23 @@ app.post("/make-server-c4d79cb7/auth/email-otp/verify", async (c) => {
 
 // 🔥 NEW: Check if email already exists (for better UX during signup)
 app.post("/make-server-c4d79cb7/auth/check-email", async (c) => {
+  // Auth-gated and constant-response to prevent unauthenticated email enumeration.
+  const { user, error } = await validateAuth(c);
+  if (error || !user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
   try {
-    const { email } = await c.req.json();
-
-    if (!email) {
-      return c.json({ error: 'Email is required' }, 400);
-    }
-
-    console.log(`🔍 Checking if email exists: ${email}`);
-
-    // Check if user already exists
-    const { data: existingUsers } = await supabase.auth.admin.listUsers();
-    const userExists = existingUsers?.users?.some(u => u.email === email);
-
-    console.log(`📧 Email ${email} exists: ${userExists}`);
-
+    await c.req.json().catch(() => ({}));
+    // Constant response — never reveal whether an arbitrary email is registered.
     return c.json({
-      exists: userExists,
-      message: userExists 
-        ? 'An account with this email already exists. Please sign in instead.' 
-        : 'Email is available'
+      exists: false,
+      message: 'If this email is registered, you will be guided at signup or sign-in.',
     });
   } catch (error: any) {
-    console.error('❌ Error checking email:', error);
-    return c.json({ error: error.message || 'Failed to check email' }, 500);
+    return c.json({ error: 'Failed to check email' }, 500);
   }
 });
+
 
 // 🔥 SIMPLER ROUTE ALIASES (without /auth/) for easier frontend integration
 app.post("/make-server-c4d79cb7/send-otp", async (c) => {
