@@ -522,8 +522,8 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 overflow-y-auto flex-1 px-6">
-                {/* ⚠️ AUTO-RESET NOTICE for Default Admin */}
-                {adminData?.email === 'airoboengin@smilykat.com' && (
+                {/* ⚠️ Fresh-setup notice (shown on first/reset 2FA) */}
+                {adminData?.email && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -533,15 +533,16 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                       <div className="text-2xl">🔄</div>
                       <div className="flex-1">
                         <p className="text-sm font-bold text-amber-400 mb-1">
-                          Auto-Reset 2FA (Fresh QR Code)
+                          Set up 2FA (Fresh QR Code)
                         </p>
                         <p className="text-xs text-amber-200">
-                          This is a NEW QR code generated for this deployment. Your old codes won't work. Scan this fresh QR code with your authenticator app.
+                          Scan this QR code with your authenticator app. The secret is stored on the server only.
                         </p>
                       </div>
                     </div>
                   </motion.div>
                 )}
+
 
                 <div className="bg-white p-4 rounded-lg">
                   {qrCodeUrl && (
