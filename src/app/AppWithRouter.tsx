@@ -9,6 +9,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AdminDashboard } from "./components/AdminDashboard";
 import LandingAdminComplete from "./components/LandingAdminComplete";
 import DynamicPage from "./components/DynamicPage";
+import BlogIndexedByGoogle from "./components/BlogIndexedByGoogle";
 import { projectId, publicAnonKey } from "@/utils-ext/supabase/info";
 import { supabase } from "@/utils-ext/supabase/client";
 import { useAnalyticsTracking } from "./hooks/useAnalyticsTracking";
