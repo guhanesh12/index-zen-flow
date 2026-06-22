@@ -42,7 +42,7 @@ export function Disclaimer() {
                   Disclaimer
                 </CardTitle>
               </div>
-              <p className="text-sm text-slate-400">Last Updated: 01/04/2026</p>
+              <p className="text-sm text-slate-300">Last Updated: 01/04/2026</p>
             </CardHeader>
 
             <CardContent className="p-6">

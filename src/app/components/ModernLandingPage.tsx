@@ -426,7 +426,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
               <img src={logoWhite} alt="IndexpilotAI Logo" className="h-10 w-auto" />
               <div>
                 <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">IndexpilotAI</h1>
-                <p className="text-xs text-slate-400 hidden sm:block">Indian Options Trading</p>
+                <p className="text-xs text-slate-300 hidden sm:block">Indian Options Trading</p>
               </div>
             </div>
 
@@ -579,7 +579,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 </motion.h1>
 
                 <motion.p 
-                  className="text-xl text-slate-400 leading-relaxed mb-8 max-w-2xl"
+                  className="text-xl text-slate-300 leading-relaxed mb-8 max-w-2xl"
                   variants={itemVariants}
                 >
                   {content.hero.description}
@@ -648,7 +648,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="text-center sm:text-left">
                       <p className="text-sm text-orange-400 font-semibold mb-1">Don't have a Dhan account?</p>
-                      <p className="text-xs text-slate-400">Open your trading account in minutes</p>
+                      <p className="text-xs text-slate-300">Open your trading account in minutes</p>
                     </div>
                     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                       <Button 
@@ -692,7 +692,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                         </motion.div>
                       ))}
                     </div>
-                    <p className="text-sm text-slate-400 mt-1">{content.hero.trustBadge}</p>
+                    <p className="text-sm text-slate-300 mt-1">{content.hero.trustBadge}</p>
                   </div>
                 </motion.div>
               </motion.div>
@@ -789,7 +789,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   <stat.icon className={`w-7 h-7 ${stat.iconColor}`} />
                 </div>
                 <div className="text-4xl font-bold text-white mb-2">{stat.value}</div>
-                <div className="text-slate-400">{stat.label}</div>
+                <div className="text-slate-300">{stat.label}</div>
               </motion.div>
             ))}
           </div>
@@ -820,7 +820,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 IndexpilotAI Android App
               </span>
             </h2>
-            <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+            <p className="text-lg text-slate-300 max-w-2xl mx-auto">
               Real-time AI signals, broker controls, and live P&amp;L — all in your pocket. Install free and start in under a minute.
             </p>
           </motion.div>
@@ -902,7 +902,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   </div>
                   <div>
                     <h3 className="text-white font-semibold mb-1">{f.title}</h3>
-                    <p className="text-sm text-slate-400">{f.desc}</p>
+                    <p className="text-sm text-slate-300">{f.desc}</p>
                   </div>
                 </motion.div>
               ))}
@@ -926,11 +926,11 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     <path d="M3.6 1.6c-.4.4-.6 1-.6 1.7v17.4c0 .7.2 1.3.6 1.7l11.3-10.8L3.6 1.6zm12.3 11.2l3.4-3.3-12.4-7.1 9 10.4zm-9 11.2l12.4-7.1-3.4-3.3-9 10.4zm12.9-7.5l3.5-2c.7-.4.7-1.4 0-1.8l-3.4-2-3.6 3.4 3.5 2.4z"/>
                   </svg>
                   <div className="text-left leading-tight">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Get it on</div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-300">Get it on</div>
                     <div className="text-lg font-semibold">Google Play</div>
                   </div>
                 </motion.a>
-                <div className="flex items-center gap-2 text-sm text-slate-400">
+                <div className="flex items-center gap-2 text-sm text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                   Free download · Android 7.0+
                 </div>
@@ -964,7 +964,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 Dhan API
               </span>
             </h2>
-            <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+            <p className="text-xl text-slate-300 max-w-3xl mx-auto">
               The only broker integration you need. Dhan delivers ultra-fast execution, real-time market data, and advanced position monitoring for professional traders.
             </p>
           </motion.div>
@@ -1004,7 +1004,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     <feature.icon className={`w-8 h-8 ${feature.color.includes('cyan') ? 'text-cyan-400' : feature.color.includes('blue') ? 'text-blue-400' : 'text-purple-400'}`} />
                   </div>
                   <h3 className="text-2xl font-bold text-white mb-4">{feature.title}</h3>
-                  <p className="text-slate-400 leading-relaxed">{feature.description}</p>
+                  <p className="text-slate-300 leading-relaxed">{feature.description}</p>
                 </div>
               </motion.div>
             ))}
@@ -1021,7 +1021,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
             <div className="inline-flex items-center gap-4 px-8 py-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700">
               <CheckCircle2 className="w-6 h-6 text-cyan-400" />
               <div className="text-left">
-                <div className="text-sm text-slate-400">Official Integration Partner</div>
+                <div className="text-sm text-slate-300">Official Integration Partner</div>
                 <div className="text-lg font-bold text-white">Dhan - India's Fastest Trading Platform</div>
               </div>
             </div>
@@ -1039,7 +1039,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
               <h3 className="text-2xl font-bold text-white mb-3">
                 New to Dhan? Start Trading Today
               </h3>
-              <p className="text-slate-400 mb-6">
+              <p className="text-slate-300 mb-6">
                 Open your Dhan trading account in minutes and start using IndexpilotAI with lightning-fast execution
               </p>
               <motion.div
@@ -1142,7 +1142,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                             step.color === 'green' ? 'text-green-300' : 'text-slate-300'
                           }`}>{step.title}</p>
                           <p className={`text-sm ${
-                            step.color === 'green' ? 'text-green-100' : 'text-slate-400'
+                            step.color === 'green' ? 'text-green-100' : 'text-slate-300'
                           }`}>{step.description}</p>
                         </div>
                       </div>
@@ -1178,12 +1178,12 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div className="flex items-center gap-1">
                             <Target className="w-3 h-3 text-blue-400" />
-                            <span className="text-slate-400">Target:</span>
+                            <span className="text-slate-300">Target:</span>
                             <span className="text-blue-400 font-bold">{step.target}</span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <Shield className="w-3 h-3 text-slate-400" />
-                            <span className="text-slate-400">SL:</span>
+                            <Shield className="w-3 h-3 text-slate-300" />
+                            <span className="text-slate-300">SL:</span>
                             <span className={`font-bold ${step.locked ? 'text-green-400' : step.sl === '₹0' ? 'text-yellow-400' : step.sl.includes('-') ? 'text-red-400' : 'text-orange-400'}`}>
                               {step.sl} {step.locked && '🔒'}
                             </span>
@@ -1229,7 +1229,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       <IconComponent className={`w-8 h-8 ${colors.icon}`} />
                     </div>
                     <h3 className="text-2xl font-bold text-white mb-4">{benefit.title}</h3>
-                    <p className="text-slate-400 leading-relaxed">{benefit.description}</p>
+                    <p className="text-slate-300 leading-relaxed">{benefit.description}</p>
                   </div>
                 </motion.div>
               );
@@ -1265,7 +1265,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   <ArrowRight className="ml-2 w-5 h-5" />
                 </Button>
               </motion.div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-300">
                 {(content.trailingStopLoss?.cta?.features || []).map((feature: string, i: number) => (
                   <span key={i}>✓ {feature}{i < (content.trailingStopLoss?.cta?.features?.length || 0) - 1 ? '  •  ' : ''}</span>
                 ))}
@@ -1292,7 +1292,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   className={`px-8 py-3 rounded-xl font-semibold transition-all ${
                     activeTab === tab.id
                       ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
-                      : 'text-slate-400 hover:text-white'
+                      : 'text-slate-300 hover:text-white'
                   }`}
                 >
                   {tab.label}
@@ -1316,7 +1316,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     Professional Traders
                   </span>
                 </h2>
-                <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+                <p className="text-xl text-slate-300 max-w-3xl mx-auto">
                   Everything you need to trade NIFTY and BANKNIFTY options like a pro
                 </p>
               </div>
@@ -1342,7 +1342,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       <feature.icon className="w-6 h-6 text-cyan-400" />
                     </div>
                     <h3 className="text-xl font-bold text-white mb-3">{feature.title}</h3>
-                    <p className="text-slate-400">{feature.description}</p>
+                    <p className="text-slate-300">{feature.description}</p>
                   </motion.div>
                 ))}
               </div>
@@ -1364,7 +1364,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     Daily Pricing
                   </span>
                 </h2>
-                <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+                <p className="text-xl text-slate-300 max-w-3xl mx-auto">
                   Fixed daily fees based on your profit. Transparent, predictable, no percentage cuts.
                 </p>
               </div>
@@ -1431,11 +1431,11 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       <div className={`inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br ${plan.color.replace('500', '500/20').replace('600', '600/10')} mb-3`}>
                         <DollarSign className={`w-6 h-6 ${plan.color.includes('green') ? 'text-green-400' : plan.color.includes('cyan') ? 'text-cyan-400' : plan.color.includes('blue') ? 'text-blue-400' : plan.color.includes('purple') ? 'text-purple-400' : 'text-yellow-400'}`} />
                       </div>
-                      <div className="text-sm font-semibold text-slate-400 mb-1">Daily Net Profit</div>
+                      <div className="text-sm font-semibold text-slate-300 mb-1">Daily Net Profit</div>
                       <div className="text-lg font-bold text-white mb-2">{plan.range}</div>
                       <div className="text-3xl font-bold text-cyan-400 mb-1">{plan.price}</div>
                       <div className="text-xs text-slate-500">per day</div>
-                      <p className="text-xs text-slate-400 mt-2">{plan.description}</p>
+                      <p className="text-xs text-slate-300 mt-2">{plan.description}</p>
                     </div>
                     <ul className="space-y-2 mb-6">
                       {plan.features.map((feature, i) => (
@@ -1521,19 +1521,19 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   <div className="grid sm:grid-cols-3 gap-4">
                     <div className="text-center">
                       <div className="text-3xl font-bold text-cyan-400 mb-1">₹800</div>
-                      <div className="text-sm text-slate-400 mb-2">Daily Profit</div>
+                      <div className="text-sm text-slate-300 mb-2">Daily Profit</div>
                       <div className="text-xs text-slate-500">₹49/day × 22 days</div>
                       <div className="text-lg font-semibold text-white mt-2">= ₹1,078/month</div>
                     </div>
                     <div className="text-center">
                       <div className="text-3xl font-bold text-green-400 mb-1">₹17,600</div>
-                      <div className="text-sm text-slate-400 mb-2">Total Monthly Profit</div>
+                      <div className="text-sm text-slate-300 mb-2">Total Monthly Profit</div>
                       <div className="text-xs text-slate-500">₹800 × 22 trading days</div>
                       <div className="text-lg font-semibold text-green-400 mt-2">You keep ₹16,522!</div>
                     </div>
                     <div className="text-center">
                       <div className="text-3xl font-bold text-purple-400 mb-1">6.1%</div>
-                      <div className="text-sm text-slate-400 mb-2">Effective Rate</div>
+                      <div className="text-sm text-slate-300 mb-2">Effective Rate</div>
                       <div className="text-xs text-slate-500">Much lower than % models</div>
                       <div className="text-lg font-semibold text-white mt-2">Best Value!</div>
                     </div>
@@ -1569,7 +1569,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     3 Simple Steps
                   </span>
                 </h2>
-                <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+                <p className="text-xl text-slate-300 max-w-3xl mx-auto">
                   From signup to your first profitable trade in minutes
                 </p>
               </div>
@@ -1612,7 +1612,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       <div className="flex-1 bg-slate-900/50 backdrop-blur-xl border border-slate-800 rounded-2xl p-6">
                         <div className="text-4xl font-bold text-cyan-400/20 mb-2">{item.step}</div>
                         <h3 className="text-2xl font-bold text-white mb-3">{item.title}</h3>
-                        <p className="text-slate-400 leading-relaxed">{item.description}</p>
+                        <p className="text-slate-300 leading-relaxed">{item.description}</p>
                       </div>
                     </div>
                     {index < 2 && (
@@ -1643,7 +1643,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
               </span>
               {' '}in Action
             </h2>
-            <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+            <p className="text-xl text-slate-300 max-w-3xl mx-auto">
               See real-time AI signal detection, order execution, and profit generation
             </p>
           </motion.div>
@@ -1674,7 +1674,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
                   <div className="w-3 h-3 rounded-full bg-green-500"></div>
                 </div>
-                <div className="ml-4 flex-1 bg-slate-700 rounded px-3 py-1 text-xs text-slate-400 flex items-center gap-2">
+                <div className="ml-4 flex-1 bg-slate-700 rounded px-3 py-1 text-xs text-slate-300 flex items-center gap-2">
                   <motion.div 
                     className="w-3 h-3 bg-green-500 rounded-full"
                     animate={{ opacity: [1, 0.4, 1] }}
@@ -1820,7 +1820,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                             <span className="text-green-400 font-bold">BUY CALL Signal</span>
                             <span className="text-green-400 text-sm">95% Conf</span>
                           </div>
-                          <div className="text-xs text-slate-400">NIFTY 24600 CE</div>
+                          <div className="text-xs text-slate-300">NIFTY 24600 CE</div>
                         </motion.div>
 
                         <motion.div
@@ -1859,7 +1859,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                           <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-400">HOLD</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">Entry: ₹125.50</span>
+                          <span className="text-xs text-slate-300">Entry: ₹125.50</span>
                           <motion.span
                             className="text-sm font-bold text-green-400"
                             animate={{ scale: [1, 1.1, 1] }}
@@ -1881,7 +1881,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                           <span className="text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-400">HOLD</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-400">Entry: ₹342.75</span>
+                          <span className="text-xs text-slate-300">Entry: ₹342.75</span>
                           <motion.span
                             className="text-sm font-bold text-green-400"
                             animate={{ scale: [1, 1.1, 1] }}
@@ -1999,7 +1999,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 Thousands
               </span>
             </h2>
-            <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+            <p className="text-xl text-slate-300 max-w-3xl mx-auto">
               See what our traders are saying about IndexpilotAI
             </p>
           </motion.div>
@@ -2030,7 +2030,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   </div>
                   <div>
                     <div className="font-semibold text-white">{testimonial.name}</div>
-                    <div className="text-sm text-slate-400">{testimonial.role}</div>
+                    <div className="text-sm text-slate-300">{testimonial.role}</div>
                   </div>
                 </div>
               </motion.div>
@@ -2054,7 +2054,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 Trading Journey?
               </span>
             </h2>
-            <p className="text-xl text-slate-400 mb-8">
+            <p className="text-xl text-slate-300 mb-8">
               Join 5,000+ traders already profiting with AI-powered trading
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -2089,10 +2089,10 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 <img src={logoWhite} alt="IndexpilotAI Logo" className="h-10 w-auto" />
                 <div>
                   <h3 className="text-lg font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">IndexpilotAI</h3>
-                  <p className="text-xs text-slate-400">AI-Powered Trading</p>
+                  <p className="text-xs text-slate-300">AI-Powered Trading</p>
                 </div>
               </div>
-              <p className="text-slate-400 text-sm mb-4">
+              <p className="text-slate-300 text-sm mb-4">
                 India's most advanced AI-powered options trading platform.
               </p>
               
@@ -2113,13 +2113,13 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
               
               <div className="flex items-center gap-3">
                 <a href="#" className="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors">
-                  <Twitter className="w-5 h-5 text-slate-400" />
+                  <Twitter className="w-5 h-5 text-slate-300" />
                 </a>
                 <a href="#" className="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors">
-                  <Linkedin className="w-5 h-5 text-slate-400" />
+                  <Linkedin className="w-5 h-5 text-slate-300" />
                 </a>
                 <a href="#" className="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors">
-                  <Instagram className="w-5 h-5 text-slate-400" />
+                  <Instagram className="w-5 h-5 text-slate-300" />
                 </a>
               </div>
             </div>
@@ -2134,14 +2134,14 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       {link.href.startsWith('/#') || link.href.startsWith('#') ? (
                         <a 
                           href={link.href}
-                          className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          className="text-slate-300 hover:text-white transition-colors cursor-pointer"
                         >
                           {link.label}
                         </a>
                       ) : (
                         <Link
                           to={link.href}
-                          className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          className="text-slate-300 hover:text-white transition-colors cursor-pointer"
                         >
                           {link.label}
                         </Link>
@@ -2155,7 +2155,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
 
           <div className="border-t border-slate-800 pt-8">
             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-              <p className="text-slate-400 text-sm">
+              <p className="text-slate-300 text-sm">
                 © 2026 IndexpilotAI. All rights reserved.
               </p>
               <div className="flex flex-col md:flex-row items-center gap-4">
@@ -2164,7 +2164,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 </p>
                 <a 
                   href="/manual-index" 
-                  className="text-slate-500 hover:text-slate-400 text-xs transition-colors"
+                  className="text-slate-500 hover:text-slate-300 text-xs transition-colors"
                   title="Manual Google indexing helper"
                 >
                   🔍 SEO Tools

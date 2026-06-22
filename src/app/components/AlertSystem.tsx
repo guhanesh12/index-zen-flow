@@ -724,7 +724,7 @@ export function AlertSystem({ signal, previousSignal, timeframe = '5M' }: AlertS
       case 'warning': return 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400';
       case 'success': return 'bg-green-500/10 border-green-500/30 text-green-400';
       case 'danger': return 'bg-red-500/10 border-red-500/30 text-red-400';
-      default: return 'bg-gray-500/10 border-gray-500/30 text-gray-400';
+      default: return 'bg-gray-500/10 border-gray-500/30 text-gray-200';
     }
   };
 
@@ -754,7 +754,7 @@ export function AlertSystem({ signal, previousSignal, timeframe = '5M' }: AlertS
         {alerts.length > 0 && (
           <button
             onClick={clearAllAlerts}
-            className="text-xs text-gray-400 hover:text-white transition-colors"
+            className="text-xs text-gray-200 hover:text-white transition-colors"
           >
             Clear All
           </button>
@@ -822,7 +822,7 @@ export function AlertSystem({ signal, previousSignal, timeframe = '5M' }: AlertS
                               {alert.severity.toUpperCase()}
                             </Badge>
                           </div>
-                          <p className="text-xs text-gray-300 leading-relaxed">
+                          <p className="text-xs text-gray-100 leading-relaxed">
                             {alert.message}
                           </p>
                           <div className="flex items-center gap-2 mt-2">
