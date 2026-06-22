@@ -57,12 +57,12 @@ export default function App() {
     });
 
     
-    // Initialize hotkey system
-    window.adminHotkeys = ['GUHAN']; // Default fallback
+    // Initialize hotkey system — no hardcoded defaults; the server is the source of truth.
+    window.adminHotkeys = [];
     window.adminKeySequence = '';
     window.hotkeyDebugMode = false;
 
-    // Load admin hotkeys from server
+    // Probe whether ANY hotkey is configured server-side (count only — never the value)
     loadAdminHotkeys();
 
     // Auto-refresh hotkeys every 60 seconds
