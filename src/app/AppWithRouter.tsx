@@ -369,7 +369,7 @@ function AdminLogin({ onAdminLoginSuccess }: { onAdminLoginSuccess: () => void }
               <span className="text-3xl">🔒</span>
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">Admin Access</h1>
-            <p className="text-zinc-400 text-sm">Accessed via hotkey: Ctrl+Alt+{window.adminHotkeys?.[0] || 'GUHAN'}</p>
+            <p className="text-zinc-400 text-sm">Restricted access — use your configured admin hotkey</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
