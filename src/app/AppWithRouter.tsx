@@ -278,6 +278,8 @@ function AppRoutes() {
           />
         } />
 
+        <Route path="/blog/how-to-get-indexed-by-google-instantly" element={<BlogIndexedByGoogle />} />
+
         {/* ⚡ PROTECTED USER ROUTES */}
         <Route path="/user/dashboard" element={
           <ProtectedRoute>
