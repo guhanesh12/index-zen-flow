@@ -162,7 +162,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   login: {
     title: 'Login',
-    description: `Login to ${BRAND_NAME} - Access your AI-powered options trading dashboard with real-time market data, automated strategies, and position monitoring for NSE & BSE.`,
+    description: `Login to ${BRAND_NAME} — your AI-powered NSE & BSE options trading dashboard with live signals and position monitoring.`,
     canonical: `${BASE_URL}/login`,
     keywords: `${BRAND_NAME} login, trading login, options trading login, AI trading dashboard login`,
     ogType: 'website',
