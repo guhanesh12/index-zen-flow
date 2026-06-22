@@ -246,9 +246,11 @@ function parseJwtPayload(token: string): any | null {
   }
 }
 
-function getFastUserIdFromRequest(c: any): string | null {
-  const bearerToken = c.req.header('Authorization')?.split(' ')[1] || '';
-  return extractUserIdFromJwt(bearerToken);
+// 🔒 SECURITY: Validates JWT signature server-side and returns user.id.
+// Never trust caller-supplied user IDs (query/body) — they must come from a verified JWT.
+async function getValidatedUserId(c: any): Promise<string | null> {
+  const { user } = await validateAuth(c);
+  return user?.id || null;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -448,6 +450,8 @@ app.get("/make-server-c4d79cb7/health", (c) => {
 // 🔁 Replay today's signals through CURRENT strategy (admin-only diagnostic)
 app.get("/make-server-c4d79cb7/admin/replay-strategy-today", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     const today = new Date(); today.setUTCHours(0,0,0,0);
     const url = `${Deno.env.get('SUPABASE_URL')}/rest/v1/trading_signals?select=created_at,index_name,signal_type,price,raw_data&created_at=gte.${today.toISOString()}&order=created_at.asc`;
     const res = await fetch(url, { headers: { apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!}` } });
@@ -2084,14 +2088,13 @@ app.post("/make-server-c4d79cb7/pnl/save", async (c) => {
 // Get positions
 app.get("/make-server-c4d79cb7/positions", async (c) => {
   try {
-    // ⚡ FAST AUTH: decode userId from JWT locally + query param fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
+    // 🔒 SECURITY: Verify JWT signature; never trust caller-supplied userId
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ error: 'Unauthorized — valid session required' }, 401);
     }
+    const effectiveUserId = user.id;
+
 
     const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -2810,14 +2813,13 @@ app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
 // Get real-time positions and P&L
 app.get("/make-server-c4d79cb7/live-positions", async (c) => {
   try {
-    // ⚡ FAST AUTH: decode userId from JWT locally + query param fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
+    // 🔒 SECURITY: Verify JWT signature; never trust caller-supplied userId
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ error: 'Unauthorized — valid session required' }, 401);
     }
+    const effectiveUserId = user.id;
+
 
     const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -2960,7 +2962,7 @@ app.post("/make-server-c4d79cb7/ai-analysis", async (c) => {
 // Get logs
 app.get("/make-server-c4d79cb7/logs", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getValidatedUserId(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
     const logs = await getMergedUserLogs(userId);
@@ -3290,13 +3292,13 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
   try {
     const orderRequest = await c.req.json();
 
-    // ⚡ FAST AUTH: decode userId from JWT locally + body fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || orderRequest?.userId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
+    // 🔒 SECURITY: Verify JWT signature; never trust caller-supplied userId
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ error: 'Unauthorized — valid session required', success: false }, 401);
     }
+    const effectiveUserId = user.id;
+
 
     console.log(`🔑 execute-dhan-order userId: ${effectiveUserId}`);
 
@@ -5160,7 +5162,7 @@ app.post("/make-server-c4d79cb7/wallet/initialize", async (c) => {
 // Get wallet balance
 app.get("/make-server-c4d79cb7/wallet/balance", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getValidatedUserId(c);
     if (!userId) return c.json({ code: 401, message: 'Unauthorized' }, 401);
 
     const wallet = await safeKVGet(`wallet:${userId}`, { balance: 0, totalProfit: 0, totalDeducted: 0 }, 1);
@@ -6854,30 +6856,24 @@ app.get("/make-server-c4d79cb7/admin/ip-pool/health", async (c) => {
 
 // Get all admin hotkeys (public endpoint for loading on app start)
 // Alias: /admin/hotkeys → same as /admin/hotkeys/all
+// PUBLIC endpoint: returns only count, never the hotkey strings (those leak admin entrypoint).
+// Used by client only to know whether to enable hotkey capture at all.
 app.get("/make-server-c4d79cb7/admin/hotkeys", async (c) => {
   try {
     const hotkeys = await kv.getByPrefix('admin:hotkey:');
-    const hotkeyList = hotkeys.map((h: any) => ({
-      id: h.value.id,
-      hotkey: h.value.hotkey,
-      adminId: h.value.adminId,
-      name: h.value.name,
-      createdAt: h.value.createdAt
-    }));
-    return c.json({ success: true, hotkeys: hotkeyList });
+    return c.json({ success: true, count: hotkeys.length });
   } catch (error: any) {
-    return c.json({ success: true, hotkeys: [] });
+    return c.json({ success: true, count: 0 });
   }
 });
 
+// ADMIN-ONLY: full hotkey list (sensitive — reveals admin entrypoint)
 app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     console.log('🔑 Fetching all admin hotkeys');
-    
-    // Get all hotkeys from KV store
     const hotkeys = await kv.getByPrefix('admin:hotkey:');
-    
-    // Return array of hotkeys, extracting value from {key, value} objects
     const hotkeyList = hotkeys.map((h: any) => ({
       id: h.value.id,
       hotkey: h.value.hotkey,
@@ -6885,7 +6881,6 @@ app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
       name: h.value.name,
       createdAt: h.value.createdAt
     }));
-    
     console.log(`✅ Returning ${hotkeyList.length} admin hotkeys`);
     return c.json({ success: true, hotkeys: hotkeyList });
   } catch (error: any) {
@@ -6897,6 +6892,8 @@ app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
 // Get all platform users (admin only)
 app.get("/make-server-c4d79cb7/admin/users", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     console.log('📊 Admin: Fetching all users');
     
     // 🔥 FIXED: Fetch users from Supabase Auth instead of KV store
@@ -7233,6 +7230,8 @@ app.post("/make-server-c4d79cb7/admin/users/:userId/status", async (c) => {
 // Get admin dashboard stats
 app.get("/make-server-c4d79cb7/admin/stats", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     console.log('📊 Admin: Fetching dashboard stats');
     
     const platformOwnerEmail = Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykat.com';
@@ -7340,6 +7339,8 @@ app.get("/make-server-c4d79cb7/admin/stats", async (c) => {
 // ═══════════════════════════════════════════════════════════════
 app.get("/make-server-c4d79cb7/admin/advanced-stats", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     console.log('📊 [ADVANCED ADMIN] Fetching comprehensive analytics...');
     
     // Fetch all users from Supabase Auth (graceful fallback if fails)
@@ -7728,6 +7729,8 @@ app.post("/make-server-c4d79cb7/admin/users/:userId/wallet", async (c) => {
 // ═══════════════════════════════════════════════════════════════
 app.get("/make-server-c4d79cb7/admin/monitoring", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     const timeRange = c.req.query('range') || 'today';
     console.log(`📊 [MONITORING] Fetching REAL analytics (range: ${timeRange})...`);
 
@@ -8197,7 +8200,7 @@ function isSameUserNotification(existing: any, incoming: any) {
 
 app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getValidatedUserId(c);
     if (!userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
 
     const notifications = await safeKVGet(`user_notifications:${userId}`, []);
@@ -8308,8 +8311,9 @@ app.get("/make-server-c4d79cb7/debug/all-notifications", async (c) => {
 // Get all transactions (admin only)
 app.get("/make-server-c4d79cb7/admin/transactions", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     const period = c.req.query('period') || 'all';
-    
     console.log(`📊 Admin: Fetching transactions (period: ${period})`);
     
     // ⚡⚡⚡ CRITICAL FIX: Fetch ALL wallet transactions from ALL users
@@ -10681,10 +10685,11 @@ app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
   try {
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-    if (!userId) return c.json({ error: 'userId required' }, 401);
+    // 🔒 SECURITY: Verify JWT signature; never trust caller-supplied userId
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) return c.json({ error: 'Unauthorized' }, 401);
+    const userId = user.id;
+
 
     const { data, error } = await supabase
       .from('position_monitor_state')
@@ -10703,10 +10708,11 @@ app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
 // Backward-compatible alias used by older dashboard/mobile builds
 app.get("/make-server-c4d79cb7/positions/monitor/active", async (c) => {
   try {
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-    if (!userId) return c.json({ error: 'userId required' }, 401);
+    // 🔒 SECURITY: Verify JWT signature; never trust caller-supplied userId
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) return c.json({ error: 'Unauthorized' }, 401);
+    const userId = user.id;
+
 
     const { data, error } = await supabase
       .from('position_monitor_state')
@@ -11180,32 +11186,74 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 🔐 ADMIN 2FA SECRET — PERSIST IN KV (NOT localStorage)
+// 🔐 ADMIN 2FA — SECRETS NEVER LEAVE THE SERVER
+// Verification is performed server-side; client only sends 6-digit code.
 // ═══════════════════════════════════════════════════════════════
 
+// Returns whether a 2FA secret exists for the given admin (boolean only — never the secret value)
 app.get("/make-server-c4d79cb7/auth/admin-2fa-secret", async (c) => {
   try {
     const { adminEmail } = c.req.query();
     if (!adminEmail) return c.json({ error: 'adminEmail required' }, 400);
     const key = `admin_2fa_secret:${adminEmail.toLowerCase()}`;
     const secret = await kv.get(key);
-    if (!secret) return c.json({ exists: false });
-    return c.json({ exists: true, secret });
+    return c.json({ exists: !!secret });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
 });
 
+// Store 2FA secret. Requires the new secret + a valid TOTP code derived from it
+// (proves the user actually scanned the QR before the secret is persisted).
 app.post("/make-server-c4d79cb7/auth/admin-2fa-secret", async (c) => {
   try {
-    const { adminEmail, secret } = await c.req.json();
-    if (!adminEmail || !secret) return c.json({ error: 'adminEmail and secret required' }, 400);
+    const { adminEmail, secret, code } = await c.req.json();
+    if (!adminEmail || !secret || !code) {
+      return c.json({ error: 'adminEmail, secret and code required' }, 400);
+    }
+    const OTPAuth = await import('npm:otpauth@9');
+    const totp = new OTPAuth.TOTP({
+      issuer: 'IndexpilotAI',
+      label: adminEmail,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(secret),
+    });
+    const delta = totp.validate({ token: String(code), window: 1 });
+    if (delta === null) {
+      return c.json({ success: false, error: 'Invalid verification code' }, 401);
+    }
     const key = `admin_2fa_secret:${adminEmail.toLowerCase()}`;
     await kv.set(key, secret);
     console.log(`✅ Saved 2FA secret for admin: ${adminEmail}`);
     return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
+  }
+});
+
+// Server-side TOTP verification — the secret never leaves the server.
+app.post("/make-server-c4d79cb7/auth/admin-2fa-verify", async (c) => {
+  try {
+    const { adminEmail, code } = await c.req.json();
+    if (!adminEmail || !code) return c.json({ success: false, error: 'adminEmail and code required' }, 400);
+    const key = `admin_2fa_secret:${adminEmail.toLowerCase()}`;
+    const secret = await kv.get(key);
+    if (!secret) return c.json({ success: false, error: 'No 2FA secret configured' }, 404);
+    const OTPAuth = await import('npm:otpauth@9');
+    const totp = new OTPAuth.TOTP({
+      issuer: 'IndexpilotAI',
+      label: adminEmail,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(String(secret)),
+    });
+    const delta = totp.validate({ token: String(code), window: 1 });
+    return c.json({ success: delta !== null });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
   }
 });
 
@@ -11225,7 +11273,7 @@ app.post("/make-server-c4d79cb7/backend-engine/execute", async (c) => {
  */
 app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getValidatedUserId(c);
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
     // Get engine state from DB
@@ -11586,6 +11634,8 @@ app.post("/make-server-c4d79cb7/referral/process-first-trade", async (c) => {
 // Admin: referral overview & settings
 app.get("/make-server-c4d79cb7/admin/referrals/overview", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     const [{ count: totalRefs }, { count: successRefs }, { count: pendingRefs }, { data: payouts }, { data: settings }] = await Promise.all([
       supabase.from('referrals').select('id', { count: 'exact', head: true }),
       supabase.from('referrals').select('id', { count: 'exact', head: true }).eq('status', 'rewarded'),
@@ -11605,6 +11655,8 @@ app.get("/make-server-c4d79cb7/admin/referrals/overview", async (c) => {
 
 app.patch("/make-server-c4d79cb7/admin/referrals/settings", async (c) => {
   try {
+    const { authorized, error: aErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
     const body = await c.req.json();
     const updates: any = {};
     for (const k of ['reward_amount', 'enabled', 'share_template_whatsapp', 'share_template_telegram', 'share_template_email', 'share_template_generic']) {
@@ -11626,11 +11678,15 @@ app.patch("/make-server-c4d79cb7/admin/referrals/settings", async (c) => {
 });
 
 app.get("/make-server-c4d79cb7/admin/referrals/list", async (c) => {
+  const { authorized, error: aErr } = await validateAdminAuth(c);
+  if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
   const { data } = await supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(500);
   return c.json({ referrals: data || [] });
 });
 
 app.get("/make-server-c4d79cb7/admin/referrals/leaderboard", async (c) => {
+  const { authorized, error: aErr } = await validateAdminAuth(c);
+  if (!authorized) return c.json({ error: aErr?.message || 'Unauthorized' }, aErr?.code || 401);
   const { data } = await supabase
     .from('referral_earnings')
     .select('user_id, total_earned, successful_count, pending_count')
