@@ -118,7 +118,7 @@ export function ApiConfigTest() {
               <Globe className="w-6 h-6 text-cyan-400" />
               API Configuration Tester
             </CardTitle>
-            <CardDescription className="text-zinc-400 mt-2">
+            <CardDescription className="text-zinc-300 mt-2">
               Test both Supabase and Custom domain endpoints
             </CardDescription>
           </div>
@@ -140,19 +140,19 @@ export function ApiConfigTest() {
           </h3>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-zinc-400">Mode:</span>
+              <span className="text-zinc-300">Mode:</span>
               <span className="text-cyan-400 font-mono">{API_MODE}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-400">Active URL:</span>
+              <span className="text-zinc-300">Active URL:</span>
               <span className="text-emerald-400 font-mono text-xs">{getServerUrl()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-400">Custom Domain:</span>
+              <span className="text-zinc-300">Custom Domain:</span>
               <span className="text-blue-400 font-mono text-xs">{CUSTOM_API_DOMAIN}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-zinc-400">Supabase Domain:</span>
+              <span className="text-zinc-300">Supabase Domain:</span>
               <span className="text-purple-400 font-mono text-xs">{SUPABASE_API_DOMAIN}</span>
             </div>
           </div>

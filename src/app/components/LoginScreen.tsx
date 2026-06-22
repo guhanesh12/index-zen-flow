@@ -49,14 +49,14 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">AI TradeBot</h1>
-                <p className="text-sm text-zinc-400">Indian Options Trading</p>
+                <p className="text-sm text-zinc-300">Indian Options Trading</p>
               </div>
             </div>
             {onBackToLanding && (
               <Button
                 onClick={onBackToLanding}
                 variant="ghost"
-                className="text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                className="text-zinc-300 hover:text-white hover:bg-zinc-800/50"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Home
@@ -71,7 +71,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
               <span className="bg-gradient-to-r from-emerald-400 via-blue-500 to-purple-600 bg-clip-text text-transparent"> AI-Powered </span>
               Insights
             </h2>
-            <p className="text-xl text-zinc-400 mb-12 leading-relaxed">
+            <p className="text-xl text-zinc-300 mb-12 leading-relaxed">
               Access real-time market data, advanced AI strategies, and automated trading for NIFTY & BANKNIFTY options.
             </p>
 
@@ -83,7 +83,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-1">Lightning Fast Execution</h3>
-                  <p className="text-zinc-400 text-sm">Sub-second order execution with advanced AI analysis</p>
+                  <p className="text-zinc-300 text-sm">Sub-second order execution with advanced AI analysis</p>
                 </div>
               </div>
 
@@ -93,7 +93,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-1">Advanced Analytics</h3>
-                  <p className="text-zinc-400 text-sm">Triple-layer verification with EMA, VWAP & pattern recognition</p>
+                  <p className="text-zinc-300 text-sm">Triple-layer verification with EMA, VWAP & pattern recognition</p>
                 </div>
               </div>
 
@@ -103,7 +103,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-1">Risk Management</h3>
-                  <p className="text-zinc-400 text-sm">Automated stop-loss, daily limits & position monitoring</p>
+                  <p className="text-zinc-300 text-sm">Automated stop-loss, daily limits & position monitoring</p>
                 </div>
               </div>
             </div>
@@ -114,15 +114,15 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
         <div className="grid grid-cols-3 gap-8 pt-12 border-t border-zinc-800">
           <div>
             <div className="text-3xl font-bold text-white mb-1">₹2.5Cr+</div>
-            <div className="text-sm text-zinc-400">Trading Volume</div>
+            <div className="text-sm text-zinc-300">Trading Volume</div>
           </div>
           <div>
             <div className="text-3xl font-bold text-white mb-1">5000+</div>
-            <div className="text-sm text-zinc-400">Active Traders</div>
+            <div className="text-sm text-zinc-300">Active Traders</div>
           </div>
           <div>
             <div className="text-3xl font-bold text-white mb-1">99.9%</div>
-            <div className="text-sm text-zinc-400">Uptime</div>
+            <div className="text-sm text-zinc-300">Uptime</div>
           </div>
         </div>
       </div>
@@ -136,13 +136,13 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
               <TrendingUp className="w-9 h-9 text-white" />
             </div>
             <h1 className="text-3xl font-bold text-white mb-2">AI TradeBot</h1>
-            <p className="text-zinc-400">Indian Options Trading Platform</p>
+            <p className="text-zinc-300">Indian Options Trading Platform</p>
             {onBackToLanding && (
               <Button
                 onClick={onBackToLanding}
                 variant="ghost"
                 size="sm"
-                className="text-zinc-400 hover:text-white mt-4"
+                className="text-zinc-300 hover:text-white mt-4"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Home
@@ -153,7 +153,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
           <Card className="bg-zinc-900/50 backdrop-blur-xl border-zinc-800/50 shadow-2xl">
             <CardHeader className="space-y-2 pb-6">
               <CardTitle className="text-3xl text-zinc-100 font-bold">Welcome Back</CardTitle>
-              <CardDescription className="text-zinc-400">
+              <CardDescription className="text-zinc-300">
                 Sign in to access your trading dashboard
               </CardDescription>
             </CardHeader>
@@ -162,7 +162,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
               <form onSubmit={handleLogin} className="space-y-5">
                 <div className="space-y-2">
                   <Label htmlFor="login-email" className="text-zinc-200 flex items-center space-x-2">
-                    <Mail className="w-4 h-4 text-zinc-400" />
+                    <Mail className="w-4 h-4 text-zinc-300" />
                     <span>Email Address</span>
                   </Label>
                   <div className="relative">
@@ -180,7 +180,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
                 
                 <div className="space-y-2">
                   <Label htmlFor="login-password" className="text-zinc-200 flex items-center space-x-2">
-                    <Lock className="w-4 h-4 text-zinc-400" />
+                    <Lock className="w-4 h-4 text-zinc-300" />
                     <span>Password</span>
                   </Label>
                   <div className="relative">
@@ -195,7 +195,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
                     <button
                       type="button"
                       onClick={() => setShowLoginPassword(!showLoginPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-300 hover:text-zinc-200 transition-colors"
                     >
                       {showLoginPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
@@ -203,7 +203,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
                 </div>
 
                 <div className="flex items-center justify-between text-sm">
-                  <label className="flex items-center space-x-2 text-zinc-400 cursor-pointer">
+                  <label className="flex items-center space-x-2 text-zinc-300 cursor-pointer">
                     <input type="checkbox" className="rounded border-zinc-700 bg-zinc-800" />
                     <span>Remember me</span>
                   </label>
@@ -235,7 +235,7 @@ export function LoginScreen({ onLogin, onSignup, loading, error, onBackToLanding
 
                 {onBackToLanding && (
                   <div className="pt-4 border-t border-zinc-800">
-                    <p className="text-center text-sm text-zinc-400">
+                    <p className="text-center text-sm text-zinc-300">
                       Don't have an account?{" "}
                       <button
                         type="button"

@@ -625,7 +625,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
                   <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
                     Landing Page Administration
                   </h2>
-                  <p className="text-sm text-slate-400 mt-1 flex items-center gap-2">
+                  <p className="text-sm text-slate-300 mt-1 flex items-center gap-2">
                     <Sparkles className="size-3" />
                     Complete landing page customization - hero, features, pricing, footer & more
                   </p>
@@ -661,7 +661,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-400">Hero Section</p>
+                <p className="text-sm text-slate-300">Hero Section</p>
                 <p className="text-xl font-bold text-white mt-2">Active</p>
               </div>
               <FileText className="size-8 text-blue-400" />
@@ -673,7 +673,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-400">Features</p>
+                <p className="text-sm text-slate-300">Features</p>
                 <p className="text-xl font-bold text-white mt-2">{content?.features?.length || 0}</p>
               </div>
               <Sparkles className="size-8 text-purple-400" />
@@ -685,7 +685,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-400">Pricing Tiers</p>
+                <p className="text-sm text-slate-300">Pricing Tiers</p>
                 <p className="text-xl font-bold text-white mt-2">{content?.pricing?.tiers?.length || 0}</p>
               </div>
               <DollarSign className="size-8 text-green-400" />
@@ -697,7 +697,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-400">Testimonials</p>
+                <p className="text-sm text-slate-300">Testimonials</p>
                 <p className="text-xl font-bold text-white mt-2">{content?.testimonials?.length || 0}</p>
               </div>
               <MessageSquare className="size-8 text-yellow-400" />
@@ -709,7 +709,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-400">Custom Pages</p>
+                <p className="text-sm text-slate-300">Custom Pages</p>
                 <p className="text-xl font-bold text-white mt-2">{customPages.length}</p>
               </div>
               <FileText className="size-8 text-cyan-400" />
@@ -1590,7 +1590,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
                       <FileText className="size-5 text-cyan-400" />
                       Custom Pages Preview
                     </CardTitle>
-                    <p className="text-sm text-slate-400">
+                    <p className="text-sm text-slate-300">
                       Currently active pages: {customPages.length}. Switch to "Pages" tab to add/edit pages like Terms, Privacy, etc.
                     </p>
                   </CardHeader>
@@ -1721,7 +1721,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
                     {customPages.length === 0 ? (
                       <div className="text-center py-12">
                         <FileText className="size-16 text-slate-600 mx-auto mb-4" />
-                        <p className="text-slate-400 text-lg mb-2">No custom pages yet</p>
+                        <p className="text-slate-300 text-lg mb-2">No custom pages yet</p>
                         <p className="text-slate-500 text-sm mb-4">
                           Create pages like Privacy Policy, Terms & Conditions, About Us, etc.
                         </p>
@@ -1742,7 +1742,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
                                     {page.enabled ? 'Visible' : 'Hidden'}
                                   </Badge>
                                 </div>
-                                <p className="text-sm text-slate-400 mb-1">
+                                <p className="text-sm text-slate-300 mb-1">
                                   <span className="font-mono text-cyan-400">/page/{page.slug}</span>
                                 </p>
                                 <p className="text-xs text-slate-500">
@@ -1799,7 +1799,7 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
                 <p className="text-white font-semibold">
                   {hasChanges ? '⚠️ You have unsaved changes!' : '✅ All changes saved'}
                 </p>
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-slate-300">
                   {hasChanges ? 'Click the button to publish changes to the live landing page' : 'Your landing page is up to date'}
                 </p>
               </div>

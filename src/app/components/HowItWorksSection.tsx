@@ -165,7 +165,7 @@ export function HowItWorksSection() {
             </span>
             {' '}Works
           </h2>
-          <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+          <p className="text-xl text-slate-300 max-w-3xl mx-auto">
             From sign-up to profit in 4 simple steps. Our AI does the heavy lifting while you watch your portfolio grow.
           </p>
         </motion.div>
@@ -244,7 +244,7 @@ export function HowItWorksSection() {
                     <h3 className="text-xl font-bold text-white mb-3 text-center">{step.title}</h3>
 
                     {/* Description */}
-                    <p className="text-slate-400 text-sm text-center mb-4 leading-relaxed">
+                    <p className="text-slate-300 text-sm text-center mb-4 leading-relaxed">
                       {step.description}
                     </p>
 
@@ -310,7 +310,7 @@ export function HowItWorksSection() {
               Different
             </span>
           </h2>
-          <p className="text-xl text-slate-400 max-w-3xl mx-auto">
+          <p className="text-xl text-slate-300 max-w-3xl mx-auto">
             We combine cutting-edge AI technology with professional-grade tools to give you the edge in options trading.
           </p>
         </motion.div>
@@ -396,13 +396,13 @@ export function HowItWorksSection() {
                         benefit.color === 'green' ? 'text-green-400' :
                         'text-red-400'
                       }`}>{benefit.stat}</div>
-                      <div className="text-[10px] text-slate-400">{benefit.statLabel}</div>
+                      <div className="text-[10px] text-slate-300">{benefit.statLabel}</div>
                     </motion.div>
                   </div>
 
                   {/* Content */}
                   <h3 className="text-xl font-bold text-white mb-3">{benefit.title}</h3>
-                  <p className="text-slate-400 leading-relaxed">{benefit.description}</p>
+                  <p className="text-slate-300 leading-relaxed">{benefit.description}</p>
                 </div>
 
                 {/* Hover Indicator */}
