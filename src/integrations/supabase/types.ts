@@ -1354,6 +1354,7 @@ export type Database = {
         Returns: boolean
       }
       is_trading_day: { Args: { d?: string }; Returns: boolean }
+      is_valid_referral_code: { Args: { _code: string }; Returns: boolean }
       referral_code_exists: { Args: { _code: string }; Returns: boolean }
       text_to_bytea: { Args: { data: string }; Returns: string }
       urlencode:

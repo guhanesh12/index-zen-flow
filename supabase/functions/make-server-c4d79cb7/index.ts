@@ -190,73 +190,31 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
   }
   
   const tokenTrimmed = token.trim();
-  
-  // Check if this looks like a Supabase anon/service key (long JWT starting with eyJ and containing "role":"anon" or "role":"service_role")
-  const looksLikeSupabaseKey = tokenTrimmed.startsWith('eyJ') && tokenTrimmed.length > 200;
-  
-  if (looksLikeSupabaseKey) {
-    console.log('🔐 [ADMIN AUTH] Token looks like Supabase anon/service key, checking against env vars...');
-    
-    // Get environment keys
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')?.trim();
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
-    
-    console.log('🔐 [ADMIN AUTH] Environment check:', {
-      hasAnonKey: !!anonKey,
-      hasServiceRole: !!serviceRoleKey,
-      anonKeyLength: anonKey?.length || 0,
-      serviceRoleLength: serviceRoleKey?.length || 0
-    });
-    
-    // If env var not set, allow it (admin panel operates with anon key by default)
-    if (!anonKey && !serviceRoleKey) {
-      console.log('⚠️ [ADMIN AUTH] No Supabase keys in env, allowing token (admin hotkey auth applies)');
-      return { authorized: true };
-    }
-    
-    const isAnonKey = anonKey && tokenTrimmed === anonKey;
-    const isServiceRole = serviceRoleKey && tokenTrimmed === serviceRoleKey;
-    
-    console.log('🔐 [ADMIN AUTH] Key comparison:', {
-      tokenMatchesAnonKey: isAnonKey,
-      tokenMatchesServiceRole: isServiceRole,
-      tokenFirst50: tokenTrimmed.substring(0, 50) + '...',
-      tokenLast20: '...' + tokenTrimmed.substring(tokenTrimmed.length - 20),
-      anonKeyFirst50: anonKey?.substring(0, 50) + '...',
-      anonKeyLast20: anonKey ? '...' + anonKey.substring(anonKey.length - 20) : 'N/A'
-    });
-    
-    // Allow anon key or service role for admin operations
-    if (isAnonKey || isServiceRole) {
-      console.log(`✅ [ADMIN AUTH] Admin operation authorized via ${isServiceRole ? 'service role' : 'anon key'}`);
-      return { authorized: true };
-    }
-    
-    // If token looks like a Supabase key but doesn't match, still allow it for admin operations
-    // (admin authentication is via hotkey, not token)
-    console.log('⚠️ [ADMIN AUTH] Token looks like Supabase key but no exact match, allowing for admin ops');
+
+  // Only the service-role key OR a Supabase user-session JWT belonging to the
+  // PLATFORM_OWNER_EMAIL may pass admin auth. The anon key is NEVER acceptable
+  // as admin authentication and "looks like a JWT" is not enough.
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
+  if (serviceRoleKey && tokenTrimmed === serviceRoleKey) {
+    console.log('✅ [ADMIN AUTH] Authorized via service role key');
     return { authorized: true };
   }
-  
-  console.log('🔐 [ADMIN AUTH] Token looks like user session JWT, validating with Supabase auth...');
-  
-  // Token looks like a user session JWT, validate it
+
+  // Validate as a user JWT and require the platform owner email.
   const { user, error } = await validateAuth(c);
   if (error || !user) {
-    console.log('❌ [ADMIN AUTH] User session validation failed:', error?.message);
-    return { authorized: false, error: { message: error?.message || 'Invalid token', code: 401 } };
+    console.log('❌ [ADMIN AUTH] Token validation failed');
+    return { authorized: false, error: { message: 'Unauthorized', code: 401 } };
   }
-  
-  // Check if user is platform owner (admin)
-  const isAdmin = user.email === Deno.env.get('PLATFORM_OWNER_EMAIL');
-  if (!isAdmin) {
-    console.log(`❌ [ADMIN AUTH] User ${user.email} is not admin`);
+  const ownerEmail = Deno.env.get('PLATFORM_OWNER_EMAIL');
+  if (!ownerEmail || user.email !== ownerEmail) {
+    console.log(`❌ [ADMIN AUTH] User ${user.email} is not the platform owner`);
     return { authorized: false, error: { message: 'Admin access required', code: 403 } };
   }
-  
-  console.log(`✅ [ADMIN AUTH] Admin operation authorized via user session: ${user.email}`);
+  console.log(`✅ [ADMIN AUTH] Authorized via platform owner session: ${user.email}`);
   return { authorized: true };
 }
+
 
 // ⚡ FAST userId EXTRACTION: Decode JWT payload without signature verification
 // Used for trading endpoints where speed matters and userId is the only requirement.
@@ -1056,32 +1014,23 @@ app.post("/make-server-c4d79cb7/auth/email-otp/verify", async (c) => {
 
 // 🔥 NEW: Check if email already exists (for better UX during signup)
 app.post("/make-server-c4d79cb7/auth/check-email", async (c) => {
+  // Auth-gated and constant-response to prevent unauthenticated email enumeration.
+  const { user, error } = await validateAuth(c);
+  if (error || !user) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
   try {
-    const { email } = await c.req.json();
-
-    if (!email) {
-      return c.json({ error: 'Email is required' }, 400);
-    }
-
-    console.log(`🔍 Checking if email exists: ${email}`);
-
-    // Check if user already exists
-    const { data: existingUsers } = await supabase.auth.admin.listUsers();
-    const userExists = existingUsers?.users?.some(u => u.email === email);
-
-    console.log(`📧 Email ${email} exists: ${userExists}`);
-
+    await c.req.json().catch(() => ({}));
+    // Constant response — never reveal whether an arbitrary email is registered.
     return c.json({
-      exists: userExists,
-      message: userExists 
-        ? 'An account with this email already exists. Please sign in instead.' 
-        : 'Email is available'
+      exists: false,
+      message: 'If this email is registered, you will be guided at signup or sign-in.',
     });
   } catch (error: any) {
-    console.error('❌ Error checking email:', error);
-    return c.json({ error: error.message || 'Failed to check email' }, 500);
+    return c.json({ error: 'Failed to check email' }, 500);
   }
 });
+
 
 // 🔥 SIMPLER ROUTE ALIASES (without /auth/) for easier frontend integration
 app.post("/make-server-c4d79cb7/send-otp", async (c) => {
@@ -9200,11 +9149,17 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     const { email, password } = await c.req.json();
     
     // Hardcoded admin credentials
-    const DEFAULT_ADMIN_EMAIL = 'airoboengin@smilykat.com';
-    const DEFAULT_ADMIN_PASSWORD = '9600727185Aa@';
-    
-    // Validate credentials
+    // Admin credentials loaded from server-side secrets (never hardcoded).
+    const DEFAULT_ADMIN_EMAIL = Deno.env.get('PLATFORM_OWNER_EMAIL') || Deno.env.get('DEFAULT_ADMIN_EMAIL') || '';
+    const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+
+    if (!DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
+      console.error('❌ Admin credentials secrets not configured');
+      return c.json({ success: false, message: 'Admin login is not configured on the server' }, 503);
+    }
+
     if (email !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
+
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
     
