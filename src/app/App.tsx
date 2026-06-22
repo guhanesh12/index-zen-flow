@@ -135,48 +135,38 @@ export default function App() {
 
   }, []);
 
-  // Load admin hotkeys from server
+  // Probe server for whether any admin hotkey is configured (count only — value never leaves the server)
   const loadAdminHotkeys = async () => {
     try {
       const response = await fetch(`${serverUrl}/admin/hotkeys`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
+        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
       });
-      
       if (response.ok) {
         const data = await response.json();
-        if (data.hotkeys && Array.isArray(data.hotkeys)) {
-          // Extract just the hotkey string from each object (server returns { id, hotkey, name, ... })
-          window.adminHotkeys = data.hotkeys
-            .map((h: any) => (typeof h === 'string' ? h : h.hotkey || ''))
-            .filter(Boolean)
-            .map((s: string) => s.toUpperCase());
-          console.log(`🔑 Loaded ${window.adminHotkeys.length} admin hotkeys:`, window.adminHotkeys);
-        }
+        // Store sentinel array with the right length so existing length checks still work.
+        const n = Number(data?.count || 0);
+        window.adminHotkeys = Array.from({ length: n }, () => '');
+        console.log(`🔑 Admin hotkeys configured: ${n}`);
       }
     } catch (error) {
-      console.error('❌ Failed to load admin hotkeys:', error);
+      console.error('❌ Failed to probe admin hotkeys:', error);
     }
   };
 
-  // Check if hotkey sequence matches and generate unique code + redirect
+  // Send the captured sequence to the server for verification.
+  // The server compares against its private list; we never know the hotkey value.
   const checkHotkeyMatch = async (sequence: string) => {
-    const matchedHotkey = window.adminHotkeys.find(
-      hotkey => hotkey.toUpperCase() === sequence.toUpperCase()
-    );
-    
-    if (matchedHotkey) {
-      console.log(`🎯 Admin hotkey matched: ${matchedHotkey}`);
-      
-      // Clear the sequence
+    if (!sequence || sequence.length < 3) return;
+    // Avoid spamming the server — wait for the user to finish typing.
+    clearTimeout(window.adminKeyTimeout);
+    window.adminKeyTimeout = setTimeout(async () => {
+      const attempt = window.adminKeySequence;
       window.adminKeySequence = '';
-      clearTimeout(window.adminKeyTimeout);
-      
-      // Generate unique code and redirect
-      await generateUniqueCodeAndRedirect(matchedHotkey);
-    }
+      if (!attempt || attempt.length < 3) return;
+      await generateUniqueCodeAndRedirect(attempt);
+    }, 600);
   };
+
 
   // Generate unique code from server and redirect to admin login
   const generateUniqueCodeAndRedirect = async (hotkey: string) => {
