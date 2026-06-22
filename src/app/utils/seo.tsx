@@ -204,7 +204,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   register: {
     title: 'Sign Up',
-    description: `Create your ${BRAND_NAME} account - Start AI-powered options trading on NSE & BSE. Free signup with profit-based pricing. Trade NIFTY & BANK NIFTY with automated strategies.`,
+    description: `Create your ${BRAND_NAME} account and start AI-powered NSE & BSE options trading. Free signup with profit-based pricing.`,
     canonical: `${BASE_URL}/register`,
     keywords: `${BRAND_NAME} signup, create account, register, options trading signup, AI trading registration`,
     ogType: 'website',
