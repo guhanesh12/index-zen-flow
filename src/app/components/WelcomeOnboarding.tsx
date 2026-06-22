@@ -6,7 +6,7 @@ import { supabase } from '@/utils-ext/supabase/client';
 import { Button } from './ui/button';
 import { Gift, Sparkles, Clock, X, ArrowRight, Wallet, CheckCircle2 } from 'lucide-react';
 
-const Joyride = lazy(() => import('react-joyride').then(m => ({ default: m.default })));
+const Joyride = lazy(() => import('react-joyride').then(m => ({ default: (m as any).default ?? (m as any).Joyride })));
 
 interface ProfileFlags {
   welcome_popup_seen: boolean;
