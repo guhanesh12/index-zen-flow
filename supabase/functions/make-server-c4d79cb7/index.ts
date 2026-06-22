@@ -9050,7 +9050,7 @@ app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
     // Verify hotkey is valid — check against all stored hotkeys in KV
     const storedHotkeys = await kv.getByPrefix('admin:hotkey:');
     const validHotkeys: string[] = [
-      'GUHAN', // permanent default fallback
+      // no hardcoded default — only configured hotkeys are valid
       ...storedHotkeys.map((h: any) => {
         const v = h.value || h;
         return (typeof v === 'string' ? v : v.hotkey || '').toUpperCase();
@@ -9215,10 +9215,6 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
             adminUsers: true,
             adminManagement: true, // Permission to create and manage admin users
           },
-          hotkey: {
-            windows: 'Control+Alt+GUHAN',
-            mac: 'Meta+Alt+GUHAN',
-          },
           twoFactorEnabled: false,
         }
       });
@@ -9277,10 +9273,6 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
           adminUsers: true,
           adminManagement: true, // Permission to create and manage admin users
         },
-        hotkey: {
-          windows: 'Control+Alt+GUHAN',
-          mac: 'Meta+Alt+GUHAN',
-        },
         twoFactorEnabled: false,
       }
     });
@@ -9303,7 +9295,7 @@ app.post("/make-server-c4d79cb7/admin/verify-hotkey", async (c) => {
     
     // Get all registered admin hotkeys from KV store
     const adminUsers = await kv.getByPrefix('admin_user_');
-    const validHotkeys = ['GUHAN']; // Default hotkey
+    const validHotkeys: string[] = [];
     
     // Add hotkeys from database admin users
     for (const item of adminUsers) {
@@ -9397,7 +9389,7 @@ app.post("/make-server-c4d79cb7/admin/verify-unique-code", async (c) => {
     }
     
     // Verify hotkey also matches (additional security)
-    const validHotkeys = ['GUHAN']; // Should match the hotkey used during login
+    const validHotkeys: string[] = [];
     if (!validHotkeys.includes(hotkey.toUpperCase())) {
       console.log(`❌ Invalid hotkey with unique code`);
       return c.json({
@@ -9677,7 +9669,7 @@ app.get("/make-server-c4d79cb7/platform/settings", async (c) => {
       supabaseAnonKey: maskKey(Deno.env.get('SUPABASE_ANON_KEY')),
       supabaseAnonKeyExists: !!Deno.env.get('SUPABASE_ANON_KEY'),
       platformOwnerEmail: Deno.env.get('PLATFORM_OWNER_EMAIL') || '',
-      adminHotkeys: await kv.get('admin_hotkeys') || ['GUHAN']
+      adminHotkeys: await kv.get('admin_hotkeys') || []
     };
 
     return c.json({ success: true, settings });
