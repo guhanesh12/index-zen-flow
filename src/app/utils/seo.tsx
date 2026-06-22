@@ -312,7 +312,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   api: {
     title: `${BRAND_NAME} API`,
-    description: `${BRAND_NAME} API documentation - Integrate AI-powered options trading signals into your applications. RESTful API for NSE/BSE market data, automated trading, and position management.`,
+    description: `${BRAND_NAME} API docs — integrate AI options trading signals via a REST API for NSE/BSE market data and automated trading.`,
     canonical: `${BASE_URL}/api`,
     keywords: `${BRAND_NAME} API, trading API, options API, NSE API, BSE API, algorithmic trading API`,
     ogType: 'website',
