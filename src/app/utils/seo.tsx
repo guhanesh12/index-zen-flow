@@ -245,7 +245,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   dashboard: {
     title: 'Trading Dashboard',
-    description: `${BRAND_NAME} real-time trading dashboard - Live NSE/BSE market data, AI-generated options signals, position monitoring, automated strategy execution, and comprehensive risk management.`,
+    description: `${BRAND_NAME} real-time trading dashboard with live NSE/BSE data, AI options signals, position monitoring, and risk management.`,
     canonical: `${BASE_URL}/dashboard`,
     keywords: 'trading dashboard, live trading, options platform, AI signals, position monitoring, risk management',
     ogType: 'website',
