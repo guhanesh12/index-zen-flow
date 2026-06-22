@@ -106,14 +106,9 @@ function GlobalHotkeyListener() {
             // Silent
           }
         }, 600);
-
-              console.log(`⏱️ Timeout - Reset sequence`);
-            }
-            window.adminKeySequence = '';
-          }
-        }, 3000);
       }
     };
+
 
     document.addEventListener('keydown', handleKeyPress);
 
