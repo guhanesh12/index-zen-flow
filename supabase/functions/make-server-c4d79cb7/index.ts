@@ -4205,17 +4205,15 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
     console.log(`Index: ${index} | Interval: ${interval}M | Account: ₹${accountBalance || 100000}`);
     console.log(`⚡ TIMEFRAME VERIFICATION: This request will fetch ${interval}-minute candles from Dhan API`);
     
-    // ⚡ FAST AUTH: Decode userId from JWT locally (no network call) + body fallback
-    // No signature verification needed — unknown userIds simply return 400 (no credentials found)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || bodyUserId;
-    
-    if (!effectiveUserId) {
-      console.error('❌ No userId found in JWT or request body');
-      return c.json({ error: 'userId required — please re-login or ensure userId is sent in the request' }, 401);
+    // 🔒 SECURITY: Verify JWT signature; never trust caller-supplied userId
+    const { user: authUser, error: authErr } = await validateAuth(c);
+    if (authErr || !authUser) {
+      return c.json({ error: 'Unauthorized — valid session required' }, 401);
     }
-    
-    console.log(`🔑 Trading request userId: ${effectiveUserId} (source: ${extractUserIdFromJwt(bearerToken || '') ? 'JWT' : 'body'})`);
+    const effectiveUserId = authUser.id;
+
+    console.log(`🔑 Trading request userId: ${effectiveUserId} (verified JWT)`);
+
     
     // ⚡ FIX: Use user-specific credentials key (same as other endpoints)
     const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
