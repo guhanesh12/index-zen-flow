@@ -10710,6 +10710,42 @@ app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
   }
 });
 
+// ⚡ 1-SECOND POSITION MONITOR
+// pg_cron's minimum granularity is 1 minute, so this endpoint is called
+// once per minute and internally runs runPositionMonitorTick() 60 times
+// with ~1s spacing — giving traders effective 1-second SL/Target/Trailing
+// monitoring without spamming pg_cron.
+app.all("/make-server-c4d79cb7/position-monitor/tick-burst", async (c) => {
+  const startedAt = Date.now();
+  let iterations = 0;
+  let errors = 0;
+  // 58 keeps us safely inside Supabase's edge-function wall-clock budget
+  // and avoids overlap with the next minute's cron tick.
+  const TOTAL_ITERATIONS = 58;
+  const INTERVAL_MS = 1000;
+  try {
+    for (let i = 0; i < TOTAL_ITERATIONS; i++) {
+      const iterStart = Date.now();
+      try {
+        await PersistentTradingEngine.runPositionMonitorTick();
+        iterations++;
+      } catch (e) {
+        errors++;
+        console.error('[POS-MONITOR-1s] iteration error', i, e);
+      }
+      const elapsed = Date.now() - iterStart;
+      const wait = INTERVAL_MS - elapsed;
+      if (wait > 0 && i < TOTAL_ITERATIONS - 1) {
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    return c.json({ success: true, iterations, errors, durationMs: Date.now() - startedAt });
+  } catch (error: any) {
+    console.error('❌ [POS-MONITOR-1s] burst failed:', error);
+    return c.json({ success: false, error: error.message, iterations, errors }, 500);
+  }
+});
+
 // GET /position-monitor/list  → all active monitored positions for the user
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
