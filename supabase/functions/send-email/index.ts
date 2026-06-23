@@ -300,6 +300,9 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
        <p style="color:#6b7280;font-size:13px;margin-top:14px">Server auto-restarts every trading day at 08:55 IST and shuts down at 15:31 IST. Weekends stay off.</p>`
     );
     return { subject: `🟢 VPS ready — dedicated IP live for ${new Date().toLocaleDateString("en-IN", { weekday: "long", timeZone: "Asia/Kolkata" })}`, html, text: htmlToText(html) };
+  },
+
+
 
   engine_started: (d) => {
     const html = plain(
