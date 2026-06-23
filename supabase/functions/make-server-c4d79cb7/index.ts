@@ -6171,10 +6171,49 @@ app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
   }
 });
 
-// CRON: startup all (08:55 IST Mon-Fri).
+// CRON: startup all (08:55 IST Mon-Fri). After powering on, email every
+// assigned-VPS user a "server is live" status note so they know the
+// dedicated IP is ready before market open.
 app.post("/make-server-c4d79cb7/vps-power/auto-startup", async (c) => {
   try {
-    const result = await VPSPower.autoStartupAll();
+    const result: any = await VPSPower.autoStartupAll();
+    if (result?.ok && Array.isArray(result.results)) {
+      const snap = await VPSPower.getStatusSnapshot();
+      let mailed = 0, failed = 0;
+      for (const v of snap.vps) {
+        if (v.powerState !== 'on' || !v.userId) continue;
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('email, full_name')
+            .eq('user_id', v.userId)
+            .maybeSingle();
+          const to = profile?.email || v.email;
+          if (!to) continue;
+          await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+            },
+            body: JSON.stringify({
+              template: 'vps_morning_status',
+              to,
+              name: profile?.full_name,
+              userId: v.userId,
+              data: {
+                ipAddress: v.ipAddress,
+                status: 'ON',
+                marketOpen: '09:15 IST',
+              },
+            }),
+          });
+          mailed++;
+        } catch (e) { failed++; console.warn('vps morning email failed for', v.userId, e); }
+      }
+      return c.json({ success: true, ...result, mailed, failed });
+    }
     return c.json({ success: true, ...result });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
