@@ -481,8 +481,6 @@ Deno.serve(async (req) => {
       "vps_morning_status",
       "test",
     ]);
-      "test",
-    ]);
 
     if (channel === "email" && userId && template && !ALWAYS_ON.has(template)) {
       try {
