@@ -475,6 +475,9 @@ Deno.serve(async (req) => {
     const ALWAYS_ON = new Set([
       "otp", "password_reset", "password_changed",
       "welcome", "daily_premarket", "engine_started",
+      "vps_morning_status",
+      "test",
+    ]);
       "test",
     ]);
 
