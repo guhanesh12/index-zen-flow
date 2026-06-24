@@ -9195,13 +9195,24 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
 
     if (!DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
-      console.error('❌ Admin credentials secrets not configured');
-      return c.json({ success: false, message: 'Admin login is not configured on the server' }, 503);
+      console.error('❌ Admin credentials secrets not configured (PLATFORM_OWNER_EMAIL / DEFAULT_ADMIN_PASSWORD)');
+      return c.json({ success: false, message: 'Admin login is not configured on the server. Ask the platform owner to set PLATFORM_OWNER_EMAIL and DEFAULT_ADMIN_PASSWORD secrets.' }, 503);
     }
 
-    if (email !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
+    const emailNorm = String(email || '').trim().toLowerCase();
+    const expectedEmailNorm = DEFAULT_ADMIN_EMAIL.trim().toLowerCase();
+    const emailMatch = emailNorm === expectedEmailNorm;
+    const passwordMatch = password === DEFAULT_ADMIN_PASSWORD;
 
-      return c.json({ success: false, message: 'Invalid email or password' }, 401);
+    if (!emailMatch || !passwordMatch) {
+      // Safe diagnostic: never log the password itself, only metadata.
+      console.warn(
+        `🚫 Admin login failed | emailMatch=${emailMatch} passwordMatch=${passwordMatch} ` +
+        `attemptedEmail="${emailNorm}" expectedEmailHint="${expectedEmailNorm.slice(0, 3)}***@${expectedEmailNorm.split('@')[1] || ''}" ` +
+        `pwLen(attempt)=${(password || '').length} pwLen(expected)=${DEFAULT_ADMIN_PASSWORD.length}`
+      );
+      const reason = !emailMatch ? 'email does not match configured admin' : 'password is incorrect';
+      return c.json({ success: false, message: `Invalid email or password (${reason})` }, 401);
     }
     
     // Generate unique code for this login session (8 character alphanumeric)
