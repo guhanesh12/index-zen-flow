@@ -10734,15 +10734,19 @@ app.all("/make-server-c4d79cb7/position-monitor/tick-burst", async (c) => {
   // and avoids overlap with the next minute's cron tick.
   const TOTAL_ITERATIONS = 58;
   const INTERVAL_MS = 1000;
+  console.log(`⏱️ [POS-MONITOR-1s] burst start — ${TOTAL_ITERATIONS} ticks × ${INTERVAL_MS}ms`);
   try {
     for (let i = 0; i < TOTAL_ITERATIONS; i++) {
       const iterStart = Date.now();
       try {
-        await PersistentTradingEngine.runPositionMonitorTick();
+        const result: any = await PersistentTradingEngine.runPositionMonitorTick();
         iterations++;
+        const checked = result?.checked ?? result?.positions ?? '?';
+        const actions = result?.actions ?? result?.closed ?? 0;
+        console.log(`📍 [POS-MONITOR-1s] tick ${i + 1}/${TOTAL_ITERATIONS} | checked=${checked} actions=${actions}`);
       } catch (e) {
         errors++;
-        console.error('[POS-MONITOR-1s] iteration error', i, e);
+        console.error(`❌ [POS-MONITOR-1s] tick ${i + 1} error`, e);
       }
       const elapsed = Date.now() - iterStart;
       const wait = INTERVAL_MS - elapsed;
@@ -10750,6 +10754,7 @@ app.all("/make-server-c4d79cb7/position-monitor/tick-burst", async (c) => {
         await new Promise((r) => setTimeout(r, wait));
       }
     }
+    console.log(`✅ [POS-MONITOR-1s] burst done — ${iterations} ok, ${errors} errors, ${Date.now() - startedAt}ms`);
     return c.json({ success: true, iterations, errors, durationMs: Date.now() - startedAt });
   } catch (error: any) {
     console.error('❌ [POS-MONITOR-1s] burst failed:', error);
