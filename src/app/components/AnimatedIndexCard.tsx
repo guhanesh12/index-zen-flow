@@ -160,7 +160,7 @@ export function AnimatedIndexCard() {
             style={{ backgroundColor: 'rgba(30, 41, 59, 0.5)' }}
             whileHover={{ scale: 1.05, backgroundColor: 'rgba(30, 41, 59, 0.7)' }}
           >
-            <div className="text-slate-300 text-sm mb-2">Win Rate</div>
+            <div className="text-slate-400 text-sm mb-2">Win Rate</div>
             <motion.div
               className="text-3xl font-bold text-emerald-400"
               animate={{ opacity: [1, 0.7, 1] }}
@@ -176,7 +176,7 @@ export function AnimatedIndexCard() {
             style={{ backgroundColor: 'rgba(30, 41, 59, 0.5)' }}
             whileHover={{ scale: 1.05, backgroundColor: 'rgba(30, 41, 59, 0.7)' }}
           >
-            <div className="text-slate-300 text-sm mb-2">Avg Profit</div>
+            <div className="text-slate-400 text-sm mb-2">Avg Profit</div>
             <AnimatedProfitCounter targetValue={avgProfit} />
           </motion.div>
         </div>

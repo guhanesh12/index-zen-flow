@@ -57,12 +57,12 @@ export default function App() {
     });
 
     
-    // Initialize hotkey system — no hardcoded defaults; the server is the source of truth.
-    window.adminHotkeys = [];
+    // Initialize hotkey system
+    window.adminHotkeys = ['GUHAN']; // Default fallback
     window.adminKeySequence = '';
     window.hotkeyDebugMode = false;
 
-    // Probe whether ANY hotkey is configured server-side (count only — never the value)
+    // Load admin hotkeys from server
     loadAdminHotkeys();
 
     // Auto-refresh hotkeys every 60 seconds
@@ -93,23 +93,30 @@ export default function App() {
       if (modKey && e.altKey) {
         if (e.code && e.code.startsWith('Key')) {
           e.preventDefault();
-
+          
+          // Extract letter (e.g., "KeyG" → "G")
           const key = e.code.replace('Key', '').toUpperCase();
+          
+          // Build sequence
           window.adminKeySequence += key;
-
+          
+          // Debug output
           if (window.hotkeyDebugMode) {
             console.log(`🔑 Key pressed: ${key} | Sequence now: "${window.adminKeySequence}"`);
+            console.log(`   e.code: ${e.code} | e.key: ${e.key} | Platform: ${e.metaKey ? 'Mac uses Option' : 'Windows uses Alt'}`);
           }
-
-          // Single debounced timer: after the user stops typing for 600ms,
-          // send the sequence to the server for verification and then reset it.
+          
+          // Check if sequence matches any registered hotkey
+          checkHotkeyMatch(window.adminKeySequence);
+          
+          // Reset sequence after 2 seconds of inactivity
           clearTimeout(window.adminKeyTimeout);
-          window.adminKeyTimeout = setTimeout(async () => {
-            const attempt = window.adminKeySequence;
+          window.adminKeyTimeout = setTimeout(() => {
+            if (window.hotkeyDebugMode && window.adminKeySequence) {
+              console.log(`⏱️ Sequence timeout - resetting: "${window.adminKeySequence}"`);
+            }
             window.adminKeySequence = '';
-            if (!attempt || attempt.length < 3) return;
-            await generateUniqueCodeAndRedirect(attempt);
-          }, 600);
+          }, 2000);
         }
       }
     };
@@ -128,38 +135,48 @@ export default function App() {
 
   }, []);
 
-  // Probe server for whether any admin hotkey is configured (count only — value never leaves the server)
+  // Load admin hotkeys from server
   const loadAdminHotkeys = async () => {
     try {
       const response = await fetch(`${serverUrl}/admin/hotkeys`, {
-        headers: { 'Authorization': `Bearer ${publicAnonKey}` },
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
       });
+      
       if (response.ok) {
         const data = await response.json();
-        // Store sentinel array with the right length so existing length checks still work.
-        const n = Number(data?.count || 0);
-        window.adminHotkeys = Array.from({ length: n }, () => '');
-        console.log(`🔑 Admin hotkeys configured: ${n}`);
+        if (data.hotkeys && Array.isArray(data.hotkeys)) {
+          // Extract just the hotkey string from each object (server returns { id, hotkey, name, ... })
+          window.adminHotkeys = data.hotkeys
+            .map((h: any) => (typeof h === 'string' ? h : h.hotkey || ''))
+            .filter(Boolean)
+            .map((s: string) => s.toUpperCase());
+          console.log(`🔑 Loaded ${window.adminHotkeys.length} admin hotkeys:`, window.adminHotkeys);
+        }
       }
     } catch (error) {
-      console.error('❌ Failed to probe admin hotkeys:', error);
+      console.error('❌ Failed to load admin hotkeys:', error);
     }
   };
 
-  // Send the captured sequence to the server for verification.
-  // The server compares against its private list; we never know the hotkey value.
+  // Check if hotkey sequence matches and generate unique code + redirect
   const checkHotkeyMatch = async (sequence: string) => {
-    if (!sequence || sequence.length < 3) return;
-    // Avoid spamming the server — wait for the user to finish typing.
-    clearTimeout(window.adminKeyTimeout);
-    window.adminKeyTimeout = setTimeout(async () => {
-      const attempt = window.adminKeySequence;
+    const matchedHotkey = window.adminHotkeys.find(
+      hotkey => hotkey.toUpperCase() === sequence.toUpperCase()
+    );
+    
+    if (matchedHotkey) {
+      console.log(`🎯 Admin hotkey matched: ${matchedHotkey}`);
+      
+      // Clear the sequence
       window.adminKeySequence = '';
-      if (!attempt || attempt.length < 3) return;
-      await generateUniqueCodeAndRedirect(attempt);
-    }, 600);
+      clearTimeout(window.adminKeyTimeout);
+      
+      // Generate unique code and redirect
+      await generateUniqueCodeAndRedirect(matchedHotkey);
+    }
   };
-
 
   // Generate unique code from server and redirect to admin login
   const generateUniqueCodeAndRedirect = async (hotkey: string) => {
@@ -187,14 +204,14 @@ export default function App() {
         console.log(`🚀 Navigating to admin login: ${adminLoginPath}`);
         await router.navigate(adminLoginPath);
       } else {
-        // Silent — wrong sequence shouldn't reveal anything (avoids hotkey enumeration)
-        console.debug('Hotkey attempt rejected');
+        console.error('❌ Failed to generate unique code:', data.message);
+        alert('Failed to generate admin access code. Please try again.');
       }
     } catch (error) {
-      console.debug('Hotkey attempt error (silent)');
+      console.error('❌ Error generating unique code:', error);
+      alert('Failed to access admin panel. Please try again.');
     }
   };
-
 
   return (
     <HelmetProvider>

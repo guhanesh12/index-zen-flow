@@ -7,12 +7,6 @@
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://www.indexpilotai.com/home</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-
-  <url>
     <loc>https://www.indexpilotai.com/login</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
@@ -51,10 +45,5 @@
     <loc>https://www.indexpilotai.com/page/disclaimer</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
-  </url>
-  <url>
-    <loc>https://www.indexpilotai.com/blog/how-to-get-indexed-by-google-instantly</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
 </urlset>

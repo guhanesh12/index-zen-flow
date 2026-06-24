@@ -185,17 +185,9 @@ export async function autoShutdownAll() {
   return { ok: true, results };
 }
 
-/**
- * 08:55 IST auto-startup: powers ON every assigned VPS on Mon–Fri so
- * traders' droplets are warm before the 09:15 IST market open.
- * Skips weekends, and skips when the admin disabled the schedule.
- */
+/** Engine-driven mode: VPS only powers ON when user starts engine. */
 export async function autoStartupAll() {
-  if (!(await isScheduleEnabled())) return { skipped: 'schedule_disabled' };
-  const dow = istDayOfWeek();
-  if (dow === 0 || dow === 6) return { skipped: 'weekend' };
-  const results = await applyToAll('power_on', 'cron');
-  return { ok: true, results };
+  return { skipped: 'engine_driven_mode' };
 }
 
 export async function adminAllOn(markSpecial = false) {

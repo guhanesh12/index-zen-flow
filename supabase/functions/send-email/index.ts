@@ -291,19 +291,6 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
     return { subject: `Pre-market brief for ${new Date().toLocaleDateString("en-IN", { weekday: "long" })}`, html, text: htmlToText(html) };
   },
 
-  vps_morning_status: (d) => {
-    const html = plain(
-      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Your VPS is live for today</h2>
-       <p>Good morning ${d.name || "trader"} — your dedicated server is powered ON and routing orders. Market opens at <b>${d.marketOpen || "09:15 IST"}</b>.</p>
-       ${details([["Server status", `🟢 ${d.status || "ON"}`], ["Dedicated IP", d.ipAddress || "—"], ["Auto shutdown", "15:31 IST today"]])}
-       ${btn("Open dashboard", `${BRAND.url}/dashboard`)}
-       <p style="color:#6b7280;font-size:13px;margin-top:14px">Server auto-restarts every trading day at 08:55 IST and shuts down at 15:31 IST. Weekends stay off.</p>`
-    );
-    return { subject: `🟢 VPS ready — dedicated IP live for ${new Date().toLocaleDateString("en-IN", { weekday: "long", timeZone: "Asia/Kolkata" })}`, html, text: htmlToText(html) };
-  },
-
-
-
   engine_started: (d) => {
     const html = plain(
       `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Trading engine started</h2>
@@ -478,7 +465,6 @@ Deno.serve(async (req) => {
     const ALWAYS_ON = new Set([
       "otp", "password_reset", "password_changed",
       "welcome", "daily_premarket", "engine_started",
-      "vps_morning_status",
       "test",
     ]);
 
