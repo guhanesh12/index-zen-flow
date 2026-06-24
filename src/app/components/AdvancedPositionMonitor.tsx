@@ -57,7 +57,7 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
 
   useEffect(() => {
     fetchRows();
-    timer.current = setInterval(fetchRows, 2000); // 2s real-time
+    timer.current = setInterval(fetchRows, 1000); // 1s real-time
     return () => clearInterval(timer.current);
   }, []);
 
