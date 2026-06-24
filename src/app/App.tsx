@@ -93,30 +93,23 @@ export default function App() {
       if (modKey && e.altKey) {
         if (e.code && e.code.startsWith('Key')) {
           e.preventDefault();
-          
-          // Extract letter (e.g., "KeyG" → "G")
+
           const key = e.code.replace('Key', '').toUpperCase();
-          
-          // Build sequence
           window.adminKeySequence += key;
-          
-          // Debug output
+
           if (window.hotkeyDebugMode) {
             console.log(`🔑 Key pressed: ${key} | Sequence now: "${window.adminKeySequence}"`);
-            console.log(`   e.code: ${e.code} | e.key: ${e.key} | Platform: ${e.metaKey ? 'Mac uses Option' : 'Windows uses Alt'}`);
           }
-          
-          // Check if sequence matches any registered hotkey
-          checkHotkeyMatch(window.adminKeySequence);
-          
-          // Reset sequence after 2 seconds of inactivity
+
+          // Single debounced timer: after the user stops typing for 600ms,
+          // send the sequence to the server for verification and then reset it.
           clearTimeout(window.adminKeyTimeout);
-          window.adminKeyTimeout = setTimeout(() => {
-            if (window.hotkeyDebugMode && window.adminKeySequence) {
-              console.log(`⏱️ Sequence timeout - resetting: "${window.adminKeySequence}"`);
-            }
+          window.adminKeyTimeout = setTimeout(async () => {
+            const attempt = window.adminKeySequence;
             window.adminKeySequence = '';
-          }, 2000);
+            if (!attempt || attempt.length < 3) return;
+            await generateUniqueCodeAndRedirect(attempt);
+          }, 600);
         }
       }
     };
