@@ -11322,7 +11322,36 @@ app.post("/make-server-c4d79cb7/auth/admin-2fa-verify", async (c) => {
   }
 });
 
-// ==================== BACKEND ENGINE CRON ROUTES ====================
+// Reset (delete) an admin's stored 2FA secret. Requires re-authentication via
+// admin email + password so a stolen session cannot wipe the second factor.
+app.post("/make-server-c4d79cb7/auth/admin-2fa-reset", async (c) => {
+  try {
+    const { adminEmail, password } = await c.req.json();
+    if (!adminEmail || !password) {
+      return c.json({ success: false, error: 'adminEmail and password required' }, 400);
+    }
+    // Re-verify the admin credentials by calling the existing login flow logic.
+    // We do a lightweight check against the same kv-stored admin record.
+    const loginRes = await fetch(`${c.req.url.split('/make-server-')[0]}/make-server-c4d79cb7/admin/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': c.req.header('Authorization') || '',
+      },
+      body: JSON.stringify({ email: adminEmail, password }),
+    });
+    const loginData = await loginRes.json().catch(() => ({}));
+    if (!loginRes.ok || !loginData?.success) {
+      return c.json({ success: false, error: 'Invalid admin credentials' }, 401);
+    }
+    const key = `admin_2fa_secret:${adminEmail.toLowerCase()}`;
+    await kv.del(key);
+    console.log(`🗑️ Reset 2FA secret for admin: ${adminEmail}`);
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
 
 /**
  * ⚡ CRON EXECUTE - DISABLED (duplicate of /cron/engine-tick)

@@ -690,6 +690,41 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                 </Button>
 
                 <Button
+                  onClick={async () => {
+                    if (!adminData) return;
+                    const pwd = window.prompt(
+                      'Reset Google Authenticator?\n\nEnter your admin password to wipe the old 2FA secret and scan a brand-new QR code.'
+                    );
+                    if (!pwd) return;
+                    try {
+                      const res = await fetch(`${serverUrl}/auth/admin-2fa-reset`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${accessToken}`,
+                        },
+                        body: JSON.stringify({ adminEmail: adminData.email, password: pwd }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok || !data?.success) {
+                        setError(data?.error || 'Reset failed. Check your password.');
+                        return;
+                      }
+                      setOtpCode('');
+                      setError('');
+                      await generate2FASetup(adminData);
+                      setStep('2fa-setup');
+                    } catch (err: any) {
+                      setError(err?.message || 'Reset failed');
+                    }
+                  }}
+                  variant="outline"
+                  className="w-full border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                >
+                  🔄 Reset Google Authenticator (Show New QR)
+                </Button>
+
+                <Button
                   onClick={() => {
                     setStep('credentials');
                     setOtpCode('');
