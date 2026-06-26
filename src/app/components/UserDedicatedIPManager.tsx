@@ -1129,7 +1129,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 {[
                   { icon: Server, text: '100% dedicated VPS', color: 'text-green-400' },
                   { icon: Globe, text: 'Unique static IP', color: 'text-cyan-400' },
-                  { icon: Zap, text: 'Auto-deployed in ~8 min', color: 'text-yellow-400' },
+                  { icon: Zap, text: 'Auto-deployed in ~3 min', color: 'text-yellow-400' },
                   { icon: Shield, text: 'SEBI compliant', color: 'text-blue-400' },
                   { icon: Clock, text: '30-day subscription', color: 'text-purple-400' },
                   { icon: RefreshCw, text: 'Easy monthly renewal', color: 'text-emerald-400' },
