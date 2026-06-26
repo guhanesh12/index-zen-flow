@@ -750,8 +750,7 @@ async function monitorProvisioningJob(
         await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
 
         // Phase 2: Wait for cloud-init deployment
-        // OPTIMIZED: Our cloud-init script is minimal (Node.js + 3 npm packages)
-        // Real timing: apt-get (30s) + Node.js (20s) + npm install (15s) = 65 seconds
+        // OPTIMIZED: cloud-init now avoids apt upgrade, npm install, and PM2 install.
         console.log(`⏳ Waiting 10 seconds for cloud-init to start, then checking health...`);
         await new Promise(resolve => setTimeout(resolve, 10000));
 
@@ -763,14 +762,14 @@ async function monitorProvisioningJob(
         console.log(`🧪 Starting AGGRESSIVE health checks for ${ipAddress}:3000/health...`);
         
         for (let i = 0; i < maxHealthChecks; i++) {
+          const checkInterval = 2500;
           try {
-            const checkInterval = 3000;
             const attemptType = 'FAST';
             
             console.log(`⏳ [${attemptType}] Health check attempt ${i + 1}/${maxHealthChecks} for ${ipAddress}...`);
             
             const healthResponse = await fetch(`http://${ipAddress}:3000/health`, {
-              signal: AbortSignal.timeout(6000), // 6 seconds timeout
+              signal: AbortSignal.timeout(2500),
               headers: {
                 'User-Agent': 'IndexpilotAI-HealthCheck/2.0',
                 'Cache-Control': 'no-cache'
@@ -780,7 +779,7 @@ async function monitorProvisioningJob(
             if (healthResponse.ok) {
               const healthData = await healthResponse.json();
               healthCheckPassed = true;
-              const elapsed = attempts * 5 + 10 + i * 3;
+              const elapsed = attempts * 5 + 10 + Math.round((i * checkInterval) / 1000);
               console.log(`✅ Health check PASSED for ${ipAddress}!`);
               console.log(`✅ Server response:`, JSON.stringify(healthData));
               console.log(`✅ Total time: ${Math.floor(elapsed/60)}:${(elapsed%60).toString().padStart(2,'0')} (${elapsed}s)`);
@@ -803,13 +802,13 @@ async function monitorProvisioningJob(
             if (i < maxHealthChecks - 1) {
               const waitTime = checkInterval / 1000;
               console.log(`⏳ Retrying in ${waitTime} seconds...`);
-              await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+              await new Promise(resolve => setTimeout(resolve, checkInterval));
             }
           }
         }
 
         if (!healthCheckPassed) {
-          const maxWaitTime = Math.round((maxHealthChecks * 3));
+          const maxWaitTime = Math.round((maxHealthChecks * 2.5));
           console.error(`❌ Health check failed after ${maxWaitTime} seconds`);
           console.error(`❌ VPS IP: ${ipAddress}`);
           console.error(`❌ Droplet ID: ${dropletId}`);
