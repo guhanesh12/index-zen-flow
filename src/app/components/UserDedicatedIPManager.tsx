@@ -523,7 +523,9 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       toast.error(err.message || 'Could not restart provisioning');
     } finally {
       setResettingProvisioning(false);
+    }
   }
+
 
   async function recreateVps() {
     if (!confirm('Destroy this IP and create a brand NEW dedicated IP?\n\n✅ Your subscription expiry is preserved — no new payment required.\n⚠️ You will get a different IP address. You MUST re-whitelist the new IP in your broker (Dhan) portal.')) return;
