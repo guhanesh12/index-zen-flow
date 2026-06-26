@@ -331,40 +331,37 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 function generateCloudInitScript(orderServerApiKey: string): string {
   return `#!/bin/bash
 
-# ===================================
 # IndexpilotAI Order Server Auto-Deploy
-# IMPROVED VERSION - 100% AUTOMATIC
-# ===================================
-
-set -e
+# ASCII-only and non-fatal bootstrap so one package warning cannot stop server startup.
+set +e
 
 # Log everything
 exec > >(tee -a /var/log/indexpilot-deploy.log)
 exec 2>&1
 
 echo "========================================="
-echo "🤖 IndexpilotAI Auto-Deployment Starting"
+echo "IndexpilotAI Auto-Deployment Starting"
 echo "Time: $(date)"
 echo "========================================="
 
 # Update package index only — full apt upgrade makes provisioning slow.
-echo "📦 [1/6] Updating package index..."
+echo "[1/6] Updating package index..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
 # Install Node.js from Ubuntu repo for fastest bootstrapping.
-echo "📦 [2/6] Installing Node.js..."
-apt-get install -y -qq nodejs
+echo "[2/6] Installing Node.js..."
+apt-get install -y -qq nodejs curl ufw || apt-get install -y nodejs curl ufw
 
 node --version
 
 # Create order server directory
-echo "📁 [3/6] Creating server directory..."
+echo "[3/6] Creating server directory..."
 mkdir -p /root/indexpilot-order-server
 cd /root/indexpilot-order-server
 
 # Create server.js
-echo "📝 [4/6] Creating server files..."
+echo "[4/6] Creating server files..."
 cat > server.js << 'SERVEREOF'
 const http = require('http');
 const https = require('https');
@@ -561,7 +558,7 @@ log('✅ Server initialization complete');
 SERVEREOF
 
 # Create systemd service directly — faster than installing PM2.
-echo "🚀 [5/6] Starting order server with systemd..."
+echo "[5/6] Starting order server with systemd..."
 cat > /etc/systemd/system/pm2-root.service << 'SVCEOF'
 [Unit]
 Description=IndexpilotAI Order Server
@@ -574,7 +571,7 @@ User=root
 WorkingDirectory=/root/indexpilot-order-server
 Environment=NODE_ENV=production
 Environment=PORT=3000
-Environment=ORDER_SERVER_API_KEY=${orderServerApiKey}
+Environment="ORDER_SERVER_API_KEY=${orderServerApiKey}"
 ExecStart=/usr/bin/node /root/indexpilot-order-server/server.js
 Restart=always
 RestartSec=2
@@ -590,14 +587,14 @@ systemctl enable pm2-root
 systemctl restart pm2-root
 
 # Configure firewall
-echo "🔒 [6/6] Configuring firewall..."
+echo "[6/6] Configuring firewall..."
 ufw allow 22/tcp
 ufw allow 3000/tcp
 ufw --force enable
 
 # Create success marker
 echo "=========================================" >> /root/deployment-success.txt
-echo "✅ IndexpilotAI Order Server Deployed!" >> /root/deployment-success.txt
+echo "IndexpilotAI Order Server Deployed!" >> /root/deployment-success.txt
 echo "=========================================" >> /root/deployment-success.txt
 echo "Deployed at: $(date)" >> /root/deployment-success.txt
 echo "Server URL: http://$(hostname -I | awk '{print $1}'):3000" >> /root/deployment-success.txt
@@ -614,7 +611,7 @@ sleep 2
 # Wait for server to start
 for i in {1..8}; do
   if curl -s http://localhost:3000/health > /dev/null; then
-    echo "✅ Server health check PASSED!"
+    echo "Server health check PASSED!"
     curl -s http://localhost:3000/health | head -20
     break
   else
@@ -625,12 +622,12 @@ done
 
 echo ""
 echo "========================================="
-echo "✅ DEPLOYMENT COMPLETE!"
+echo "DEPLOYMENT COMPLETE!"
 echo "========================================="
-echo "📊 Server Status:"
+echo "Server Status:"
 systemctl --no-pager status pm2-root || true
 echo ""
-echo "📍 Access server at:"
+echo "Access server at:"
 echo "   http://$(hostname -I | awk '{print $1}'):3000"
 echo "========================================="
 echo ""
