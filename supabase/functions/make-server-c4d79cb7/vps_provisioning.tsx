@@ -676,7 +676,7 @@ async function provisionDigitalOceanDroplet(
       return { success: false, error: 'DigitalOcean API token not configured' };
     }
 
-    const cloudInitScript = getCloudConfigPayload(orderServerApiKey);
+    const cloudInitScript = generateCloudInitScript(orderServerApiKey);
 
     // Create droplet
     const response = await fetch('https://api.digitalocean.com/v2/droplets', {
