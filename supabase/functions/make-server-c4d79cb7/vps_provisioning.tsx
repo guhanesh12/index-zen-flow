@@ -1052,3 +1052,48 @@ export async function deprovisionVPS(ipAddress: string): Promise<{ success: bool
     return { success: false, error: error.message };
   }
 }
+
+/**
+ * Repair an unresponsive order server by power-cycling the droplet via
+ * the DigitalOcean API. The systemd service `pm2-root` is enabled at boot,
+ * so the order server should come back online automatically (~60-90s).
+ */
+export async function repairUserVPS(ipAddress: string): Promise<{ success: boolean; error?: string; message?: string; dropletId?: string }> {
+  try {
+    const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
+    if (!DO_API_TOKEN) {
+      return { success: false, error: 'DigitalOcean API token not configured' };
+    }
+
+    const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
+    const dropletId = ipEntry?.metadata?.dropletId;
+    if (!dropletId) {
+      return { success: false, error: 'Droplet ID not found for this IP. Please contact support.' };
+    }
+
+    const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${DO_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ type: 'power_cycle' })
+    });
+
+    if (!response.ok) {
+      const txt = await response.text();
+      console.error(`❌ Power-cycle failed for droplet ${dropletId}:`, txt);
+      return { success: false, error: `DigitalOcean API returned ${response.status}` };
+    }
+
+    console.log(`🔄 Power-cycled droplet ${dropletId} (IP ${ipAddress}) to repair order server`);
+    return {
+      success: true,
+      dropletId: String(dropletId),
+      message: 'Server reboot started. The order server will auto-restart in ~60-90 seconds. Click "Check Order Server" again after a minute.'
+    };
+  } catch (error: any) {
+    console.error('❌ repairUserVPS error:', error);
+    return { success: false, error: error.message };
+  }
+}

@@ -5863,6 +5863,27 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   }
 });
 
+// 🔧 Repair (power-cycle) the user's order-server VPS when port 3000 is unresponsive.
+app.post("/make-server-c4d79cb7/ip-pool/repair-vps", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ code: error?.code, message: error?.message }, error?.code || 401);
+    }
+
+    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (!assignment?.ipAddress) {
+      return c.json({ success: false, error: 'No dedicated IP assigned to this user.' }, 400);
+    }
+
+    const result = await VPSProvisioning.repairUserVPS(assignment.ipAddress);
+    return c.json({ ...result, ipAddress: assignment.ipAddress });
+  } catch (err: any) {
+    console.error('❌ repair-vps error:', err);
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
 // 🌐 Recover/link an already-created dedicated VPS to the current user
 app.post("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   try {

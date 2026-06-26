@@ -164,6 +164,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     hint?: string;
     error?: string;
   }>({ loading: false });
+  const [repairState, setRepairState] = useState<{ loading: boolean; message?: string; error?: string }>({ loading: false });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatusRef = useRef<string | null>(null);
 
@@ -185,6 +186,27 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       setVpsConnCheck({ loading: false, reachable: false, error: err.message, hint: 'Could not reach the server to run connectivity check.' });
     }
   };
+
+  const repairOrderServer = async () => {
+    setRepairState({ loading: true });
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/repair-vps`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setRepairState({ loading: false, error: data.error || `HTTP ${res.status}` });
+        return;
+      }
+      setRepairState({ loading: false, message: data.message });
+      // Auto re-check after 75 seconds.
+      setTimeout(() => { checkVpsServer(); }, 75000);
+    } catch (err: any) {
+      setRepairState({ loading: false, error: err.message });
+    }
+  };
+
 
   // Decode email from JWT for Razorpay prefill
   const userEmail = (() => {
@@ -915,10 +937,34 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                         : <><XCircle className="w-3 h-3" />Order Server DOWN</>}
                     </span>
                   )}
+                  {vpsConnCheck.reachable === false && !vpsConnCheck.loading && (
+                    <Button
+                      onClick={repairOrderServer}
+                      disabled={repairState.loading}
+                      size="sm"
+                      className="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 ml-1"
+                    >
+                      {repairState.loading ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Repairing...</>
+                      ) : (
+                        <><Zap className="w-3 h-3 mr-1" />Repair Server</>
+                      )}
+                    </Button>
+                  )}
                 </div>
                 {vpsConnCheck.hint && !vpsConnCheck.loading && (
                   <p className={`text-[11px] mt-2 leading-relaxed ${vpsConnCheck.reachable ? 'text-emerald-300/80' : 'text-amber-300/80'}`}>
                     {vpsConnCheck.hint}
+                  </p>
+                )}
+                {repairState.message && (
+                  <p className="text-[11px] mt-2 leading-relaxed text-emerald-300/90">
+                    🔄 {repairState.message}
+                  </p>
+                )}
+                {repairState.error && (
+                  <p className="text-[11px] mt-2 leading-relaxed text-red-400">
+                    ❌ Repair failed: {repairState.error}
                   </p>
                 )}
               </div>
