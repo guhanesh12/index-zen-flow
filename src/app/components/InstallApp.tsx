@@ -200,29 +200,8 @@ export function InstallApp() {
 
   return (
     <>
-      {/* 🆕 Floating Install Button - ALWAYS VISIBLE when not installed */}
-      {showFloatingButton && !isInstalled && (
-        <button
-          onClick={handleInstallClick}
-          disabled={isInstalling}
-          className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-semibold rounded-full shadow-2xl hover:shadow-blue-500/50 transition-all duration-300 hover:scale-105 animate-in slide-in-from-bottom-8 group ${
-            isInstalling ? 'opacity-50 cursor-wait' : ''
-          }`}
-          title="Install IndexpilotAI"
-        >
-          {isInstalling ? (
-            <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              <span className="hidden sm:inline">Installing...</span>
-            </>
-          ) : (
-            <>
-              <Download className="w-5 h-5 group-hover:animate-bounce" />
-              <span className="hidden sm:inline">Install App</span>
-            </>
-          )}
-        </button>
-      )}
+      {/* Floating Install Button removed per user request */}
+
 
       {/* Smart Install Popup - Shows once on first visit */}
       {showInstallPrompt && !isInstalling && (
