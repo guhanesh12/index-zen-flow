@@ -1091,32 +1091,6 @@ export async function repairUserVPS(ipAddress: string): Promise<{ success: boole
       return { success: false, error: 'Order server API key not configured' };
     }
 
-    const rebuildScript = generateCloudInitScript(ORDER_SERVER_API_KEY);
-    const escapedScript = rebuildScript.replace(/'/g, `'"'"'`);
-    const rebuildResponse = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${DO_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        type: 'run_command',
-        command: `cat > /root/indexpilot-repair.sh <<'REPAIR_EOF'\n${escapedScript}\nREPAIR_EOF\nbash /root/indexpilot-repair.sh > /var/log/indexpilot-repair.log 2>&1 &`
-      })
-    });
-
-    if (rebuildResponse.ok) {
-      console.log(`🛠️ Started in-place order server redeploy on droplet ${dropletId} (IP ${ipAddress})`);
-      return {
-        success: true,
-        dropletId: String(dropletId),
-        message: 'Server repair started. The order server is being redeployed and should be UP in 1–2 minutes.'
-      };
-    }
-
-    const rebuildError = await rebuildResponse.text().catch(() => '');
-    console.warn(`⚠️ In-place repair command failed for droplet ${dropletId}; falling back to power cycle:`, rebuildError);
-
     const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
       method: 'POST',
       headers: {
