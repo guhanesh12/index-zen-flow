@@ -46,6 +46,7 @@ interface ProvisioningJob {
     ipAssigned?: string;             // ~2-3 min: IP assigned to user
     completed?: string;              // ~2-3 min: Ready for orders!
   };
+  preserveExpiryAt?: string;
 }
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
@@ -103,6 +104,23 @@ async function ensureIPPoolEntry(job: ProvisioningJob, ipAddress: string) {
   });
 }
 
+async function deleteDigitalOceanDroplet(dropletId: string | number, apiToken: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${apiToken}` },
+    });
+
+    const success = response.ok || response.status === 204 || response.status === 404;
+    return {
+      success,
+      error: success ? undefined : await response.text().catch(() => 'DigitalOcean delete failed'),
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
 async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string): Promise<ProvisioningJob> {
   const addResult = await ensureIPPoolEntry(job, ipAddress);
 
@@ -148,6 +166,8 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
       const preserve = await kv.get(`ip_recreate_preserve:${job.userId}`) as any;
       if (preserve?.expiresAt && new Date(preserve.expiresAt) > new Date()) {
         preservedExpiresAt = preserve.expiresAt;
+      } else if (job.preserveExpiryAt && new Date(job.preserveExpiryAt) > new Date()) {
+        preservedExpiresAt = job.preserveExpiryAt;
       }
     } catch {}
 
@@ -639,7 +659,8 @@ runcmd:
  */
 async function provisionDigitalOceanDroplet(
   userId: string,
-  orderServerApiKey: string
+  orderServerApiKey: string,
+  options: { preserveExpiryAt?: string; replacingIpAddress?: string; replacingDropletId?: string | number } = {}
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
   try {
     const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
@@ -689,11 +710,20 @@ async function provisionDigitalOceanDroplet(
       status: 'creating',
       dropletId: droplet.id.toString(),
       startedAt: new Date().toISOString(),
-      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES
+      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES,
+      preserveExpiryAt: options.preserveExpiryAt,
     };
 
     await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
     await kv.set(`${PROVISIONING_PREFIX}user:${userId}`, jobId);
+    if (options.preserveExpiryAt) {
+      await kv.set(`ip_recreate_preserve:${userId}`, {
+        expiresAt: options.preserveExpiryAt,
+        replacingIpAddress: options.replacingIpAddress,
+        replacingDropletId: options.replacingDropletId ? String(options.replacingDropletId) : undefined,
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     console.log(`✅ Droplet creation initiated for user ${userId}: ${droplet.id}`);
 
@@ -1027,6 +1057,81 @@ export async function provisionDedicatedIP(userId: string): Promise<{
   }
 }
 
+export async function replaceUnhealthyUserVPS(
+  userId: string,
+  currentIpAddress: string,
+  preserveExpiryAt?: string
+): Promise<{
+  success: boolean;
+  jobId?: string;
+  estimatedMinutes?: number;
+  oldIpAddress?: string;
+  deletion?: { success: boolean; error?: string; dropletId?: string };
+  error?: string;
+  message?: string;
+}> {
+  try {
+    const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
+    if (!DO_API_TOKEN) {
+      return { success: false, error: 'DigitalOcean API token not configured' };
+    }
+
+    const ORDER_SERVER_API_KEY = Deno.env.get('ORDER_SERVER_API_KEY');
+    if (!ORDER_SERVER_API_KEY) {
+      return { success: false, error: 'Order server API key not configured' };
+    }
+
+    const ipEntry = await kv.get(`ip_pool:${currentIpAddress}`) as any;
+    const oldDropletId = ipEntry?.metadata?.dropletId;
+    const expiresAt = preserveExpiryAt && new Date(preserveExpiryAt) > new Date()
+      ? preserveExpiryAt
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    let deletion: { success: boolean; error?: string; dropletId?: string } = { success: false, error: 'No droplet ID found for old IP' };
+    if (oldDropletId) {
+      const deleteResult = await deleteDigitalOceanDroplet(oldDropletId, DO_API_TOKEN);
+      deletion = { ...deleteResult, dropletId: String(oldDropletId) };
+    }
+
+    const oldJob = await getUserProvisioningJob(userId);
+    if (oldJob) {
+      oldJob.status = 'failed';
+      oldJob.error = 'Replaced because the VPS was active but order server port 3000 was down';
+      oldJob.completedAt = new Date().toISOString();
+      await kv.set(`${PROVISIONING_PREFIX}${oldJob.id}`, oldJob);
+    }
+
+    await kv.del(`user_ip_assignment:${userId}`);
+    await kv.del(`ip_assignment:${userId}:dedicated`);
+    await kv.del(`ip_pool:${currentIpAddress}`);
+    await kv.del(`${PROVISIONING_PREFIX}pending:${currentIpAddress}`);
+    await kv.del(`vps_power:${userId}`);
+    await kv.del(`${PROVISIONING_PREFIX}user:${userId}`);
+
+    const result = await provisionDigitalOceanDroplet(userId, ORDER_SERVER_API_KEY, {
+      preserveExpiryAt: expiresAt,
+      replacingIpAddress: currentIpAddress,
+      replacingDropletId: oldDropletId,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.error || 'Failed to start replacement VPS provisioning', deletion, oldIpAddress: currentIpAddress };
+    }
+
+    return {
+      success: true,
+      jobId: result.jobId,
+      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES,
+      oldIpAddress: currentIpAddress,
+      deletion,
+      message: 'Old unhealthy VPS removed. A fresh VPS is being created now and will show a new IP when ready.',
+    };
+  } catch (error: any) {
+    console.error('❌ replaceUnhealthyUserVPS error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 /**
  * Delete VPS when user cancels subscription
  */
@@ -1069,9 +1174,9 @@ export async function deprovisionVPS(ipAddress: string): Promise<{ success: bool
 }
 
 /**
- * Repair an unresponsive order server by rebuilding it from the same startup
- * script used for new droplets, then power-cycling as a final fallback. This
- * fixes droplets that are online but never received/ran the order server.
+ * Repair an unresponsive order server by power-cycling the droplet via
+ * the DigitalOcean API. The systemd service `pm2-root` is enabled at boot,
+ * so the order server should come back online automatically (~60-90s).
  */
 export async function repairUserVPS(ipAddress: string): Promise<{ success: boolean; error?: string; message?: string; dropletId?: string }> {
   try {
