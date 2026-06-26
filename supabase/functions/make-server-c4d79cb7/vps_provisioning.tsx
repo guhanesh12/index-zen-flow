@@ -141,6 +141,15 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
     // Build assignment DIRECTLY for the freshly provisioned IP — do NOT call
     // assignIPToUser() which picks an arbitrary IP from the pool and could
     // hand back a stale/old IP that wasn't yet cleaned up.
+    // 🆕 Honor preserved expiry from a "Destroy & Create NEW IP" recreate flow.
+    let preservedExpiresAt: string | null = null;
+    try {
+      const preserve = await kv.get(`ip_recreate_preserve:${job.userId}`) as any;
+      if (preserve?.expiresAt && new Date(preserve.expiresAt) > new Date()) {
+        preservedExpiresAt = preserve.expiresAt;
+      }
+    } catch {}
+
     const newAssignment = {
       userId: job.userId,
       ipAddress,
@@ -148,12 +157,15 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
       provider: 'digitalocean',
       assignedAt: new Date().toISOString(),
       subscriptionStatus: 'active',
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: preservedExpiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       monthlyFee: DEDICATED_IP_MONTHLY_FEE,
       lastUsedAt: new Date().toISOString(),
     };
     await kv.set(`user_ip_assignment:${job.userId}`, newAssignment);
     await kv.set(`ip_assignment:${job.userId}:dedicated`, newAssignment);
+    if (preservedExpiresAt) {
+      try { await kv.del(`ip_recreate_preserve:${job.userId}`); } catch {}
+    }
 
     const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
     if (ipEntry && !ipEntry.assignedUsers?.includes(job.userId)) {
