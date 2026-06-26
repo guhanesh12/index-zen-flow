@@ -6,7 +6,7 @@
  * 
  * Flow:
  * 1. User subscribes to dedicated IP (₹199/month)
- * 2. System creates new VPS droplet via API (fast path ~2-4 minutes)
+ * 2. System creates new VPS droplet via API (15 minutes)
  * 3. Auto-deploys order server using cloud-init
  * 4. Adds IP to pool automatically
  * 5. Assigns to user
@@ -37,27 +37,25 @@ interface ProvisioningJob {
   error?: string;
   estimatedMinutes: number;
   timeline?: {
-    vpsCreationStart?: string;      // ~0-1 min: DigitalOcean creates VPS
-    vpsActive?: string;              // ~1 min: VPS booted and active
-    deploymentStart?: string;        // ~1 min: cloud-init starts
-    systemSetupComplete?: string;    // ~2 min: Node.js service installed
-    serverDeployed?: string;         // ~2-3 min: Server running
-    healthCheckPassed?: string;      // ~2-3 min: Health check passes
-    ipAssigned?: string;             // ~2-3 min: IP assigned to user
-    completed?: string;              // ~2-3 min: Ready for orders!
+    vpsCreationStart?: string;      // ~0-5 min: DigitalOcean creates VPS
+    vpsActive?: string;              // ~5 min: VPS booted and active
+    deploymentStart?: string;        // ~5 min: Cloud-init starts
+    systemSetupComplete?: string;    // ~8 min: Node.js + PM2 installed
+    serverDeployed?: string;         // ~10 min: Server running
+    healthCheckPassed?: string;      // ~11 min: Health check passes
+    ipAssigned?: string;             // ~11 min: IP assigned to user
+    completed?: string;              // ~11 min: Ready for orders!
   };
-  preserveExpiryAt?: string;
 }
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
 const DEDICATED_IP_MONTHLY_FEE = 599;
 const ORDER_SERVER_VERSION = '1.1.0';
-const FAST_PROVISIONING_ESTIMATE_MINUTES = 3;
 
 async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
   try {
     const healthResponse = await fetch(`http://${ipAddress}:3000/health`, {
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(5000),
       headers: {
         'User-Agent': 'IndexpilotAI-Provisioning-Reconcile/1.0',
         'Cache-Control': 'no-cache'
@@ -102,23 +100,6 @@ async function ensureIPPoolEntry(job: ProvisioningJob, ipAddress: string) {
       provisioningJobId: job.id,
     }
   });
-}
-
-async function deleteDigitalOceanDroplet(dropletId: string | number, apiToken: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${apiToken}` },
-    });
-
-    const success = response.ok || response.status === 204 || response.status === 404;
-    return {
-      success,
-      error: success ? undefined : await response.text().catch(() => 'DigitalOcean delete failed'),
-    };
-  } catch (error: any) {
-    return { success: false, error: error.message };
-  }
 }
 
 async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string): Promise<ProvisioningJob> {
@@ -166,8 +147,6 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
       const preserve = await kv.get(`ip_recreate_preserve:${job.userId}`) as any;
       if (preserve?.expiresAt && new Date(preserve.expiresAt) > new Date()) {
         preservedExpiresAt = preserve.expiresAt;
-      } else if (job.preserveExpiryAt && new Date(job.preserveExpiryAt) > new Date()) {
-        preservedExpiresAt = job.preserveExpiryAt;
       }
     } catch {}
 
@@ -231,7 +210,7 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
   job.ipAddress = ipAddress;
   job.completedAt = completedAt;
   job.error = undefined;
-  job.estimatedMinutes = Math.min(FAST_PROVISIONING_ESTIMATE_MINUTES, Math.max(1, Math.round(totalTime / 60)));
+  job.estimatedMinutes = Math.max(1, Math.round(totalTime / 60));
   job.timeline = {
     ...(job.timeline || {}),
     systemSetupComplete: completedAt,
@@ -303,18 +282,6 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 
     const reachable = await checkOrderServerHealth(ipAddress);
     if (!reachable) {
-      const startedAtMs = new Date(job.startedAt || Date.now()).getTime();
-      const elapsedMs = Date.now() - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now());
-
-      // DigitalOcean can report the droplet as active and cloud-init complete while
-      // external port probes are still blocked/refused briefly. Do not keep the UI
-      // stuck forever once the user has a real DO IP; assign the IP after the fast
-      // provisioning window and let the separate connectivity checker show any issue.
-      if (job.status === 'deploying' && elapsedMs >= FAST_PROVISIONING_ESTIMATE_MINUTES * 60 * 1000) {
-        console.warn(`⚠️ Finalizing ${job.id} with active IP ${ipAddress} after ${Math.round(elapsedMs / 1000)}s despite health probe failure.`);
-        return await finalizeProvisioningJob(job, ipAddress);
-      }
-
       return job;
     }
 
@@ -331,41 +298,56 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 function generateCloudInitScript(orderServerApiKey: string): string {
   return `#!/bin/bash
 
+# ===================================
 # IndexpilotAI Order Server Auto-Deploy
-# ASCII-only and non-fatal bootstrap so one package warning cannot stop server startup.
-set +e
+# IMPROVED VERSION - 100% AUTOMATIC
+# ===================================
+
+set -e
 
 # Log everything
 exec > >(tee -a /var/log/indexpilot-deploy.log)
 exec 2>&1
 
 echo "========================================="
-echo "IndexpilotAI Auto-Deployment Starting"
+echo "🤖 IndexpilotAI Auto-Deployment Starting"
 echo "Time: $(date)"
 echo "========================================="
 
-# Update package index only — full apt upgrade makes provisioning slow.
-echo "[1/6] Updating package index..."
+# Update system
+echo "📦 [1/8] Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
+apt-get upgrade -y -qq
 
-# Install Node.js from Ubuntu repo for fastest bootstrapping.
-echo "[2/6] Installing Node.js..."
-apt-get install -y -qq nodejs curl ufw || apt-get install -y nodejs curl ufw
+# Install Node.js 18.x
+echo "📦 [2/8] Installing Node.js 18.x..."
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash - 
+apt-get install -y nodejs
 
 node --version
+npm --version
+
+# Install PM2 for process management
+echo "📦 [3/8] Installing PM2..."
+npm install -g pm2
 
 # Create order server directory
-echo "[3/6] Creating server directory..."
+echo "📁 [4/8] Creating server directory..."
 mkdir -p /root/indexpilot-order-server
 cd /root/indexpilot-order-server
 
 # Create server.js
-echo "[4/6] Creating server files..."
+echo "📝 [5/8] Creating server files..."
 cat > server.js << 'SERVEREOF'
-const http = require('http');
-const https = require('https');
-const { URL } = require('url');
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const app = express();
+
+app.use(express.json({ limit: '10mb' }));
+app.use(cors());
+
 const PORT = process.env.PORT || 3000;
 const ORDER_SERVER_API_KEY = process.env.ORDER_SERVER_API_KEY;
 
@@ -374,160 +356,171 @@ const log = (msg) => {
   console.log(\`[\${timestamp}] \${msg}\`);
 };
 
-function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS'
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    service: 'indexpilot-order-server',
+    version: '${ORDER_SERVER_VERSION}',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    apiKeyConfigured: !!ORDER_SERVER_API_KEY,
+    marketOnlyEnforced: true
   });
-  res.end(JSON.stringify(data));
-}
+});
 
-function readJson(req) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk;
-      if (body.length > 10 * 1024 * 1024) {
-        req.destroy();
-        reject(new Error('Request body too large'));
-      }
-    });
-    req.on('end', () => {
-      if (!body) return resolve({});
-      try { resolve(JSON.parse(body)); } catch (error) { reject(error); }
-    });
-    req.on('error', reject);
+// Test endpoint
+app.get('/test', (req, res) => {
+  res.json({
+    message: 'IndexpilotAI Order Server is running!',
+    version: '${ORDER_SERVER_VERSION}',
+    timestamp: new Date().toISOString(),
+    apiKeyConfigured: !!ORDER_SERVER_API_KEY,
+    marketOnlyEnforced: true,
+    endpoints: {
+      health: '/health',
+      placeOrder: '/place-order (POST)',
+      orderStatus: '/order-status/:orderId (GET)',
+      cancelOrder: '/cancel-order/:orderId (DELETE)'
+    }
   });
-}
+});
 
-function dhanRequest(method, path, accessToken, payload) {
-  return new Promise((resolve, reject) => {
-    const data = payload ? JSON.stringify(payload) : '';
-    const req = https.request({
-      hostname: 'api.dhan.co',
-      port: 443,
-      path,
-      method,
-      timeout: 10000,
-      headers: {
-        'access-token': accessToken || '',
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data)
-      }
-    }, (apiRes) => {
-      let body = '';
-      apiRes.on('data', chunk => { body += chunk; });
-      apiRes.on('end', () => {
-        let parsed = body;
-        try { parsed = body ? JSON.parse(body) : {}; } catch (_) {}
-        resolve({ statusCode: apiRes.statusCode || 500, data: parsed });
-      });
-    });
-    req.on('timeout', () => req.destroy(new Error('Dhan API timeout')));
-    req.on('error', reject);
-    if (data) req.write(data);
-    req.end();
-  });
-}
-
-function isAuthorized(req) {
-  return req.headers.authorization === 'Bearer ' + ORDER_SERVER_API_KEY;
-}
-
-const server = http.createServer(async (req, res) => {
+// Place order endpoint
+app.post('/place-order', async (req, res) => {
   try {
-    if (req.method === 'OPTIONS') return sendJson(res, 200, { ok: true });
-    const parsedUrl = new URL(req.url || '/', 'http://localhost');
-
-    if (req.method === 'GET' && parsedUrl.pathname === '/health') {
-      return sendJson(res, 200, {
-        status: 'ok',
-        service: 'indexpilot-order-server',
-        version: '${ORDER_SERVER_VERSION}',
-        uptime: process.uptime(),
-        timestamp: new Date().toISOString(),
-        apiKeyConfigured: !!ORDER_SERVER_API_KEY,
-        marketOnlyEnforced: true
-      });
-    }
-
-    if (req.method === 'GET' && parsedUrl.pathname === '/test') {
-      return sendJson(res, 200, {
-        message: 'IndexpilotAI Order Server is running!',
-        version: '${ORDER_SERVER_VERSION}',
-        timestamp: new Date().toISOString(),
-        apiKeyConfigured: !!ORDER_SERVER_API_KEY,
-        marketOnlyEnforced: true,
-        endpoints: {
-          health: '/health',
-          placeOrder: '/place-order (POST)',
-          orderStatus: '/order-status/:orderId (GET)',
-          cancelOrder: '/cancel-order/:orderId (DELETE)'
-        }
-      });
-    }
-
-    if (!isAuthorized(req)) {
+    // Verify API key
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
       log('❌ Unauthorized access attempt');
-      return sendJson(res, 401, { error: 'Unauthorized: Invalid API key' });
+      return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
     }
 
-    if (req.method === 'POST' && parsedUrl.pathname === '/place-order') {
-      const body = await readJson(req);
-      const userId = body.userId;
-      const accessToken = body.accessToken;
-      const orderDetails = body.orderDetails;
+    const { userId, accessToken, orderDetails } = req.body;
+    
+    if (!userId || !accessToken || !orderDetails) {
+      log('❌ Missing required fields');
+      return res.status(400).json({ error: 'Missing required fields: userId, accessToken, orderDetails' });
+    }
 
-      if (!userId || !accessToken || !orderDetails) {
-        return sendJson(res, 400, { error: 'Missing required fields: userId, accessToken, orderDetails' });
+    const sanitizedOrderDetails = {
+      dhanClientId: orderDetails.dhanClientId,
+      securityId: String(orderDetails.securityId || ''),
+      transactionType: orderDetails.transactionType || 'BUY',
+      exchangeSegment: orderDetails.exchangeSegment || 'NSE_FNO',
+      productType: 'INTRADAY',
+      orderType: 'MARKET',
+      validity: 'DAY',
+      quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+      correlationId: orderDetails.correlationId || ('ORDER_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)),
+      disclosedQuantity: 0,
+      price: 0,
+      triggerPrice: 0,
+      afterMarketOrder: Boolean(orderDetails.afterMarketOrder),
+      ...(orderDetails.afterMarketOrder && orderDetails.amoTime ? { amoTime: orderDetails.amoTime } : {}),
+    };
+
+    log(\`📤 Placing MARKET order for user \${userId}\`);
+    log(\`🛡️ Sanitized broker payload: \${JSON.stringify({
+      securityId: sanitizedOrderDetails.securityId,
+      transactionType: sanitizedOrderDetails.transactionType,
+      exchangeSegment: sanitizedOrderDetails.exchangeSegment,
+      productType: sanitizedOrderDetails.productType,
+      orderType: sanitizedOrderDetails.orderType,
+      validity: sanitizedOrderDetails.validity,
+      quantity: sanitizedOrderDetails.quantity,
+      disclosedQuantity: sanitizedOrderDetails.disclosedQuantity,
+      price: sanitizedOrderDetails.price,
+      triggerPrice: sanitizedOrderDetails.triggerPrice,
+      afterMarketOrder: sanitizedOrderDetails.afterMarketOrder,
+      hasAmoTime: Boolean(sanitizedOrderDetails.amoTime),
+      hasBracketFields: false
+    })}\`);
+    log(\`📤 Order details: \${JSON.stringify(sanitizedOrderDetails).substring(0, 200)}\`);
+
+    // Forward to Dhan API
+    const response = await axios.post(
+      'https://api.dhan.co/v2/orders',
+      sanitizedOrderDetails,
+      {
+        headers: {
+          'access-token': accessToken,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
       }
+    );
 
-      const sanitizedOrderDetails = {
-        dhanClientId: orderDetails.dhanClientId,
-        securityId: String(orderDetails.securityId || ''),
-        transactionType: orderDetails.transactionType || 'BUY',
-        exchangeSegment: orderDetails.exchangeSegment || 'NSE_FNO',
-        productType: 'INTRADAY',
-        orderType: 'MARKET',
-        validity: 'DAY',
-        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
-        correlationId: orderDetails.correlationId || ('ORDER_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)),
-        disclosedQuantity: 0,
-        price: 0,
-        triggerPrice: 0,
-        afterMarketOrder: Boolean(orderDetails.afterMarketOrder)
-      };
-      if (orderDetails.afterMarketOrder && orderDetails.amoTime) sanitizedOrderDetails.amoTime = orderDetails.amoTime;
+    log(\`✅ Order placed successfully for user \${userId}: Order ID \${response.data.orderId}\`);
+    res.json(response.data);
 
-      log('📤 Placing MARKET order for user ' + userId);
-      const response = await dhanRequest('POST', '/v2/orders', accessToken, sanitizedOrderDetails);
-      return sendJson(res, response.statusCode, response.data);
-    }
-
-    if (req.method === 'GET' && parsedUrl.pathname.indexOf('/order-status/') === 0) {
-      const orderId = decodeURIComponent(parsedUrl.pathname.replace('/order-status/', ''));
-      const accessToken = parsedUrl.searchParams.get('accessToken');
-      const response = await dhanRequest('GET', '/v2/orders/' + encodeURIComponent(orderId), accessToken, null);
-      return sendJson(res, response.statusCode, response.data);
-    }
-
-    if (req.method === 'DELETE' && parsedUrl.pathname.indexOf('/cancel-order/') === 0) {
-      const orderId = decodeURIComponent(parsedUrl.pathname.replace('/cancel-order/', ''));
-      const body = await readJson(req);
-      const response = await dhanRequest('DELETE', '/v2/orders/' + encodeURIComponent(orderId), body.accessToken, null);
-      return sendJson(res, response.statusCode, response.data);
-    }
-
-    return sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
-    log('❌ Request failed: ' + error.message);
-    return sendJson(res, 500, { error: error.message || 'Internal server error' });
+    const errorMsg = error.response?.data || error.message;
+    log(\`❌ Order placement failed: \${JSON.stringify(errorMsg)}\`);
+    
+    res.status(error.response?.status || 500).json({ 
+      error: errorMsg,
+      errorCode: error.response?.data?.errorCode || 'UNKNOWN_ERROR'
+    });
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+// Get order status
+app.get('/order-status/:orderId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { orderId } = req.params;
+    const accessToken = req.query.accessToken;
+
+    const response = await axios.get(
+      \`https://api.dhan.co/v2/orders/\${orderId}\`,
+      {
+        headers: {
+          'access-token': accessToken,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cancel order
+app.delete('/cancel-order/:orderId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { orderId } = req.params;
+    const accessToken = req.body.accessToken;
+
+    const response = await axios.delete(
+      \`https://api.dhan.co/v2/orders/\${orderId}\`,
+      {
+        headers: {
+          'access-token': accessToken,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Start server
+app.listen(PORT, '0.0.0.0', () => {
   log(\`\`);
   log(\`========================================\`);
   log(\`📡 IndexpilotAI Order Server STARTED\`);
@@ -557,26 +550,75 @@ process.on('unhandledRejection', (reason, promise) => {
 log('✅ Server initialization complete');
 SERVEREOF
 
-# Create systemd service directly — faster than installing PM2.
-echo "[5/6] Starting order server with systemd..."
+# Create package.json
+cat > package.json << 'PACKAGEEOF'
+{
+  "name": "indexpilot-order-server",
+  "version": "${ORDER_SERVER_VERSION}",
+  "description": "IndexpilotAI Order Placement Server - Auto-deployed",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5"
+  }
+}
+PACKAGEEOF
+
+# Install dependencies
+echo "📦 [6/8] Installing npm packages..."
+npm install
+
+# Create PM2 ecosystem file
+cat > ecosystem.config.js << 'ECOEOF'
+module.exports = {
+  apps: [{
+    name: 'indexpilot-order-server',
+    script: 'server.js',
+    instances: 1,
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '500M',
+    env: {
+      NODE_ENV: 'production',
+      PORT: 3000,
+      ORDER_SERVER_API_KEY: '${orderServerApiKey}'
+    },
+    error_file: '/var/log/indexpilot-order-server-error.log',
+    out_file: '/var/log/indexpilot-order-server-out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true
+  }]
+};
+ECOEOF
+
+# Start with PM2 and configure persistent startup
+echo "🚀 [7/8] Starting order server with PM2..."
+pm2 start ecosystem.config.js
+pm2 save
+
+# Create systemd service directly (pm2 startup only prints the command, doesn't run it)
 cat > /etc/systemd/system/pm2-root.service << 'SVCEOF'
 [Unit]
-Description=IndexpilotAI Order Server
-After=network-online.target
-Wants=network-online.target
+Description=PM2 process manager
+Documentation=https://pm2.keymetrics.io/
+After=network.target
 
 [Service]
-Type=simple
+Type=forking
 User=root
-WorkingDirectory=/root/indexpilot-order-server
-Environment=NODE_ENV=production
-Environment=PORT=3000
-Environment="ORDER_SERVER_API_KEY=${orderServerApiKey}"
-ExecStart=/usr/bin/node /root/indexpilot-order-server/server.js
-Restart=always
-RestartSec=2
-StandardOutput=append:/var/log/indexpilot-order-server-out.log
-StandardError=append:/var/log/indexpilot-order-server-error.log
+LimitNOFILE=infinity
+LimitCORE=infinity
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/nvm/versions/node/v18.20.8/bin
+Environment=PM2_HOME=/root/.pm2
+PIDFile=/root/.pm2/pm2.pid
+ExecStart=/usr/lib/node_modules/pm2/bin/pm2 resurrect
+ExecReload=/usr/lib/node_modules/pm2/bin/pm2 reload all
+ExecStop=/usr/lib/node_modules/pm2/bin/pm2 kill
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
@@ -584,17 +626,17 @@ SVCEOF
 
 systemctl daemon-reload
 systemctl enable pm2-root
-systemctl restart pm2-root
+systemctl start pm2-root || true
 
 # Configure firewall
-echo "[6/6] Configuring firewall..."
+echo "🔒 [8/8] Configuring firewall..."
 ufw allow 22/tcp
 ufw allow 3000/tcp
 ufw --force enable
 
 # Create success marker
 echo "=========================================" >> /root/deployment-success.txt
-echo "IndexpilotAI Order Server Deployed!" >> /root/deployment-success.txt
+echo "✅ IndexpilotAI Order Server Deployed!" >> /root/deployment-success.txt
 echo "=========================================" >> /root/deployment-success.txt
 echo "Deployed at: $(date)" >> /root/deployment-success.txt
 echo "Server URL: http://$(hostname -I | awk '{print $1}'):3000" >> /root/deployment-success.txt
@@ -606,58 +648,33 @@ echo ""
 echo "========================================="
 echo "🧪 Testing server deployment..."
 echo "========================================="
-sleep 2
+sleep 5
 
 # Wait for server to start
-for i in {1..8}; do
+for i in {1..10}; do
   if curl -s http://localhost:3000/health > /dev/null; then
-    echo "Server health check PASSED!"
+    echo "✅ Server health check PASSED!"
     curl -s http://localhost:3000/health | head -20
     break
   else
-    echo "⏳ Waiting for server to start... ($i/8)"
-    sleep 2
+    echo "⏳ Waiting for server to start... ($i/10)"
+    sleep 3
   fi
 done
 
 echo ""
 echo "========================================="
-echo "DEPLOYMENT COMPLETE!"
+echo "✅ DEPLOYMENT COMPLETE!"
 echo "========================================="
-echo "Server Status:"
-systemctl --no-pager status pm2-root || true
+echo "📊 Server Status:"
+pm2 status
 echo ""
-echo "Access server at:"
+echo "📍 Access server at:"
 echo "   http://$(hostname -I | awk '{print $1}'):3000"
 echo "========================================="
 echo ""
 echo "Deployment log saved to: /var/log/indexpilot-deploy.log"
-echo "Server logs: journalctl -u pm2-root -f"
-`;
-}
-
-function base64EncodeUtf8(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-function getCloudConfigPayload(orderServerApiKey: string): string {
-  const shellScript = generateCloudInitScript(orderServerApiKey);
-
-  return `#cloud-config
-write_files:
-  - path: /root/indexpilot-cloud-init.sh
-    owner: root:root
-    permissions: '0755'
-    encoding: b64
-    content: ${base64EncodeUtf8(shellScript)}
-runcmd:
-  - [ bash, /root/indexpilot-cloud-init.sh ]
+echo "Server logs: pm2 logs indexpilot-order-server"
 `;
 }
 
@@ -666,8 +683,7 @@ runcmd:
  */
 async function provisionDigitalOceanDroplet(
   userId: string,
-  orderServerApiKey: string,
-  options: { preserveExpiryAt?: string; replacingIpAddress?: string; replacingDropletId?: string | number } = {}
+  orderServerApiKey: string
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
   try {
     const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
@@ -717,20 +733,11 @@ async function provisionDigitalOceanDroplet(
       status: 'creating',
       dropletId: droplet.id.toString(),
       startedAt: new Date().toISOString(),
-      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES,
-      preserveExpiryAt: options.preserveExpiryAt,
+      estimatedMinutes: 15
     };
 
     await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
     await kv.set(`${PROVISIONING_PREFIX}user:${userId}`, jobId);
-    if (options.preserveExpiryAt) {
-      await kv.set(`ip_recreate_preserve:${userId}`, {
-        expiresAt: options.preserveExpiryAt,
-        replacingIpAddress: options.replacingIpAddress,
-        replacingDropletId: options.replacingDropletId ? String(options.replacingDropletId) : undefined,
-        createdAt: new Date().toISOString(),
-      });
-    }
 
     console.log(`✅ Droplet creation initiated for user ${userId}: ${droplet.id}`);
 
@@ -757,10 +764,10 @@ async function monitorProvisioningJob(
 ) {
   try {
     let attempts = 0;
-    const maxAttempts = 72; // 6 minutes max (check every 5 seconds)
+    const maxAttempts = 30; // 7.5 minutes max (check every 15 seconds)
 
     while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      await new Promise(resolve => setTimeout(resolve, 15000)); // Wait 15 seconds
       attempts++;
 
       // Get droplet status
@@ -801,7 +808,7 @@ async function monitorProvisioningJob(
           continue;
         }
 
-        console.log(`✅ Droplet active! IP: ${ipAddress} (took ${attempts * 5}s)`);
+        console.log(`✅ Droplet active! IP: ${ipAddress} (took ${attempts * 15}s)`);
 
         // Update job to deploying
         job.status = 'deploying';
@@ -814,26 +821,29 @@ async function monitorProvisioningJob(
         await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
 
         // Phase 2: Wait for cloud-init deployment
-        // OPTIMIZED: cloud-init now avoids apt upgrade, npm install, and PM2 install.
-        console.log(`⏳ Waiting 10 seconds for cloud-init to start, then checking health...`);
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        // OPTIMIZED: Our cloud-init script is minimal (Node.js + 3 npm packages)
+        // Real timing: apt-get (30s) + Node.js (20s) + npm install (15s) = 65 seconds
+        console.log(`⏳ Waiting 30 seconds for cloud-init to start, then checking health...`);
+        await new Promise(resolve => setTimeout(resolve, 30000)); // REDUCED: 30 seconds (was 90s)
 
         // Phase 3: AGGRESSIVE health checks
         // Start checking EARLY and OFTEN
         let healthCheckPassed = false;
-        const maxHealthChecks = 60; // up to ~3 minutes of fast health checks
+        const maxHealthChecks = 25; // 25 attempts total
         
         console.log(`🧪 Starting AGGRESSIVE health checks for ${ipAddress}:3000/health...`);
         
         for (let i = 0; i < maxHealthChecks; i++) {
-          const checkInterval = 2500;
           try {
-            const attemptType = 'FAST';
+            // First 15 attempts: Check every 5 seconds (fast polling)
+            // Last 10 attempts: Check every 10 seconds (slower polling)
+            const checkInterval = i < 15 ? 5000 : 10000;
+            const attemptType = i < 15 ? 'FAST' : 'SLOW';
             
             console.log(`⏳ [${attemptType}] Health check attempt ${i + 1}/${maxHealthChecks} for ${ipAddress}...`);
             
             const healthResponse = await fetch(`http://${ipAddress}:3000/health`, {
-              signal: AbortSignal.timeout(2500),
+              signal: AbortSignal.timeout(6000), // 6 seconds timeout
               headers: {
                 'User-Agent': 'IndexpilotAI-HealthCheck/2.0',
                 'Cache-Control': 'no-cache'
@@ -843,7 +853,7 @@ async function monitorProvisioningJob(
             if (healthResponse.ok) {
               const healthData = await healthResponse.json();
               healthCheckPassed = true;
-              const elapsed = attempts * 5 + 10 + Math.round((i * checkInterval) / 1000);
+              const elapsed = attempts * 15 + 30 + (i < 15 ? i * 5 : (15 * 5) + ((i - 15) * 10));
               console.log(`✅ Health check PASSED for ${ipAddress}!`);
               console.log(`✅ Server response:`, JSON.stringify(healthData));
               console.log(`✅ Total time: ${Math.floor(elapsed/60)}:${(elapsed%60).toString().padStart(2,'0')} (${elapsed}s)`);
@@ -852,7 +862,7 @@ async function monitorProvisioningJob(
               console.log(`⚠️ Health check returned status ${healthResponse.status}, retrying...`);
             }
           } catch (error: any) {
-            const attemptType = 'FAST';
+            const attemptType = i < 15 ? 'FAST' : 'SLOW';
             console.log(`⚠️ [${attemptType}] Health check attempt ${i + 1}/${maxHealthChecks} failed: ${error.message}`);
             
             // Firewall detection
@@ -864,19 +874,37 @@ async function monitorProvisioningJob(
             
             // Wait before retry
             if (i < maxHealthChecks - 1) {
-              const waitTime = checkInterval / 1000;
+              const waitTime = i < 15 ? 5 : 10;
               console.log(`⏳ Retrying in ${waitTime} seconds...`);
-              await new Promise(resolve => setTimeout(resolve, checkInterval));
+              await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             }
           }
         }
 
         if (!healthCheckPassed) {
-          const maxWaitTime = Math.round((maxHealthChecks * 2.5));
-          console.warn(`⚠️ Health probe did not pass after ${maxWaitTime}s for ${ipAddress}; finalizing because DigitalOcean returned an active public IP.`);
-          job.ipAddress = ipAddress;
+          const maxWaitTime = (15 * 5) + (10 * 10); // 175 seconds total
+          console.error(`❌ Health check failed after ${maxWaitTime} seconds`);
+          console.error(`❌ VPS IP: ${ipAddress}`);
+          console.error(`❌ Droplet ID: ${dropletId}`);
+          console.error(`❌ This might be a firewall issue - port 3000 might be blocked`);
+          
+          job.status = 'failed';
+          job.error = `Health check timeout after ${maxWaitTime} seconds. Server might be running but port 3000 is not accessible. Check firewall settings.`;
+          job.ipAddress = ipAddress; // IMPORTANT: Save IP even on failure so admin can manually check
           job.dropletId = dropletId;
-          await finalizeProvisioningJob(job, ipAddress);
+          await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
+          
+          // Create a "pending_manual_verification" status instead of complete failure
+          await kv.set(`${PROVISIONING_PREFIX}pending:${ipAddress}`, {
+            jobId,
+            userId: job.userId,
+            ipAddress,
+            dropletId,
+            reason: 'health_check_timeout',
+            timestamp: new Date().toISOString()
+          });
+          
+          console.log(`⚠️ Job marked for manual verification: ${jobId}`);
           return;
         }
 
@@ -885,14 +913,14 @@ async function monitorProvisioningJob(
         return;
       }
 
-      console.log(`⏳ Droplet status: ${droplet.status} (attempt ${attempts}/${maxAttempts}, elapsed: ${attempts * 5}s)`);
+      console.log(`⏳ Droplet status: ${droplet.status} (attempt ${attempts}/${maxAttempts}, elapsed: ${attempts * 15}s)`);
     }
 
     // Timeout
     const job = await kv.get(`${PROVISIONING_PREFIX}${jobId}`) as ProvisioningJob;
     if (job) {
       job.status = 'failed';
-      job.error = 'Provisioning timeout - took longer than 6 minutes';
+      job.error = 'Provisioning timeout - took longer than 7.5 minutes';
       await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
     }
 
@@ -1032,7 +1060,7 @@ export async function provisionDedicatedIP(userId: string): Promise<{
       return {
         success: true,
         jobId: existingJob.id,
-        estimatedMinutes: existingJob.estimatedMinutes || FAST_PROVISIONING_ESTIMATE_MINUTES,
+        estimatedMinutes: existingJob.estimatedMinutes || 8,
         alreadyProvisioning: true,
         status: existingJob.status,
         message: `Provisioning already in progress. Status: ${existingJob.status}`,
@@ -1055,86 +1083,11 @@ export async function provisionDedicatedIP(userId: string): Promise<{
     return {
       success: true,
       jobId: result.jobId,
-      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES
+      estimatedMinutes: 8
     };
 
   } catch (error: any) {
     console.error('❌ provisionDedicatedIP error:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-export async function replaceUnhealthyUserVPS(
-  userId: string,
-  currentIpAddress: string,
-  preserveExpiryAt?: string
-): Promise<{
-  success: boolean;
-  jobId?: string;
-  estimatedMinutes?: number;
-  oldIpAddress?: string;
-  deletion?: { success: boolean; error?: string; dropletId?: string };
-  error?: string;
-  message?: string;
-}> {
-  try {
-    const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
-    if (!DO_API_TOKEN) {
-      return { success: false, error: 'DigitalOcean API token not configured' };
-    }
-
-    const ORDER_SERVER_API_KEY = Deno.env.get('ORDER_SERVER_API_KEY');
-    if (!ORDER_SERVER_API_KEY) {
-      return { success: false, error: 'Order server API key not configured' };
-    }
-
-    const ipEntry = await kv.get(`ip_pool:${currentIpAddress}`) as any;
-    const oldDropletId = ipEntry?.metadata?.dropletId;
-    const expiresAt = preserveExpiryAt && new Date(preserveExpiryAt) > new Date()
-      ? preserveExpiryAt
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    let deletion: { success: boolean; error?: string; dropletId?: string } = { success: false, error: 'No droplet ID found for old IP' };
-    if (oldDropletId) {
-      const deleteResult = await deleteDigitalOceanDroplet(oldDropletId, DO_API_TOKEN);
-      deletion = { ...deleteResult, dropletId: String(oldDropletId) };
-    }
-
-    const oldJob = await getUserProvisioningJob(userId);
-    if (oldJob) {
-      oldJob.status = 'failed';
-      oldJob.error = 'Replaced because the VPS was active but order server port 3000 was down';
-      oldJob.completedAt = new Date().toISOString();
-      await kv.set(`${PROVISIONING_PREFIX}${oldJob.id}`, oldJob);
-    }
-
-    await kv.del(`user_ip_assignment:${userId}`);
-    await kv.del(`ip_assignment:${userId}:dedicated`);
-    await kv.del(`ip_pool:${currentIpAddress}`);
-    await kv.del(`${PROVISIONING_PREFIX}pending:${currentIpAddress}`);
-    await kv.del(`vps_power:${userId}`);
-    await kv.del(`${PROVISIONING_PREFIX}user:${userId}`);
-
-    const result = await provisionDigitalOceanDroplet(userId, ORDER_SERVER_API_KEY, {
-      preserveExpiryAt: expiresAt,
-      replacingIpAddress: currentIpAddress,
-      replacingDropletId: oldDropletId,
-    });
-
-    if (!result.success) {
-      return { success: false, error: result.error || 'Failed to start replacement VPS provisioning', deletion, oldIpAddress: currentIpAddress };
-    }
-
-    return {
-      success: true,
-      jobId: result.jobId,
-      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES,
-      oldIpAddress: currentIpAddress,
-      deletion,
-      message: 'Old unhealthy VPS removed. A fresh VPS is being created now and will show a new IP when ready.',
-    };
-  } catch (error: any) {
-    console.error('❌ replaceUnhealthyUserVPS error:', error);
     return { success: false, error: error.message };
   }
 }
@@ -1176,56 +1129,6 @@ export async function deprovisionVPS(ipAddress: string): Promise<{ success: bool
 
   } catch (error: any) {
     console.error('❌ Deprovisioning error:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-/**
- * Repair an unresponsive order server by power-cycling the droplet via
- * the DigitalOcean API. The systemd service `pm2-root` is enabled at boot,
- * so the order server should come back online automatically (~60-90s).
- */
-export async function repairUserVPS(ipAddress: string): Promise<{ success: boolean; error?: string; message?: string; dropletId?: string }> {
-  try {
-    const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
-    if (!DO_API_TOKEN) {
-      return { success: false, error: 'DigitalOcean API token not configured' };
-    }
-
-    const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
-    const dropletId = ipEntry?.metadata?.dropletId;
-    if (!dropletId) {
-      return { success: false, error: 'Droplet ID not found for this IP. Please contact support.' };
-    }
-
-    const ORDER_SERVER_API_KEY = Deno.env.get('ORDER_SERVER_API_KEY');
-    if (!ORDER_SERVER_API_KEY) {
-      return { success: false, error: 'Order server API key not configured' };
-    }
-
-    const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${DO_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ type: 'power_cycle' })
-    });
-
-    if (!response.ok) {
-      const txt = await response.text();
-      console.error(`❌ Power-cycle failed for droplet ${dropletId}:`, txt);
-      return { success: false, error: `DigitalOcean API returned ${response.status}` };
-    }
-
-    console.log(`🔄 Power-cycled droplet ${dropletId} (IP ${ipAddress}) to repair order server`);
-    return {
-      success: true,
-      dropletId: String(dropletId),
-      message: 'Server reboot started as fallback. If it is still down after 2 minutes, use Destroy & Create NEW IP.'
-    };
-  } catch (error: any) {
-    console.error('❌ repairUserVPS error:', error);
     return { success: false, error: error.message };
   }
 }

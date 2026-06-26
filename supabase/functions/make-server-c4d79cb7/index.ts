@@ -25,7 +25,6 @@ import * as VPSProvisioning from "./vps_provisioning.tsx";
 import * as VPSPower from "./vps_power.tsx";
 
 const app = new Hono();
-const FAST_VPS_ESTIMATE_MINUTES = 3;
 
 // Initialize default admin hotkey on server start (non-blocking, non-critical)
 initializeDefaultHotkey().catch(err => {
@@ -2546,7 +2545,7 @@ app.get("/make-server-c4d79cb7/check-vps-connectivity", async (c) => {
       testedAt: new Date().toISOString(),
       hint: reachable
         ? `✅ Your dedicated VPS at ${ipInfo.ipAddress} is UP. Orders will route through this IP when market opens.`
-        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: sudo systemctl restart pm2-root`,
+        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: pm2 restart indexpilot-order-server`,
     });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
@@ -5830,11 +5829,7 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    let assignment = await IPPoolManager.getUserIPAssignment(user.id);
-    if (!assignment) {
-      await VPSProvisioning.reconcileUserProvisioningJob(user.id);
-      assignment = await IPPoolManager.getUserIPAssignment(user.id);
-    }
+    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
     
     if (!assignment) {
       return c.json({
@@ -5863,57 +5858,6 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   }
 });
 
-// 🔧 Repair the user's order-server VPS when port 3000 is unresponsive.
-// If the droplet is online but the order server is still refusing connections,
-// replace only this user's VPS with a fresh droplet instead of looping reboots.
-app.post("/make-server-c4d79cb7/ip-pool/repair-vps", async (c) => {
-  try {
-    const { user, error } = await validateAuth(c);
-    if (error || !user) {
-      return c.json({ code: error?.code, message: error?.message }, error?.code || 401);
-    }
-
-    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
-    if (!assignment?.ipAddress) {
-      return c.json({ success: false, error: 'No dedicated IP assigned to this user.' }, 400);
-    }
-
-    const endpoint = `http://${assignment.ipAddress}:3000/health`;
-    let reachable = false;
-    try {
-      const resp = await fetch(endpoint, {
-        signal: AbortSignal.timeout(8000),
-        headers: { 'Cache-Control': 'no-cache', 'User-Agent': 'IndexpilotAI-RepairCheck/1.0' },
-      });
-      reachable = resp.ok;
-    } catch {
-      reachable = false;
-    }
-
-    if (reachable) {
-      return c.json({
-        success: true,
-        repaired: false,
-        reachable: true,
-        ipAddress: assignment.ipAddress,
-        message: 'Order server is already UP.'
-      });
-    }
-
-    const result = await VPSProvisioning.replaceUnhealthyUserVPS(user.id, assignment.ipAddress, assignment.expiresAt);
-    return c.json({
-      ...result,
-      provisioning: result.success,
-      ipAddress: assignment.ipAddress,
-      oldIpAddress: assignment.ipAddress,
-      message: result.message || 'Unhealthy VPS replaced. New server creation started.',
-    });
-  } catch (err: any) {
-    console.error('❌ repair-vps error:', err);
-    return c.json({ success: false, error: err.message }, 500);
-  }
-});
-
 // 🌐 Recover/link an already-created dedicated VPS to the current user
 app.post("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   try {
@@ -5933,21 +5877,6 @@ app.post("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
     }
 
     const job = await VPSProvisioning.reconcileUserProvisioningJob(user.id);
-    const reconciledAssignment = await IPPoolManager.getUserIPAssignment(user.id);
-    if (reconciledAssignment?.ipAddress && reconciledAssignment.subscriptionStatus === 'active') {
-      return c.json({
-        success: true,
-        provisioning: false,
-        message: 'Dedicated VPS is active',
-        assignment: {
-          ipAddress: reconciledAssignment.ipAddress,
-          provider: reconciledAssignment.provider,
-          assignedAt: reconciledAssignment.assignedAt,
-          expiresAt: reconciledAssignment.expiresAt,
-          subscriptionStatus: reconciledAssignment.subscriptionStatus,
-        }
-      });
-    }
     assignment = await IPPoolManager.getUserIPAssignment(user.id);
 
     if (assignment) {
@@ -6049,7 +5978,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
         alreadyProvisioning: true,
         message: `VPS provisioning already in progress. Status: ${existingJob.status}`,
         jobId: existingJob.id,
-        estimatedMinutes: existingJob.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
+        estimatedMinutes: existingJob.estimatedMinutes || 8,
       });
     }
 
@@ -6078,7 +6007,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
           alreadyProvisioning: true,
           message: provisionResult.message || 'VPS provisioning already in progress',
           jobId: provisionResult.jobId,
-          estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
+          estimatedMinutes: provisionResult.estimatedMinutes || 8,
           wallet: { balance: wallet.balance, deducted: 0 }
         });
       }
@@ -6090,7 +6019,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
         }, 400);
       }
 
-      // Deduct from wallet immediately (VPS starts provisioning now)
+      // Deduct from wallet immediately (VPS will be ready in 15 minutes)
       wallet.balance -= DEDICATED_IP_FEE;
       wallet.totalDeducted = (wallet.totalDeducted || 0) + DEDICATED_IP_FEE;
       await kv.set(`wallet:${user.id}`, wallet);
@@ -6320,7 +6249,7 @@ app.post("/make-server-c4d79cb7/ip-pool/provisioning-restart", async (c) => {
       message: 'Old provisioning cleared. New VPS creation started with the current DigitalOcean token.',
       provisioning: true,
       jobId: provisionResult.jobId,
-      estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
+      estimatedMinutes: provisionResult.estimatedMinutes || 8,
       oldJobId: existingJob.id,
       deletionAttempted: cancelResult.deletionAttempted,
       deletionSucceeded: cancelResult.deletionSucceeded,
@@ -6454,7 +6383,7 @@ app.post("/make-server-c4d79cb7/ip-pool/recreate", async (c) => {
       message: 'Old VPS fully destroyed (DigitalOcean + database). New VPS creation started — subscription expiry preserved.',
       provisioning: true,
       jobId: provisionResult.jobId,
-      estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
+      estimatedMinutes: provisionResult.estimatedMinutes || 8,
       purgedIps: Array.from(ipsToPurge),
       preservedExpiresAt,
       deletionResults,
@@ -6763,7 +6692,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
         alreadyProvisioning: true,
         message: `Payment successful. VPS provisioning is already in progress. Status: ${existingJob.status}`,
         jobId: existingJob.id,
-        estimatedMinutes: existingJob.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
+        estimatedMinutes: existingJob.estimatedMinutes || 8,
         paymentId: razorpay_payment_id
       });
     }
@@ -6779,7 +6708,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
         alreadyProvisioning: true,
         message: provisionResult.message || 'Payment successful. VPS provisioning is already in progress.',
         jobId: provisionResult.jobId,
-        estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
+        estimatedMinutes: provisionResult.estimatedMinutes || 8,
         paymentId: razorpay_payment_id
       });
     }
@@ -6889,7 +6818,7 @@ app.post("/make-server-c4d79cb7/admin/provisioning/manual-complete", async (c) =
       return c.json({
         error: 'Server is not reachable',
         message: `Cannot complete provisioning because http://${ipAddress}:3000/health is not responding. Please verify the server is running.`,
-        suggestion: 'SSH into the VPS and check: sudo systemctl status pm2-root && journalctl -u pm2-root -n 100'
+        suggestion: 'SSH into the VPS and check: pm2 status && pm2 logs indexpilot-order-server'
       }, 400);
     }
 
@@ -11155,31 +11084,6 @@ app.get("/make-server-c4d79cb7/internal/debug-ip", async (c) => {
     return c.json({ routing: "expired", reason: "Dedicated VPS subscription expired — user must renew", expiredIP: data.ipAddress, data, userId });
   } catch (err: any) {
     return c.json({ routing: "error", error: err.message, userId }, 500);
-  }
-});
-
-// INTERNAL: Replace one user's unhealthy VPS when the droplet is online but
-// port 3000 is refusing connections. Authenticated with the existing
-// DigitalOcean token, so no separate temporary secret is needed.
-app.post("/make-server-c4d79cb7/internal/replace-unhealthy-vps", async (c) => {
-  try {
-    const providedToken = c.req.header("x-digitalocean-token");
-    const expectedToken = Deno.env.get("DIGITALOCEAN_API_TOKEN");
-    if (!expectedToken || providedToken !== expectedToken) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    const { userId, ipAddress } = await c.req.json();
-    if (!userId || !ipAddress) {
-      return c.json({ success: false, error: "userId and ipAddress are required" }, 400);
-    }
-
-    const assignment = await IPPoolManager.getUserIPAssignment(userId);
-    const result = await VPSProvisioning.replaceUnhealthyUserVPS(userId, ipAddress, assignment?.expiresAt);
-    return c.json({ ...result, userId, oldIpAddress: ipAddress });
-  } catch (err: any) {
-    console.error("❌ [replace-unhealthy-vps] Error:", err.message);
-    return c.json({ success: false, error: err.message }, 500);
   }
 });
 

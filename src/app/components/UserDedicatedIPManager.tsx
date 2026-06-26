@@ -54,8 +54,6 @@ declare global {
 // ─── Constants ─────────────────────────────────────
 
 const VPS_COST = 599;
-const FAST_VPS_ESTIMATE_MINUTES = 3;
-const STATUS_POLL_INTERVAL_MS = 1500;
 
 // ─── Helpers ───────────────────────────────────────
 
@@ -164,7 +162,6 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     hint?: string;
     error?: string;
   }>({ loading: false });
-  const [repairState, setRepairState] = useState<{ loading: boolean; message?: string; error?: string }>({ loading: false });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatusRef = useRef<string | null>(null);
 
@@ -186,45 +183,6 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       setVpsConnCheck({ loading: false, reachable: false, error: err.message, hint: 'Could not reach the server to run connectivity check.' });
     }
   };
-
-  const repairOrderServer = async () => {
-    setRepairState({ loading: true });
-    try {
-      const res = await fetch(`${serverUrl}/ip-pool/repair-vps`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setRepairState({ loading: false, error: data.error || `HTTP ${res.status}` });
-        return;
-      }
-
-      if (data.reachable) {
-        setVpsConnCheck({ loading: false, reachable: true, ipAddress: data.ipAddress || vps?.ipAddress, hint: data.message || 'Order server is already UP.' });
-        setRepairState({ loading: false, message: data.message || 'Order server is already UP.' });
-        return;
-      }
-
-      if (data.provisioning || data.jobId) {
-        prevStatusRef.current = null;
-        setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES });
-        setProgress(2);
-        setVpsConnCheck({ loading: false });
-        setRepairState({ loading: false, message: data.message || 'Unhealthy VPS replaced. New server creation started.' });
-        toast.success(data.message || 'Unhealthy VPS replaced. New server creation started.');
-        startPolling();
-        return;
-      }
-
-      setRepairState({ loading: false, message: data.message });
-      // Auto re-check after 75 seconds.
-      setTimeout(() => { checkVpsServer(); }, 75000);
-    } catch (err: any) {
-      setRepairState({ loading: false, error: err.message });
-    }
-  };
-
 
   // Decode email from JWT for Razorpay prefill
   const userEmail = (() => {
@@ -265,68 +223,48 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
 
       // Build VPS record from edge function responses
       let newVps: VpsRecord | null = null;
-      const applyActiveAssignment = (assignment: any) => {
+
+      if (ipData.success && ipData.assignment) {
+        // Has assigned IP
         newVps = {
           status: 'active',
-          ipAddress: assignment.ipAddress,
-          startedAt: assignment.assignedAt || new Date().toISOString(),
-          completedAt: assignment.assignedAt || assignment.completedAt,
+          ipAddress: ipData.assignment.ipAddress,
+          startedAt: ipData.assignment.assignedAt || new Date().toISOString(),
+          completedAt: ipData.assignment.assignedAt,
           estimatedMinutes: 0,
           subscription: {
-            startDate: assignment.assignedAt || '',
-            expiryDate: assignment.expiresAt || '',
+            startDate: ipData.assignment.assignedAt || '',
+            expiryDate: ipData.assignment.expiresAt || '',
             renewalCount: 0,
           },
         };
-
-        if (assignment.expiresAt) {
-          const daysLeft = Math.ceil((new Date(assignment.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        // Build subscription info
+        if (ipData.assignment.expiresAt) {
+          const daysLeft = Math.ceil((new Date(ipData.assignment.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
           setSubscription({
             status: daysLeft > 7 ? 'active' : daysLeft > 0 ? 'expiring' : 'expired',
             daysUntilExpiry: Math.max(0, daysLeft),
             canConnect: daysLeft > 0,
             isRenewal: true,
-            expiryDate: assignment.expiresAt,
-            startDate: assignment.assignedAt,
-          });
-        } else {
-          setSubscription({
-            status: 'active', daysUntilExpiry: 30, canConnect: true, isRenewal: true,
-            startDate: assignment.assignedAt,
+            expiryDate: ipData.assignment.expiresAt,
+            startDate: ipData.assignment.assignedAt,
           });
         }
-      };
-
-      if (ipData.success && ipData.assignment) {
-        applyActiveAssignment(ipData.assignment);
-      } else if (provData.success && provData.assignment) {
-        // The provisioning-status request may finalize the VPS before my-ip sees it.
-        // Treat that returned assignment as complete immediately so polling does not stay stuck.
-        applyActiveAssignment(provData.assignment);
-      } else if (provData.success && provData.job) {
+      } else if (provData.success && provData.provisioning && provData.job) {
         // Active or recoverable provisioning job
-        const jobStatus = provData.job.status || 'creating';
-        if (isVpsReady(jobStatus) && provData.job.ipAddress) {
-          applyActiveAssignment({
-            ipAddress: provData.job.ipAddress,
-            assignedAt: provData.job.completedAt || provData.job.startedAt,
-            expiresAt: provData.job.expiresAt,
-          });
-        } else if (provData.provisioning) {
-          newVps = {
-            status: jobStatus,
-            ipAddress: provData.job.ipAddress,
-            startedAt: provData.job.startedAt || new Date().toISOString(),
-            completedAt: provData.job.completedAt,
-            estimatedMinutes: Math.min(provData.job.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES, FAST_VPS_ESTIMATE_MINUTES),
-            error: provData.job.error,
-          };
-        }
+        newVps = {
+          status: provData.job.status || 'creating',
+          ipAddress: provData.job.ipAddress,
+          startedAt: provData.job.startedAt || new Date().toISOString(),
+          completedAt: provData.job.completedAt,
+          estimatedMinutes: provData.job.estimatedMinutes || 8,
+          error: provData.job.error,
+        };
       }
 
       setVps(newVps);
       if (newVps) {
-        setProgress(getProgressFromStatus(newVps.status, newVps.startedAt, newVps.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES));
+        setProgress(getProgressFromStatus(newVps.status, newVps.startedAt, newVps.estimatedMinutes || 8));
         const wasProvisioning = prevStatusRef.current !== null && !isVpsReady(prevStatusRef.current) && prevStatusRef.current !== 'failed';
         const nowReady = isVpsReady(newVps.status);
         if (wasProvisioning && nowReady) {
@@ -348,7 +286,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
 
   function startPolling() {
     stopPolling();
-    pollRef.current = setInterval(loadStatus, STATUS_POLL_INTERVAL_MS);
+    pollRef.current = setInterval(loadStatus, 3000);
   }
 
   function stopPolling() {
@@ -390,8 +328,8 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   useEffect(() => {
     if (!isProvisioning || !vps) return;
     const t = setInterval(() => {
-      setProgress(getProgressFromStatus(vps.status, vps.startedAt, vps.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES));
-    }, STATUS_POLL_INTERVAL_MS);
+      setProgress(getProgressFromStatus(vps.status, vps.startedAt, vps.estimatedMinutes || 8));
+    }, 3000);
     return () => clearInterval(t);
   }, [vps?.status, isProvisioning]);
 
@@ -458,7 +396,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         await loadStatus();
       } else {
         toast.success('Payment successful! VPS provisioning has started.');
-        setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: FAST_VPS_ESTIMATE_MINUTES });
+        setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: 8 });
         startPolling();
       }
     } catch (err: any) {
@@ -581,7 +519,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to restart provisioning');
 
       prevStatusRef.current = null;
-      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES });
+      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
       setProgress(2);
       setShowPaymentOptions(false);
       toast.success(data.message || 'New VPS creation started.');
@@ -607,7 +545,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to recreate VPS');
 
       prevStatusRef.current = null;
-      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES });
+      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
       setProgress(2);
       setShowPaymentOptions(false);
       toast.success(data.message || 'Old VPS destroyed. New VPS is being created…');
@@ -715,7 +653,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 VPS Provisioning In Progress
               </h3>
               <p className="text-zinc-300 text-sm mt-1">
-                Your dedicated VPS is being created automatically. This takes approximately {Math.min(vps.estimatedMinutes ?? 3, 3)} minutes.
+                Your dedicated VPS is being created automatically. This takes approximately {vps.estimatedMinutes} minutes.
               </p>
               <p className={`text-sm font-semibold mt-2 ${
                 vps.status === 'deploying' ? 'text-purple-400' : 'text-cyan-400'
@@ -745,7 +683,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
               }`}>
                 <Server className={`w-3 h-3 mx-auto mb-1 ${vps.status === 'creating' ? 'text-cyan-400' : ['deploying','ready'].includes(vps.status) ? 'text-green-400' : 'text-zinc-600'}`} />
                 <p className={`font-semibold ${vps.status === 'creating' ? 'text-cyan-400' : ['deploying','ready'].includes(vps.status) ? 'text-green-400' : 'text-zinc-600'}`}>1. Creating VPS</p>
-                <p className="text-zinc-500">~30 sec</p>
+                <p className="text-zinc-500">~3 min</p>
               </div>
               {/* Step 2: Deploying Server */}
               <div className={`p-2 rounded border text-center ${
@@ -757,7 +695,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
               }`}>
                 <Zap className={`w-3 h-3 mx-auto mb-1 ${vps.status === 'deploying' ? 'text-purple-400' : vps.status === 'ready' ? 'text-green-400' : 'text-zinc-600'}`} />
                 <p className={`font-semibold ${vps.status === 'deploying' ? 'text-purple-400' : vps.status === 'ready' ? 'text-green-400' : 'text-zinc-600'}`}>2. Deploying Server</p>
-                <p className="text-zinc-500">~2 min</p>
+                <p className="text-zinc-500">~5 min</p>
               </div>
               {/* Step 3: Ready */}
               <div className={`p-2 rounded border text-center ${
@@ -778,7 +716,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                   <Globe className="w-3 h-3" /> Your Dedicated Static IP:
                 </p>
                 <p className="text-xl font-bold text-white font-mono tracking-wider">{vps.ipAddress}</p>
-                <p className="text-xs text-zinc-400 mt-1">Server is being deployed at this IP. It should be ready shortly.</p>
+                <p className="text-xs text-zinc-400 mt-1">Server is being deployed at this IP. Will be ready in ~2 minutes.</p>
               </div>
             )}
 
@@ -955,34 +893,10 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                         : <><XCircle className="w-3 h-3" />Order Server DOWN</>}
                     </span>
                   )}
-                  {vpsConnCheck.reachable === false && !vpsConnCheck.loading && (
-                    <Button
-                      onClick={repairOrderServer}
-                      disabled={repairState.loading}
-                      size="sm"
-                      className="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 ml-1"
-                    >
-                      {repairState.loading ? (
-                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Repairing...</>
-                      ) : (
-                        <><Zap className="w-3 h-3 mr-1" />Repair Server</>
-                      )}
-                    </Button>
-                  )}
                 </div>
                 {vpsConnCheck.hint && !vpsConnCheck.loading && (
                   <p className={`text-[11px] mt-2 leading-relaxed ${vpsConnCheck.reachable ? 'text-emerald-300/80' : 'text-amber-300/80'}`}>
                     {vpsConnCheck.hint}
-                  </p>
-                )}
-                {repairState.message && !isProvisioning && (
-                  <p className="text-[11px] mt-2 leading-relaxed text-emerald-300/90">
-                    🔄 {repairState.message}
-                  </p>
-                )}
-                {repairState.error && (
-                  <p className="text-[11px] mt-2 leading-relaxed text-red-400">
-                    ❌ Repair failed: {repairState.error}
                   </p>
                 )}
               </div>
@@ -1213,7 +1127,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 {[
                   { icon: Server, text: '100% dedicated VPS', color: 'text-green-400' },
                   { icon: Globe, text: 'Unique static IP', color: 'text-cyan-400' },
-                  { icon: Zap, text: 'Auto-deployed in ~3 min', color: 'text-yellow-400' },
+                  { icon: Zap, text: 'Auto-deployed in ~8 min', color: 'text-yellow-400' },
                   { icon: Shield, text: 'SEBI compliant', color: 'text-blue-400' },
                   { icon: Clock, text: '30-day subscription', color: 'text-purple-400' },
                   { icon: RefreshCw, text: 'Easy monthly renewal', color: 'text-emerald-400' },
