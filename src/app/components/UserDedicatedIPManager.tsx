@@ -685,7 +685,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
               }`}>
                 <Server className={`w-3 h-3 mx-auto mb-1 ${vps.status === 'creating' ? 'text-cyan-400' : ['deploying','ready'].includes(vps.status) ? 'text-green-400' : 'text-zinc-600'}`} />
                 <p className={`font-semibold ${vps.status === 'creating' ? 'text-cyan-400' : ['deploying','ready'].includes(vps.status) ? 'text-green-400' : 'text-zinc-600'}`}>1. Creating VPS</p>
-                <p className="text-zinc-500">~1 min</p>
+                <p className="text-zinc-500">~30 sec</p>
               </div>
               {/* Step 2: Deploying Server */}
               <div className={`p-2 rounded border text-center ${
