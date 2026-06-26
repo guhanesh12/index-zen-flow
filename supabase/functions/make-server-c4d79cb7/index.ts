@@ -5863,7 +5863,9 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   }
 });
 
-// 🔧 Repair (power-cycle) the user's order-server VPS when port 3000 is unresponsive.
+// 🔧 Repair the user's order-server VPS when port 3000 is unresponsive.
+// If the droplet is online but the order server is still refusing connections,
+// replace only this user's VPS with a fresh droplet instead of looping reboots.
 app.post("/make-server-c4d79cb7/ip-pool/repair-vps", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
@@ -5876,8 +5878,36 @@ app.post("/make-server-c4d79cb7/ip-pool/repair-vps", async (c) => {
       return c.json({ success: false, error: 'No dedicated IP assigned to this user.' }, 400);
     }
 
-    const result = await VPSProvisioning.repairUserVPS(assignment.ipAddress);
-    return c.json({ ...result, ipAddress: assignment.ipAddress });
+    const endpoint = `http://${assignment.ipAddress}:3000/health`;
+    let reachable = false;
+    try {
+      const resp = await fetch(endpoint, {
+        signal: AbortSignal.timeout(8000),
+        headers: { 'Cache-Control': 'no-cache', 'User-Agent': 'IndexpilotAI-RepairCheck/1.0' },
+      });
+      reachable = resp.ok;
+    } catch {
+      reachable = false;
+    }
+
+    if (reachable) {
+      return c.json({
+        success: true,
+        repaired: false,
+        reachable: true,
+        ipAddress: assignment.ipAddress,
+        message: 'Order server is already UP.'
+      });
+    }
+
+    const result = await VPSProvisioning.replaceUnhealthyUserVPS(user.id, assignment.ipAddress, assignment.expiresAt);
+    return c.json({
+      ...result,
+      provisioning: result.success,
+      ipAddress: assignment.ipAddress,
+      oldIpAddress: assignment.ipAddress,
+      message: result.message || 'Unhealthy VPS replaced. New server creation started.',
+    });
   } catch (err: any) {
     console.error('❌ repair-vps error:', err);
     return c.json({ success: false, error: err.message }, 500);
