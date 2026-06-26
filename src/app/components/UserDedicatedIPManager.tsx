@@ -523,8 +523,33 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       toast.error(err.message || 'Could not restart provisioning');
     } finally {
       setResettingProvisioning(false);
+  }
+
+  async function recreateVps() {
+    if (!confirm('Destroy this IP and create a brand NEW dedicated IP?\n\n✅ Your subscription expiry is preserved — no new payment required.\n⚠️ You will get a different IP address. You MUST re-whitelist the new IP in your broker (Dhan) portal.')) return;
+    setRecreatingVps(true);
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/recreate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to recreate VPS');
+
+      prevStatusRef.current = null;
+      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
+      setProgress(2);
+      setShowPaymentOptions(false);
+      toast.success(data.message || 'Old VPS destroyed. New VPS is being created…');
+      await loadStatus();
+      startPolling();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not recreate VPS');
+    } finally {
+      setRecreatingVps(false);
     }
   }
+
 
   async function copyIP(ip: string) {
     try {
