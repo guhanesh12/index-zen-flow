@@ -6197,6 +6197,86 @@ app.post("/make-server-c4d79cb7/ip-pool/provisioning-restart", async (c) => {
   }
 });
 
+// 🔄 Destroy the user's current VPS/IP and provision a brand-new one,
+// PRESERVING the existing subscription expiry (no recharge needed).
+app.post("/make-server-c4d79cb7/ip-pool/recreate", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ code: error.code, message: error.message }, error.code);
+    }
+
+    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (!assignment || !assignment.ipAddress) {
+      return c.json({ success: false, error: 'No active VPS to recreate. Please subscribe first.' }, 400);
+    }
+
+    const oldIp = assignment.ipAddress;
+    const preservedExpiresAt =
+      assignment.expiresAt && new Date(assignment.expiresAt) > new Date()
+        ? assignment.expiresAt
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // 1️⃣  Delete any stuck provisioning job first
+    try { await VPSProvisioning.cancelUserProvisioningJob(user.id); } catch {}
+
+    // 2️⃣  Delete the existing DigitalOcean droplet (if auto-provisioned)
+    let deletionAttempted = false;
+    let deletionSucceeded = false;
+    let deletionError: string | undefined;
+    const ipEntry = await kv.get(`ip_pool:${oldIp}`) as any;
+    if (ipEntry?.metadata?.dropletId) {
+      deletionAttempted = true;
+      const del = await VPSProvisioning.deprovisionVPS(oldIp);
+      deletionSucceeded = !!del.success;
+      deletionError = del.error;
+      if (del.success) {
+        console.log(`🗑️ Recreate: deleted droplet for ${oldIp}`);
+      } else {
+        console.warn(`⚠️ Recreate: droplet delete failed for ${oldIp}: ${del.error}`);
+      }
+    }
+
+    // 3️⃣  Remove the old IP pool entry so it isn't reassigned
+    try { await kv.del(`ip_pool:${oldIp}`); } catch {}
+
+    // 4️⃣  Park the user's assignment with a placeholder IP so the
+    //     subsequent provisioning finalize step PRESERVES expiresAt
+    const parked = {
+      ...assignment,
+      ipAddress: '',
+      vpsUrl: '',
+      subscriptionStatus: 'recreating',
+      expiresAt: preservedExpiresAt,
+      lastUsedAt: new Date().toISOString(),
+    };
+    await kv.set(`user_ip_assignment:${user.id}`, parked);
+    await kv.set(`ip_assignment:${user.id}:dedicated`, parked);
+
+    // 5️⃣  Start a fresh provisioning job
+    const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(user.id);
+    if (!provisionResult.success) {
+      return c.json({ success: false, error: provisionResult.error || 'Failed to start new VPS provisioning' }, 500);
+    }
+
+    return c.json({
+      success: true,
+      message: 'Old VPS destroyed. New VPS creation started — your subscription expiry is preserved.',
+      provisioning: true,
+      jobId: provisionResult.jobId,
+      estimatedMinutes: provisionResult.estimatedMinutes || 8,
+      oldIp,
+      preservedExpiresAt,
+      deletionAttempted,
+      deletionSucceeded,
+      deletionError,
+    });
+  } catch (error: any) {
+    console.error('❌ Recreate VPS error:', error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
 // ==================== 💡 VPS POWER SCHEDULER ====================
 // Auto OFF at 15:31 IST, Auto ON at 08:55 IST (Mon-Fri). Saves DigitalOcean cost.
 
