@@ -151,6 +151,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
   const [linkingExisting, setLinkingExisting] = useState(false);
   const [resettingProvisioning, setResettingProvisioning] = useState(false);
+  const [recreatingVps, setRecreatingVps] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -524,6 +525,33 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       setResettingProvisioning(false);
     }
   }
+
+
+  async function recreateVps() {
+    if (!confirm('Destroy this IP and create a brand NEW dedicated IP?\n\n✅ Your subscription expiry is preserved — no new payment required.\n⚠️ You will get a different IP address. You MUST re-whitelist the new IP in your broker (Dhan) portal.')) return;
+    setRecreatingVps(true);
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/recreate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to recreate VPS');
+
+      prevStatusRef.current = null;
+      setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
+      setProgress(2);
+      setShowPaymentOptions(false);
+      toast.success(data.message || 'Old VPS destroyed. New VPS is being created…');
+      await loadStatus();
+      startPolling();
+    } catch (err: any) {
+      toast.error(err.message || 'Could not recreate VPS');
+    } finally {
+      setRecreatingVps(false);
+    }
+  }
+
 
   async function copyIP(ip: string) {
     try {
@@ -923,6 +951,22 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 Cancel
               </Button>
             </div>
+
+            {/* Destroy & Recreate (get a brand-new IP, keeps subscription expiry) */}
+            <Button
+              onClick={recreateVps}
+              disabled={loading || recreatingVps}
+              variant="outline"
+              size="sm"
+              className="w-full border-amber-700 text-amber-300 hover:bg-amber-900/20 text-xs"
+              title="Delete this VPS and provision a brand-new dedicated IP. Subscription expiry is preserved — no new payment."
+            >
+              {recreatingVps ? (
+                <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Destroying & creating new IP…</>
+              ) : (
+                <><RefreshCw className="w-3 h-3 mr-1" />Destroy & Create NEW IP (keeps subscription)</>
+              )}
+            </Button>
           </div>
         )}
 
