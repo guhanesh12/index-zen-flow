@@ -37,14 +37,14 @@ interface ProvisioningJob {
   error?: string;
   estimatedMinutes: number;
   timeline?: {
-    vpsCreationStart?: string;      // ~0-5 min: DigitalOcean creates VPS
-    vpsActive?: string;              // ~5 min: VPS booted and active
-    deploymentStart?: string;        // ~5 min: Cloud-init starts
-    systemSetupComplete?: string;    // ~8 min: Node.js + PM2 installed
-    serverDeployed?: string;         // ~10 min: Server running
-    healthCheckPassed?: string;      // ~11 min: Health check passes
-    ipAssigned?: string;             // ~11 min: IP assigned to user
-    completed?: string;              // ~11 min: Ready for orders!
+    vpsCreationStart?: string;      // ~0-1 min: DigitalOcean creates VPS
+    vpsActive?: string;              // ~1 min: VPS booted and active
+    deploymentStart?: string;        // ~1 min: cloud-init starts
+    systemSetupComplete?: string;    // ~2 min: Node.js service installed
+    serverDeployed?: string;         // ~2-3 min: Server running
+    healthCheckPassed?: string;      // ~2-3 min: Health check passes
+    ipAssigned?: string;             // ~2-3 min: IP assigned to user
+    completed?: string;              // ~2-3 min: Ready for orders!
   };
 }
 
