@@ -11158,6 +11158,31 @@ app.get("/make-server-c4d79cb7/internal/debug-ip", async (c) => {
   }
 });
 
+// INTERNAL: Replace one user's unhealthy VPS when the droplet is online but
+// port 3000 is refusing connections. Authenticated with the existing
+// DigitalOcean token, so no separate temporary secret is needed.
+app.post("/make-server-c4d79cb7/internal/replace-unhealthy-vps", async (c) => {
+  try {
+    const providedToken = c.req.header("x-digitalocean-token");
+    const expectedToken = Deno.env.get("DIGITALOCEAN_API_TOKEN");
+    if (!expectedToken || providedToken !== expectedToken) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const { userId, ipAddress } = await c.req.json();
+    if (!userId || !ipAddress) {
+      return c.json({ success: false, error: "userId and ipAddress are required" }, 400);
+    }
+
+    const assignment = await IPPoolManager.getUserIPAssignment(userId);
+    const result = await VPSProvisioning.replaceUnhealthyUserVPS(userId, ipAddress, assignment?.expiresAt);
+    return c.json({ ...result, userId, oldIpAddress: ipAddress });
+  } catch (err: any) {
+    console.error("❌ [replace-unhealthy-vps] Error:", err.message);
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
 // INTERNAL: POST /make-server-c4d79cb7/internal/sync-vps-ip
 // Called by the Express backend after VPS provisioning or renewal.
 // Writes ip_assignment:<userId>:dedicated to Supabase KV so that
