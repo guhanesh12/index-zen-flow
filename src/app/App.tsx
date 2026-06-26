@@ -4,7 +4,6 @@ import { RouterProvider } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
 import { router } from './routes';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
-import { InstallApp } from './components/InstallApp';
 import { PWADebugger } from './components/PWADebugger';
 import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
@@ -217,7 +216,6 @@ export default function App() {
     <HelmetProvider>
       <div className="app-container">
         <RouterProvider router={router} />
-        <InstallApp />
         <PWADebugger />
       </div>
     </HelmetProvider>
