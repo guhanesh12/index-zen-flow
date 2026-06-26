@@ -6,7 +6,7 @@
  * 
  * Flow:
  * 1. User subscribes to dedicated IP (₹199/month)
- * 2. System creates new VPS droplet via API (15 minutes)
+ * 2. System creates new VPS droplet via API (fast path ~2-4 minutes)
  * 3. Auto-deploys order server using cloud-init
  * 4. Adds IP to pool automatically
  * 5. Assigns to user
@@ -51,11 +51,12 @@ interface ProvisioningJob {
 const PROVISIONING_PREFIX = 'vps_provisioning:';
 const DEDICATED_IP_MONTHLY_FEE = 599;
 const ORDER_SERVER_VERSION = '1.1.0';
+const FAST_PROVISIONING_ESTIMATE_MINUTES = 3;
 
 async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
   try {
     const healthResponse = await fetch(`http://${ipAddress}:3000/health`, {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(2500),
       headers: {
         'User-Agent': 'IndexpilotAI-Provisioning-Reconcile/1.0',
         'Cache-Control': 'no-cache'
@@ -314,40 +315,28 @@ echo "🤖 IndexpilotAI Auto-Deployment Starting"
 echo "Time: $(date)"
 echo "========================================="
 
-# Update system
-echo "📦 [1/8] Updating system packages..."
+# Update package index only — full apt upgrade makes provisioning slow.
+echo "📦 [1/6] Updating package index..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get upgrade -y -qq
 
-# Install Node.js 18.x
-echo "📦 [2/8] Installing Node.js 18.x..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash - 
-apt-get install -y nodejs
+# Install Node.js from Ubuntu repo for fastest bootstrapping.
+echo "📦 [2/6] Installing Node.js..."
+apt-get install -y -qq nodejs
 
 node --version
-npm --version
-
-# Install PM2 for process management
-echo "📦 [3/8] Installing PM2..."
-npm install -g pm2
 
 # Create order server directory
-echo "📁 [4/8] Creating server directory..."
+echo "📁 [3/6] Creating server directory..."
 mkdir -p /root/indexpilot-order-server
 cd /root/indexpilot-order-server
 
 # Create server.js
-echo "📝 [5/8] Creating server files..."
+echo "📝 [4/6] Creating server files..."
 cat > server.js << 'SERVEREOF'
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-const app = express();
-
-app.use(express.json({ limit: '10mb' }));
-app.use(cors());
-
+const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 const PORT = process.env.PORT || 3000;
 const ORDER_SERVER_API_KEY = process.env.ORDER_SERVER_API_KEY;
 
@@ -356,171 +345,160 @@ const log = (msg) => {
   console.log(\`[\${timestamp}] \${msg}\`);
 };
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    service: 'indexpilot-order-server',
-    version: '${ORDER_SERVER_VERSION}',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-    apiKeyConfigured: !!ORDER_SERVER_API_KEY,
-    marketOnlyEnforced: true
+function sendJson(res, statusCode, data) {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS'
   });
-});
+  res.end(JSON.stringify(data));
+}
 
-// Test endpoint
-app.get('/test', (req, res) => {
-  res.json({
-    message: 'IndexpilotAI Order Server is running!',
-    version: '${ORDER_SERVER_VERSION}',
-    timestamp: new Date().toISOString(),
-    apiKeyConfigured: !!ORDER_SERVER_API_KEY,
-    marketOnlyEnforced: true,
-    endpoints: {
-      health: '/health',
-      placeOrder: '/place-order (POST)',
-      orderStatus: '/order-status/:orderId (GET)',
-      cancelOrder: '/cancel-order/:orderId (DELETE)'
-    }
-  });
-});
-
-// Place order endpoint
-app.post('/place-order', async (req, res) => {
-  try {
-    // Verify API key
-    const authHeader = req.headers.authorization;
-    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
-      log('❌ Unauthorized access attempt');
-      return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
-    }
-
-    const { userId, accessToken, orderDetails } = req.body;
-    
-    if (!userId || !accessToken || !orderDetails) {
-      log('❌ Missing required fields');
-      return res.status(400).json({ error: 'Missing required fields: userId, accessToken, orderDetails' });
-    }
-
-    const sanitizedOrderDetails = {
-      dhanClientId: orderDetails.dhanClientId,
-      securityId: String(orderDetails.securityId || ''),
-      transactionType: orderDetails.transactionType || 'BUY',
-      exchangeSegment: orderDetails.exchangeSegment || 'NSE_FNO',
-      productType: 'INTRADAY',
-      orderType: 'MARKET',
-      validity: 'DAY',
-      quantity: Math.max(1, Number(orderDetails.quantity) || 0),
-      correlationId: orderDetails.correlationId || ('ORDER_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)),
-      disclosedQuantity: 0,
-      price: 0,
-      triggerPrice: 0,
-      afterMarketOrder: Boolean(orderDetails.afterMarketOrder),
-      ...(orderDetails.afterMarketOrder && orderDetails.amoTime ? { amoTime: orderDetails.amoTime } : {}),
-    };
-
-    log(\`📤 Placing MARKET order for user \${userId}\`);
-    log(\`🛡️ Sanitized broker payload: \${JSON.stringify({
-      securityId: sanitizedOrderDetails.securityId,
-      transactionType: sanitizedOrderDetails.transactionType,
-      exchangeSegment: sanitizedOrderDetails.exchangeSegment,
-      productType: sanitizedOrderDetails.productType,
-      orderType: sanitizedOrderDetails.orderType,
-      validity: sanitizedOrderDetails.validity,
-      quantity: sanitizedOrderDetails.quantity,
-      disclosedQuantity: sanitizedOrderDetails.disclosedQuantity,
-      price: sanitizedOrderDetails.price,
-      triggerPrice: sanitizedOrderDetails.triggerPrice,
-      afterMarketOrder: sanitizedOrderDetails.afterMarketOrder,
-      hasAmoTime: Boolean(sanitizedOrderDetails.amoTime),
-      hasBracketFields: false
-    })}\`);
-    log(\`📤 Order details: \${JSON.stringify(sanitizedOrderDetails).substring(0, 200)}\`);
-
-    // Forward to Dhan API
-    const response = await axios.post(
-      'https://api.dhan.co/v2/orders',
-      sanitizedOrderDetails,
-      {
-        headers: {
-          'access-token': accessToken,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > 10 * 1024 * 1024) {
+        req.destroy();
+        reject(new Error('Request body too large'));
       }
-    );
-
-    log(\`✅ Order placed successfully for user \${userId}: Order ID \${response.data.orderId}\`);
-    res.json(response.data);
-
-  } catch (error) {
-    const errorMsg = error.response?.data || error.message;
-    log(\`❌ Order placement failed: \${JSON.stringify(errorMsg)}\`);
-    
-    res.status(error.response?.status || 500).json({ 
-      error: errorMsg,
-      errorCode: error.response?.data?.errorCode || 'UNKNOWN_ERROR'
     });
-  }
-});
+    req.on('end', () => {
+      if (!body) return resolve({});
+      try { resolve(JSON.parse(body)); } catch (error) { reject(error); }
+    });
+    req.on('error', reject);
+  });
+}
 
-// Get order status
-app.get('/order-status/:orderId', async (req, res) => {
+function dhanRequest(method, path, accessToken, payload) {
+  return new Promise((resolve, reject) => {
+    const data = payload ? JSON.stringify(payload) : '';
+    const req = https.request({
+      hostname: 'api.dhan.co',
+      port: 443,
+      path,
+      method,
+      timeout: 10000,
+      headers: {
+        'access-token': accessToken || '',
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data)
+      }
+    }, (apiRes) => {
+      let body = '';
+      apiRes.on('data', chunk => { body += chunk; });
+      apiRes.on('end', () => {
+        let parsed = body;
+        try { parsed = body ? JSON.parse(body) : {}; } catch (_) {}
+        resolve({ statusCode: apiRes.statusCode || 500, data: parsed });
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('Dhan API timeout')));
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+function isAuthorized(req) {
+  return req.headers.authorization === 'Bearer ' + ORDER_SERVER_API_KEY;
+}
+
+const server = http.createServer(async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    if (req.method === 'OPTIONS') return sendJson(res, 200, { ok: true });
+    const parsedUrl = new URL(req.url || '/', 'http://localhost');
+
+    if (req.method === 'GET' && parsedUrl.pathname === '/health') {
+      return sendJson(res, 200, {
+        status: 'ok',
+        service: 'indexpilot-order-server',
+        version: '${ORDER_SERVER_VERSION}',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        apiKeyConfigured: !!ORDER_SERVER_API_KEY,
+        marketOnlyEnforced: true
+      });
     }
 
-    const { orderId } = req.params;
-    const accessToken = req.query.accessToken;
-
-    const response = await axios.get(
-      \`https://api.dhan.co/v2/orders/\${orderId}\`,
-      {
-        headers: {
-          'access-token': accessToken,
-          'Content-Type': 'application/json'
+    if (req.method === 'GET' && parsedUrl.pathname === '/test') {
+      return sendJson(res, 200, {
+        message: 'IndexpilotAI Order Server is running!',
+        version: '${ORDER_SERVER_VERSION}',
+        timestamp: new Date().toISOString(),
+        apiKeyConfigured: !!ORDER_SERVER_API_KEY,
+        marketOnlyEnforced: true,
+        endpoints: {
+          health: '/health',
+          placeOrder: '/place-order (POST)',
+          orderStatus: '/order-status/:orderId (GET)',
+          cancelOrder: '/cancel-order/:orderId (DELETE)'
         }
-      }
-    );
-
-    res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Cancel order
-app.delete('/cancel-order/:orderId', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      });
     }
 
-    const { orderId } = req.params;
-    const accessToken = req.body.accessToken;
+    if (!isAuthorized(req)) {
+      log('❌ Unauthorized access attempt');
+      return sendJson(res, 401, { error: 'Unauthorized: Invalid API key' });
+    }
 
-    const response = await axios.delete(
-      \`https://api.dhan.co/v2/orders/\${orderId}\`,
-      {
-        headers: {
-          'access-token': accessToken,
-          'Content-Type': 'application/json'
-        }
+    if (req.method === 'POST' && parsedUrl.pathname === '/place-order') {
+      const body = await readJson(req);
+      const userId = body.userId;
+      const accessToken = body.accessToken;
+      const orderDetails = body.orderDetails;
+
+      if (!userId || !accessToken || !orderDetails) {
+        return sendJson(res, 400, { error: 'Missing required fields: userId, accessToken, orderDetails' });
       }
-    );
 
-    res.json(response.data);
+      const sanitizedOrderDetails = {
+        dhanClientId: orderDetails.dhanClientId,
+        securityId: String(orderDetails.securityId || ''),
+        transactionType: orderDetails.transactionType || 'BUY',
+        exchangeSegment: orderDetails.exchangeSegment || 'NSE_FNO',
+        productType: 'INTRADAY',
+        orderType: 'MARKET',
+        validity: 'DAY',
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        correlationId: orderDetails.correlationId || ('ORDER_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9)),
+        disclosedQuantity: 0,
+        price: 0,
+        triggerPrice: 0,
+        afterMarketOrder: Boolean(orderDetails.afterMarketOrder)
+      };
+      if (orderDetails.afterMarketOrder && orderDetails.amoTime) sanitizedOrderDetails.amoTime = orderDetails.amoTime;
+
+      log('📤 Placing MARKET order for user ' + userId);
+      const response = await dhanRequest('POST', '/v2/orders', accessToken, sanitizedOrderDetails);
+      return sendJson(res, response.statusCode, response.data);
+    }
+
+    if (req.method === 'GET' && parsedUrl.pathname.indexOf('/order-status/') === 0) {
+      const orderId = decodeURIComponent(parsedUrl.pathname.replace('/order-status/', ''));
+      const accessToken = parsedUrl.searchParams.get('accessToken');
+      const response = await dhanRequest('GET', '/v2/orders/' + encodeURIComponent(orderId), accessToken, null);
+      return sendJson(res, response.statusCode, response.data);
+    }
+
+    if (req.method === 'DELETE' && parsedUrl.pathname.indexOf('/cancel-order/') === 0) {
+      const orderId = decodeURIComponent(parsedUrl.pathname.replace('/cancel-order/', ''));
+      const body = await readJson(req);
+      const response = await dhanRequest('DELETE', '/v2/orders/' + encodeURIComponent(orderId), body.accessToken, null);
+      return sendJson(res, response.statusCode, response.data);
+    }
+
+    return sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    log('❌ Request failed: ' + error.message);
+    return sendJson(res, 500, { error: error.message || 'Internal server error' });
   }
 });
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   log(\`\`);
   log(\`========================================\`);
   log(\`📡 IndexpilotAI Order Server STARTED\`);
@@ -550,75 +528,26 @@ process.on('unhandledRejection', (reason, promise) => {
 log('✅ Server initialization complete');
 SERVEREOF
 
-# Create package.json
-cat > package.json << 'PACKAGEEOF'
-{
-  "name": "indexpilot-order-server",
-  "version": "${ORDER_SERVER_VERSION}",
-  "description": "IndexpilotAI Order Placement Server - Auto-deployed",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.0",
-    "cors": "^2.8.5"
-  }
-}
-PACKAGEEOF
-
-# Install dependencies
-echo "📦 [6/8] Installing npm packages..."
-npm install
-
-# Create PM2 ecosystem file
-cat > ecosystem.config.js << 'ECOEOF'
-module.exports = {
-  apps: [{
-    name: 'indexpilot-order-server',
-    script: 'server.js',
-    instances: 1,
-    autorestart: true,
-    watch: false,
-    max_memory_restart: '500M',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 3000,
-      ORDER_SERVER_API_KEY: '${orderServerApiKey}'
-    },
-    error_file: '/var/log/indexpilot-order-server-error.log',
-    out_file: '/var/log/indexpilot-order-server-out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-    merge_logs: true
-  }]
-};
-ECOEOF
-
-# Start with PM2 and configure persistent startup
-echo "🚀 [7/8] Starting order server with PM2..."
-pm2 start ecosystem.config.js
-pm2 save
-
-# Create systemd service directly (pm2 startup only prints the command, doesn't run it)
+# Create systemd service directly — faster than installing PM2.
+echo "🚀 [5/6] Starting order server with systemd..."
 cat > /etc/systemd/system/pm2-root.service << 'SVCEOF'
 [Unit]
-Description=PM2 process manager
-Documentation=https://pm2.keymetrics.io/
-After=network.target
+Description=IndexpilotAI Order Server
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=forking
+Type=simple
 User=root
-LimitNOFILE=infinity
-LimitCORE=infinity
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/nvm/versions/node/v18.20.8/bin
-Environment=PM2_HOME=/root/.pm2
-PIDFile=/root/.pm2/pm2.pid
-ExecStart=/usr/lib/node_modules/pm2/bin/pm2 resurrect
-ExecReload=/usr/lib/node_modules/pm2/bin/pm2 reload all
-ExecStop=/usr/lib/node_modules/pm2/bin/pm2 kill
-Restart=on-failure
+WorkingDirectory=/root/indexpilot-order-server
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=ORDER_SERVER_API_KEY=${orderServerApiKey}
+ExecStart=/usr/bin/node /root/indexpilot-order-server/server.js
+Restart=always
+RestartSec=2
+StandardOutput=append:/var/log/indexpilot-order-server-out.log
+StandardError=append:/var/log/indexpilot-order-server-error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -626,10 +555,10 @@ SVCEOF
 
 systemctl daemon-reload
 systemctl enable pm2-root
-systemctl start pm2-root || true
+systemctl restart pm2-root
 
 # Configure firewall
-echo "🔒 [8/8] Configuring firewall..."
+echo "🔒 [6/6] Configuring firewall..."
 ufw allow 22/tcp
 ufw allow 3000/tcp
 ufw --force enable
@@ -648,17 +577,17 @@ echo ""
 echo "========================================="
 echo "🧪 Testing server deployment..."
 echo "========================================="
-sleep 5
+sleep 2
 
 # Wait for server to start
-for i in {1..10}; do
+for i in {1..8}; do
   if curl -s http://localhost:3000/health > /dev/null; then
     echo "✅ Server health check PASSED!"
     curl -s http://localhost:3000/health | head -20
     break
   else
-    echo "⏳ Waiting for server to start... ($i/10)"
-    sleep 3
+    echo "⏳ Waiting for server to start... ($i/8)"
+    sleep 2
   fi
 done
 
@@ -667,14 +596,14 @@ echo "========================================="
 echo "✅ DEPLOYMENT COMPLETE!"
 echo "========================================="
 echo "📊 Server Status:"
-pm2 status
+systemctl --no-pager status pm2-root || true
 echo ""
 echo "📍 Access server at:"
 echo "   http://$(hostname -I | awk '{print $1}'):3000"
 echo "========================================="
 echo ""
 echo "Deployment log saved to: /var/log/indexpilot-deploy.log"
-echo "Server logs: pm2 logs indexpilot-order-server"
+echo "Server logs: journalctl -u pm2-root -f"
 `;
 }
 
@@ -733,7 +662,7 @@ async function provisionDigitalOceanDroplet(
       status: 'creating',
       dropletId: droplet.id.toString(),
       startedAt: new Date().toISOString(),
-      estimatedMinutes: 15
+      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES
     };
 
     await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
@@ -764,10 +693,10 @@ async function monitorProvisioningJob(
 ) {
   try {
     let attempts = 0;
-    const maxAttempts = 30; // 7.5 minutes max (check every 15 seconds)
+    const maxAttempts = 72; // 6 minutes max (check every 5 seconds)
 
     while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 15000)); // Wait 15 seconds
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
       attempts++;
 
       // Get droplet status
@@ -808,7 +737,7 @@ async function monitorProvisioningJob(
           continue;
         }
 
-        console.log(`✅ Droplet active! IP: ${ipAddress} (took ${attempts * 15}s)`);
+        console.log(`✅ Droplet active! IP: ${ipAddress} (took ${attempts * 5}s)`);
 
         // Update job to deploying
         job.status = 'deploying';
@@ -823,22 +752,20 @@ async function monitorProvisioningJob(
         // Phase 2: Wait for cloud-init deployment
         // OPTIMIZED: Our cloud-init script is minimal (Node.js + 3 npm packages)
         // Real timing: apt-get (30s) + Node.js (20s) + npm install (15s) = 65 seconds
-        console.log(`⏳ Waiting 30 seconds for cloud-init to start, then checking health...`);
-        await new Promise(resolve => setTimeout(resolve, 30000)); // REDUCED: 30 seconds (was 90s)
+        console.log(`⏳ Waiting 10 seconds for cloud-init to start, then checking health...`);
+        await new Promise(resolve => setTimeout(resolve, 10000));
 
         // Phase 3: AGGRESSIVE health checks
         // Start checking EARLY and OFTEN
         let healthCheckPassed = false;
-        const maxHealthChecks = 25; // 25 attempts total
+        const maxHealthChecks = 60; // up to ~3 minutes of fast health checks
         
         console.log(`🧪 Starting AGGRESSIVE health checks for ${ipAddress}:3000/health...`);
         
         for (let i = 0; i < maxHealthChecks; i++) {
           try {
-            // First 15 attempts: Check every 5 seconds (fast polling)
-            // Last 10 attempts: Check every 10 seconds (slower polling)
-            const checkInterval = i < 15 ? 5000 : 10000;
-            const attemptType = i < 15 ? 'FAST' : 'SLOW';
+            const checkInterval = 3000;
+            const attemptType = 'FAST';
             
             console.log(`⏳ [${attemptType}] Health check attempt ${i + 1}/${maxHealthChecks} for ${ipAddress}...`);
             
@@ -853,7 +780,7 @@ async function monitorProvisioningJob(
             if (healthResponse.ok) {
               const healthData = await healthResponse.json();
               healthCheckPassed = true;
-              const elapsed = attempts * 15 + 30 + (i < 15 ? i * 5 : (15 * 5) + ((i - 15) * 10));
+              const elapsed = attempts * 5 + 10 + i * 3;
               console.log(`✅ Health check PASSED for ${ipAddress}!`);
               console.log(`✅ Server response:`, JSON.stringify(healthData));
               console.log(`✅ Total time: ${Math.floor(elapsed/60)}:${(elapsed%60).toString().padStart(2,'0')} (${elapsed}s)`);
@@ -862,7 +789,7 @@ async function monitorProvisioningJob(
               console.log(`⚠️ Health check returned status ${healthResponse.status}, retrying...`);
             }
           } catch (error: any) {
-            const attemptType = i < 15 ? 'FAST' : 'SLOW';
+            const attemptType = 'FAST';
             console.log(`⚠️ [${attemptType}] Health check attempt ${i + 1}/${maxHealthChecks} failed: ${error.message}`);
             
             // Firewall detection
@@ -874,7 +801,7 @@ async function monitorProvisioningJob(
             
             // Wait before retry
             if (i < maxHealthChecks - 1) {
-              const waitTime = i < 15 ? 5 : 10;
+              const waitTime = checkInterval / 1000;
               console.log(`⏳ Retrying in ${waitTime} seconds...`);
               await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             }
@@ -882,7 +809,7 @@ async function monitorProvisioningJob(
         }
 
         if (!healthCheckPassed) {
-          const maxWaitTime = (15 * 5) + (10 * 10); // 175 seconds total
+          const maxWaitTime = Math.round((maxHealthChecks * 3));
           console.error(`❌ Health check failed after ${maxWaitTime} seconds`);
           console.error(`❌ VPS IP: ${ipAddress}`);
           console.error(`❌ Droplet ID: ${dropletId}`);
@@ -913,14 +840,14 @@ async function monitorProvisioningJob(
         return;
       }
 
-      console.log(`⏳ Droplet status: ${droplet.status} (attempt ${attempts}/${maxAttempts}, elapsed: ${attempts * 15}s)`);
+      console.log(`⏳ Droplet status: ${droplet.status} (attempt ${attempts}/${maxAttempts}, elapsed: ${attempts * 5}s)`);
     }
 
     // Timeout
     const job = await kv.get(`${PROVISIONING_PREFIX}${jobId}`) as ProvisioningJob;
     if (job) {
       job.status = 'failed';
-      job.error = 'Provisioning timeout - took longer than 7.5 minutes';
+      job.error = 'Provisioning timeout - took longer than 6 minutes';
       await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
     }
 
@@ -1060,7 +987,7 @@ export async function provisionDedicatedIP(userId: string): Promise<{
       return {
         success: true,
         jobId: existingJob.id,
-        estimatedMinutes: existingJob.estimatedMinutes || 8,
+        estimatedMinutes: existingJob.estimatedMinutes || FAST_PROVISIONING_ESTIMATE_MINUTES,
         alreadyProvisioning: true,
         status: existingJob.status,
         message: `Provisioning already in progress. Status: ${existingJob.status}`,
@@ -1083,7 +1010,7 @@ export async function provisionDedicatedIP(userId: string): Promise<{
     return {
       success: true,
       jobId: result.jobId,
-      estimatedMinutes: 8
+      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES
     };
 
   } catch (error: any) {
