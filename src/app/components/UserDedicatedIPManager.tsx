@@ -481,7 +481,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   }
 
   async function cancelVps() {
-    if (!confirm('Cancel your VPS subscription? Your static IP will be released and broker access will stop.')) return;
+    if (!confirm('Cancel your VPS subscription? Your old static IP will be permanently removed from your account and the Buy option will show again.')) return;
     setLoading(true);
     try {
       const res = await fetch(`${serverUrl}/ip-pool/cancel`, {
@@ -490,10 +490,16 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to cancel');
-      toast.success('VPS subscription cancelled.');
+      stopPolling();
+      prevStatusRef.current = null;
+      toast.success(data.message || 'Old IP removed. You can buy a new dedicated IP now.');
       setVps(null);
+      setProgress(0);
+      setVpsConnCheck({ loading: false });
+      setPowerStatus(null);
       setSubscription({ status: 'none', daysUntilExpiry: 0, canConnect: false, isRenewal: false });
       setShowPaymentOptions(false);
+      await loadStatus();
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -1144,21 +1150,6 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
               <p className="text-[10px] text-zinc-500 text-center mt-2">
                 Secure payment · VPS created automatically · First-month active immediately
               </p>
-            </div>
-
-            {/* Recovery for existing VPS users */}
-            <div className="text-center pt-1">
-              <button
-                onClick={handleLinkExisting}
-                disabled={linkingExisting}
-                className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2 transition disabled:opacity-50 flex items-center gap-1 mx-auto"
-              >
-                {linkingExisting ? (
-                  <><Loader2 className="w-3 h-3 animate-spin" /> Searching for your VPS...</>
-                ) : (
-                  <><RefreshCw className="w-3 h-3" /> Already have a VPS? Recover it here</>
-                )}
-              </button>
             </div>
           </div>
         )}
