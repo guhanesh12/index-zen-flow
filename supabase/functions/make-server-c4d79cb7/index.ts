@@ -2546,7 +2546,7 @@ app.get("/make-server-c4d79cb7/check-vps-connectivity", async (c) => {
       testedAt: new Date().toISOString(),
       hint: reachable
         ? `✅ Your dedicated VPS at ${ipInfo.ipAddress} is UP. Orders will route through this IP when market opens.`
-        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: pm2 restart indexpilot-order-server`,
+        : `❌ Your dedicated VPS at ${ipInfo.ipAddress}:3000 is not responding. SSH into your VPS and run: sudo systemctl restart pm2-root`,
     });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
@@ -6819,7 +6819,7 @@ app.post("/make-server-c4d79cb7/admin/provisioning/manual-complete", async (c) =
       return c.json({
         error: 'Server is not reachable',
         message: `Cannot complete provisioning because http://${ipAddress}:3000/health is not responding. Please verify the server is running.`,
-        suggestion: 'SSH into the VPS and check: pm2 status && pm2 logs indexpilot-order-server'
+        suggestion: 'SSH into the VPS and check: sudo systemctl status pm2-root && journalctl -u pm2-root -n 100'
       }, 400);
     }
 
