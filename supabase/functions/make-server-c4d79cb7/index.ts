@@ -5830,7 +5830,11 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    let assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (!assignment) {
+      await VPSProvisioning.reconcileUserProvisioningJob(user.id);
+      assignment = await IPPoolManager.getUserIPAssignment(user.id);
+    }
     
     if (!assignment) {
       return c.json({
@@ -5878,6 +5882,21 @@ app.post("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
     }
 
     const job = await VPSProvisioning.reconcileUserProvisioningJob(user.id);
+    const reconciledAssignment = await IPPoolManager.getUserIPAssignment(user.id);
+    if (reconciledAssignment?.ipAddress && reconciledAssignment.subscriptionStatus === 'active') {
+      return c.json({
+        success: true,
+        provisioning: false,
+        message: 'Dedicated VPS is active',
+        assignment: {
+          ipAddress: reconciledAssignment.ipAddress,
+          provider: reconciledAssignment.provider,
+          assignedAt: reconciledAssignment.assignedAt,
+          expiresAt: reconciledAssignment.expiresAt,
+          subscriptionStatus: reconciledAssignment.subscriptionStatus,
+        }
+      });
+    }
     assignment = await IPPoolManager.getUserIPAssignment(user.id);
 
     if (assignment) {

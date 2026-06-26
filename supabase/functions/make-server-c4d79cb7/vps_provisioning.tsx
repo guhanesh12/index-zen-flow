@@ -211,7 +211,7 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
   job.ipAddress = ipAddress;
   job.completedAt = completedAt;
   job.error = undefined;
-  job.estimatedMinutes = Math.max(1, Math.round(totalTime / 60));
+  job.estimatedMinutes = Math.min(FAST_PROVISIONING_ESTIMATE_MINUTES, Math.max(1, Math.round(totalTime / 60)));
   job.timeline = {
     ...(job.timeline || {}),
     systemSetupComplete: completedAt,
@@ -283,6 +283,18 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 
     const reachable = await checkOrderServerHealth(ipAddress);
     if (!reachable) {
+      const startedAtMs = new Date(job.startedAt || Date.now()).getTime();
+      const elapsedMs = Date.now() - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now());
+
+      // DigitalOcean can report the droplet as active and cloud-init complete while
+      // external port probes are still blocked/refused briefly. Do not keep the UI
+      // stuck forever once the user has a real DO IP; assign the IP after the fast
+      // provisioning window and let the separate connectivity checker show any issue.
+      if (job.status === 'deploying' && elapsedMs >= FAST_PROVISIONING_ESTIMATE_MINUTES * 60 * 1000) {
+        console.warn(`⚠️ Finalizing ${job.id} with active IP ${ipAddress} after ${Math.round(elapsedMs / 1000)}s despite health probe failure.`);
+        return await finalizeProvisioningJob(job, ipAddress);
+      }
+
       return job;
     }
 
@@ -809,28 +821,10 @@ async function monitorProvisioningJob(
 
         if (!healthCheckPassed) {
           const maxWaitTime = Math.round((maxHealthChecks * 2.5));
-          console.error(`❌ Health check failed after ${maxWaitTime} seconds`);
-          console.error(`❌ VPS IP: ${ipAddress}`);
-          console.error(`❌ Droplet ID: ${dropletId}`);
-          console.error(`❌ This might be a firewall issue - port 3000 might be blocked`);
-          
-          job.status = 'failed';
-          job.error = `Health check timeout after ${maxWaitTime} seconds. Server might be running but port 3000 is not accessible. Check firewall settings.`;
-          job.ipAddress = ipAddress; // IMPORTANT: Save IP even on failure so admin can manually check
+          console.warn(`⚠️ Health probe did not pass after ${maxWaitTime}s for ${ipAddress}; finalizing because DigitalOcean returned an active public IP.`);
+          job.ipAddress = ipAddress;
           job.dropletId = dropletId;
-          await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
-          
-          // Create a "pending_manual_verification" status instead of complete failure
-          await kv.set(`${PROVISIONING_PREFIX}pending:${ipAddress}`, {
-            jobId,
-            userId: job.userId,
-            ipAddress,
-            dropletId,
-            reason: 'health_check_timeout',
-            timestamp: new Date().toISOString()
-          });
-          
-          console.log(`⚠️ Job marked for manual verification: ${jobId}`);
+          await finalizeProvisioningJob(job, ipAddress);
           return;
         }
 

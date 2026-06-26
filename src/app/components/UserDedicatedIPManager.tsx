@@ -225,43 +225,63 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
 
       // Build VPS record from edge function responses
       let newVps: VpsRecord | null = null;
-
-      if (ipData.success && ipData.assignment) {
-        // Has assigned IP
+      const applyActiveAssignment = (assignment: any) => {
         newVps = {
           status: 'active',
-          ipAddress: ipData.assignment.ipAddress,
-          startedAt: ipData.assignment.assignedAt || new Date().toISOString(),
-          completedAt: ipData.assignment.assignedAt,
+          ipAddress: assignment.ipAddress,
+          startedAt: assignment.assignedAt || new Date().toISOString(),
+          completedAt: assignment.assignedAt || assignment.completedAt,
           estimatedMinutes: 0,
           subscription: {
-            startDate: ipData.assignment.assignedAt || '',
-            expiryDate: ipData.assignment.expiresAt || '',
+            startDate: assignment.assignedAt || '',
+            expiryDate: assignment.expiresAt || '',
             renewalCount: 0,
           },
         };
-        // Build subscription info
-        if (ipData.assignment.expiresAt) {
-          const daysLeft = Math.ceil((new Date(ipData.assignment.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+
+        if (assignment.expiresAt) {
+          const daysLeft = Math.ceil((new Date(assignment.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
           setSubscription({
             status: daysLeft > 7 ? 'active' : daysLeft > 0 ? 'expiring' : 'expired',
             daysUntilExpiry: Math.max(0, daysLeft),
             canConnect: daysLeft > 0,
             isRenewal: true,
-            expiryDate: ipData.assignment.expiresAt,
-            startDate: ipData.assignment.assignedAt,
+            expiryDate: assignment.expiresAt,
+            startDate: assignment.assignedAt,
+          });
+        } else {
+          setSubscription({
+            status: 'active', daysUntilExpiry: 30, canConnect: true, isRenewal: true,
+            startDate: assignment.assignedAt,
           });
         }
-      } else if (provData.success && provData.provisioning && provData.job) {
+      };
+
+      if (ipData.success && ipData.assignment) {
+        applyActiveAssignment(ipData.assignment);
+      } else if (provData.success && provData.assignment) {
+        // The provisioning-status request may finalize the VPS before my-ip sees it.
+        // Treat that returned assignment as complete immediately so polling does not stay stuck.
+        applyActiveAssignment(provData.assignment);
+      } else if (provData.success && provData.job) {
         // Active or recoverable provisioning job
-        newVps = {
-          status: provData.job.status || 'creating',
-          ipAddress: provData.job.ipAddress,
-          startedAt: provData.job.startedAt || new Date().toISOString(),
-          completedAt: provData.job.completedAt,
-          estimatedMinutes: provData.job.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
-          error: provData.job.error,
-        };
+        const jobStatus = provData.job.status || 'creating';
+        if (isVpsReady(jobStatus) && provData.job.ipAddress) {
+          applyActiveAssignment({
+            ipAddress: provData.job.ipAddress,
+            assignedAt: provData.job.completedAt || provData.job.startedAt,
+            expiresAt: provData.job.expiresAt,
+          });
+        } else if (provData.provisioning) {
+          newVps = {
+            status: jobStatus,
+            ipAddress: provData.job.ipAddress,
+            startedAt: provData.job.startedAt || new Date().toISOString(),
+            completedAt: provData.job.completedAt,
+            estimatedMinutes: Math.min(provData.job.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES, FAST_VPS_ESTIMATE_MINUTES),
+            error: provData.job.error,
+          };
+        }
       }
 
       setVps(newVps);
