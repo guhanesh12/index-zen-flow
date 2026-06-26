@@ -25,6 +25,7 @@ import * as VPSProvisioning from "./vps_provisioning.tsx";
 import * as VPSPower from "./vps_power.tsx";
 
 const app = new Hono();
+const FAST_VPS_ESTIMATE_MINUTES = 3;
 
 // Initialize default admin hotkey on server start (non-blocking, non-critical)
 initializeDefaultHotkey().catch(err => {
@@ -5978,7 +5979,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
         alreadyProvisioning: true,
         message: `VPS provisioning already in progress. Status: ${existingJob.status}`,
         jobId: existingJob.id,
-        estimatedMinutes: existingJob.estimatedMinutes || 8,
+        estimatedMinutes: existingJob.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
       });
     }
 
@@ -6007,7 +6008,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
           alreadyProvisioning: true,
           message: provisionResult.message || 'VPS provisioning already in progress',
           jobId: provisionResult.jobId,
-          estimatedMinutes: provisionResult.estimatedMinutes || 8,
+          estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
           wallet: { balance: wallet.balance, deducted: 0 }
         });
       }
@@ -6019,7 +6020,7 @@ app.post("/make-server-c4d79cb7/ip-pool/subscribe", async (c) => {
         }, 400);
       }
 
-      // Deduct from wallet immediately (VPS will be ready in 15 minutes)
+      // Deduct from wallet immediately (VPS starts provisioning now)
       wallet.balance -= DEDICATED_IP_FEE;
       wallet.totalDeducted = (wallet.totalDeducted || 0) + DEDICATED_IP_FEE;
       await kv.set(`wallet:${user.id}`, wallet);
@@ -6249,7 +6250,7 @@ app.post("/make-server-c4d79cb7/ip-pool/provisioning-restart", async (c) => {
       message: 'Old provisioning cleared. New VPS creation started with the current DigitalOcean token.',
       provisioning: true,
       jobId: provisionResult.jobId,
-      estimatedMinutes: provisionResult.estimatedMinutes || 8,
+      estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
       oldJobId: existingJob.id,
       deletionAttempted: cancelResult.deletionAttempted,
       deletionSucceeded: cancelResult.deletionSucceeded,
@@ -6383,7 +6384,7 @@ app.post("/make-server-c4d79cb7/ip-pool/recreate", async (c) => {
       message: 'Old VPS fully destroyed (DigitalOcean + database). New VPS creation started — subscription expiry preserved.',
       provisioning: true,
       jobId: provisionResult.jobId,
-      estimatedMinutes: provisionResult.estimatedMinutes || 8,
+      estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
       purgedIps: Array.from(ipsToPurge),
       preservedExpiresAt,
       deletionResults,
@@ -6692,7 +6693,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
         alreadyProvisioning: true,
         message: `Payment successful. VPS provisioning is already in progress. Status: ${existingJob.status}`,
         jobId: existingJob.id,
-        estimatedMinutes: existingJob.estimatedMinutes || 8,
+        estimatedMinutes: existingJob.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
         paymentId: razorpay_payment_id
       });
     }
@@ -6708,7 +6709,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
         alreadyProvisioning: true,
         message: provisionResult.message || 'Payment successful. VPS provisioning is already in progress.',
         jobId: provisionResult.jobId,
-        estimatedMinutes: provisionResult.estimatedMinutes || 8,
+        estimatedMinutes: provisionResult.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES,
         paymentId: razorpay_payment_id
       });
     }
