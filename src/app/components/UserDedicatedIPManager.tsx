@@ -164,6 +164,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     hint?: string;
     error?: string;
   }>({ loading: false });
+  const [repairState, setRepairState] = useState<{ loading: boolean; message?: string; error?: string }>({ loading: false });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatusRef = useRef<string | null>(null);
 
@@ -185,6 +186,27 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       setVpsConnCheck({ loading: false, reachable: false, error: err.message, hint: 'Could not reach the server to run connectivity check.' });
     }
   };
+
+  const repairOrderServer = async () => {
+    setRepairState({ loading: true });
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/repair-vps`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setRepairState({ loading: false, error: data.error || `HTTP ${res.status}` });
+        return;
+      }
+      setRepairState({ loading: false, message: data.message });
+      // Auto re-check after 75 seconds.
+      setTimeout(() => { checkVpsServer(); }, 75000);
+    } catch (err: any) {
+      setRepairState({ loading: false, error: err.message });
+    }
+  };
+
 
   // Decode email from JWT for Razorpay prefill
   const userEmail = (() => {
