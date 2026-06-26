@@ -151,6 +151,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
   const [linkingExisting, setLinkingExisting] = useState(false);
   const [resettingProvisioning, setResettingProvisioning] = useState(false);
+  const [recreatingVps, setRecreatingVps] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
