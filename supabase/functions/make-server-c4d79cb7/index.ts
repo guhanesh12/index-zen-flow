@@ -5733,6 +5733,94 @@ app.get("/make-server-c4d79cb7/wallet/static-ip-status", async (c) => {
 
 // ==================== IP POOL MANAGEMENT ROUTES ====================
 
+async function purgeUserDedicatedIPState(userId: string, reason: string) {
+  const ipsToPurge = new Set<string>();
+  const keysToDelete = new Set<string>([
+    `user_ip_assignment:${userId}`,
+    `ip_assignment:${userId}:dedicated`,
+    `vps_provisioning:user:${userId}`,
+    `vps_power:${userId}`,
+    `ip_recreate_preserve:${userId}`,
+  ]);
+
+  try {
+    const currentRaw = await kv.get(`user_ip_assignment:${userId}`) as any;
+    if (currentRaw?.ipAddress) ipsToPurge.add(currentRaw.ipAddress);
+  } catch {}
+
+  try {
+    const legacyRaw = await kv.get(`ip_assignment:${userId}:dedicated`) as any;
+    if (legacyRaw?.ipAddress) ipsToPurge.add(legacyRaw.ipAddress);
+  } catch {}
+
+  try {
+    const powerRaw = await kv.get(`vps_power:${userId}`) as any;
+    if (powerRaw?.ipAddress) ipsToPurge.add(powerRaw.ipAddress);
+  } catch {}
+
+  try {
+    const jobId = await kv.get(`vps_provisioning:user:${userId}`) as string | null;
+    if (jobId) {
+      keysToDelete.add(`vps_provisioning:${jobId}`);
+      const jobRaw = await kv.get(`vps_provisioning:${jobId}`) as any;
+      if (jobRaw?.ipAddress) ipsToPurge.add(jobRaw.ipAddress);
+    }
+  } catch {}
+
+  try {
+    const userJobs = await kv.getByPrefix('vps_provisioning:');
+    for (const row of userJobs || []) {
+      if (row?.value?.userId === userId) {
+        keysToDelete.add(row.key);
+        if (row.value?.ipAddress) ipsToPurge.add(row.value.ipAddress);
+      }
+    }
+  } catch (e) {
+    console.warn(`⚠️ ${reason}: failed to scan provisioning jobs`, (e as any)?.message);
+  }
+
+  for (const ip of ipsToPurge) {
+    keysToDelete.add(`ip_pool:${ip}`);
+    keysToDelete.add(`vps_provisioning:pending:${ip}`);
+  }
+
+  for (const key of keysToDelete) {
+    try { await kv.del(key); } catch {}
+  }
+
+  console.log(`🧹 ${reason}: purged dedicated IP state for user ${userId}`, {
+    ips: Array.from(ipsToPurge),
+    keys: Array.from(keysToDelete),
+  });
+
+  return { purgedIps: Array.from(ipsToPurge), purgedKeys: Array.from(keysToDelete) };
+}
+
+async function deleteDigitalOceanDropletForIP(ipAddress: string): Promise<{ attempted: boolean; success: boolean; error?: string; dropletId?: number | string }> {
+  const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
+  if (!DO_API_TOKEN) return { attempted: false, success: false, error: 'DigitalOcean API token not configured' };
+
+  const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
+  const dropletId = ipEntry?.metadata?.dropletId;
+  if (!dropletId) return { attempted: false, success: false, error: 'Droplet ID not found for this IP' };
+
+  try {
+    const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
+    });
+    const success = response.ok || response.status === 204 || response.status === 404;
+    return {
+      attempted: true,
+      success,
+      dropletId,
+      error: success ? undefined : await response.text().catch(() => 'DigitalOcean delete failed'),
+    };
+  } catch (error: any) {
+    return { attempted: true, success: false, dropletId, error: error.message };
+  }
+}
+
 // 🌐 Get user's assigned IP
 app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   try {
@@ -5741,12 +5829,7 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
-    let assignment = await IPPoolManager.getUserIPAssignment(user.id);
-
-    if (!assignment) {
-      await VPSProvisioning.reconcileUserProvisioningJob(user.id);
-      assignment = await IPPoolManager.getUserIPAssignment(user.id);
-    }
+    const assignment = await IPPoolManager.getUserIPAssignment(user.id);
     
     if (!assignment) {
       return c.json({
@@ -6023,36 +6106,17 @@ app.post("/make-server-c4d79cb7/ip-pool/cancel", async (c) => {
     const assignment = await IPPoolManager.getUserIPAssignment(user.id);
     const ipAddress = assignment?.ipAddress;
 
-    const result = await IPPoolManager.removeIPFromUser(user.id);
-    
-    if (!result.success) {
-      return c.json({
-        success: false,
-        error: result.error
-      }, 400);
-    }
-
-    // ⚡ AUTO-DELETE VPS if it was auto-provisioned (to save costs)
-    if (ipAddress) {
-      const ipEntry = await kv.get(`ip_pool:${ipAddress}`) as any;
-      if (ipEntry?.metadata?.autoProvisioned) {
-        console.log(`🗑️ Auto-deleting VPS for cancelled subscription: ${ipAddress}`);
-        const deleteResult = await VPSProvisioning.deprovisionVPS(ipAddress);
-        if (deleteResult.success) {
-          console.log(`✅ VPS deleted successfully: ${ipAddress}`);
-          // Also remove from IP pool
-          await kv.del(`ip_pool:${ipAddress}`);
-        } else {
-          console.error(`❌ Failed to delete VPS: ${deleteResult.error}`);
-        }
-      }
-    }
+    const deleteResult = ipAddress ? await deleteDigitalOceanDropletForIP(ipAddress) : null;
+    const purgeResult = await purgeUserDedicatedIPState(user.id, 'Cancel VPS');
 
     console.log(`✅ User ${user.id} cancelled dedicated IP subscription`);
 
     return c.json({
       success: true,
-      message: 'Dedicated IP subscription cancelled successfully'
+      message: 'Dedicated IP subscription cancelled successfully. Old IP removed from database; buy option is available now.',
+      oldIpAddress: ipAddress,
+      deletion: deleteResult,
+      purge: purgeResult,
     });
   } catch (error: any) {
     console.error('❌ Cancel IP subscription error:', error);
