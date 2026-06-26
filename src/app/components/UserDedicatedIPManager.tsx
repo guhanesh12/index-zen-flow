@@ -199,6 +199,24 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         setRepairState({ loading: false, error: data.error || `HTTP ${res.status}` });
         return;
       }
+
+      if (data.reachable) {
+        setVpsConnCheck({ loading: false, reachable: true, ipAddress: data.ipAddress || vps?.ipAddress, hint: data.message || 'Order server is already UP.' });
+        setRepairState({ loading: false, message: data.message || 'Order server is already UP.' });
+        return;
+      }
+
+      if (data.provisioning || data.jobId) {
+        prevStatusRef.current = null;
+        setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || FAST_VPS_ESTIMATE_MINUTES });
+        setProgress(2);
+        setVpsConnCheck({ loading: false });
+        setRepairState({ loading: false, message: data.message || 'Unhealthy VPS replaced. New server creation started.' });
+        toast.success(data.message || 'Unhealthy VPS replaced. New server creation started.');
+        startPolling();
+        return;
+      }
+
       setRepairState({ loading: false, message: data.message });
       // Auto re-check after 75 seconds.
       setTimeout(() => { checkVpsServer(); }, 75000);
@@ -957,7 +975,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                     {vpsConnCheck.hint}
                   </p>
                 )}
-                {repairState.message && (
+                {repairState.message && !isProvisioning && (
                   <p className="text-[11px] mt-2 leading-relaxed text-emerald-300/90">
                     🔄 {repairState.message}
                   </p>

@@ -46,6 +46,7 @@ interface ProvisioningJob {
     ipAssigned?: string;             // ~2-3 min: IP assigned to user
     completed?: string;              // ~2-3 min: Ready for orders!
   };
+  preserveExpiryAt?: string;
 }
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
@@ -103,6 +104,23 @@ async function ensureIPPoolEntry(job: ProvisioningJob, ipAddress: string) {
   });
 }
 
+async function deleteDigitalOceanDroplet(dropletId: string | number, apiToken: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${apiToken}` },
+    });
+
+    const success = response.ok || response.status === 204 || response.status === 404;
+    return {
+      success,
+      error: success ? undefined : await response.text().catch(() => 'DigitalOcean delete failed'),
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
 async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string): Promise<ProvisioningJob> {
   const addResult = await ensureIPPoolEntry(job, ipAddress);
 
@@ -148,6 +166,8 @@ async function finalizeProvisioningJob(job: ProvisioningJob, ipAddress: string):
       const preserve = await kv.get(`ip_recreate_preserve:${job.userId}`) as any;
       if (preserve?.expiresAt && new Date(preserve.expiresAt) > new Date()) {
         preservedExpiresAt = preserve.expiresAt;
+      } else if (job.preserveExpiryAt && new Date(job.preserveExpiryAt) > new Date()) {
+        preservedExpiresAt = job.preserveExpiryAt;
       }
     } catch {}
 
@@ -311,40 +331,37 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 function generateCloudInitScript(orderServerApiKey: string): string {
   return `#!/bin/bash
 
-# ===================================
 # IndexpilotAI Order Server Auto-Deploy
-# IMPROVED VERSION - 100% AUTOMATIC
-# ===================================
-
-set -e
+# ASCII-only and non-fatal bootstrap so one package warning cannot stop server startup.
+set +e
 
 # Log everything
 exec > >(tee -a /var/log/indexpilot-deploy.log)
 exec 2>&1
 
 echo "========================================="
-echo "🤖 IndexpilotAI Auto-Deployment Starting"
+echo "IndexpilotAI Auto-Deployment Starting"
 echo "Time: $(date)"
 echo "========================================="
 
 # Update package index only — full apt upgrade makes provisioning slow.
-echo "📦 [1/6] Updating package index..."
+echo "[1/6] Updating package index..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
 # Install Node.js from Ubuntu repo for fastest bootstrapping.
-echo "📦 [2/6] Installing Node.js..."
-apt-get install -y -qq nodejs
+echo "[2/6] Installing Node.js..."
+apt-get install -y -qq nodejs curl ufw || apt-get install -y nodejs curl ufw
 
 node --version
 
 # Create order server directory
-echo "📁 [3/6] Creating server directory..."
+echo "[3/6] Creating server directory..."
 mkdir -p /root/indexpilot-order-server
 cd /root/indexpilot-order-server
 
 # Create server.js
-echo "📝 [4/6] Creating server files..."
+echo "[4/6] Creating server files..."
 cat > server.js << 'SERVEREOF'
 const http = require('http');
 const https = require('https');
@@ -541,7 +558,7 @@ log('✅ Server initialization complete');
 SERVEREOF
 
 # Create systemd service directly — faster than installing PM2.
-echo "🚀 [5/6] Starting order server with systemd..."
+echo "[5/6] Starting order server with systemd..."
 cat > /etc/systemd/system/pm2-root.service << 'SVCEOF'
 [Unit]
 Description=IndexpilotAI Order Server
@@ -554,7 +571,7 @@ User=root
 WorkingDirectory=/root/indexpilot-order-server
 Environment=NODE_ENV=production
 Environment=PORT=3000
-Environment=ORDER_SERVER_API_KEY=${orderServerApiKey}
+Environment="ORDER_SERVER_API_KEY=${orderServerApiKey}"
 ExecStart=/usr/bin/node /root/indexpilot-order-server/server.js
 Restart=always
 RestartSec=2
@@ -570,14 +587,14 @@ systemctl enable pm2-root
 systemctl restart pm2-root
 
 # Configure firewall
-echo "🔒 [6/6] Configuring firewall..."
+echo "[6/6] Configuring firewall..."
 ufw allow 22/tcp
 ufw allow 3000/tcp
 ufw --force enable
 
 # Create success marker
 echo "=========================================" >> /root/deployment-success.txt
-echo "✅ IndexpilotAI Order Server Deployed!" >> /root/deployment-success.txt
+echo "IndexpilotAI Order Server Deployed!" >> /root/deployment-success.txt
 echo "=========================================" >> /root/deployment-success.txt
 echo "Deployed at: $(date)" >> /root/deployment-success.txt
 echo "Server URL: http://$(hostname -I | awk '{print $1}'):3000" >> /root/deployment-success.txt
@@ -594,7 +611,7 @@ sleep 2
 # Wait for server to start
 for i in {1..8}; do
   if curl -s http://localhost:3000/health > /dev/null; then
-    echo "✅ Server health check PASSED!"
+    echo "Server health check PASSED!"
     curl -s http://localhost:3000/health | head -20
     break
   else
@@ -605,12 +622,12 @@ done
 
 echo ""
 echo "========================================="
-echo "✅ DEPLOYMENT COMPLETE!"
+echo "DEPLOYMENT COMPLETE!"
 echo "========================================="
-echo "📊 Server Status:"
+echo "Server Status:"
 systemctl --no-pager status pm2-root || true
 echo ""
-echo "📍 Access server at:"
+echo "Access server at:"
 echo "   http://$(hostname -I | awk '{print $1}'):3000"
 echo "========================================="
 echo ""
@@ -619,12 +636,38 @@ echo "Server logs: journalctl -u pm2-root -f"
 `;
 }
 
+function base64EncodeUtf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function getCloudConfigPayload(orderServerApiKey: string): string {
+  const shellScript = generateCloudInitScript(orderServerApiKey);
+
+  return `#cloud-config
+write_files:
+  - path: /root/indexpilot-cloud-init.sh
+    owner: root:root
+    permissions: '0755'
+    encoding: b64
+    content: ${base64EncodeUtf8(shellScript)}
+runcmd:
+  - [ bash, /root/indexpilot-cloud-init.sh ]
+`;
+}
+
 /**
  * Provision VPS on DigitalOcean
  */
 async function provisionDigitalOceanDroplet(
   userId: string,
-  orderServerApiKey: string
+  orderServerApiKey: string,
+  options: { preserveExpiryAt?: string; replacingIpAddress?: string; replacingDropletId?: string | number } = {}
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
   try {
     const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
@@ -674,11 +717,20 @@ async function provisionDigitalOceanDroplet(
       status: 'creating',
       dropletId: droplet.id.toString(),
       startedAt: new Date().toISOString(),
-      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES
+      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES,
+      preserveExpiryAt: options.preserveExpiryAt,
     };
 
     await kv.set(`${PROVISIONING_PREFIX}${jobId}`, job);
     await kv.set(`${PROVISIONING_PREFIX}user:${userId}`, jobId);
+    if (options.preserveExpiryAt) {
+      await kv.set(`ip_recreate_preserve:${userId}`, {
+        expiresAt: options.preserveExpiryAt,
+        replacingIpAddress: options.replacingIpAddress,
+        replacingDropletId: options.replacingDropletId ? String(options.replacingDropletId) : undefined,
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     console.log(`✅ Droplet creation initiated for user ${userId}: ${droplet.id}`);
 
@@ -1012,6 +1064,81 @@ export async function provisionDedicatedIP(userId: string): Promise<{
   }
 }
 
+export async function replaceUnhealthyUserVPS(
+  userId: string,
+  currentIpAddress: string,
+  preserveExpiryAt?: string
+): Promise<{
+  success: boolean;
+  jobId?: string;
+  estimatedMinutes?: number;
+  oldIpAddress?: string;
+  deletion?: { success: boolean; error?: string; dropletId?: string };
+  error?: string;
+  message?: string;
+}> {
+  try {
+    const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
+    if (!DO_API_TOKEN) {
+      return { success: false, error: 'DigitalOcean API token not configured' };
+    }
+
+    const ORDER_SERVER_API_KEY = Deno.env.get('ORDER_SERVER_API_KEY');
+    if (!ORDER_SERVER_API_KEY) {
+      return { success: false, error: 'Order server API key not configured' };
+    }
+
+    const ipEntry = await kv.get(`ip_pool:${currentIpAddress}`) as any;
+    const oldDropletId = ipEntry?.metadata?.dropletId;
+    const expiresAt = preserveExpiryAt && new Date(preserveExpiryAt) > new Date()
+      ? preserveExpiryAt
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    let deletion: { success: boolean; error?: string; dropletId?: string } = { success: false, error: 'No droplet ID found for old IP' };
+    if (oldDropletId) {
+      const deleteResult = await deleteDigitalOceanDroplet(oldDropletId, DO_API_TOKEN);
+      deletion = { ...deleteResult, dropletId: String(oldDropletId) };
+    }
+
+    const oldJob = await getUserProvisioningJob(userId);
+    if (oldJob) {
+      oldJob.status = 'failed';
+      oldJob.error = 'Replaced because the VPS was active but order server port 3000 was down';
+      oldJob.completedAt = new Date().toISOString();
+      await kv.set(`${PROVISIONING_PREFIX}${oldJob.id}`, oldJob);
+    }
+
+    await kv.del(`user_ip_assignment:${userId}`);
+    await kv.del(`ip_assignment:${userId}:dedicated`);
+    await kv.del(`ip_pool:${currentIpAddress}`);
+    await kv.del(`${PROVISIONING_PREFIX}pending:${currentIpAddress}`);
+    await kv.del(`vps_power:${userId}`);
+    await kv.del(`${PROVISIONING_PREFIX}user:${userId}`);
+
+    const result = await provisionDigitalOceanDroplet(userId, ORDER_SERVER_API_KEY, {
+      preserveExpiryAt: expiresAt,
+      replacingIpAddress: currentIpAddress,
+      replacingDropletId: oldDropletId,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.error || 'Failed to start replacement VPS provisioning', deletion, oldIpAddress: currentIpAddress };
+    }
+
+    return {
+      success: true,
+      jobId: result.jobId,
+      estimatedMinutes: FAST_PROVISIONING_ESTIMATE_MINUTES,
+      oldIpAddress: currentIpAddress,
+      deletion,
+      message: 'Old unhealthy VPS removed. A fresh VPS is being created now and will show a new IP when ready.',
+    };
+  } catch (error: any) {
+    console.error('❌ replaceUnhealthyUserVPS error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 /**
  * Delete VPS when user cancels subscription
  */
@@ -1071,6 +1198,11 @@ export async function repairUserVPS(ipAddress: string): Promise<{ success: boole
       return { success: false, error: 'Droplet ID not found for this IP. Please contact support.' };
     }
 
+    const ORDER_SERVER_API_KEY = Deno.env.get('ORDER_SERVER_API_KEY');
+    if (!ORDER_SERVER_API_KEY) {
+      return { success: false, error: 'Order server API key not configured' };
+    }
+
     const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
       method: 'POST',
       headers: {
@@ -1090,7 +1222,7 @@ export async function repairUserVPS(ipAddress: string): Promise<{ success: boole
     return {
       success: true,
       dropletId: String(dropletId),
-      message: 'Server reboot started. The order server will auto-restart in ~60-90 seconds. Click "Check Order Server" again after a minute.'
+      message: 'Server reboot started as fallback. If it is still down after 2 minutes, use Destroy & Create NEW IP.'
     };
   } catch (error: any) {
     console.error('❌ repairUserVPS error:', error);
