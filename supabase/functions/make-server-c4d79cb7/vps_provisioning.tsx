@@ -639,6 +639,16 @@ echo "Server logs: journalctl -u pm2-root -f"
 `;
 }
 
+function base64EncodeUtf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 function getCloudConfigPayload(orderServerApiKey: string): string {
   const shellScript = generateCloudInitScript(orderServerApiKey);
 
@@ -648,7 +658,7 @@ write_files:
     owner: root:root
     permissions: '0755'
     encoding: b64
-    content: ${btoa(shellScript)}
+    content: ${base64EncodeUtf8(shellScript)}
 runcmd:
   - [ bash, /root/indexpilot-cloud-init.sh ]
 `;
