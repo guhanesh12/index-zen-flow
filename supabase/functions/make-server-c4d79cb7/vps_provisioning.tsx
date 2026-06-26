@@ -619,6 +619,21 @@ echo "Server logs: journalctl -u pm2-root -f"
 `;
 }
 
+function getCloudConfigPayload(orderServerApiKey: string): string {
+  const shellScript = generateCloudInitScript(orderServerApiKey);
+
+  return `#cloud-config
+write_files:
+  - path: /root/indexpilot-cloud-init.sh
+    owner: root:root
+    permissions: '0755'
+    encoding: b64
+    content: ${btoa(shellScript)}
+runcmd:
+  - [ bash, /root/indexpilot-cloud-init.sh ]
+`;
+}
+
 /**
  * Provision VPS on DigitalOcean
  */
@@ -633,7 +648,7 @@ async function provisionDigitalOceanDroplet(
       return { success: false, error: 'DigitalOcean API token not configured' };
     }
 
-    const cloudInitScript = generateCloudInitScript(orderServerApiKey);
+    const cloudInitScript = getCloudConfigPayload(orderServerApiKey);
 
     // Create droplet
     const response = await fetch('https://api.digitalocean.com/v2/droplets', {
@@ -1054,9 +1069,9 @@ export async function deprovisionVPS(ipAddress: string): Promise<{ success: bool
 }
 
 /**
- * Repair an unresponsive order server by power-cycling the droplet via
- * the DigitalOcean API. The systemd service `pm2-root` is enabled at boot,
- * so the order server should come back online automatically (~60-90s).
+ * Repair an unresponsive order server by rebuilding it from the same startup
+ * script used for new droplets, then power-cycling as a final fallback. This
+ * fixes droplets that are online but never received/ran the order server.
  */
 export async function repairUserVPS(ipAddress: string): Promise<{ success: boolean; error?: string; message?: string; dropletId?: string }> {
   try {
@@ -1070,6 +1085,37 @@ export async function repairUserVPS(ipAddress: string): Promise<{ success: boole
     if (!dropletId) {
       return { success: false, error: 'Droplet ID not found for this IP. Please contact support.' };
     }
+
+    const ORDER_SERVER_API_KEY = Deno.env.get('ORDER_SERVER_API_KEY');
+    if (!ORDER_SERVER_API_KEY) {
+      return { success: false, error: 'Order server API key not configured' };
+    }
+
+    const rebuildScript = generateCloudInitScript(ORDER_SERVER_API_KEY);
+    const escapedScript = rebuildScript.replace(/'/g, `'"'"'`);
+    const rebuildResponse = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${DO_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type: 'run_command',
+        command: `cat > /root/indexpilot-repair.sh <<'REPAIR_EOF'\n${escapedScript}\nREPAIR_EOF\nbash /root/indexpilot-repair.sh > /var/log/indexpilot-repair.log 2>&1 &`
+      })
+    });
+
+    if (rebuildResponse.ok) {
+      console.log(`🛠️ Started in-place order server redeploy on droplet ${dropletId} (IP ${ipAddress})`);
+      return {
+        success: true,
+        dropletId: String(dropletId),
+        message: 'Server repair started. The order server is being redeployed and should be UP in 1–2 minutes.'
+      };
+    }
+
+    const rebuildError = await rebuildResponse.text().catch(() => '');
+    console.warn(`⚠️ In-place repair command failed for droplet ${dropletId}; falling back to power cycle:`, rebuildError);
 
     const response = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}/actions`, {
       method: 'POST',
@@ -1090,7 +1136,7 @@ export async function repairUserVPS(ipAddress: string): Promise<{ success: boole
     return {
       success: true,
       dropletId: String(dropletId),
-      message: 'Server reboot started. The order server will auto-restart in ~60-90 seconds. Click "Check Order Server" again after a minute.'
+      message: 'Server reboot started as fallback. If it is still down after 2 minutes, use Destroy & Create NEW IP.'
     };
   } catch (error: any) {
     console.error('❌ repairUserVPS error:', error);
