@@ -951,6 +951,22 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 Cancel
               </Button>
             </div>
+
+            {/* Destroy & Recreate (get a brand-new IP, keeps subscription expiry) */}
+            <Button
+              onClick={recreateVps}
+              disabled={loading || recreatingVps}
+              variant="outline"
+              size="sm"
+              className="w-full border-amber-700 text-amber-300 hover:bg-amber-900/20 text-xs"
+              title="Delete this VPS and provision a brand-new dedicated IP. Subscription expiry is preserved — no new payment."
+            >
+              {recreatingVps ? (
+                <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Destroying & creating new IP…</>
+              ) : (
+                <><RefreshCw className="w-3 h-3 mr-1" />Destroy & Create NEW IP (keeps subscription)</>
+              )}
+            </Button>
           </div>
         )}
 
