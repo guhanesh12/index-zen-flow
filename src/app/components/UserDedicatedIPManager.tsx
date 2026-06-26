@@ -655,7 +655,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 VPS Provisioning In Progress
               </h3>
               <p className="text-zinc-300 text-sm mt-1">
-                Your dedicated VPS is being created automatically. This takes approximately {vps.estimatedMinutes} minutes.
+                Your dedicated VPS is being created automatically. This takes approximately {Math.min(vps.estimatedMinutes ?? 3, 3)} minutes.
               </p>
               <p className={`text-sm font-semibold mt-2 ${
                 vps.status === 'deploying' ? 'text-purple-400' : 'text-cyan-400'
