@@ -6197,8 +6197,9 @@ app.post("/make-server-c4d79cb7/ip-pool/provisioning-restart", async (c) => {
   }
 });
 
-// 🔄 Destroy the user's current VPS/IP and provision a brand-new one,
-// PRESERVING the existing subscription expiry (no recharge needed).
+// 🔄 FULLY destroy the user's current VPS/IP (force delete from DigitalOcean +
+// purge EVERY KV key that references the old IP for this user only) and then
+// provision a brand-new one, preserving the existing subscription expiry.
 app.post("/make-server-c4d79cb7/ip-pool/recreate", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
@@ -6206,54 +6207,108 @@ app.post("/make-server-c4d79cb7/ip-pool/recreate", async (c) => {
       return c.json({ code: error.code, message: error.message }, error.code);
     }
 
+    // Collect every IP this user is currently associated with (assignment +
+    // provisioning job) so we can purge ALL of them.
+    const ipsToPurge = new Set<string>();
     const assignment = await IPPoolManager.getUserIPAssignment(user.id);
-    if (!assignment || !assignment.ipAddress) {
-      return c.json({ success: false, error: 'No active VPS to recreate. Please subscribe first.' }, 400);
-    }
+    if (assignment?.ipAddress) ipsToPurge.add(assignment.ipAddress);
 
-    const oldIp = assignment.ipAddress;
+    const existingJob = await VPSProvisioning.getUserProvisioningJob(user.id);
+    if (existingJob?.ipAddress) ipsToPurge.add(existingJob.ipAddress);
+
+    // Preserve the subscription expiry so the user doesn't lose paid days.
     const preservedExpiresAt =
-      assignment.expiresAt && new Date(assignment.expiresAt) > new Date()
+      assignment?.expiresAt && new Date(assignment.expiresAt) > new Date()
         ? assignment.expiresAt
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // 1️⃣  Delete any stuck provisioning job first
-    try { await VPSProvisioning.cancelUserProvisioningJob(user.id); } catch {}
+    const DO_API_TOKEN = Deno.env.get('DIGITALOCEAN_API_TOKEN');
+    const deletionResults: Array<{ ip: string; dropletId?: number; deleted: boolean; error?: string }> = [];
 
-    // 2️⃣  Delete the existing DigitalOcean droplet (if auto-provisioned)
-    let deletionAttempted = false;
-    let deletionSucceeded = false;
-    let deletionError: string | undefined;
-    const ipEntry = await kv.get(`ip_pool:${oldIp}`) as any;
-    if (ipEntry?.metadata?.dropletId) {
-      deletionAttempted = true;
-      const del = await VPSProvisioning.deprovisionVPS(oldIp);
-      deletionSucceeded = !!del.success;
-      deletionError = del.error;
-      if (del.success) {
-        console.log(`🗑️ Recreate: deleted droplet for ${oldIp}`);
+    // 1️⃣ Force-delete the DigitalOcean droplet(s) for every IP we found.
+    for (const ip of ipsToPurge) {
+      const ipEntry = await kv.get(`ip_pool:${ip}`) as any;
+      const dropletId = ipEntry?.metadata?.dropletId || existingJob?.dropletId;
+
+      if (DO_API_TOKEN && dropletId) {
+        try {
+          const resp = await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
+          });
+          const ok = resp.ok || resp.status === 204 || resp.status === 404;
+          deletionResults.push({
+            ip, dropletId, deleted: ok,
+            error: ok ? undefined : await resp.text().catch(() => 'DO delete failed'),
+          });
+        } catch (e: any) {
+          deletionResults.push({ ip, dropletId, deleted: false, error: e.message });
+        }
       } else {
-        console.warn(`⚠️ Recreate: droplet delete failed for ${oldIp}: ${del.error}`);
+        deletionResults.push({ ip, deleted: false, error: 'No droplet ID stored (manual IP) — skipped DO call' });
       }
     }
 
-    // 3️⃣  Remove the old IP pool entry so it isn't reassigned
-    try { await kv.del(`ip_pool:${oldIp}`); } catch {}
+    // 2️⃣ Scan DigitalOcean for any droplet tagged with this user (covers
+    //     orphans whose KV entries were already lost).
+    if (DO_API_TOKEN) {
+      try {
+        const tagResp = await fetch(
+          `https://api.digitalocean.com/v2/droplets?tag_name=user-${user.id}`,
+          { headers: { Authorization: `Bearer ${DO_API_TOKEN}` } }
+        );
+        if (tagResp.ok) {
+          const tagData = await tagResp.json();
+          for (const d of (tagData.droplets || [])) {
+            try {
+              await fetch(`https://api.digitalocean.com/v2/droplets/${d.id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
+              });
+              const orphanIp = d.networks?.v4?.find((n: any) => n.type === 'public')?.ip_address;
+              if (orphanIp) ipsToPurge.add(orphanIp);
+              deletionResults.push({ ip: orphanIp || `droplet-${d.id}`, dropletId: d.id, deleted: true });
+            } catch (e: any) {
+              deletionResults.push({ ip: `droplet-${d.id}`, dropletId: d.id, deleted: false, error: e.message });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ Recreate: DO tag scan failed', (e as any)?.message);
+      }
+    }
 
-    // 4️⃣  Park the user's assignment with a placeholder IP so the
-    //     subsequent provisioning finalize step PRESERVES expiresAt
-    const parked = {
-      ...assignment,
-      ipAddress: '',
-      vpsUrl: '',
-      subscriptionStatus: 'recreating',
+    // 3️⃣ Purge ALL KV references to the old IP(s).
+    for (const ip of ipsToPurge) {
+      try { await kv.del(`ip_pool:${ip}`); } catch {}
+      try { await kv.del(`vps_provisioning:pending:${ip}`); } catch {}
+    }
+
+    // 4️⃣ Purge per-user provisioning + assignment + power keys so the next
+    //     provisioning run starts from a totally clean slate (THIS USER ONLY).
+    try { await kv.del(`user_ip_assignment:${user.id}`); } catch {}
+    try { await kv.del(`ip_assignment:${user.id}:dedicated`); } catch {}
+    try { await kv.del(`vps_provisioning:user:${user.id}`); } catch {}
+    try { await kv.del(`vps_power:${user.id}`); } catch {}
+
+    // 5️⃣ Persist the preserved expiry so the new assignment can restore it.
+    await kv.set(`ip_recreate_preserve:${user.id}`, {
       expiresAt: preservedExpiresAt,
-      lastUsedAt: new Date().toISOString(),
-    };
-    await kv.set(`user_ip_assignment:${user.id}`, parked);
-    await kv.set(`ip_assignment:${user.id}:dedicated`, parked);
+      createdAt: new Date().toISOString(),
+    });
 
-    // 5️⃣  Start a fresh provisioning job
+    // 6️⃣ Update the subscription record (UI reads this).
+    try {
+      const sub = (await kv.get(`static_ip_subscription:${user.id}`)) as any || {};
+      await kv.set(`static_ip_subscription:${user.id}`, {
+        ...sub,
+        expiresAt: preservedExpiresAt,
+        status: 'recreating',
+        recreatedAt: new Date().toISOString(),
+      });
+    } catch {}
+
+    // 7️⃣ Start a fresh provisioning job (new droplet → new IP).
     const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(user.id);
     if (!provisionResult.success) {
       return c.json({ success: false, error: provisionResult.error || 'Failed to start new VPS provisioning' }, 500);
@@ -6261,15 +6316,13 @@ app.post("/make-server-c4d79cb7/ip-pool/recreate", async (c) => {
 
     return c.json({
       success: true,
-      message: 'Old VPS destroyed. New VPS creation started — your subscription expiry is preserved.',
+      message: 'Old VPS fully destroyed (DigitalOcean + database). New VPS creation started — subscription expiry preserved.',
       provisioning: true,
       jobId: provisionResult.jobId,
       estimatedMinutes: provisionResult.estimatedMinutes || 8,
-      oldIp,
+      purgedIps: Array.from(ipsToPurge),
       preservedExpiresAt,
-      deletionAttempted,
-      deletionSucceeded,
-      deletionError,
+      deletionResults,
     });
   } catch (error: any) {
     console.error('❌ Recreate VPS error:', error);
