@@ -42,6 +42,11 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
   const [realAccessToken, setRealAccessToken] = useState(accessToken);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
+  const orderedTabs = [
+    'dashboard', 'users', 'transactions', 'support', 'landing',
+    'adminUsers', 'adminManagement', 'settings', 'referrals', 'communication'
+  ];
+
   // Update realAccessToken when accessToken changes
   useEffect(() => {
     setRealAccessToken(accessToken);
@@ -165,10 +170,19 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
   }
 
   const canAccessTab = (tab: keyof AdminUser['role']) => {
-    const hasAccess = currentAdmin.role[tab];
+    const isSuperAdmin = currentAdmin.id === 'admin_001' || currentAdmin.id === 'default-admin';
+    const hasAccess = isSuperAdmin || currentAdmin.role[tab];
     console.log(`🔍 Checking tab access: ${tab} = ${hasAccess}`);
     return hasAccess;
   };
+
+  useEffect(() => {
+    if (!currentAdmin) return;
+    const firstAllowed = orderedTabs.find((tab) => canAccessTab(tab));
+    if (firstAllowed && !canAccessTab(activeTab)) {
+      setActiveTab(firstAllowed);
+    }
+  }, [currentAdmin, activeTab]);
 
   return (
     <div className="fixed inset-0 z-[9999] min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-auto">
@@ -231,19 +245,23 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 Transactions
               </TabsTrigger>
             )}
-            <TabsTrigger value="support" className="data-[state=active]:bg-blue-600 relative">
-              <MessageSquare className="size-4 mr-2" />
-              Support
-              {pendingSupportCount > 0 && (
-                <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                  {pendingSupportCount}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="landing" className="data-[state=active]:bg-blue-600">
-              <Globe className="size-4 mr-2" />
-              Landing Page
-            </TabsTrigger>
+            {canAccessTab('support') && (
+              <TabsTrigger value="support" className="data-[state=active]:bg-blue-600 relative">
+                <MessageSquare className="size-4 mr-2" />
+                Support
+                {pendingSupportCount > 0 && (
+                  <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                    {pendingSupportCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
+            {canAccessTab('landing') && (
+              <TabsTrigger value="landing" className="data-[state=active]:bg-blue-600">
+                <Globe className="size-4 mr-2" />
+                Landing Page
+              </TabsTrigger>
+            )}
             {canAccessTab('adminUsers') && (
               <TabsTrigger value="adminUsers" className="data-[state=active]:bg-blue-600">
                 <Activity className="size-4 mr-2" />
@@ -262,14 +280,18 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 Settings
               </TabsTrigger>
             )}
-            <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
-              <Gift className="size-4 mr-2" />
-              Referrals
-            </TabsTrigger>
-            <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
-              <Mail className="size-4 mr-2" />
-              Communication
-            </TabsTrigger>
+            {canAccessTab('referrals') && (
+              <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
+                <Gift className="size-4 mr-2" />
+                Referrals
+              </TabsTrigger>
+            )}
+            {canAccessTab('communication') && (
+              <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
+                <Mail className="size-4 mr-2" />
+                Communication
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {canAccessTab('dashboard') && (
@@ -290,13 +312,17 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
-          <TabsContent value="support">
-            <AdminSupport serverUrl={serverUrl} accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('support') && (
+            <TabsContent value="support">
+              <AdminSupport serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="landing">
-            <AdminLandingPage serverUrl={serverUrl} accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('landing') && (
+            <TabsContent value="landing">
+              <AdminLandingPage serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
           {canAccessTab('adminUsers') && (
             <TabsContent value="adminUsers">
@@ -325,13 +351,17 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
-          <TabsContent value="referrals">
-            <AdminReferrals accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('referrals') && (
+            <TabsContent value="referrals">
+              <AdminReferrals accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="communication">
-            <AdminCommunication />
-          </TabsContent>
+          {canAccessTab('communication') && (
+            <TabsContent value="communication">
+              <AdminCommunication />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>
