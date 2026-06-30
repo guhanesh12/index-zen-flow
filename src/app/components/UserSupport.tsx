@@ -50,6 +50,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isReadingAttachments, setIsReadingAttachments] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -120,6 +121,10 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
       toast.error('Please enter a message');
       return;
     }
+    if (isReadingAttachments) {
+      toast.error('Please wait until attachments finish loading');
+      return;
+    }
 
     setIsCreating(true);
     try {
@@ -134,7 +139,9 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
           message: formData.message.trim(),
           urgency: formData.urgency,
           category: formData.category,
-          attachments: pendingAttachments.map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
+          attachments: pendingAttachments
+            .filter(({ base64 }) => !!base64)
+            .map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
         }),
       });
 
@@ -544,6 +551,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
               <SupportAttachmentPicker
                 attachments={pendingAttachments}
                 onChange={setPendingAttachments}
+                onBusyChange={setIsReadingAttachments}
                 disabled={isCreating}
               />
             </div>
@@ -571,12 +579,12 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
                 type="button"
                 onClick={handleCreateTicket}
                 className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                disabled={isCreating || !formData.subject.trim() || !formData.message.trim()}
+                disabled={isCreating || isReadingAttachments || !formData.subject.trim() || !formData.message.trim()}
               >
-                {isCreating ? (
+                {isCreating || isReadingAttachments ? (
                   <>
                     <Loader2 className="size-4 mr-2 animate-spin" />
-                    Creating...
+                    {isReadingAttachments ? 'Loading files...' : 'Creating...'}
                   </>
                 ) : (
                   <>
