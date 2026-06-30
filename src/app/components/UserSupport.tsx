@@ -134,6 +134,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
           message: formData.message.trim(),
           urgency: formData.urgency,
           category: formData.category,
+          attachments: pendingAttachments.map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
         }),
       });
 
