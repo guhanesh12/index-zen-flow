@@ -56,6 +56,9 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
       settings: true,
       support: true,
       landing: true,
+      adminUsers: false,
+      referrals: false,
+      communication: false,
       adminManagement: false, // New permission
     },
   });
@@ -94,7 +97,10 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     { key: 'settings', label: 'Settings', icon: '⚙️', description: 'Configure platform settings' },
     { key: 'support', label: 'Support', icon: '💬', description: 'Handle support tickets' },
     { key: 'landing', label: 'Landing Page', icon: '🌐', description: 'Edit landing page content' },
+    { key: 'adminUsers', label: 'Admin Logs', icon: '📋', description: 'View admin activity logs' },
     { key: 'adminManagement', label: 'Admin Management', icon: '👨‍💼', description: 'Create and manage admins' },
+    { key: 'referrals', label: 'Referrals', icon: '🎁', description: 'Manage referral program' },
+    { key: 'communication', label: 'Communication', icon: '✉️', description: 'Send platform communications' },
   ];
 
   useEffect(() => {
@@ -272,7 +278,8 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
         hotkeyWindows: 'Control+Alt+', hotkeyMac: 'Meta+Alt+',
         role: {
           dashboard: true, users: true, transactions: true, settings: true,
-          support: true, landing: true, adminManagement: false,
+          support: true, landing: true, adminUsers: false,
+          adminManagement: false, referrals: false, communication: false,
         },
       });
       setVerifiedHotkey('');
@@ -754,6 +761,9 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
                       settings: true,
                       support: true,
                       landing: true,
+                      adminUsers: false,
+                      referrals: false,
+                      communication: false,
                       adminManagement: false,
                     },
                   });
