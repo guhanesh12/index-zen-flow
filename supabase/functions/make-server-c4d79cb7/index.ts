@@ -10189,7 +10189,7 @@ app.get('/make-server-c4d79cb7/admin/support/tickets', async (c) => {
     for (const ticketId of allTicketIds) {
       const ticket = await safeKVGet(`support:ticket:${ticketId}`, null);
       if (ticket) {
-        tickets.push(ticket);
+        tickets.push(await signTicketAttachments(ticket));
       }
     }
 
