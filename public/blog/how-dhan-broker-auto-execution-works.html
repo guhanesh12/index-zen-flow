@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How Dhan Broker Auto-Execution Works with IndexpilotAI</title>
+<meta name="description" content="Step-by-step explanation of how Dhan broker auto-execution works: API tokens, order placement, position monitoring, SL/target automation and safety checks." />
+<link rel="canonical" href="https://www.indexpilotai.com/blog/how-dhan-broker-auto-execution-works.html" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="keywords" content="Dhan broker auto trade, Dhan API algo trading, automated options trading India, Dhan IndexpilotAI integration" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="How Dhan Broker Auto-Execution Works with IndexpilotAI" />
+<meta property="og:description" content="API tokens, order placement, position monitoring and safety checks behind Dhan auto-execution." />
+<meta property="og:url" content="https://www.indexpilotai.com/blog/how-dhan-broker-auto-execution-works.html" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="How Dhan Broker Auto-Execution Works" />
+<meta name="twitter:description" content="How Dhan API auto-execution works inside IndexpilotAI — order flow, monitoring and safety." />
+<link rel="icon" type="image/png" href="/logo-color.png" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Article","headline":"How Dhan Broker Auto-Execution Works with IndexpilotAI","description":"Step-by-step explanation of Dhan auto-execution.","author":{"@type":"Organization","name":"IndexpilotAI"},"publisher":{"@type":"Organization","name":"IndexpilotAI","logo":{"@type":"ImageObject","url":"https://www.indexpilotai.com/logo-color.png"}},"mainEntityOfPage":"https://www.indexpilotai.com/blog/how-dhan-broker-auto-execution-works.html","datePublished":"2026-06-30","dateModified":"2026-06-30"}
+</script>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:780px;margin:0 auto;padding:32px 20px;color:#0f172a;line-height:1.7;background:#fff}
+h1{font-size:2.1rem;line-height:1.25;margin:0 0 12px}h2{margin-top:2rem;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
+h3{margin-top:1.5rem}a{color:#0e7c66}nav.crumb{font-size:.9rem;color:#475569;margin-bottom:14px}
+.meta{color:#64748b;font-size:.9rem;margin-bottom:24px}
+.cta{background:#ecfdf5;border:1px solid #10b981;border-radius:10px;padding:18px;margin:24px 0}
+ul,ol{padding-left:22px}li{margin:6px 0}
+code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:.92em}
+</style>
+</head>
+<body>
+<nav class="crumb"><a href="/">Home</a> › <a href="/blog/">Blog</a> › How Dhan Auto-Execution Works</nav>
+<article>
+<h1>How Dhan Broker Auto-Execution Works with IndexpilotAI</h1>
+<p class="meta">Last updated: 30 June 2026 · 8 min read</p>
+
+<p>"Auto-execution" sounds magical until you understand the plumbing. When an IndexpilotAI signal fires and an order shows up in your Dhan account two seconds later, a fairly specific chain of events has happened: signal generation, broker API authentication, risk pre-check, order placement, acknowledgement, position monitoring, and finally an exit. This article walks through that chain in detail so you know exactly what is happening on your behalf — and where the safety checks are.</p>
+
+<h2>The big picture</h2>
+<p>Dhan exposes a REST + WebSocket trading API. IndexpilotAI is built as an authorised <em>client</em> of that API. You authorise it once by pasting your Dhan client ID and access token (generated from the Dhan web console). After that, IndexpilotAI can place, modify and cancel orders <strong>only in your account</strong>, and only for the segments you've enabled (typically NSE F&amp;O).</p>
+<p>The whole flow takes 1–3 seconds on a healthy day:</p>
+<ol>
+<li>AI engine generates a signal (entry strike, side, qty, SL, target)</li>
+<li>Risk gate validates against your daily loss cap and exposure rules</li>
+<li>Order request is sent to Dhan over HTTPS</li>
+<li>Dhan returns an order ID</li>
+<li>WebSocket pushes order status: PENDING → TRADED</li>
+<li>Position monitor starts ticking every 1 second</li>
+<li>On SL/target/manual exit, a square-off order is placed the same way</li>
+</ol>
+
+<h2>Step 1: Connecting your Dhan account</h2>
+<p>You generate an <strong>access token</strong> inside the Dhan web app under "DhanHQ Trading APIs". The token is valid until the next trading day's pre-open, so IndexpilotAI prompts you to refresh it daily. The token is stored encrypted server-side; we never see your Dhan login password and there's no way to withdraw funds — the API doesn't expose that endpoint.</p>
+<p>Best practice: enable Dhan's IP allowlist if available, and immediately revoke the token from Dhan's console if you ever stop using IndexpilotAI.</p>
+
+<h2>Step 2: Signal generation</h2>
+<p>The AI engine runs on a dedicated cluster that ingests NIFTY and BANKNIFTY option chain ticks, spot price, futures basis and OI changes. When a model crosses its confidence threshold, a signal object is created with: instrument symbol (e.g. <code>NIFTY-JUL2026-23900-CE</code>), lot quantity based on your configured capital, entry type (MARKET or LIMIT), hard stop-loss and target in rupees per lot. Nothing reaches Dhan yet.</p>
+
+<h2>Step 3: The risk gate</h2>
+<p>Before the order is sent, every signal passes through a pre-trade risk check:</p>
+<ul>
+<li>Daily loss cap not breached?</li>
+<li>Max concurrent positions not exceeded?</li>
+<li>Margin available (queried live from Dhan)?</li>
+<li>Strategy enabled for the current market session?</li>
+<li>Circuit / market halt flag not set?</li>
+</ul>
+<p>If any check fails, the signal is logged and dropped silently — better a missed trade than a blown account. This is the single most important reason auto-execution beats manual trading: humans skip these checks under FOMO.</p>
+
+<h2>Step 4: Placing the order on Dhan</h2>
+<p>The validated order is converted into a Dhan API payload — exchange segment, security ID, transaction type, product type (INTRADAY for MIS, NRML for carry), order type, quantity, price. We send it over HTTPS to <code>api.dhan.co</code>. Typical round-trip from our Mumbai VPS is 40–80ms.</p>
+<p>Dhan responds with either an order ID (success) or an error code. Common errors and how IndexpilotAI handles them:</p>
+<ul>
+<li><strong>RMS rejection (insufficient margin):</strong> Order dropped, alert pushed to app</li>
+<li><strong>Frozen quantity exceeded:</strong> Order split into multiple legs automatically</li>
+<li><strong>Token expired:</strong> All trading paused for that user, push notification sent</li>
+<li><strong>Network timeout:</strong> Order status is reconciled via fetch-orders before retry</li>
+</ul>
+
+<h2>Step 5: Live position monitoring</h2>
+<p>Once the order fills, the position monitor takes over. It runs on a server-side loop that ticks every 1 second (not every 1 minute — that's an important difference from cheaper signal apps). Each tick:</p>
+<ul>
+<li>Pulls latest LTP from Dhan WebSocket</li>
+<li>Calculates current P&amp;L and peak P&amp;L</li>
+<li>Checks stop-loss, target and trailing stop conditions</li>
+<li>Persists the snapshot so your Android app shows it instantly</li>
+</ul>
+<p>If a trigger fires, an exit order is queued in the same risk-gate → API path as the entry. The whole cycle from "SL hit on Dhan's tick" to "square-off order live on exchange" usually completes in under 2 seconds.</p>
+
+<h2>Step 6: Reconciliation and trade journal</h2>
+<p>End-of-day, IndexpilotAI pulls your Dhan order book and trade book, reconciles every fill against its own log, and writes a clean entry to your trade journal — strategy, entry, exit, P&amp;L, max drawdown during the trade, time in trade. This is the data you'll need for CA / tax purposes.</p>
+
+<h2>Safety: what auto-execution will <em>not</em> do</h2>
+<ul>
+<li>It cannot withdraw or transfer funds — the Dhan API doesn't permit it</li>
+<li>It cannot trade segments you haven't enabled in Dhan</li>
+<li>It will not trade beyond your configured per-day loss cap, even if the AI begs</li>
+<li>It will not change your Dhan password or 2FA settings</li>
+</ul>
+
+<div class="cta">
+<strong>Want to see it live?</strong> Connect your Dhan account inside IndexpilotAI and run paper-mode first — every signal will be logged but no real orders placed, so you can validate before going live. <a href="/register">Create your free account →</a>
+</div>
+
+<h2>Related reads</h2>
+<ul>
+<li><a href="/blog/nifty-options-algo-trading-guide-india.html">NIFTY Options Algo Trading Guide India</a></li>
+<li><a href="/blog/banknifty-intraday-algo-strategy-basics.html">BANKNIFTY Intraday Algo Strategy Basics</a></li>
+<li><a href="/blog/ai-vs-manual-nifty-options-trading.html">AI vs Manual NIFTY Options Trading</a></li>
+</ul>
+</article>
+<p style="color:#64748b;font-size:.85rem;margin-top:40px">Educational content only. IndexpilotAI is not affiliated with Dhan Securities; Dhan API names and trademarks belong to their owners.</p>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BANKNIFTY Intraday Algo Strategy Basics | IndexpilotAI</title>
+<meta name="description" content="Core building blocks of a profitable BANKNIFTY intraday options algo: entry filters, stop-loss design, position sizing, expiry-day rules and the mistakes to avoid." />
+<link rel="canonical" href="https://www.indexpilotai.com/blog/banknifty-intraday-algo-strategy-basics.html" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="keywords" content="BANKNIFTY algo trading, BANKNIFTY intraday strategy, BANKNIFTY options algo, intraday options trading India" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="BANKNIFTY Intraday Algo Strategy Basics" />
+<meta property="og:description" content="Entry filters, stops, sizing and expiry rules for a profitable BANKNIFTY intraday options algo." />
+<meta property="og:url" content="https://www.indexpilotai.com/blog/banknifty-intraday-algo-strategy-basics.html" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="BANKNIFTY Intraday Algo Strategy Basics" />
+<meta name="twitter:description" content="Building blocks of a profitable BANKNIFTY intraday algo for Indian retail traders." />
+<link rel="icon" type="image/png" href="/logo-color.png" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Article","headline":"BANKNIFTY Intraday Algo Strategy Basics","description":"Core building blocks of a BANKNIFTY intraday options algo.","author":{"@type":"Organization","name":"IndexpilotAI"},"publisher":{"@type":"Organization","name":"IndexpilotAI","logo":{"@type":"ImageObject","url":"https://www.indexpilotai.com/logo-color.png"}},"mainEntityOfPage":"https://www.indexpilotai.com/blog/banknifty-intraday-algo-strategy-basics.html","datePublished":"2026-06-30","dateModified":"2026-06-30"}
+</script>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:780px;margin:0 auto;padding:32px 20px;color:#0f172a;line-height:1.7;background:#fff}
+h1{font-size:2.1rem;line-height:1.25;margin:0 0 12px}h2{margin-top:2rem;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
+h3{margin-top:1.5rem}a{color:#0e7c66}nav.crumb{font-size:.9rem;color:#475569;margin-bottom:14px}
+.meta{color:#64748b;font-size:.9rem;margin-bottom:24px}
+.cta{background:#ecfdf5;border:1px solid #10b981;border-radius:10px;padding:18px;margin:24px 0}
+ul,ol{padding-left:22px}li{margin:6px 0}
+</style>
+</head>
+<body>
+<nav class="crumb"><a href="/">Home</a> › <a href="/blog/">Blog</a> › BANKNIFTY Intraday Algo Strategy Basics</nav>
+<article>
+<h1>BANKNIFTY Intraday Algo Strategy Basics</h1>
+<p class="meta">Last updated: 30 June 2026 · 8 min read</p>
+
+<p>BANKNIFTY is the most aggressive index on NSE — average true range of 300–500 points, lot size of 15, and weekly expiries that turn the last two hours of Wednesday into a casino. That's also why it's the favourite playground for retail algo traders in India. The volatility cuts both ways: a well-designed <strong>BANKNIFTY intraday algo</strong> can compound capital quickly, and a poorly designed one can erase a month of profits in a single afternoon. This article covers the non-negotiable building blocks.</p>
+
+<h2>Why BANKNIFTY is different from NIFTY</h2>
+<ul>
+<li><strong>Higher beta:</strong> BANKNIFTY moves 1.4–1.6× the NIFTY on most days</li>
+<li><strong>Concentrated weight:</strong> HDFC Bank, ICICI Bank, SBI and Axis together dominate — one bank's news moves the index</li>
+<li><strong>Wider spreads on OTM strikes</strong> — slippage matters more</li>
+<li><strong>Faster gamma decay on expiry day</strong> — option buyers can lose 80% intraday even if direction is right</li>
+</ul>
+<p>An algo built for NIFTY rarely ports cleanly to BANKNIFTY. The entry filters need to be tighter and the stop-loss wider in points but tighter in rupees.</p>
+
+<h2>1. Entry filters</h2>
+<p>A profitable BANKNIFTY intraday entry usually requires <em>multiple</em> confirmations. Single-indicator strategies (RSI crossover, MACD signal) get murdered by chop. A robust filter stack looks like:</p>
+<ul>
+<li><strong>Trend filter:</strong> 5-min VWAP slope and 20-EMA alignment</li>
+<li><strong>Volatility filter:</strong> India VIX between 12 and 22 — outside this range, switch strategy</li>
+<li><strong>Time-of-day filter:</strong> Avoid 9:15–9:25 (opening auction noise) and 14:30–15:00 (close-related squeezes) unless you have a dedicated open/close strategy</li>
+<li><strong>Microstructure trigger:</strong> Breakout of previous 15-min high/low with volume confirmation</li>
+</ul>
+
+<h2>2. Strike selection</h2>
+<p>For directional option buying, ATM or 1-strike OTM (200 points away) gives the best gamma-to-cost ratio on BANKNIFTY. Going deeper OTM (3+ strikes) is gambling — the math works against you unless the move is >2%.</p>
+<p>For option selling, sell strikes outside the previous day's high-low range, never inside.</p>
+
+<h2>3. Stop-loss design (the part that actually matters)</h2>
+<p>The single biggest mistake retail traders make on BANKNIFTY: percentage-based SL on option premium (e.g. "30% SL"). Premiums whipsaw 30% in 90 seconds during normal market — your stop will trigger constantly. Better approaches:</p>
+<ul>
+<li><strong>Spot-based SL:</strong> Exit if BANKNIFTY spot moves X points against you, regardless of premium</li>
+<li><strong>Rupee SL:</strong> Fixed ₹500 / ₹1000 / ₹2000 per lot, depending on capital</li>
+<li><strong>Time SL:</strong> If trade hasn't moved 1R in 20 minutes, exit at market</li>
+</ul>
+<p>Combine spot-based + time SL for cleanest results.</p>
+
+<h2>4. Position sizing</h2>
+<p>The standard formula:</p>
+<p><code>Lots = floor( (Capital × RiskPct) / (SLPoints × LotSize) )</code></p>
+<p>For ₹1,00,000 capital at 1% risk with a 30-point spot SL on BANKNIFTY (lot size 15), that's roughly: 1000 / (30 × 15) ≈ <strong>2 lots</strong>. Many traders trade 5–10 lots on that capital and wonder why they blow up — they're risking 5% per trade.</p>
+
+<h2>5. Profit target and trailing</h2>
+<p>BANKNIFTY trends, when they form, run hard. Don't book at 1R if you're in a trend day. A workable rule: book 50% at 1R, trail the remaining 50% at the most recent 5-min swing high/low. On range days, full exit at 1.5R is fine.</p>
+
+<h2>6. Expiry-day rules (Wednesdays)</h2>
+<p>BANKNIFTY weekly expiry shifted to Wednesday in 2024. Expiry-day behaviour is its own beast:</p>
+<ul>
+<li>Before 12:30 PM: normal intraday rules apply</li>
+<li>12:30–2:30 PM: gamma spikes — reduce position size by 50%</li>
+<li>After 2:30 PM: do not buy options unless you have a dedicated expiry strategy with sub-minute SL</li>
+<li>Option selling on expiry day requires hard SL — never "average" a short option in the last hour</li>
+</ul>
+
+<h2>7. Daily loss cap and circuit-breaker</h2>
+<p>3% of capital as daily loss cap is the standard. Once hit, algo stops for the day. Period. Don't override. The next-day version of you will thank you.</p>
+
+<h2>8. Backtest discipline</h2>
+<ul>
+<li>Use at least 2 years of tick data including March 2024 and May 2024 (election volatility)</li>
+<li>Include slippage of ₹2–3 per BANKNIFTY option in your simulation</li>
+<li>Include brokerage + STT + GST + exchange fees (≈₹40/lot round trip on Dhan)</li>
+<li>Walk-forward, don't just split 70/30</li>
+</ul>
+
+<h2>How IndexpilotAI handles BANKNIFTY</h2>
+<p>IndexpilotAI runs a separate model for BANKNIFTY with wider stops, tighter time filters and an automatic position-size cut on expiry afternoons. The 1-second position monitor is especially important on BANKNIFTY because a 100-point adverse move can happen between two 1-minute ticks of a slower system.</p>
+
+<div class="cta">
+<strong>Try BANKNIFTY auto-trading:</strong> Enable the BANKNIFTY strategy inside IndexpilotAI, set your daily loss cap, and let the AI handle execution. <a href="/register">Create your free account →</a>
+</div>
+
+<h2>Related reads</h2>
+<ul>
+<li><a href="/blog/nifty-options-algo-trading-guide-india.html">NIFTY Options Algo Trading Guide India</a></li>
+<li><a href="/blog/how-dhan-broker-auto-execution-works.html">How Dhan Broker Auto-Execution Works</a></li>
+<li><a href="/blog/ai-vs-manual-nifty-options-trading.html">AI vs Manual NIFTY Options Trading</a></li>
+</ul>
+</article>
+<p style="color:#64748b;font-size:.85rem;margin-top:40px">Educational content only. F&amp;O trading involves substantial risk of loss.</p>
+</body>
+</html>
