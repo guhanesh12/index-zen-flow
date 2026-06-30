@@ -358,6 +358,7 @@ class PersistentTradingEngine {
   private static activeLoops: Set<string> = new Set();
   private static activeLoopStartedAt: Map<string, number> = new Map();
   private static monitorLoops: Map<string, Promise<void>> = new Map();
+  private static positionMonitorLoopUntil = 0;
   private static recentOrderKeys: Map<string, number> = new Map();
   private static readonly RECENT_ORDER_WINDOW_MS = 3 * 60 * 1000;
   private static readonly ACTIVE_LOOP_STALE_MS = 90 * 1000;
@@ -863,6 +864,50 @@ class PersistentTradingEngine {
     }
 
     return { success: true, intervalMs: this.POSITION_MONITOR_INTERVAL_MS, monitored: monitoredCount };
+  }
+
+  static async runPositionMonitorLoop(targetUserId?: string, durationMs = 55_000): Promise<any> {
+    const now = Date.now();
+    if (!targetUserId && now < this.positionMonitorLoopUntil) {
+      return {
+        success: true,
+        skipped: true,
+        intervalMs: this.POSITION_MONITOR_INTERVAL_MS,
+        message: "1-second position monitor loop already running",
+      };
+    }
+
+    if (!targetUserId) this.positionMonitorLoopUntil = now + Math.max(1_000, durationMs - 2_000);
+
+    const startedAt = Date.now();
+    const maxRunMs = Math.max(this.POSITION_MONITOR_INTERVAL_MS, Math.min(durationMs, 58_000));
+    let ticks = 0;
+    let monitoredTotal = 0;
+    let lastResult: any = null;
+
+    try {
+      while (Date.now() - startedAt < maxRunMs) {
+        lastResult = await this.runPositionMonitorTick(targetUserId);
+        ticks++;
+        monitoredTotal += Number(lastResult?.monitored || 0);
+
+        const elapsed = Date.now() - startedAt;
+        const nextTickAt = startedAt + ticks * this.POSITION_MONITOR_INTERVAL_MS;
+        const waitMs = Math.min(nextTickAt - Date.now(), maxRunMs - elapsed);
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
+      return {
+        success: true,
+        intervalMs: this.POSITION_MONITOR_INTERVAL_MS,
+        ticks,
+        monitoredTotal,
+        durationMs: Date.now() - startedAt,
+        lastResult,
+      };
+    } finally {
+      if (!targetUserId) this.positionMonitorLoopUntil = 0;
+    }
   }
 
   /**
