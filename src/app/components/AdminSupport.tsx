@@ -63,6 +63,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
+  const [isReadingReplyAttachments, setIsReadingReplyAttachments] = useState(false);
 
   useEffect(() => {
     loadMessages();
@@ -125,6 +126,9 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
       // toast.error('Please enter a reply');
       return;
     }
+    if (isReadingReplyAttachments) {
+      return;
+    }
 
     setSending(true);
     try {
@@ -137,7 +141,9 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
         body: JSON.stringify({
           messageId,
           reply: replyText,
-          attachments: replyAttachments.map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
+          attachments: replyAttachments
+            .filter(({ base64 }) => !!base64)
+            .map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
         }),
       });
 
@@ -529,6 +535,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
                 <SupportAttachmentPicker
                   attachments={replyAttachments}
                   onChange={setReplyAttachments}
+                  onBusyChange={setIsReadingReplyAttachments}
                   disabled={sending}
                 />
               </div>
@@ -549,10 +556,10 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
               <Button
                 onClick={() => sendReply(selectedMessage.id)}
                 className="bg-blue-600 hover:bg-blue-700"
-                disabled={sending}
+                disabled={sending || isReadingReplyAttachments}
               >
                 <Send className="size-4 mr-2" />
-                {sending ? 'Sending...' : 'Send Reply'}
+                {isReadingReplyAttachments ? 'Loading files...' : sending ? 'Sending...' : 'Send Reply'}
               </Button>
             </div>
           </motion.div>
