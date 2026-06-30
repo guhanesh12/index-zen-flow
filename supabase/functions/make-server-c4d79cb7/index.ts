@@ -9930,6 +9930,86 @@ app.get("/make-server-c4d79cb7/platform/settings", async (c) => {
 // ========================================
 
 // User: Create support ticket
+// ============================================
+// SUPPORT ATTACHMENT HELPERS
+// ============================================
+const SUPPORT_BUCKET = 'make-c4d79cb7-files';
+const SUPPORT_MAX_FILES = 5;
+const SUPPORT_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+const SUPPORT_ALLOWED_MIME = /^(image\/(jpeg|jpg|png|webp|gif)|video\/(mp4|quicktime|webm)|application\/(pdf|zip|msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet))|text\/plain)$/i;
+
+function _b64ToBytes(b64: string): Uint8Array {
+  const clean = b64.includes(',') ? b64.split(',')[1] : b64;
+  const bin = atob(clean);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// Uploads attachments[]=[{name,type,size,base64}] to storage and returns [{name,type,size,path}]
+async function uploadSupportAttachments(
+  attachments: any[],
+  ticketId: string,
+  who: 'user' | 'admin'
+): Promise<Array<{ name: string; type: string; size: number; path: string }>> {
+  if (!Array.isArray(attachments) || attachments.length === 0) return [];
+  if (attachments.length > SUPPORT_MAX_FILES) {
+    throw new Error(`Max ${SUPPORT_MAX_FILES} attachments per message`);
+  }
+  const saved: Array<{ name: string; type: string; size: number; path: string }> = [];
+  for (const a of attachments) {
+    if (!a?.base64 || !a?.name || !a?.type) continue;
+    if (!SUPPORT_ALLOWED_MIME.test(a.type)) {
+      throw new Error(`File type not allowed: ${a.type}`);
+    }
+    const bytes = _b64ToBytes(a.base64);
+    if (bytes.length > SUPPORT_MAX_BYTES) {
+      throw new Error(`File "${a.name}" exceeds 10 MB limit`);
+    }
+    const safeName = String(a.name).replace(/[^\w.\-]+/g, '_').slice(-80);
+    const path = `support/${ticketId}/${who}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`;
+    const { error: upErr } = await supabase.storage
+      .from(SUPPORT_BUCKET)
+      .upload(path, bytes, { contentType: a.type, upsert: false });
+    if (upErr) {
+      console.error('Support attachment upload failed:', upErr);
+      throw new Error(`Upload failed: ${upErr.message}`);
+    }
+    saved.push({ name: safeName, type: a.type, size: bytes.length, path });
+  }
+  return saved;
+}
+
+// Signs an array of stored attachments for download/view (1 hour)
+async function signSupportAttachments(items: any[]): Promise<any[]> {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const out: any[] = [];
+  for (const it of items) {
+    if (!it?.path) { out.push(it); continue; }
+    try {
+      const { data, error } = await supabase.storage
+        .from(SUPPORT_BUCKET)
+        .createSignedUrl(it.path, 3600);
+      out.push({ ...it, signedUrl: error ? null : data?.signedUrl ?? null });
+    } catch {
+      out.push({ ...it, signedUrl: null });
+    }
+  }
+  return out;
+}
+
+async function signTicketAttachments(ticket: any): Promise<any> {
+  if (!ticket) return ticket;
+  const t = { ...ticket };
+  if (Array.isArray(t.attachments) && t.attachments.length) {
+    t.attachments = await signSupportAttachments(t.attachments);
+  }
+  if (Array.isArray(t.replyAttachments) && t.replyAttachments.length) {
+    t.replyAttachments = await signSupportAttachments(t.replyAttachments);
+  }
+  return t;
+}
+
 app.post('/make-server-c4d79cb7/support/create', async (c) => {
   try {
     const authHeader = c.req.header('Authorization');
@@ -9945,7 +10025,8 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
       return c.json({ success: false, message: 'Invalid token' }, 401);
     }
 
-    const { subject, message, urgency, category } = await c.req.json();
+    const body = await c.req.json();
+    const { subject, message, urgency, category, attachments } = body || {};
     
     if (!subject || !message) {
       return c.json({ success: false, message: 'Subject and message are required' }, 400);
@@ -9958,6 +10039,15 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
 
     // Create ticket
     const ticketId = `ticket_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Upload attachments (if any)
+    let savedAttachments: any[] = [];
+    try {
+      savedAttachments = await uploadSupportAttachments(attachments, ticketId, 'user');
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message || 'Attachment upload failed' }, 400);
+    }
+
     const ticket = {
       id: ticketId,
       userId: user.id,
@@ -9970,6 +10060,7 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
       status: 'PENDING',
       createdAt: new Date().toISOString(),
       unread: false, // User created it, so not unread for user
+      attachments: savedAttachments,
     };
 
     await kv.set(`support:ticket:${ticketId}`, ticket);
@@ -10036,7 +10127,7 @@ app.get('/make-server-c4d79cb7/support/tickets', async (c) => {
     for (const ticketId of userTickets) {
       const ticket = await safeKVGet(`support:ticket:${ticketId}`, null);
       if (ticket) {
-        tickets.push(ticket);
+        tickets.push(await signTicketAttachments(ticket));
       }
     }
 
@@ -10098,7 +10189,7 @@ app.get('/make-server-c4d79cb7/admin/support/tickets', async (c) => {
     for (const ticketId of allTicketIds) {
       const ticket = await safeKVGet(`support:ticket:${ticketId}`, null);
       if (ticket) {
-        tickets.push(ticket);
+        tickets.push(await signTicketAttachments(ticket));
       }
     }
 
@@ -10126,7 +10217,8 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
       return c.json({ success: false, message: 'Unauthorized' }, 401);
     }
 
-    const { messageId, reply } = await c.req.json();
+    const body = await c.req.json();
+    const { messageId, reply, attachments } = body || {};
     
     if (!messageId || !reply) {
       return c.json({ success: false, message: 'Message ID and reply are required' }, 400);
@@ -10138,7 +10230,16 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
       return c.json({ success: false, message: 'Ticket not found' }, 404);
     }
 
+    // Upload admin reply attachments (if any)
+    let savedReplyAttachments: any[] = [];
+    try {
+      savedReplyAttachments = await uploadSupportAttachments(attachments, messageId, 'admin');
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message || 'Attachment upload failed' }, 400);
+    }
+
     ticket.adminReply = reply;
+    ticket.replyAttachments = savedReplyAttachments;
     ticket.status = 'REPLIED';
     ticket.repliedAt = new Date().toISOString();
     ticket.unread = true; // Mark as unread for user (new admin reply)

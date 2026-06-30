@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { SupportAttachmentPicker, type PendingAttachment } from './SupportAttachmentPicker';
+import { SupportAttachmentList } from './SupportAttachmentList';
 
 interface UserSupportProps {
   serverUrl: string;
@@ -56,6 +58,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
     urgency: 'NORMAL' as const,
     category: 'TECHNICAL' as const
   });
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
 
   // Load tickets on mount and every 30 seconds
   useEffect(() => {
@@ -131,6 +134,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
           message: formData.message.trim(),
           urgency: formData.urgency,
           category: formData.category,
+          attachments: pendingAttachments.map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
         }),
       });
 
@@ -147,6 +151,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
           urgency: 'NORMAL',
           category: 'TECHNICAL'
         });
+        setPendingAttachments([]);
         
         // Close dialog
         setIsCreateDialogOpen(false);
@@ -534,6 +539,15 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
               </p>
             </div>
 
+            <div className="space-y-2">
+              <Label className="text-slate-300">Attachments (optional)</Label>
+              <SupportAttachmentPicker
+                attachments={pendingAttachments}
+                onChange={setPendingAttachments}
+                disabled={isCreating}
+              />
+            </div>
+
             <div className="flex gap-3 justify-end pt-4 border-t border-slate-700">
               <Button
                 type="button"
@@ -545,6 +559,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
                     urgency: 'NORMAL',
                     category: 'TECHNICAL'
                   });
+                  setPendingAttachments([]);
                 }}
                 variant="outline"
                 className="bg-slate-700/50 border-slate-600 hover:bg-slate-700"
@@ -613,6 +628,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
                   </div>
                 </div>
                 <p className="text-slate-300 whitespace-pre-wrap">{selectedTicket.message}</p>
+                <SupportAttachmentList attachments={(selectedTicket as any).attachments} label="Your attachments" />
               </div>
 
               {/* Admin Reply */}
@@ -632,6 +648,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
                     </div>
                   </div>
                   <p className="text-slate-300 whitespace-pre-wrap">{selectedTicket.adminReply}</p>
+                  <SupportAttachmentList attachments={(selectedTicket as any).replyAttachments} label="Support attachments" />
                 </div>
               )}
 

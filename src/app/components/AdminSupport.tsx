@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 // import { toast } from 'sonner';
+import { SupportAttachmentPicker, type PendingAttachment } from './SupportAttachmentPicker';
+import { SupportAttachmentList } from './SupportAttachmentList';
 
 interface AdminSupportProps {
   serverUrl: string;
@@ -60,6 +62,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
   const [selectedMessage, setSelectedMessage] = useState<SupportMessage | null>(null);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
 
   useEffect(() => {
     loadMessages();
@@ -134,6 +137,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
         body: JSON.stringify({
           messageId,
           reply: replyText,
+          attachments: replyAttachments.map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
         }),
       });
 
@@ -142,6 +146,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
         if (data.success) {
           // toast.success('Reply sent successfully!');
           setReplyText('');
+          setReplyAttachments([]);
           setSelectedMessage(null);
           loadMessages(); // Reload messages
         } else {
@@ -459,6 +464,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
                     <CardContent>
                       <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 mb-4">
                         <p className="text-sm text-slate-300 whitespace-pre-wrap">{msg.message}</p>
+                        <SupportAttachmentList attachments={(msg as any).attachments} label="User attachments" />
                       </div>
                       
                       {msg.adminReply && (
@@ -473,6 +479,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
                             )}
                           </div>
                           <p className="text-sm text-slate-300 whitespace-pre-wrap">{msg.adminReply}</p>
+                          <SupportAttachmentList attachments={(msg as any).replyAttachments} label="Your attachments" />
                         </div>
                       )}
                     </CardContent>
@@ -501,10 +508,11 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
                 Ticket: {selectedMessage.subject}
               </p>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
               <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
                 <p className="text-xs text-slate-400 mb-2">Original Message:</p>
                 <p className="text-sm text-slate-300 whitespace-pre-wrap">{selectedMessage.message}</p>
+                <SupportAttachmentList attachments={(selectedMessage as any).attachments} label="User attachments" />
               </div>
               <div>
                 <label className="text-sm text-slate-300 mb-2 block">Your Reply:</label>
@@ -516,12 +524,21 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
                   disabled={sending}
                 />
               </div>
+              <div>
+                <label className="text-sm text-slate-300 mb-2 block">Attachments (optional):</label>
+                <SupportAttachmentPicker
+                  attachments={replyAttachments}
+                  onChange={setReplyAttachments}
+                  disabled={sending}
+                />
+              </div>
             </div>
             <div className="p-6 border-t border-slate-700 flex gap-3 justify-end">
               <Button
                 onClick={() => {
                   setSelectedMessage(null);
                   setReplyText('');
+                  setReplyAttachments([]);
                 }}
                 variant="outline"
                 className="bg-slate-700/50 border-slate-600"
