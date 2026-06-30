@@ -628,6 +628,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
                   </div>
                 </div>
                 <p className="text-slate-300 whitespace-pre-wrap">{selectedTicket.message}</p>
+                <SupportAttachmentList attachments={(selectedTicket as any).attachments} label="Your attachments" />
               </div>
 
               {/* Admin Reply */}
