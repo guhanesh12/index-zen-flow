@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/button';
 import { Paperclip, X, FileText, ImageIcon, Video, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ export interface PendingAttachment {
 interface Props {
   attachments: PendingAttachment[];
   onChange: (next: PendingAttachment[]) => void;
+  onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
   max?: number;
   maxBytes?: number;
@@ -43,12 +44,17 @@ function fmtSize(n: number) {
 export function SupportAttachmentPicker({
   attachments,
   onChange,
+  onBusyChange,
   disabled,
   max = 5,
   maxBytes = 10 * 1024 * 1024,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    onBusyChange?.(loading);
+  }, [loading, onBusyChange]);
 
   const handlePick = () => fileRef.current?.click();
 
