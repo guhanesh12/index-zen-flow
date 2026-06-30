@@ -10928,7 +10928,7 @@ app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
       targetUserId = user?.id || '';
     }
 
-    const durationMs = Math.min(Number(c.req.query('durationMs') || 55_000) || 55_000, 58_000);
+    const durationMs = Math.min(Number(c.req.query('durationMs') || 58_000) || 58_000, 58_000);
     const result = await PersistentTradingEngine.runPositionMonitorLoop(targetUserId || undefined, durationMs);
     return c.json(result);
   } catch (error: any) {

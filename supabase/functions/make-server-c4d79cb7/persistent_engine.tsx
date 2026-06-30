@@ -866,7 +866,7 @@ class PersistentTradingEngine {
     return { success: true, intervalMs: this.POSITION_MONITOR_INTERVAL_MS, monitored: monitoredCount };
   }
 
-  static async runPositionMonitorLoop(targetUserId?: string, durationMs = 55_000): Promise<any> {
+  static async runPositionMonitorLoop(targetUserId?: string, durationMs = 58_000): Promise<any> {
     const now = Date.now();
     if (!targetUserId && now < this.positionMonitorLoopUntil) {
       return {
