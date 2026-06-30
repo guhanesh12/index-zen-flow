@@ -9288,55 +9288,169 @@ app.delete("/make-server-c4d79cb7/admin/instruments/delete-all", async (c) => {
 app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
   try {
     const { hotkey } = await c.req.json();
-    
+
     console.log(`🔐 Generating unique code for hotkey: ${hotkey}`);
-    
-    // Verify hotkey is valid — check against all stored hotkeys in KV
+
     const storedHotkeys = await kv.getByPrefix('admin:hotkey:');
+    const upper = String(hotkey || '').toUpperCase();
+
+    // Find which admin (if any) owns this hotkey
+    let boundAdminId: string | null = null;
+    let boundAdminEmail: string | null = null;
+    for (const h of storedHotkeys) {
+      const v = (h.value || h) as any;
+      const hk = (typeof v === 'string' ? v : v.hotkey || '').toUpperCase();
+      if (hk === upper) {
+        boundAdminId = v.adminId || null;
+        boundAdminEmail = v.adminEmail || null;
+        break;
+      }
+    }
+
     const validHotkeys: string[] = [
-      'GUHAN', // permanent default fallback
+      'GUHAN',
       ...storedHotkeys.map((h: any) => {
         const v = h.value || h;
         return (typeof v === 'string' ? v : v.hotkey || '').toUpperCase();
       }).filter(Boolean)
     ];
-    
-    if (!validHotkeys.includes(hotkey.toUpperCase())) {
-      console.log(`❌ Invalid hotkey: ${hotkey} | Valid: ${validHotkeys.join(', ')}`);
-      return c.json({
-        success: false,
-        message: 'Invalid hotkey'
-      }, 401);
+
+    if (!validHotkeys.includes(upper)) {
+      console.log(`❌ Invalid hotkey: ${hotkey}`);
+      return c.json({ success: false, message: 'Invalid hotkey' }, 401);
     }
-    
-    // Generate unique code for this session (12 character alphanumeric)
-    const uniqueCode = Array.from({ length: 12 }, () => 
+
+    const uniqueCode = Array.from({ length: 12 }, () =>
       'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
     ).join('');
-    
-    // Store unique code in KV with timestamp (expires in 1 hour)
+
     const codeData = {
       code: uniqueCode,
-      hotkey: hotkey.toUpperCase(),
+      hotkey: upper,
+      adminId: boundAdminId,
+      adminEmail: boundAdminEmail,
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       used: false,
     };
     await kv.set(`admin_hotkey_code_${uniqueCode}`, JSON.stringify(codeData));
-    
-    console.log(`✅ Generated unique code: ${uniqueCode}`);
-    
-    return c.json({
-      success: true,
-      uniqueCode: uniqueCode,
-      expiresIn: 3600, // 1 hour in seconds
-    });
+
+    console.log(`✅ Code ${uniqueCode} bound to admin ${boundAdminId || 'DEFAULT'} (${upper})`);
+
+    return c.json({ success: true, uniqueCode, expiresIn: 3600 });
   } catch (error: any) {
     console.error('Error generating unique code:', error);
-    return c.json({ 
-      success: false, 
-      message: 'Failed to generate code' 
-    }, 500);
+    return c.json({ success: false, message: 'Failed to generate code' }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 👨‍💼 ADMIN PROFILES (multi-admin) — stored in KV
+// admin:profile:<id> = { id, email, password, role, hotkey, twoFactorSecret?, ... }
+// admin:hotkey:<id>  = { id, hotkey, adminId, adminEmail, name, createdAt }
+// ─────────────────────────────────────────────────────────────
+
+app.get("/make-server-c4d79cb7/admin/profiles", async (c) => {
+  try {
+    const items = await kv.getByPrefix('admin:profile:');
+    const profiles = items.map((it: any) => {
+      const v = it.value || it;
+      const { password, twoFactorSecret, ...safe } = v;
+      return { ...safe, hasPassword: !!password, hasTwoFactor: !!twoFactorSecret };
+    });
+    return c.json({ success: true, profiles });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message, profiles: [] }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/profiles", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { email, password, role, hotkey } = body || {};
+    if (!email || !password || !hotkey?.windows || !hotkey?.mac) {
+      return c.json({ success: false, message: 'email, password and hotkey are required' }, 400);
+    }
+
+    const suffix = String(hotkey.windows).split('+').pop()?.toUpperCase() || '';
+    if (!suffix) return c.json({ success: false, message: 'Invalid hotkey' }, 400);
+
+    const existing = await kv.getByPrefix('admin:profile:');
+    if (existing.some((it: any) => (it.value || it).email?.toLowerCase() === email.toLowerCase())) {
+      return c.json({ success: false, message: 'An admin with this email already exists' }, 409);
+    }
+
+    const hotkeys = await kv.getByPrefix('admin:hotkey:');
+    if (hotkeys.some((h: any) => ((h.value || h).hotkey || '').toUpperCase() === suffix)) {
+      return c.json({ success: false, message: 'This hotkey is already taken' }, 409);
+    }
+
+    const id = `admin_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const profile = {
+      id,
+      email: email.toLowerCase(),
+      password,
+      role: role || { dashboard: true },
+      hotkey: { windows: hotkey.windows, mac: hotkey.mac, suffix },
+      twoFactorEnabled: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Create matching Supabase auth user so /admin/login can issue a JWT.
+    try {
+      await supabase.auth.admin.createUser({
+        email: profile.email,
+        password,
+        email_confirm: true,
+        user_metadata: { role: 'admin', adminId: id },
+      });
+    } catch (e) {
+      console.warn('createUser (admin) warning:', (e as any)?.message);
+    }
+
+    await kv.set(`admin:profile:${id}`, profile);
+    await kv.set(`admin:hotkey:${id}`, {
+      id,
+      hotkey: suffix,
+      adminId: id,
+      adminEmail: profile.email,
+      name: profile.email,
+      createdAt: profile.createdAt,
+    });
+
+    const { password: _pw, ...safe } = profile;
+    console.log(`✅ Admin profile created: ${profile.email} (hotkey ${suffix})`);
+    return c.json({ success: true, profile: safe });
+  } catch (e: any) {
+    console.error('create admin profile error:', e);
+    return c.json({ success: false, message: e.message }, 500);
+  }
+});
+
+app.delete("/make-server-c4d79cb7/admin/profiles/:id", async (c) => {
+  try {
+    const id = c.req.param('id');
+    await kv.del(`admin:profile:${id}`);
+    await kv.del(`admin:hotkey:${id}`);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/profiles/:id/2fa", async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { secret } = await c.req.json();
+    if (!secret) return c.json({ success: false, message: 'secret required' }, 400);
+    const profile = await kv.get(`admin:profile:${id}`);
+    if (!profile) return c.json({ success: false, message: 'Admin not found' }, 404);
+    profile.twoFactorSecret = secret;
+    profile.twoFactorEnabled = true;
+    await kv.set(`admin:profile:${id}`, profile);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
   }
 });
 
