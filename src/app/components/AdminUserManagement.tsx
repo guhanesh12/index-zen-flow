@@ -86,33 +86,40 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     loadAdmins();
   }, []);
 
-  const loadAdmins = () => {
-    const stored = localStorage.getItem('admin_users') || '[]';
-    const parsed = JSON.parse(stored);
-    
-    // Add default admin
+  const loadAdmins = async () => {
+    // Default super-admin (server-side hardcoded fallback)
     const defaultAdmin: AdminUser = {
       id: 'default-admin',
       email: 'airoboengin@smilykat.com',
-      password: 'defaultpass',
+      password: '',
       role: {
-        dashboard: true,
-        users: true,
-        transactions: true,
-        settings: true,
-        support: true,
-        landing: true,
-        adminManagement: true,
+        dashboard: true, users: true, transactions: true, settings: true,
+        support: true, landing: true, adminManagement: true,
       },
-      hotkey: {
-        windows: 'Control+Alt+GUHAN',
-        mac: 'Meta+Alt+GUHAN'
-      },
-      twoFactorEnabled: false
+      hotkey: { windows: 'Control+Alt+GUHAN', mac: 'Meta+Alt+GUHAN' },
+      twoFactorEnabled: false,
     };
-    
-    setAdmins([defaultAdmin, ...parsed]);
+
+    try {
+      const res = await fetch(`${serverUrl}/admin/profiles`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      const serverAdmins: AdminUser[] = (data?.profiles || []).map((p: any) => ({
+        id: p.id,
+        email: p.email,
+        password: '',
+        role: p.role || {},
+        hotkey: p.hotkey || { windows: '', mac: '' },
+        twoFactorEnabled: !!p.hasTwoFactor,
+      }));
+      setAdmins([defaultAdmin, ...serverAdmins]);
+    } catch (err) {
+      console.error('Failed to load admin profiles:', err);
+      setAdmins([defaultAdmin]);
+    }
   };
+
 
   const validateForm = () => {
     const newErrors = {
@@ -205,79 +212,75 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
   };
 
   const handleAddAdmin = async () => {
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
-    const admin: AdminUser = {
-      id: `admin_${Date.now()}`,
-      email: newAdmin.username,
-      password: newAdmin.password,
-      role: newAdmin.role,
-      hotkey: {
-        windows: newAdmin.hotkeyWindows,
-        mac: newAdmin.hotkeyMac,
-      },
-      twoFactorEnabled: false,
-    };
-
-    const stored = JSON.parse(localStorage.getItem('admin_users') || '[]');
-    const updated = [...stored, admin];
-    localStorage.setItem('admin_users', JSON.stringify(updated));
-    
-    // Log activity
-    if (typeof (window as any).logAdminActivity === 'function') {
-      (window as any).logAdminActivity({
-        adminId: currentAdmin.id,
-        adminEmail: currentAdmin.email,
-        action: 'create',
-        target: 'admin_user',
-        details: `Created new admin: ${admin.email}`,
-        status: 'online',
-        ipAddress: 'N/A',
-        userAgent: navigator.userAgent,
+    try {
+      const res = await fetch(`${serverUrl}/admin/profiles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          email: newAdmin.username,
+          password: newAdmin.password,
+          role: newAdmin.role,
+          hotkey: { windows: newAdmin.hotkeyWindows, mac: newAdmin.hotkeyMac },
+        }),
       });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setErrors({ ...errors, username: data.message || 'Failed to create admin' });
+        return;
+      }
+
+      // Re-fetch hotkeys so the new one is active immediately
+      window.dispatchEvent(new Event('admin-hotkeys-updated'));
+
+      if (typeof (window as any).logAdminActivity === 'function') {
+        (window as any).logAdminActivity({
+          adminId: currentAdmin.id,
+          adminEmail: currentAdmin.email,
+          action: 'create',
+          target: 'admin_user',
+          details: `Created new admin: ${newAdmin.username}`,
+          status: 'online',
+          ipAddress: 'N/A',
+          userAgent: navigator.userAgent,
+        });
+      }
+
+      setShowAddAdmin(false);
+      setNewAdmin({
+        username: '', password: '', confirmPassword: '',
+        hotkeyWindows: 'Control+Alt+', hotkeyMac: 'Meta+Alt+',
+        role: {
+          dashboard: true, users: true, transactions: true, settings: true,
+          support: true, landing: true, adminManagement: false,
+        },
+      });
+      setVerifiedHotkey('');
+      setErrors({ username: '', password: '', confirmPassword: '', hotkey: '' });
+      await loadAdmins();
+    } catch (err: any) {
+      setErrors({ ...errors, username: err.message || 'Network error' });
     }
-    
-    setShowAddAdmin(false);
-    setNewAdmin({
-      username: '',
-      password: '',
-      confirmPassword: '',
-      hotkeyWindows: 'Control+Alt+',
-      hotkeyMac: 'Meta+Alt+',
-      role: {
-        dashboard: true,
-        users: true,
-        transactions: true,
-        settings: true,
-        support: true,
-        landing: true,
-        adminManagement: false,
-      },
-    });
-    setVerifiedHotkey('');
-    setErrors({
-      username: '',
-      password: '',
-      confirmPassword: '',
-      hotkey: '',
-    });
-    loadAdmins();
   };
 
-  const handleDeleteAdmin = (id: string, email: string) => {
+  const handleDeleteAdmin = async (id: string, email: string) => {
     if (id === 'default-admin') {
       alert('Cannot delete the default admin account');
       return;
     }
+    if (!confirm(`Are you sure you want to delete admin: ${email}?`)) return;
 
-    if (confirm(`Are you sure you want to delete admin: ${email}?`)) {
-      const stored = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const updated = stored.filter((a: AdminUser) => a.id !== id);
-      localStorage.setItem('admin_users', JSON.stringify(updated));
-      
-      // Log activity
+    try {
+      await fetch(`${serverUrl}/admin/profiles/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      window.dispatchEvent(new Event('admin-hotkeys-updated'));
+
       if (typeof (window as any).logAdminActivity === 'function') {
         (window as any).logAdminActivity({
           adminId: currentAdmin.id,
@@ -290,10 +293,12 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
           userAgent: navigator.userAgent,
         });
       }
-      
-      loadAdmins();
+      await loadAdmins();
+    } catch (err) {
+      console.error('Delete admin failed:', err);
     }
   };
+
 
   const handleReset2FA = async (admin: AdminUser) => {
     // Generate new 2FA secret
