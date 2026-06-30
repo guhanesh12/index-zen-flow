@@ -9508,141 +9508,137 @@ app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
 // Admin login - returns JWT token for hardcoded admin credentials
 app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
-    const { email, password } = await c.req.json();
-    
-    // Hardcoded admin credentials
+    const { email, password, uniqueCode } = await c.req.json();
+
     const DEFAULT_ADMIN_EMAIL = 'airoboengin@smilykat.com';
     const DEFAULT_ADMIN_PASSWORD = '9600727185Aa@';
-    
-    // Validate credentials
+
+    // Resolve which admin (if any) is bound to this hotkey unique code.
+    let boundAdminId: string | null = null;
+    let boundAdminEmail: string | null = null;
+    if (uniqueCode) {
+      try {
+        const raw = await kv.get(`admin_hotkey_code_${uniqueCode}`);
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (data) {
+          if (new Date(data.expiresAt) < new Date()) {
+            return c.json({ success: false, message: 'Hotkey session expired. Press your hotkey again.' }, 401);
+          }
+          boundAdminId = data.adminId || null;
+          boundAdminEmail = data.adminEmail || null;
+        }
+      } catch (_) {/* ignore */}
+    }
+
+    // ── Case 1: hotkey is bound to a specific admin profile ──
+    if (boundAdminId) {
+      const profile = await kv.get(`admin:profile:${boundAdminId}`);
+      if (!profile) {
+        return c.json({ success: false, message: 'Admin profile not found for this hotkey' }, 401);
+      }
+      if (
+        String(email).toLowerCase() !== String(profile.email).toLowerCase() ||
+        password !== profile.password
+      ) {
+        return c.json({
+          success: false,
+          message: 'Invalid credentials for this hotkey. Use the email/password assigned to this hotkey.'
+        }, 401);
+      }
+
+      // Get/refresh a real Supabase JWT for this admin's auth user.
+      let accessToken: string | null = null;
+      const { data: signIn } = await supabase.auth.signInWithPassword({
+        email: profile.email,
+        password,
+      });
+      if (signIn?.session?.access_token) {
+        accessToken = signIn.session.access_token;
+      } else {
+        // Auth user might not exist yet — create then sign in
+        try {
+          await supabase.auth.admin.createUser({
+            email: profile.email,
+            password,
+            email_confirm: true,
+            user_metadata: { role: 'admin', adminId: profile.id },
+          });
+        } catch (_) {/* may already exist */}
+        const { data: signIn2 } = await supabase.auth.signInWithPassword({
+          email: profile.email,
+          password,
+        });
+        accessToken = signIn2?.session?.access_token || null;
+      }
+
+      console.log(`✅ Admin (profile) logged in: ${profile.email}`);
+      return c.json({
+        success: true,
+        accessToken: accessToken || '',
+        uniqueCode,
+        admin: {
+          id: profile.id,
+          email: profile.email,
+          role: profile.role,
+          hotkey: profile.hotkey,
+          twoFactorEnabled: !!profile.twoFactorEnabled,
+          twoFactorSecret: profile.twoFactorSecret || undefined,
+        },
+      });
+    }
+
+    // ── Case 2: default GUHAN hotkey (no profile bound) — original behaviour ──
     if (email !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
-    
-    // Generate unique code for this login session (8 character alphanumeric)
-    const uniqueCode = Array.from({ length: 8 }, () => 
+
+    const sessionCode = uniqueCode || Array.from({ length: 8 }, () =>
       'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
     ).join('');
-    
-    // Store unique code in KV with timestamp (expires in 24 hours)
-    const codeData = {
-      code: uniqueCode,
-      email: DEFAULT_ADMIN_EMAIL,
+    await kv.set(`admin_unique_code_${sessionCode}`, JSON.stringify({
+      code: sessionCode, email: DEFAULT_ADMIN_EMAIL,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    };
-    await kv.set(`admin_unique_code_${uniqueCode}`, JSON.stringify(codeData));
-    
-    // Also store by email for lookup
-    await kv.set(`admin_current_code_${email}`, uniqueCode);
-    
-    console.log(`🔐 Generated unique code for admin: ${uniqueCode}`);
-    
-    // Get or create the admin user in Supabase
-    // First try to sign in with Supabase
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
+    }));
+    await kv.set(`admin_current_code_${email}`, sessionCode);
+
+    let { data: signInData } = await supabase.auth.signInWithPassword({
+      email: DEFAULT_ADMIN_EMAIL, password: DEFAULT_ADMIN_PASSWORD,
     });
-    
-    if (signInData?.session?.access_token) {
-      // Successfully signed in with existing account
-      console.log(`✅ Admin logged in: ${email}`);
-      return c.json({
-        success: true,
-        accessToken: signInData.session.access_token,
-        uniqueCode: uniqueCode, // Return unique code to client
-        admin: {
-          id: 'admin_001',
-          email: DEFAULT_ADMIN_EMAIL,
-          role: {
-            dashboard: true,
-            users: true,
-            transactions: true,
-            instruments: true,
-            journals: true,
-            settings: true,
-            support: true,
-            landing: true,
-            adminUsers: true,
-            adminManagement: true, // Permission to create and manage admin users
-          },
-          hotkey: {
-            windows: 'Control+Alt+GUHAN',
-            mac: 'Meta+Alt+GUHAN',
-          },
-          twoFactorEnabled: false,
-        }
-      });
+    if (!signInData?.session?.access_token) {
+      try {
+        await supabase.auth.admin.createUser({
+          email: DEFAULT_ADMIN_EMAIL, password: DEFAULT_ADMIN_PASSWORD,
+          email_confirm: true, user_metadata: { name: 'Platform Admin', role: 'admin' },
+        });
+      } catch (_) {}
+      ({ data: signInData } = await supabase.auth.signInWithPassword({
+        email: DEFAULT_ADMIN_EMAIL, password: DEFAULT_ADMIN_PASSWORD,
+      }));
     }
-    
-    // If sign in failed, try to create the user
-    const { data: userData, error: createError } = await supabase.auth.admin.createUser({
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-      email_confirm: true, // Auto-confirm
-      user_metadata: {
-        name: 'Platform Admin',
-        role: 'admin'
-      }
-    });
-    
-    if (createError) {
-      console.error('Error creating admin user:', createError);
-      return c.json({ 
-        success: false, 
-        message: 'Failed to authenticate admin user' 
-      }, 500);
+    if (!signInData?.session?.access_token) {
+      return c.json({ success: false, message: 'Failed to authenticate admin user' }, 500);
     }
-    
-    // Now sign in with the newly created user
-    const { data: newSignInData, error: newSignInError } = await supabase.auth.signInWithPassword({
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-    });
-    
-    if (!newSignInData?.session?.access_token) {
-      console.error('Error signing in new admin:', newSignInError);
-      return c.json({ 
-        success: false, 
-        message: 'Failed to get access token' 
-      }, 500);
-    }
-    
-    console.log(`✅ Admin user created and logged in: ${email}`);
+
     return c.json({
       success: true,
-      accessToken: newSignInData.session.access_token,
-      uniqueCode: uniqueCode, // Return unique code to client
+      accessToken: signInData.session.access_token,
+      uniqueCode: sessionCode,
       admin: {
         id: 'admin_001',
         email: DEFAULT_ADMIN_EMAIL,
         role: {
-          dashboard: true,
-          users: true,
-          transactions: true,
-          instruments: true,
-          journals: true,
-          settings: true,
-          support: true,
-          landing: true,
-          adminUsers: true,
-          adminManagement: true, // Permission to create and manage admin users
+          dashboard: true, users: true, transactions: true, instruments: true,
+          journals: true, settings: true, support: true, landing: true,
+          adminUsers: true, adminManagement: true,
         },
-        hotkey: {
-          windows: 'Control+Alt+GUHAN',
-          mac: 'Meta+Alt+GUHAN',
-        },
+        hotkey: { windows: 'Control+Alt+GUHAN', mac: 'Meta+Alt+GUHAN' },
         twoFactorEnabled: false,
       }
     });
-    
   } catch (error: any) {
     console.error('Admin login error:', error);
-    return c.json({ 
-      success: false, 
-      message: error.message || 'Login failed' 
-    }, 500);
+    return c.json({ success: false, message: error.message || 'Login failed' }, 500);
   }
 });
 
