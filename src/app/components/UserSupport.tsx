@@ -58,6 +58,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
     urgency: 'NORMAL' as const,
     category: 'TECHNICAL' as const
   });
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
 
   // Load tickets on mount and every 30 seconds
   useEffect(() => {
