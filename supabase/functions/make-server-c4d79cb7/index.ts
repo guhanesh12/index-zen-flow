@@ -10217,7 +10217,8 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
       return c.json({ success: false, message: 'Unauthorized' }, 401);
     }
 
-    const { messageId, reply } = await c.req.json();
+    const body = await c.req.json();
+    const { messageId, reply, attachments } = body || {};
     
     if (!messageId || !reply) {
       return c.json({ success: false, message: 'Message ID and reply are required' }, 400);
@@ -10229,7 +10230,16 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
       return c.json({ success: false, message: 'Ticket not found' }, 404);
     }
 
+    // Upload admin reply attachments (if any)
+    let savedReplyAttachments: any[] = [];
+    try {
+      savedReplyAttachments = await uploadSupportAttachments(attachments, messageId, 'admin');
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message || 'Attachment upload failed' }, 400);
+    }
+
     ticket.adminReply = reply;
+    ticket.replyAttachments = savedReplyAttachments;
     ticket.status = 'REPLIED';
     ticket.repliedAt = new Date().toISOString();
     ticket.unread = true; // Mark as unread for user (new admin reply)
