@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 // import { toast } from 'sonner';
+import { SupportAttachmentPicker, type PendingAttachment } from './SupportAttachmentPicker';
+import { SupportAttachmentList } from './SupportAttachmentList';
 
 interface AdminSupportProps {
   serverUrl: string;
