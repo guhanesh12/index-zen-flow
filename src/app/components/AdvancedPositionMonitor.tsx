@@ -57,7 +57,7 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
 
   useEffect(() => {
     fetchRows();
-    timer.current = setInterval(fetchRows, 2000); // 2s real-time
+    timer.current = setInterval(fetchRows, 1000); // 1s real-time
     return () => clearInterval(timer.current);
   }, []);
 
@@ -86,7 +86,7 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
             </Badge>
           </CardTitle>
           <div className="text-xs text-zinc-400 flex items-center gap-3">
-            <span>Live · 2s</span>
+            <span>Live · 1s</span>
             <span className={totals.pnl >= 0 ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
               Net P&L: {fmt(totals.pnl)}
             </span>

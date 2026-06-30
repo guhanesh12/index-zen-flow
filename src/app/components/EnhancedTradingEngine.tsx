@@ -553,7 +553,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       } catch (error) {
         console.warn('⚠️ Position monitor sync failed:', error);
       }
-    }, 5000);
+    }, 1000);
   };
 
   const clearPositionMonitorLoop = () => {
@@ -694,8 +694,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
     // Pre-warm: kick a first tick after 3s so card fills before user looks
     const preWarm = setTimeout(tick, 3000);
-    // Then run every 5s; backend remains source of truth for exits
-    const intervalId = setInterval(tick, 5000);
+    // Then run every 1s; backend remains source of truth for exits
+    const intervalId = setInterval(tick, 1000);
 
     return () => {
       mounted = false;
@@ -792,10 +792,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       updateNextCandleTime();
     }, 1000);
 
-    // ⚡ Poll backend quickly so signals/status from another device appear fast
+    // ⚡ Poll backend every second so live P&L and position monitor stay current
     const syncInterval = setInterval(() => {
       syncEngineState();
-    }, 5000);
+    }, 1000);
 
     // ⚡⚡⚡ LIVE SIGNAL SYNC ⚡⚡⚡
     // Only read the latest saved engine snapshot. Do NOT generate new UI-only
