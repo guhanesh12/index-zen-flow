@@ -137,6 +137,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
         body: JSON.stringify({
           messageId,
           reply: replyText,
+          attachments: replyAttachments.map(({ name, type, size, base64 }) => ({ name, type, size, base64 })),
         }),
       });
 
