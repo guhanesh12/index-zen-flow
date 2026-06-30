@@ -479,6 +479,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
                             )}
                           </div>
                           <p className="text-sm text-slate-300 whitespace-pre-wrap">{msg.adminReply}</p>
+                          <SupportAttachmentList attachments={(msg as any).replyAttachments} label="Your attachments" />
                         </div>
                       )}
                     </CardContent>
