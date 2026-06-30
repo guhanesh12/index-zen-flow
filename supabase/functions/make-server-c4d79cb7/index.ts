@@ -9532,9 +9532,28 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
 
     // ── Case 1: hotkey is bound to a specific admin profile ──
     if (boundAdminId) {
-      const profile = await kv.get(`admin:profile:${boundAdminId}`);
+      let profile = await kv.get(`admin:profile:${boundAdminId}`);
       if (!profile) {
-        return c.json({ success: false, message: 'Admin profile not found for this hotkey' }, 401);
+        const isDefaultBinding =
+          boundAdminId === 'admin_default' ||
+          boundAdminId === 'admin_001' ||
+          (boundAdminEmail && String(boundAdminEmail).toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()) ||
+          String(email).toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+        if (isDefaultBinding && password === DEFAULT_ADMIN_PASSWORD) {
+          profile = {
+            id: boundAdminId,
+            email: DEFAULT_ADMIN_EMAIL,
+            password: DEFAULT_ADMIN_PASSWORD,
+            role: { name: 'super_admin', permissions: { all: true } },
+            hotkey: 'GUHAN',
+            twoFactorEnabled: false,
+            createdAt: new Date().toISOString(),
+          };
+          await kv.set(`admin:profile:${boundAdminId}`, profile);
+          console.log(`🌱 Seeded default admin profile for ${boundAdminId}`);
+        } else {
+          return c.json({ success: false, message: 'Admin profile not found for this hotkey' }, 401);
+        }
       }
       if (
         String(email).toLowerCase() !== String(profile.email).toLowerCase() ||
