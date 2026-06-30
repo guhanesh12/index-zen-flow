@@ -86,33 +86,40 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     loadAdmins();
   }, []);
 
-  const loadAdmins = () => {
-    const stored = localStorage.getItem('admin_users') || '[]';
-    const parsed = JSON.parse(stored);
-    
-    // Add default admin
+  const loadAdmins = async () => {
+    // Default super-admin (server-side hardcoded fallback)
     const defaultAdmin: AdminUser = {
       id: 'default-admin',
       email: 'airoboengin@smilykat.com',
-      password: 'defaultpass',
+      password: '',
       role: {
-        dashboard: true,
-        users: true,
-        transactions: true,
-        settings: true,
-        support: true,
-        landing: true,
-        adminManagement: true,
+        dashboard: true, users: true, transactions: true, settings: true,
+        support: true, landing: true, adminManagement: true,
       },
-      hotkey: {
-        windows: 'Control+Alt+GUHAN',
-        mac: 'Meta+Alt+GUHAN'
-      },
-      twoFactorEnabled: false
+      hotkey: { windows: 'Control+Alt+GUHAN', mac: 'Meta+Alt+GUHAN' },
+      twoFactorEnabled: false,
     };
-    
-    setAdmins([defaultAdmin, ...parsed]);
+
+    try {
+      const res = await fetch(`${serverUrl}/admin/profiles`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      const serverAdmins: AdminUser[] = (data?.profiles || []).map((p: any) => ({
+        id: p.id,
+        email: p.email,
+        password: '',
+        role: p.role || {},
+        hotkey: p.hotkey || { windows: '', mac: '' },
+        twoFactorEnabled: !!p.hasTwoFactor,
+      }));
+      setAdmins([defaultAdmin, ...serverAdmins]);
+    } catch (err) {
+      console.error('Failed to load admin profiles:', err);
+      setAdmins([defaultAdmin]);
+    }
   };
+
 
   const validateForm = () => {
     const newErrors = {
