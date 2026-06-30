@@ -10025,7 +10025,8 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
       return c.json({ success: false, message: 'Invalid token' }, 401);
     }
 
-    const { subject, message, urgency, category } = await c.req.json();
+    const body = await c.req.json();
+    const { subject, message, urgency, category, attachments } = body || {};
     
     if (!subject || !message) {
       return c.json({ success: false, message: 'Subject and message are required' }, 400);
@@ -10038,6 +10039,15 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
 
     // Create ticket
     const ticketId = `ticket_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Upload attachments (if any)
+    let savedAttachments: any[] = [];
+    try {
+      savedAttachments = await uploadSupportAttachments(attachments, ticketId, 'user');
+    } catch (e: any) {
+      return c.json({ success: false, message: e.message || 'Attachment upload failed' }, 400);
+    }
+
     const ticket = {
       id: ticketId,
       userId: user.id,
@@ -10050,6 +10060,7 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
       status: 'PENDING',
       createdAt: new Date().toISOString(),
       unread: false, // User created it, so not unread for user
+      attachments: savedAttachments,
     };
 
     await kv.set(`support:ticket:${ticketId}`, ticket);
