@@ -10919,6 +10919,24 @@ app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
   }
 });
 
+app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
+  try {
+    let targetUserId = '';
+    const authHeader = c.req.header('Authorization');
+    if (authHeader) {
+      const { user } = await validateAuth(c, 1);
+      targetUserId = user?.id || '';
+    }
+
+    const durationMs = Math.min(Number(c.req.query('durationMs') || 55_000) || 55_000, 58_000);
+    const result = await PersistentTradingEngine.runPositionMonitorLoop(targetUserId || undefined, durationMs);
+    return c.json(result);
+  } catch (error: any) {
+    console.error("❌ [POSITION-MONITOR] 1s loop failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
 // GET /position-monitor/list  → all active monitored positions for the user
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
