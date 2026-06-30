@@ -11,6 +11,7 @@ import type { AdminUser } from './AdminTypes';
 import QRCode from 'qrcode';
 import * as OTPAuth from 'otpauth';
 import { trackLogin } from '../hooks/useAnalyticsTracking';
+import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 
 interface AdminLoginProps {
   onLogin: (admin: AdminUser, accessToken?: string) => void;
@@ -66,6 +67,20 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     useRef<HTMLInputElement>(null),
   ];
 
+  const parseAdminApiResponse = async (response: Response) => {
+    const text = await response.text();
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      return {
+        success: false,
+        message: response.status === 404
+          ? 'Admin API is not deployed yet. Please wait a moment and try again.'
+          : text || `Request failed with status ${response.status}`,
+      };
+    }
+  };
+
   // Generate 2FA QR code
   const generate2FASetup = async (admin: AdminUser) => {
     const secret = new OTPAuth.Secret({ size: 20 });
@@ -92,7 +107,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     try {
       const uniqueCode = sessionStorage.getItem('admin_unique_code') || '';
 
-      const response = await fetch(`${serverUrl}/admin/login`, {
+      const response = await fetchWithApiFallback('/admin/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -101,7 +116,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
         body: JSON.stringify({ email, password, uniqueCode }),
       });
 
-      const data = await response.json();
+      const data = await parseAdminApiResponse(response);
 
       if (!response.ok || !data.success) {
         setError(data.message || 'Invalid email or password');
@@ -267,7 +282,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     } else {
       // Save to the admin's server profile
       try {
-        await fetch(`${serverUrl}/admin/profiles/${adminData.id}/2fa`, {
+        await fetchWithApiFallback(`/admin/profiles/${adminData.id}/2fa`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
