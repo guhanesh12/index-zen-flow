@@ -137,6 +137,22 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     };
   }, []);
 
+  const canAccessTab = (tab: keyof AdminUser['role']) => {
+    if (!currentAdmin) return false;
+    const isSuperAdmin = currentAdmin.id === 'admin_001' || currentAdmin.id === 'default-admin';
+    const hasAccess = isSuperAdmin || currentAdmin.role[tab];
+    console.log(`🔍 Checking tab access: ${tab} = ${hasAccess}`);
+    return hasAccess;
+  };
+
+  useEffect(() => {
+    if (!currentAdmin) return;
+    const firstAllowed = orderedTabs.find((tab) => canAccessTab(tab));
+    if (firstAllowed && !canAccessTab(activeTab)) {
+      setActiveTab(firstAllowed);
+    }
+  }, [currentAdmin, activeTab]);
+
   // Don't render anything if admin panel is not shown
   if (!show) {
     return null;
@@ -168,21 +184,6 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
       </div>
     );
   }
-
-  const canAccessTab = (tab: keyof AdminUser['role']) => {
-    const isSuperAdmin = currentAdmin.id === 'admin_001' || currentAdmin.id === 'default-admin';
-    const hasAccess = isSuperAdmin || currentAdmin.role[tab];
-    console.log(`🔍 Checking tab access: ${tab} = ${hasAccess}`);
-    return hasAccess;
-  };
-
-  useEffect(() => {
-    if (!currentAdmin) return;
-    const firstAllowed = orderedTabs.find((tab) => canAccessTab(tab));
-    if (firstAllowed && !canAccessTab(activeTab)) {
-      setActiveTab(firstAllowed);
-    }
-  }, [currentAdmin, activeTab]);
 
   return (
     <div className="fixed inset-0 z-[9999] min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-auto">
