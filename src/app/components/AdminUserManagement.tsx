@@ -344,18 +344,29 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     setShow2FADialog(true);
   };
 
-  const handleSaveNew2FA = () => {
+  const handleSaveNew2FA = async () => {
     if (!selectedAdmin) return;
 
     if (selectedAdmin.id === 'default-admin') {
       localStorage.setItem('default_admin_2fa', totpSecret);
     } else {
-      const stored = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = stored.findIndex((a: AdminUser) => a.id === selectedAdmin.id);
-      if (index !== -1) {
-        stored[index].twoFactorSecret = totpSecret;
-        stored[index].twoFactorEnabled = true;
-        localStorage.setItem('admin_users', JSON.stringify(stored));
+      try {
+        const res = await fetchWithApiFallback(`/admin/profiles/${selectedAdmin.id}/2fa`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ secret: totpSecret }),
+        });
+        const data = await parseAdminApiResponse(res);
+        if (!res.ok || !data.success) {
+          setErrors({ ...errors, username: data.message || 'Failed to reset 2FA' });
+          return;
+        }
+      } catch (err: any) {
+        setErrors({ ...errors, username: err.message || 'Failed to reset 2FA' });
+        return;
       }
     }
     
