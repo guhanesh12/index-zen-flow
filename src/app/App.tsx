@@ -8,7 +8,6 @@ import { PWADebugger } from './components/PWADebugger';
 import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
-import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 import { initializeSecurity, SessionManager } from '@/utils-ext/security/SecurityHardening';
 import { AuditLogger } from '@/utils-ext/security/AuditLogger';
 import { supabase } from '@/integrations/supabase/client';
@@ -25,20 +24,6 @@ declare global {
 }
 
 const serverUrl = getBaseUrl();
-
-const parseAdminApiResponse = async (response: Response) => {
-  const text = await response.text();
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    return {
-      success: false,
-      message: response.status === 404
-        ? 'Admin API is not deployed yet. Please wait a moment and try again.'
-        : text || `Request failed with status ${response.status}`,
-    };
-  }
-};
 
 export default function App() {
   useEffect(() => {
@@ -152,14 +137,14 @@ export default function App() {
   // Load admin hotkeys from server
   const loadAdminHotkeys = async () => {
     try {
-      const response = await fetchWithApiFallback('/admin/hotkeys', {
+      const response = await fetch(`${serverUrl}/admin/hotkeys`, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
         },
       });
       
       if (response.ok) {
-        const data = await parseAdminApiResponse(response);
+        const data = await response.json();
         if (data.hotkeys && Array.isArray(data.hotkeys)) {
           // Extract just the hotkey string from each object (server returns { id, hotkey, name, ... })
           window.adminHotkeys = data.hotkeys
@@ -197,7 +182,7 @@ export default function App() {
     try {
       console.log(`🔐 Generating unique code for hotkey: ${hotkey}`);
       
-      const response = await fetchWithApiFallback('/admin/generate-unique-code', {
+      const response = await fetch(`${serverUrl}/admin/generate-unique-code`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -206,7 +191,7 @@ export default function App() {
         body: JSON.stringify({ hotkey: hotkey.toUpperCase() }),
       });
 
-      const data = await parseAdminApiResponse(response);
+      const data = await response.json();
 
       if (response.ok && data.success && data.uniqueCode) {
         console.log(`✅ Unique code generated: ${data.uniqueCode}`);
