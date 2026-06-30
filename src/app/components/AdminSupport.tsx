@@ -146,6 +146,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
         if (data.success) {
           // toast.success('Reply sent successfully!');
           setReplyText('');
+          setReplyAttachments([]);
           setSelectedMessage(null);
           loadMessages(); // Reload messages
         } else {
