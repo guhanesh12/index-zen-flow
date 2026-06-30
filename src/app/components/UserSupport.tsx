@@ -559,6 +559,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
                     urgency: 'NORMAL',
                     category: 'TECHNICAL'
                   });
+                  setPendingAttachments([]);
                 }}
                 variant="outline"
                 className="bg-slate-700/50 border-slate-600 hover:bg-slate-700"
