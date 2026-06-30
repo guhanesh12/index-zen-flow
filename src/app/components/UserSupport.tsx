@@ -151,6 +151,7 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
           urgency: 'NORMAL',
           category: 'TECHNICAL'
         });
+        setPendingAttachments([]);
         
         // Close dialog
         setIsCreateDialogOpen(false);
