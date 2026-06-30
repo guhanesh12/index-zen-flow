@@ -31,6 +31,7 @@ import type { AdminUser } from './AdminTypes';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import QRCode from 'qrcode';
 import * as OTPAuth from 'otpauth';
+import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 
 interface AdminUserManagementProps {
   serverUrl: string;
@@ -55,6 +56,9 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
       settings: true,
       support: true,
       landing: true,
+      adminUsers: false,
+      referrals: false,
+      communication: false,
       adminManagement: false, // New permission
     },
   });
@@ -71,6 +75,20 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
   const [selectedAdmin, setSelectedAdmin] = useState<AdminUser | null>(null);
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
 
+  const parseAdminApiResponse = async (res: Response) => {
+    const text = await res.text();
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      return {
+        success: false,
+        message: res.status === 404
+          ? 'Admin profile API is not deployed yet. Please wait a moment and try again.'
+          : text || `Request failed with status ${res.status}`,
+      };
+    }
+  };
+
   // Available permissions
   const availablePermissions = [
     { key: 'dashboard', label: 'Dashboard', icon: '📊', description: 'View main dashboard' },
@@ -79,7 +97,10 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     { key: 'settings', label: 'Settings', icon: '⚙️', description: 'Configure platform settings' },
     { key: 'support', label: 'Support', icon: '💬', description: 'Handle support tickets' },
     { key: 'landing', label: 'Landing Page', icon: '🌐', description: 'Edit landing page content' },
+    { key: 'adminUsers', label: 'Admin Logs', icon: '📋', description: 'View admin activity logs' },
     { key: 'adminManagement', label: 'Admin Management', icon: '👨‍💼', description: 'Create and manage admins' },
+    { key: 'referrals', label: 'Referrals', icon: '🎁', description: 'Manage referral program' },
+    { key: 'communication', label: 'Communication', icon: '✉️', description: 'Send platform communications' },
   ];
 
   useEffect(() => {
@@ -101,10 +122,11 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     };
 
     try {
-      const res = await fetch(`${serverUrl}/admin/profiles`, {
+      const res = await fetchWithApiFallback('/admin/profiles', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const data = await res.json();
+      const data = await parseAdminApiResponse(res);
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to load admin profiles');
       const serverAdmins: AdminUser[] = (data?.profiles || []).map((p: any) => ({
         id: p.id,
         email: p.email,
@@ -215,7 +237,7 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     if (!validateForm()) return;
 
     try {
-      const res = await fetch(`${serverUrl}/admin/profiles`, {
+      const res = await fetchWithApiFallback('/admin/profiles', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +250,7 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
           hotkey: { windows: newAdmin.hotkeyWindows, mac: newAdmin.hotkeyMac },
         }),
       });
-      const data = await res.json();
+      const data = await parseAdminApiResponse(res);
       if (!res.ok || !data.success) {
         setErrors({ ...errors, username: data.message || 'Failed to create admin' });
         return;
@@ -256,7 +278,8 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
         hotkeyWindows: 'Control+Alt+', hotkeyMac: 'Meta+Alt+',
         role: {
           dashboard: true, users: true, transactions: true, settings: true,
-          support: true, landing: true, adminManagement: false,
+          support: true, landing: true, adminUsers: false,
+          adminManagement: false, referrals: false, communication: false,
         },
       });
       setVerifiedHotkey('');
@@ -275,7 +298,7 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     if (!confirm(`Are you sure you want to delete admin: ${email}?`)) return;
 
     try {
-      await fetch(`${serverUrl}/admin/profiles/${id}`, {
+      await fetchWithApiFallback(`/admin/profiles/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -321,18 +344,29 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
     setShow2FADialog(true);
   };
 
-  const handleSaveNew2FA = () => {
+  const handleSaveNew2FA = async () => {
     if (!selectedAdmin) return;
 
     if (selectedAdmin.id === 'default-admin') {
       localStorage.setItem('default_admin_2fa', totpSecret);
     } else {
-      const stored = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = stored.findIndex((a: AdminUser) => a.id === selectedAdmin.id);
-      if (index !== -1) {
-        stored[index].twoFactorSecret = totpSecret;
-        stored[index].twoFactorEnabled = true;
-        localStorage.setItem('admin_users', JSON.stringify(stored));
+      try {
+        const res = await fetchWithApiFallback(`/admin/profiles/${selectedAdmin.id}/2fa`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ secret: totpSecret }),
+        });
+        const data = await parseAdminApiResponse(res);
+        if (!res.ok || !data.success) {
+          setErrors({ ...errors, username: data.message || 'Failed to reset 2FA' });
+          return;
+        }
+      } catch (err: any) {
+        setErrors({ ...errors, username: err.message || 'Failed to reset 2FA' });
+        return;
       }
     }
     
@@ -738,6 +772,9 @@ export function AdminUserManagement({ serverUrl, accessToken, currentAdmin }: Ad
                       settings: true,
                       support: true,
                       landing: true,
+                      adminUsers: false,
+                      referrals: false,
+                      communication: false,
                       adminManagement: false,
                     },
                   });
