@@ -62,6 +62,7 @@ export function AdminSupport({ serverUrl, accessToken }: AdminSupportProps) {
   const [selectedMessage, setSelectedMessage] = useState<SupportMessage | null>(null);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
 
   useEffect(() => {
     loadMessages();
