@@ -234,38 +234,18 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     }
   };
 
-  const handle2FASetupComplete = () => {
+  const handle2FASetupComplete = async () => {
     if (!adminData) return;
-    
+
     if (otpCode.length !== 6) {
       setError('Please enter a 6-digit code');
       return;
     }
 
     const isValid = verify2FA(otpCode, totpSecret);
-    
     if (!isValid) {
       setError('Invalid verification code');
       return;
-    }
-
-    // Save 2FA secret to localStorage + server KV (for default admin)
-    if (adminData.email === DEFAULT_ADMIN.email) {
-      localStorage.setItem('default_admin_2fa', totpSecret);
-      // Persist to server KV so it survives deploys
-      fetch(`${serverUrl}/auth/admin-2fa-secret`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminEmail: adminData.email, secret: totpSecret }),
-      }).catch(() => {});
-      console.log('✅ Default admin 2FA setup complete - Secret SAVED to localStorage + server KV');
-    } else {
-      const admins = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = admins.findIndex((a: AdminUser) => a.id === adminData.id);
-      if (index !== -1) {
-        admins[index] = updatedAdmin;
-        localStorage.setItem('admin_users', JSON.stringify(admins));
-      }
     }
 
     const updatedAdmin = {
@@ -276,7 +256,30 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       status: 'online' as const,
     };
 
-    // Log successful login
+    // Persist secret in the right place
+    if (adminData.email === DEFAULT_ADMIN.email) {
+      localStorage.setItem('default_admin_2fa', totpSecret);
+      fetch(`${serverUrl}/auth/admin-2fa-secret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminEmail: adminData.email, secret: totpSecret }),
+      }).catch(() => {});
+    } else {
+      // Save to the admin's server profile
+      try {
+        await fetch(`${serverUrl}/admin/profiles/${adminData.id}/2fa`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ secret: totpSecret }),
+        });
+      } catch (e) {
+        console.warn('Failed to persist 2FA secret on server:', e);
+      }
+    }
+
     if (typeof (window as any).logAdminActivity === 'function') {
       (window as any).logAdminActivity({
         adminId: updatedAdmin.id,
@@ -290,12 +293,10 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       });
     }
 
-    // 📊 Track successful admin login
     trackLogin(updatedAdmin.email, 'success', updatedAdmin.id);
-
-    // Pass the real access token back to parent
     onLogin(updatedAdmin, (adminData as any).realAccessToken);
   };
+
 
   const handle2FAVerify = () => {
     if (!adminData) return;
