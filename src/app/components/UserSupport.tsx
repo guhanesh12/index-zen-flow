@@ -539,6 +539,15 @@ export function UserSupport({ serverUrl, accessToken }: UserSupportProps) {
               </p>
             </div>
 
+            <div className="space-y-2">
+              <Label className="text-slate-300">Attachments (optional)</Label>
+              <SupportAttachmentPicker
+                attachments={pendingAttachments}
+                onChange={setPendingAttachments}
+                disabled={isCreating}
+              />
+            </div>
+
             <div className="flex gap-3 justify-end pt-4 border-t border-slate-700">
               <Button
                 type="button"
