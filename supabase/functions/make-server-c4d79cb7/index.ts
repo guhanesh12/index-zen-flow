@@ -10820,9 +10820,26 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
 
   try {
     const result = await PersistentTradingEngine.runCronTick();
+    // 🔧 Self-heal VPS power to match engine state (engine ON → VPS ON, engine OFF → VPS OFF)
+    try {
+      const rec = await VPSPower.reconcileAllWithEngine();
+      if (rec.changed > 0) console.log(`🔧 [CRON] VPS reconciled: ${rec.changed}/${rec.checked} changed`);
+    } catch (e: any) {
+      console.warn(`⚠️ [CRON] VPS reconcile failed: ${e?.message}`);
+    }
     return c.json(result);
   } catch (error: any) {
     console.error("❌ [CRON] Tick failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// Manual VPS reconcile (admin/debug)
+app.all("/make-server-c4d79cb7/cron/vps-reconcile", async (c) => {
+  try {
+    const result = await VPSPower.reconcileAllWithEngine();
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }
 });

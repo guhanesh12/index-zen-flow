@@ -190,6 +190,70 @@ export async function autoStartupAll() {
   return { skipped: 'engine_driven_mode' };
 }
 
+/**
+ * Reconcile VPS power with engine state for ALL assigned users:
+ *   engine running -> VPS must be ON
+ *   engine stopped -> VPS must be OFF
+ * Called periodically from the engine-tick cron so drift self-heals.
+ */
+export async function reconcileAllWithEngine() {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const engineRunning = new Map<string, boolean>();
+  if (supabaseUrl && serviceKey) {
+    try {
+      const r = await fetch(`${supabaseUrl}/rest/v1/trading_engine_state?select=user_id,is_running`, {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      });
+      if (r.ok) {
+        const rows = await r.json();
+        for (const row of rows) engineRunning.set(row.user_id, !!row.is_running);
+      }
+    } catch (e) {
+      console.warn('[vps reconcile] engine fetch failed', (e as any)?.message);
+    }
+  }
+  // Fallback / merge with KV engine state
+  try {
+    const kvMod = await import('./kv_store.tsx');
+    const all = await kvMod.getByPrefix('engine_state:');
+    for (const e of all) {
+      const v: any = e.value;
+      const uid = v?.userId || e.key.split(':')[1];
+      if (!uid) continue;
+      if (!engineRunning.has(uid)) engineRunning.set(uid, !!(v?.isRunning || v?.is_running));
+    }
+  } catch {}
+
+  const list = await listAssignedVps();
+  const results: Array<{ userId: string; ip?: string; action: string; ok?: boolean; error?: string }> = [];
+  for (const v of list) {
+    if (!v.dropletId) continue;
+    const shouldBeOn = engineRunning.get(v.userId) === true;
+    const cur = await getDropletStatus(v.dropletId);
+    if (shouldBeOn && cur !== 'active') {
+      const r = await doAction(v.dropletId, 'power_on');
+      await setPowerState({
+        userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+        state: r.ok ? 'on' : 'unknown', source: 'system',
+        at: new Date().toISOString(), lastError: r.ok ? undefined : r.error,
+      });
+      results.push({ userId: v.userId, ip: v.ipAddress, action: 'power_on', ok: r.ok, error: r.error });
+      console.log(`🔧 [vps reconcile] ${v.ipAddress} engine=ON vps=${cur} -> power_on (ok=${r.ok})`);
+    } else if (!shouldBeOn && cur === 'active') {
+      const r = await doAction(v.dropletId, 'shutdown');
+      await setPowerState({
+        userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+        state: r.ok ? 'off' : 'unknown', source: 'system',
+        at: new Date().toISOString(), lastError: r.ok ? undefined : r.error,
+      });
+      results.push({ userId: v.userId, ip: v.ipAddress, action: 'shutdown', ok: r.ok, error: r.error });
+      console.log(`🔧 [vps reconcile] ${v.ipAddress} engine=OFF vps=active -> shutdown (ok=${r.ok})`);
+    }
+  }
+  return { ok: true, checked: list.length, changed: results.length, results };
+}
+
 export async function adminAllOn(markSpecial = false) {
   const results = await applyToAll('power_on', 'admin');
   if (markSpecial) await setSpecialSessionDate(istDateString());
