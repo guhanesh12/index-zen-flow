@@ -187,26 +187,33 @@ async function applyToAll(action: 'shutdown' | 'power_on', source: VpsPowerState
   const list = await listAssignedVps();
   const results: Array<{ userId: string; ok: boolean; error?: string; skipped?: boolean }> = [];
   for (const v of list) {
-    if (!v.dropletId) {
+    let dropletId = v.dropletId;
+    if (!dropletId && v.ipAddress) {
+      dropletId = (await resolveDropletIdByIp(v.ipAddress)) || undefined;
+      if (dropletId) await updateStoredDropletId(v.ipAddress, dropletId);
+    }
+    if (!dropletId) {
       results.push({ userId: v.userId, ok: false, error: 'No dropletId', skipped: true });
       continue;
     }
     // skip no-op
-    const cur = await getDropletStatus(v.dropletId);
+    const { status: cur, dropletId: healedId } = await getDropletStatus(dropletId, v.ipAddress);
+    dropletId = healedId;
     if (action === 'shutdown' && cur === 'off') {
-      await setPowerState({ userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'off', source, at: new Date().toISOString() });
+      await setPowerState({ userId: v.userId, dropletId, ipAddress: v.ipAddress, state: 'off', source, at: new Date().toISOString() });
       results.push({ userId: v.userId, ok: true, skipped: true });
       continue;
     }
     if (action === 'power_on' && cur === 'active') {
-      await setPowerState({ userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'on', source, at: new Date().toISOString() });
+      await setPowerState({ userId: v.userId, dropletId, ipAddress: v.ipAddress, state: 'on', source, at: new Date().toISOString() });
       results.push({ userId: v.userId, ok: true, skipped: true });
       continue;
     }
-    const r = await doAction(v.dropletId, action);
+    const r = await doAction(dropletId, action, v.ipAddress);
+    if (r.dropletId) dropletId = r.dropletId;
     await setPowerState({
       userId: v.userId,
-      dropletId: v.dropletId,
+      dropletId,
       ipAddress: v.ipAddress,
       state: r.ok ? (action === 'shutdown' ? 'off' : 'on') : 'unknown',
       source,
