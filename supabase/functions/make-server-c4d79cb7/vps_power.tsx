@@ -35,18 +35,25 @@ function getToken(): string | null {
   return Deno.env.get('DIGITALOCEAN_API_TOKEN') || null;
 }
 
-async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'power_off'): Promise<{ ok: boolean; error?: string }> {
+async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'power_off', ipAddress?: string): Promise<{ ok: boolean; error?: string; dropletId?: string }> {
   const token = getToken();
   if (!token) return { ok: false, error: 'No DIGITALOCEAN_API_TOKEN' };
+  const doCall = async (id: string) => fetch(`${DO_BASE}/droplets/${id}/actions`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type }),
+  });
   try {
-    const r = await fetch(`${DO_BASE}/droplets/${dropletId}/actions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ type }),
-    });
+    let r = await doCall(dropletId);
+    if (r.status === 404 && ipAddress) {
+      // Stale dropletId — resolve by IP and heal
+      const fresh = await resolveDropletIdByIp(ipAddress);
+      if (fresh && fresh !== dropletId) {
+        await updateStoredDropletId(ipAddress, fresh);
+        r = await doCall(fresh);
+        if (r.ok) return { ok: true, dropletId: fresh };
+      }
+    }
     if (!r.ok) {
       const text = await r.text();
       return { ok: false, error: `DO ${r.status}: ${text.slice(0, 200)}` };
@@ -57,23 +64,70 @@ async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'powe
   }
 }
 
-async function getDropletStatus(dropletId: string): Promise<'active' | 'off' | 'unknown'> {
+async function getDropletStatus(dropletId: string, ipAddress?: string): Promise<{ status: 'active' | 'off' | 'unknown' | 'not_found'; dropletId: string }> {
   const token = getToken();
-  if (!token) return 'unknown';
+  if (!token) return { status: 'unknown', dropletId };
   try {
-    const r = await fetch(`${DO_BASE}/droplets/${dropletId}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!r.ok) return 'unknown';
+    let r = await fetch(`${DO_BASE}/droplets/${dropletId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+    let id = dropletId;
+    if (r.status === 404 && ipAddress) {
+      const fresh = await resolveDropletIdByIp(ipAddress);
+      if (fresh) {
+        await updateStoredDropletId(ipAddress, fresh);
+        id = fresh;
+        r = await fetch(`${DO_BASE}/droplets/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      } else {
+        return { status: 'not_found', dropletId: id };
+      }
+    }
+    if (r.status === 404) return { status: 'not_found', dropletId: id };
+    if (!r.ok) return { status: 'unknown', dropletId: id };
     const data = await r.json();
     const s = data?.droplet?.status;
-    if (s === 'active') return 'active';
-    if (s === 'off') return 'off';
-    return 'unknown';
+    return { status: s === 'active' ? 'active' : s === 'off' ? 'off' : 'unknown', dropletId: id };
   } catch {
-    return 'unknown';
+    return { status: 'unknown', dropletId };
   }
 }
+
+/** Query all droplets and find the one that owns this public IPv4. */
+async function resolveDropletIdByIp(ip: string): Promise<string | null> {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    let page = 1;
+    while (page <= 5) {
+      const r = await fetch(`${DO_BASE}/droplets?per_page=200&page=${page}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!r.ok) return null;
+      const data = await r.json();
+      const droplets = data?.droplets || [];
+      for (const d of droplets) {
+        const v4 = d?.networks?.v4 || [];
+        if (v4.some((n: any) => n?.ip_address === ip && n?.type === 'public')) {
+          return String(d.id);
+        }
+      }
+      if (droplets.length < 200) break;
+      page++;
+    }
+    return null;
+  } catch { return null; }
+}
+
+async function updateStoredDropletId(ip: string, dropletId: string) {
+  try {
+    const cur = await kv.get(`ip_pool:${ip}`) as any;
+    if (!cur) return;
+    cur.metadata = { ...(cur.metadata || {}), dropletId };
+    await kv.set(`ip_pool:${ip}`, cur);
+    console.log(`🔧 [vps] Healed stale dropletId for ${ip} -> ${dropletId}`);
+  } catch (e: any) {
+    console.warn(`[vps] updateStoredDropletId failed: ${e?.message}`);
+  }
+}
+
 
 async function setPowerState(state: VpsPowerState) {
   await kv.set(`${POWER_PREFIX}${state.userId}`, state);
@@ -136,26 +190,33 @@ async function applyToAll(action: 'shutdown' | 'power_on', source: VpsPowerState
   const list = await listAssignedVps();
   const results: Array<{ userId: string; ok: boolean; error?: string; skipped?: boolean }> = [];
   for (const v of list) {
-    if (!v.dropletId) {
+    let dropletId = v.dropletId;
+    if (!dropletId && v.ipAddress) {
+      dropletId = (await resolveDropletIdByIp(v.ipAddress)) || undefined;
+      if (dropletId) await updateStoredDropletId(v.ipAddress, dropletId);
+    }
+    if (!dropletId) {
       results.push({ userId: v.userId, ok: false, error: 'No dropletId', skipped: true });
       continue;
     }
     // skip no-op
-    const cur = await getDropletStatus(v.dropletId);
+    const { status: cur, dropletId: healedId } = await getDropletStatus(dropletId, v.ipAddress);
+    dropletId = healedId;
     if (action === 'shutdown' && cur === 'off') {
-      await setPowerState({ userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'off', source, at: new Date().toISOString() });
+      await setPowerState({ userId: v.userId, dropletId, ipAddress: v.ipAddress, state: 'off', source, at: new Date().toISOString() });
       results.push({ userId: v.userId, ok: true, skipped: true });
       continue;
     }
     if (action === 'power_on' && cur === 'active') {
-      await setPowerState({ userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'on', source, at: new Date().toISOString() });
+      await setPowerState({ userId: v.userId, dropletId, ipAddress: v.ipAddress, state: 'on', source, at: new Date().toISOString() });
       results.push({ userId: v.userId, ok: true, skipped: true });
       continue;
     }
-    const r = await doAction(v.dropletId, action);
+    const r = await doAction(dropletId, action, v.ipAddress);
+    if (r.dropletId) dropletId = r.dropletId;
     await setPowerState({
       userId: v.userId,
-      dropletId: v.dropletId,
+      dropletId,
       ipAddress: v.ipAddress,
       state: r.ok ? (action === 'shutdown' ? 'off' : 'on') : 'unknown',
       source,
@@ -228,22 +289,40 @@ export async function reconcileAllWithEngine() {
   const list = await listAssignedVps();
   const results: Array<{ userId: string; ip?: string; action: string; ok?: boolean; error?: string }> = [];
   for (const v of list) {
-    if (!v.dropletId) continue;
+    let dropletId = v.dropletId;
+    if (!dropletId && v.ipAddress) {
+      dropletId = (await resolveDropletIdByIp(v.ipAddress)) || undefined;
+      if (dropletId) await updateStoredDropletId(v.ipAddress, dropletId);
+    }
+    if (!dropletId) continue;
     const shouldBeOn = engineRunning.get(v.userId) === true;
-    const cur = await getDropletStatus(v.dropletId);
-    if (shouldBeOn && cur !== 'active') {
-      const r = await doAction(v.dropletId, 'power_on');
+    const { status: cur, dropletId: healedId } = await getDropletStatus(dropletId, v.ipAddress);
+    dropletId = healedId;
+    if (cur === 'not_found') {
+      // Droplet was deleted at DO; mark orphaned so admin can re-provision
       await setPowerState({
-        userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+        userId: v.userId, dropletId, ipAddress: v.ipAddress,
+        state: 'unknown', source: 'system', at: new Date().toISOString(),
+        lastError: 'Droplet not found at DigitalOcean — needs re-provision',
+      });
+      console.warn(`⚠️ [vps reconcile] ${v.ipAddress} (droplet ${dropletId}) orphaned — skipping`);
+      continue;
+    }
+    if (shouldBeOn && cur !== 'active') {
+      const r = await doAction(dropletId, 'power_on', v.ipAddress);
+      if (r.dropletId) dropletId = r.dropletId;
+      await setPowerState({
+        userId: v.userId, dropletId, ipAddress: v.ipAddress,
         state: r.ok ? 'on' : 'unknown', source: 'system',
         at: new Date().toISOString(), lastError: r.ok ? undefined : r.error,
       });
       results.push({ userId: v.userId, ip: v.ipAddress, action: 'power_on', ok: r.ok, error: r.error });
       console.log(`🔧 [vps reconcile] ${v.ipAddress} engine=ON vps=${cur} -> power_on (ok=${r.ok})`);
     } else if (!shouldBeOn && cur === 'active') {
-      const r = await doAction(v.dropletId, 'shutdown');
+      const r = await doAction(dropletId, 'shutdown', v.ipAddress);
+      if (r.dropletId) dropletId = r.dropletId;
       await setPowerState({
-        userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+        userId: v.userId, dropletId, ipAddress: v.ipAddress,
         state: r.ok ? 'off' : 'unknown', source: 'system',
         at: new Date().toISOString(), lastError: r.ok ? undefined : r.error,
       });
@@ -266,56 +345,69 @@ export async function adminAllOff() {
   return { ok: true, results };
 }
 
-/** Engine-driven: power ON this user's VPS (called from engine/start). */
-export async function userPowerOn(userId: string): Promise<{ ok: boolean; error?: string; skipped?: string }> {
+async function resolveVpsForUser(userId: string): Promise<{ userId: string; ipAddress: string; dropletId?: string } | null> {
   const list = await listAssignedVps();
   const v = list.find(x => x.userId === userId);
+  if (!v) return null;
+  if (!v.dropletId && v.ipAddress) {
+    const id = await resolveDropletIdByIp(v.ipAddress);
+    if (id) { await updateStoredDropletId(v.ipAddress, id); v.dropletId = id; }
+  }
+  return v;
+}
+
+/** Engine-driven: power ON this user's VPS (called from engine/start). */
+export async function userPowerOn(userId: string): Promise<{ ok: boolean; error?: string; skipped?: string }> {
+  const v = await resolveVpsForUser(userId);
   if (!v) return { ok: false, skipped: 'no_vps_assigned' };
   if (!v.dropletId) return { ok: false, skipped: 'no_droplet_id' };
-  const cur = await getDropletStatus(v.dropletId);
+  const { status: cur, dropletId: healedId } = await getDropletStatus(v.dropletId, v.ipAddress);
+  const dropletId = healedId;
   if (cur === 'active') {
-    await setPowerState({ userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'on', source: 'user', at: new Date().toISOString() });
+    await setPowerState({ userId, dropletId, ipAddress: v.ipAddress, state: 'on', source: 'user', at: new Date().toISOString() });
     return { ok: true, skipped: 'already_on' };
   }
-  const r = await doAction(v.dropletId, 'power_on');
+  const r = await doAction(dropletId, 'power_on', v.ipAddress);
+  const finalId = r.dropletId || dropletId;
   await setPowerState({
-    userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+    userId, dropletId: finalId, ipAddress: v.ipAddress,
     state: r.ok ? 'on' : 'unknown',
     source: 'user', at: new Date().toISOString(),
     lastError: r.ok ? undefined : r.error,
   });
-  return r;
+  return { ok: r.ok, error: r.error };
 }
 
 /** Engine-driven: power OFF this user's VPS (called from engine/stop). */
 export async function userPowerOff(userId: string): Promise<{ ok: boolean; error?: string; skipped?: string }> {
-  const list = await listAssignedVps();
-  const v = list.find(x => x.userId === userId);
+  const v = await resolveVpsForUser(userId);
   if (!v) return { ok: false, skipped: 'no_vps_assigned' };
   if (!v.dropletId) return { ok: false, skipped: 'no_droplet_id' };
-  const cur = await getDropletStatus(v.dropletId);
+  const { status: cur, dropletId: healedId } = await getDropletStatus(v.dropletId, v.ipAddress);
+  const dropletId = healedId;
   if (cur === 'off') {
-    await setPowerState({ userId, dropletId: v.dropletId, ipAddress: v.ipAddress, state: 'off', source: 'user', at: new Date().toISOString() });
+    await setPowerState({ userId, dropletId, ipAddress: v.ipAddress, state: 'off', source: 'user', at: new Date().toISOString() });
     return { ok: true, skipped: 'already_off' };
   }
-  const r = await doAction(v.dropletId, 'shutdown');
+  const r = await doAction(dropletId, 'shutdown', v.ipAddress);
+  const finalId = r.dropletId || dropletId;
   await setPowerState({
-    userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+    userId, dropletId: finalId, ipAddress: v.ipAddress,
     state: r.ok ? 'off' : 'unknown',
     source: 'user', at: new Date().toISOString(),
     lastError: r.ok ? undefined : r.error,
   });
-  return r;
+  return { ok: r.ok, error: r.error };
 }
 
 export async function adminTogglePower(userId: string, target: 'on' | 'off') {
-  const list = await listAssignedVps();
-  const v = list.find(x => x.userId === userId);
+  const v = await resolveVpsForUser(userId);
   if (!v || !v.dropletId) return { ok: false, error: 'User has no provisioned VPS' };
-  const r = await doAction(v.dropletId, target === 'on' ? 'power_on' : 'shutdown');
+  const r = await doAction(v.dropletId, target === 'on' ? 'power_on' : 'shutdown', v.ipAddress);
+  const finalId = r.dropletId || v.dropletId;
   await setPowerState({
     userId,
-    dropletId: v.dropletId,
+    dropletId: finalId,
     ipAddress: v.ipAddress,
     state: r.ok ? target : 'unknown',
     source: 'admin',
