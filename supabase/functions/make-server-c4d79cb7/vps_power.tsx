@@ -64,7 +64,7 @@ async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'powe
   }
 }
 
-async function getDropletStatus(dropletId: string, ipAddress?: string): Promise<{ status: 'active' | 'off' | 'unknown'; dropletId: string }> {
+async function getDropletStatus(dropletId: string, ipAddress?: string): Promise<{ status: 'active' | 'off' | 'unknown' | 'not_found'; dropletId: string }> {
   const token = getToken();
   if (!token) return { status: 'unknown', dropletId };
   try {
@@ -76,8 +76,11 @@ async function getDropletStatus(dropletId: string, ipAddress?: string): Promise<
         await updateStoredDropletId(ipAddress, fresh);
         id = fresh;
         r = await fetch(`${DO_BASE}/droplets/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      } else {
+        return { status: 'not_found', dropletId: id };
       }
     }
+    if (r.status === 404) return { status: 'not_found', dropletId: id };
     if (!r.ok) return { status: 'unknown', dropletId: id };
     const data = await r.json();
     const s = data?.droplet?.status;
