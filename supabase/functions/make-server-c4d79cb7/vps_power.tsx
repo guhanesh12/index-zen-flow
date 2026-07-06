@@ -298,6 +298,16 @@ export async function reconcileAllWithEngine() {
     const shouldBeOn = engineRunning.get(v.userId) === true;
     const { status: cur, dropletId: healedId } = await getDropletStatus(dropletId, v.ipAddress);
     dropletId = healedId;
+    if (cur === 'not_found') {
+      // Droplet was deleted at DO; mark orphaned so admin can re-provision
+      await setPowerState({
+        userId: v.userId, dropletId, ipAddress: v.ipAddress,
+        state: 'unknown', source: 'system', at: new Date().toISOString(),
+        lastError: 'Droplet not found at DigitalOcean — needs re-provision',
+      });
+      console.warn(`⚠️ [vps reconcile] ${v.ipAddress} (droplet ${dropletId}) orphaned — skipping`);
+      continue;
+    }
     if (shouldBeOn && cur !== 'active') {
       const r = await doAction(dropletId, 'power_on', v.ipAddress);
       if (r.dropletId) dropletId = r.dropletId;
