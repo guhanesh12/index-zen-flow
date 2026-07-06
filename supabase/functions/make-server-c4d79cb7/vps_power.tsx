@@ -286,22 +286,30 @@ export async function reconcileAllWithEngine() {
   const list = await listAssignedVps();
   const results: Array<{ userId: string; ip?: string; action: string; ok?: boolean; error?: string }> = [];
   for (const v of list) {
-    if (!v.dropletId) continue;
+    let dropletId = v.dropletId;
+    if (!dropletId && v.ipAddress) {
+      dropletId = (await resolveDropletIdByIp(v.ipAddress)) || undefined;
+      if (dropletId) await updateStoredDropletId(v.ipAddress, dropletId);
+    }
+    if (!dropletId) continue;
     const shouldBeOn = engineRunning.get(v.userId) === true;
-    const cur = await getDropletStatus(v.dropletId);
+    const { status: cur, dropletId: healedId } = await getDropletStatus(dropletId, v.ipAddress);
+    dropletId = healedId;
     if (shouldBeOn && cur !== 'active') {
-      const r = await doAction(v.dropletId, 'power_on');
+      const r = await doAction(dropletId, 'power_on', v.ipAddress);
+      if (r.dropletId) dropletId = r.dropletId;
       await setPowerState({
-        userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+        userId: v.userId, dropletId, ipAddress: v.ipAddress,
         state: r.ok ? 'on' : 'unknown', source: 'system',
         at: new Date().toISOString(), lastError: r.ok ? undefined : r.error,
       });
       results.push({ userId: v.userId, ip: v.ipAddress, action: 'power_on', ok: r.ok, error: r.error });
       console.log(`🔧 [vps reconcile] ${v.ipAddress} engine=ON vps=${cur} -> power_on (ok=${r.ok})`);
     } else if (!shouldBeOn && cur === 'active') {
-      const r = await doAction(v.dropletId, 'shutdown');
+      const r = await doAction(dropletId, 'shutdown', v.ipAddress);
+      if (r.dropletId) dropletId = r.dropletId;
       await setPowerState({
-        userId: v.userId, dropletId: v.dropletId, ipAddress: v.ipAddress,
+        userId: v.userId, dropletId, ipAddress: v.ipAddress,
         state: r.ok ? 'off' : 'unknown', source: 'system',
         at: new Date().toISOString(), lastError: r.ok ? undefined : r.error,
       });
