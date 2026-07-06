@@ -35,18 +35,25 @@ function getToken(): string | null {
   return Deno.env.get('DIGITALOCEAN_API_TOKEN') || null;
 }
 
-async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'power_off'): Promise<{ ok: boolean; error?: string }> {
+async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'power_off', ipAddress?: string): Promise<{ ok: boolean; error?: string; dropletId?: string }> {
   const token = getToken();
   if (!token) return { ok: false, error: 'No DIGITALOCEAN_API_TOKEN' };
+  const doCall = async (id: string) => fetch(`${DO_BASE}/droplets/${id}/actions`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type }),
+  });
   try {
-    const r = await fetch(`${DO_BASE}/droplets/${dropletId}/actions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ type }),
-    });
+    let r = await doCall(dropletId);
+    if (r.status === 404 && ipAddress) {
+      // Stale dropletId — resolve by IP and heal
+      const fresh = await resolveDropletIdByIp(ipAddress);
+      if (fresh && fresh !== dropletId) {
+        await updateStoredDropletId(ipAddress, fresh);
+        r = await doCall(fresh);
+        if (r.ok) return { ok: true, dropletId: fresh };
+      }
+    }
     if (!r.ok) {
       const text = await r.text();
       return { ok: false, error: `DO ${r.status}: ${text.slice(0, 200)}` };
@@ -57,23 +64,67 @@ async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'powe
   }
 }
 
-async function getDropletStatus(dropletId: string): Promise<'active' | 'off' | 'unknown'> {
+async function getDropletStatus(dropletId: string, ipAddress?: string): Promise<{ status: 'active' | 'off' | 'unknown'; dropletId: string }> {
   const token = getToken();
-  if (!token) return 'unknown';
+  if (!token) return { status: 'unknown', dropletId };
   try {
-    const r = await fetch(`${DO_BASE}/droplets/${dropletId}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!r.ok) return 'unknown';
+    let r = await fetch(`${DO_BASE}/droplets/${dropletId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+    let id = dropletId;
+    if (r.status === 404 && ipAddress) {
+      const fresh = await resolveDropletIdByIp(ipAddress);
+      if (fresh) {
+        await updateStoredDropletId(ipAddress, fresh);
+        id = fresh;
+        r = await fetch(`${DO_BASE}/droplets/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      }
+    }
+    if (!r.ok) return { status: 'unknown', dropletId: id };
     const data = await r.json();
     const s = data?.droplet?.status;
-    if (s === 'active') return 'active';
-    if (s === 'off') return 'off';
-    return 'unknown';
+    return { status: s === 'active' ? 'active' : s === 'off' ? 'off' : 'unknown', dropletId: id };
   } catch {
-    return 'unknown';
+    return { status: 'unknown', dropletId };
   }
 }
+
+/** Query all droplets and find the one that owns this public IPv4. */
+async function resolveDropletIdByIp(ip: string): Promise<string | null> {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    let page = 1;
+    while (page <= 5) {
+      const r = await fetch(`${DO_BASE}/droplets?per_page=200&page=${page}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!r.ok) return null;
+      const data = await r.json();
+      const droplets = data?.droplets || [];
+      for (const d of droplets) {
+        const v4 = d?.networks?.v4 || [];
+        if (v4.some((n: any) => n?.ip_address === ip && n?.type === 'public')) {
+          return String(d.id);
+        }
+      }
+      if (droplets.length < 200) break;
+      page++;
+    }
+    return null;
+  } catch { return null; }
+}
+
+async function updateStoredDropletId(ip: string, dropletId: string) {
+  try {
+    const cur = await kv.get(`ip_pool:${ip}`) as any;
+    if (!cur) return;
+    cur.metadata = { ...(cur.metadata || {}), dropletId };
+    await kv.set(`ip_pool:${ip}`, cur);
+    console.log(`🔧 [vps] Healed stale dropletId for ${ip} -> ${dropletId}`);
+  } catch (e: any) {
+    console.warn(`[vps] updateStoredDropletId failed: ${e?.message}`);
+  }
+}
+
 
 async function setPowerState(state: VpsPowerState) {
   await kv.set(`${POWER_PREFIX}${state.userId}`, state);
