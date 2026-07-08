@@ -1229,6 +1229,16 @@ export type Database = {
       }
       is_trading_day: { Args: { d?: string }; Returns: boolean }
       is_valid_referral_code: { Args: { _code: string }; Returns: boolean }
+      notify_push_event: {
+        Args: {
+          _body: string
+          _data?: Json
+          _event: string
+          _title: string
+          _user_id: string
+        }
+        Returns: undefined
+      }
       referral_code_exists: { Args: { _code: string }; Returns: boolean }
     }
     Enums: {

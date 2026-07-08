@@ -48,10 +48,25 @@ export default function App() {
       },
     });
 
-    // Reset idle timer on auth events
-    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
+    // Reset idle timer on auth events + auto-subscribe to push
+    const { data: authSub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         SessionManager.extend();
+        // Silent push auto-subscribe
+        if (session?.user?.id) {
+          import('./utils/pushNotifications')
+            .then((m) => m.autoSubscribeOnLogin(session.user.id))
+            .catch(() => {});
+        }
+      }
+    });
+
+    // Also try on initial load if already signed in
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.id) {
+        import('./utils/pushNotifications')
+          .then((m) => m.autoSubscribeOnLogin(session.user.id))
+          .catch(() => {});
       }
     });
 

@@ -245,3 +245,26 @@ export function showNotificationPrompt(
       });
   }
 }
+
+/**
+ * Silent auto-subscribe — no confirm popup, called on login.
+ * Only requests permission if not already decided; if denied, exits quietly.
+ */
+export async function autoSubscribeOnLogin(userId: string): Promise<void> {
+  try {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'denied') return;
+    // Fire once per session per user
+    const flag = `push_auto_sub_done:${userId}`;
+    if (sessionStorage.getItem(flag) === '1') return;
+    sessionStorage.setItem(flag, '1');
+    const result = await subscribeToPushNotifications('', userId);
+    if (result.success) {
+      console.log('✅ Auto-subscribed to push notifications');
+    } else {
+      console.log('ℹ️ Auto-subscribe skipped:', result.error);
+    }
+  } catch (e) {
+    console.warn('autoSubscribeOnLogin error:', e);
+  }
+}
