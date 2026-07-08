@@ -61,6 +61,13 @@ export function WelcomeOnboarding() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
+
+      // Local per-user guards — source of truth so it never re-shows on repeat logins
+      const seenKey = `ipx:welcome_seen:${user.id}`;
+      const tourKey = `ipx:tour_done:${user.id}`;
+      const localSeen = localStorage.getItem(seenKey) === '1';
+      const localTourDone = localStorage.getItem(tourKey) === '1';
+
       const { data } = await supabase
         .from('profiles')
         .select('welcome_popup_seen, tour_completed, signup_bonus_amount, signup_bonus_remaining, signup_bonus_expires_at')
@@ -68,17 +75,25 @@ export function WelcomeOnboarding() {
         .maybeSingle();
       if (!data) return;
       setFlags(data as any);
-      if (!data.welcome_popup_seen && Number(data.signup_bonus_amount) > 0) {
+
+      const popupSeen = localSeen || !!data.welcome_popup_seen;
+      const tourDone = localTourDone || !!data.tour_completed;
+
+      // Backfill localStorage from DB so future checks are instant
+      if (data.welcome_popup_seen) localStorage.setItem(seenKey, '1');
+      if (data.tour_completed) localStorage.setItem(tourKey, '1');
+
+      if (!popupSeen && Number(data.signup_bonus_amount) > 0) {
         setTimeout(() => {
           setShowPopup(true);
           fireConfetti();
         }, 600);
-      } else if (!data.tour_completed) {
+      } else if (!tourDone) {
         setTimeout(() => setRunTour(true), 800);
       }
     })();
 
-    // Restart tour event from settings
+    // Restart tour event from settings (manual restart bypasses guards)
     const restart = () => setRunTour(true);
     window.addEventListener('ipx:restart-tour', restart);
     return () => window.removeEventListener('ipx:restart-tour', restart);
@@ -97,16 +112,37 @@ export function WelcomeOnboarding() {
   const markPopupSeen = async () => {
     setShowPopup(false);
     if (!userId) return;
-    await supabase.from('profiles').update({ welcome_popup_seen: true }).eq('user_id', userId);
-    if (!flags?.tour_completed) setTimeout(() => setRunTour(true), 400);
+    localStorage.setItem(`ipx:welcome_seen:${userId}`, '1');
+    supabase.from('profiles').update({ welcome_popup_seen: true }).eq('user_id', userId).then(() => {});
+    if (localStorage.getItem(`ipx:tour_done:${userId}`) !== '1' && !flags?.tour_completed) {
+      setTimeout(() => setRunTour(true), 400);
+    }
+  };
+
+  // Bring the step target into view and activate its tab before the tooltip renders
+  const focusStepTarget = (target: string) => {
+    if (!target || target === 'body') return;
+    const el = document.querySelector(target) as HTMLElement | null;
+    if (!el) return;
+    // If it's a tab trigger, click to activate so the tab label/panel is visible
+    if (el.getAttribute('role') === 'tab' || (el.id && el.id.startsWith('tour-tab-'))) {
+      try { el.click(); } catch {}
+    }
+    setTimeout(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }, 60);
   };
 
   const handleTourCallback = async (data: any) => {
-    const { status } = data;
+    const { status, type, step } = data;
+    if (type === 'step:before' || type === 'tooltip') {
+      focusStepTarget(step?.target);
+    }
     if (status === 'finished' || status === 'skipped') {
       setRunTour(false);
       if (userId) {
-        await supabase.from('profiles').update({ tour_completed: true }).eq('user_id', userId);
+        localStorage.setItem(`ipx:tour_done:${userId}`, '1');
+        supabase.from('profiles').update({ tour_completed: true }).eq('user_id', userId).then(() => {});
       }
     }
   };
