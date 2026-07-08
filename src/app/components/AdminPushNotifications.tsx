@@ -201,21 +201,27 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
         targetUrl: targetUrl || undefined,
       });
 
-      const response = await fetch(`${serverUrl}/push/send`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
+      // Call the dedicated lightweight edge function (avoids the monolith's
+      // WORKER_RESOURCE_LIMIT boot failure).
+      const { data, error: fnError } = await supabase.functions.invoke('admin-push-send', {
+        body: {
           title,
           description,
           imageUrl: finalImageUrl || undefined,
           targetUrl: targetUrl || undefined,
-        }),
+        },
       });
 
-      const data = await response.json();
+      if (fnError) {
+        const details = (fnError as any)?.context?.text
+          ? await (fnError as any).context.text()
+          : fnError.message;
+        console.error('❌ admin-push-send error:', details);
+        setError(typeof details === 'string' ? details : (fnError.message || 'Failed to send notification'));
+        setSending(false);
+        return;
+      }
+
       console.log('📡 Server response:', data);
 
       if (data.success) {
