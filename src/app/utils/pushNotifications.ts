@@ -114,21 +114,15 @@ export async function subscribeToPushNotifications(
     const browser = getBrowserInfo();
     const device = getDeviceInfo();
 
-    // Send subscription to backend
-    const response = await fetch(`${serverUrl}/push/subscribe`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userId,
-        deviceToken: token,
-        browser,
-        device,
-      }),
+    // Send subscription to standalone edge function (bypasses monolith worker limit)
+    const { supabase } = await import('@/integrations/supabase/client');
+    const { data, error } = await supabase.functions.invoke('push-subscribe', {
+      body: { userId, deviceToken: token, browser, device },
     });
-
-    const data = await response.json();
+    if (error) {
+      console.error('❌ push-subscribe invoke error:', error);
+      return { success: false, error: error.message || 'Failed to subscribe' };
+    }
 
     if (data.success) {
       console.log('✅ Successfully subscribed to push notifications');
