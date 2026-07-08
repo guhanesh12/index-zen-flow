@@ -124,13 +124,20 @@ export function WelcomeOnboarding() {
     if (!target || target === 'body') return;
     const el = document.querySelector(target) as HTMLElement | null;
     if (!el) return;
-    // If it's a tab trigger, click to activate so the tab label/panel is visible
+    // If it's a tab trigger, click to activate so the tab panel is visible
     if (el.getAttribute('role') === 'tab' || (el.id && el.id.startsWith('tour-tab-'))) {
       try { el.click(); } catch {}
     }
-    setTimeout(() => {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-    }, 60);
+    // Only scroll if the element is outside the viewport; keep sticky header clear
+    const rect = el.getBoundingClientRect();
+    const headerOffset = 120;
+    const outOfView = rect.top < headerOffset || rect.bottom > window.innerHeight - 40;
+    if (outOfView) {
+      const targetY = window.scrollY + rect.top - headerOffset;
+      window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+    }
+    // Nudge Joyride to reposition its spotlight after the tab activates/re-lays out
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 250);
   };
 
   const handleTourCallback = async (data: any) => {
