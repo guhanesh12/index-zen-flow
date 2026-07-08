@@ -265,8 +265,9 @@ export async function placeOrderViaStaticIP(
         errorData = { error: errorText };
       }
 
-      // ── Detect Dhan IP-whitelist errors (DH-905) ───────────
-      // These come in various formats depending on how the VPS proxies the Dhan response.
+      // 🔎 Log FULL raw Dhan response so we can diagnose real errors vs false positives
+      console.log(`🔎 [IP ${userIP.ipAddress}] Dhan raw error response (status ${response.status}):`, errorText);
+
       const rawMsg = (
         errorData.error?.errorMessage ||
         errorData.remarks?.errorMessage ||
@@ -275,10 +276,15 @@ export async function placeOrderViaStaticIP(
         errorText
       ).toString();
 
+      const errorCode =
+        errorData.error?.errorCode ||
+        errorData.remarks?.errorCode ||
+        errorData.errorCode ||
+        "";
+
       // ── Detect Dhan Invalid Token (DH-908 / access token expired) ─
       const isTokenError =
-        errorData.error?.errorCode === "DH-908" ||
-        errorData.remarks?.errorCode === "DH-908" ||
+        errorCode === "DH-908" ||
         rawMsg.toLowerCase() === "invalid token" ||
         rawMsg.toLowerCase().includes("invalid token") ||
         rawMsg.toLowerCase().includes("token expired") ||
@@ -294,12 +300,18 @@ export async function placeOrderViaStaticIP(
         throw tokenError;
       }
 
+      // ✅ TIGHTENED: only trigger IP-whitelist error on DH-905 OR very specific phrases.
+      // Previously matched a bare `"ip address"` substring which produced false positives on many
+      // unrelated Dhan errors (margin, product, symbol errors that happen to mention "IP address").
+      const lowerMsg = rawMsg.toLowerCase();
       const isIPError =
-        errorData.error?.errorCode === "DH-905" ||
-        errorData.remarks?.errorCode === "DH-905" ||
-        rawMsg.toLowerCase().includes("invalid ip") ||
-        rawMsg.toLowerCase().includes("ip not whitelisted") ||
-        rawMsg.toLowerCase().includes("ip address");
+        errorCode === "DH-905" ||
+        lowerMsg.includes("ip not whitelisted") ||
+        lowerMsg.includes("ip is not whitelisted") ||
+        lowerMsg.includes("ip address is not whitelisted") ||
+        lowerMsg.includes("static ip not") ||
+        lowerMsg.includes("whitelist your ip") ||
+        lowerMsg.includes("invalid ip address");
 
       if (isIPError) {
         console.log(`⚠️ [IP ${userIP.ipAddress}] Dhan IP whitelist not yet active (DH-905). User must wait for propagation.`);
@@ -313,11 +325,16 @@ export async function placeOrderViaStaticIP(
         throw ipError;
       }
 
+      // Surface the REAL Dhan error to the user (with error code if present) so they know
+      // what actually went wrong instead of being told to wait for IP propagation forever.
       const msg =
         errorData.error?.errorMessage ||
+        errorData.remarks?.errorMessage ||
         (typeof errorData.error === "string" ? errorData.error : null) ||
+        errorData.message ||
         `VPS server error: ${response.status}`;
-      throw new Error(msg);
+      const finalMsg = errorCode ? `${errorCode}: ${msg}` : msg;
+      throw new Error(finalMsg);
     }
 
     const rawResult = await response.json();
