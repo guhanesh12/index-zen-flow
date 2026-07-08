@@ -160,11 +160,15 @@ Deno.serve(async (req) => {
     const notificationId = `push_notif_${Date.now()}`;
     let delivered = 0;
     let failed = 0;
-    const invalidCodes = ["UNREGISTERED", "INVALID_ARGUMENT", "SENDER_ID_MISMATCH", "NOT_FOUND"];
+    // Only delete on codes that mean the token itself is gone — NOT on config issues
+    const removableCodes = ["UNREGISTERED", "NOT_FOUND"];
     const invalidKeys: string[] = [];
+    const errorBreakdown: Record<string, number> = {};
+    let saProjectId = "unknown";
 
     if (subs.length > 0) {
       const { token, projectId } = await getAccessToken();
+      saProjectId = projectId;
       const results = await Promise.all(
         subs.map((s: any) =>
           sendOneFcm({
@@ -182,13 +186,19 @@ Deno.serve(async (req) => {
         if (r.ok) delivered++;
         else {
           failed++;
-          if (r.errorCode && invalidCodes.includes(r.errorCode)) invalidKeys.push(s.key);
+          const code = r.errorCode || "UNKNOWN";
+          errorBreakdown[code] = (errorBreakdown[code] || 0) + 1;
+          if (removableCodes.includes(code)) invalidKeys.push(s.key);
+          // Log first few failures with raw body for debugging
+          if (failed <= 3) {
+            console.error(`❌ FCM fail [${code}] token=${(s.deviceToken || "").slice(0, 20)}…`, JSON.stringify(r.raw));
+          }
         }
       }
-      // Clean invalid tokens
+      // Clean truly-invalid tokens only
       if (invalidKeys.length > 0) {
         await admin.from("kv_store_c4d79cb7").delete().in("key", invalidKeys);
-        console.log(`🧹 Removed ${invalidKeys.length} invalid FCM tokens`);
+        console.log(`🧹 Removed ${invalidKeys.length} truly-invalid FCM tokens (UNREGISTERED/NOT_FOUND)`);
       }
     }
 
@@ -203,13 +213,18 @@ Deno.serve(async (req) => {
       totalDelivered: delivered,
       totalFailed: failed,
       totalSubscribers: subs.length,
+      errorBreakdown,
+      serviceAccountProjectId: saProjectId,
       status: delivered > 0 ? "sent" : subs.length === 0 ? "sent" : "failed",
     };
     await admin
       .from("kv_store_c4d79cb7")
       .upsert({ key: `push_notification:${notificationId}`, value: history });
 
-    console.log(`📣 Broadcast: ${delivered}/${subs.length} delivered, ${failed} failed`);
+    console.log(
+      `📣 Broadcast: ${delivered}/${subs.length} delivered, ${failed} failed | ` +
+      `SA project=${saProjectId} | errors=${JSON.stringify(errorBreakdown)}`,
+    );
 
     return new Response(
       JSON.stringify({
@@ -218,6 +233,12 @@ Deno.serve(async (req) => {
         totalDelivered: delivered,
         totalFailed: failed,
         totalSubscribers: subs.length,
+        errorBreakdown,
+        serviceAccountProjectId: saProjectId,
+        hint:
+          failed > 0 && delivered === 0 && errorBreakdown["SENDER_ID_MISMATCH"]
+            ? `All tokens rejected with SENDER_ID_MISMATCH — your FIREBASE_SERVICE_ACCOUNT_JSON is for project "${saProjectId}" but tokens were registered against a different Firebase project. Re-upload the service account JSON from the SAME Firebase project as your web + mobile apps (indexpilotai-e1106).`
+            : undefined,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
