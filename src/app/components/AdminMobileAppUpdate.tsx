@@ -71,15 +71,11 @@ export function AdminMobileAppUpdate() {
   const publishAndNotify = async () => {
     setSending(true);
     try {
-      await doSave();
-      const { data, error } = await supabase.functions.invoke('admin-push-send', {
-        body: {
-          title: cfg.update_title || 'New Update Available',
-          description: `${cfg.update_message}\n\nLatest: Android ${cfg.android_current_version} • iOS ${cfg.ios_current_version}`,
-          targetUrl: 'app://check-update',
-        },
+      const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+        body: { action: 'broadcast_mobile_update', config: cfg, ...getAdminAuthBody() },
       });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
       toast.success(`Update pushed to ${data?.totalDelivered ?? 0}/${data?.totalSubscribers ?? 0} devices.`);
     } catch (e: any) {
       toast.error(e?.message || 'Broadcast failed');
