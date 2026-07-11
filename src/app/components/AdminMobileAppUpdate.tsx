@@ -40,11 +40,18 @@ export function AdminMobileAppUpdate() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.functions.invoke('admin-security-manage', {
-        body: { action: 'load_mobile_config', ...getAdminAuthBody() },
-      });
-      if (data?.config) setCfg((prev: any) => ({ ...prev, ...data.config }));
-      setLoading(false);
+      try {
+        const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+          body: { action: 'load_mobile_config', ...getAdminAuthBody() },
+        });
+        if (error) throw new Error(error.message);
+        if (data?.error) throw new Error(data.error);
+        if (data?.config) setCfg((prev: any) => ({ ...prev, ...data.config }));
+      } catch (e: any) {
+        toast.error(e?.message || 'Could not load mobile app config');
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
