@@ -58,9 +58,10 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
   const [totpSecret, setTotpSecret] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [adminData, setAdminData] = useState<AdminUser | null>(null);
+  const [challengeToken, setChallengeToken] = useState<string>('');
   const [showHotkeyHint, setShowHotkeyHint] = useState(false);
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
-  
+
   const otpInputRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -70,30 +71,10 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     useRef<HTMLInputElement>(null),
   ];
 
-  // Generate 2FA QR code
-  const generate2FASetup = async (admin: AdminUser) => {
-    const secret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({
-      issuer: 'IndexpilotAI',
-      label: admin.email,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: secret,
-    });
-
-    const otpauthUrl = totp.toString();
-    const qrCode = await QRCode.toDataURL(otpauthUrl);
-    
-    setQrCodeUrl(qrCode);
-    setTotpSecret(secret.base32);
-  };
-
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    // Authenticate with backend to get real JWT token
     try {
       const response = await fetch(`${serverUrl}/admin/login`, {
         method: 'POST',
@@ -108,192 +89,67 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
 
       if (!response.ok || !data.success) {
         setError(data.message || 'Invalid email or password');
-        
-        // 📊 Track failed admin login
         trackLogin(email, 'failed');
-        
-        // Log failed login attempt
-        if (typeof (window as any).logAdminActivity === 'function') {
-          (window as any).logAdminActivity({
-            adminId: 'unknown',
-            adminEmail: email,
-            action: 'login',
-            target: 'admin_panel',
-            details: `Failed login attempt for ${email}`,
-            status: 'offline',
-            ipAddress: 'N/A',
-            userAgent: navigator.userAgent,
-          });
-        }
         return;
       }
 
-      // ⚡ CRITICAL SECURITY CHECK: Validate hotkey matches admin's hotkey
-      if (pressedHotkey) {
-        const adminHotkeys = [
-          data.admin.hotkey.windows.split('+').pop()?.toUpperCase(),
-          data.admin.hotkey.mac.split('+').pop()?.toUpperCase()
-        ];
-        
-        const pressedHotkeyUpperCase = pressedHotkey.toUpperCase();
-        const hotkeyMatches = adminHotkeys.includes(pressedHotkeyUpperCase);
-        
-        if (!hotkeyMatches) {
-          setError('Security Error: Hotkey does not match credentials. Access denied.');
-          console.error(`🔒 Security: Hotkey mismatch! Pressed: ${pressedHotkey}, Expected: ${adminHotkeys.join(' or ')}`);
-          
-          // Log failed login attempt due to hotkey mismatch
-          if (typeof (window as any).logAdminActivity === 'function') {
-            (window as any).logAdminActivity({
-              adminId: 'unknown',
-              adminEmail: email,
-              action: 'login',
-              target: 'admin_panel',
-              details: `Failed login: Hotkey mismatch for ${email}`,
-              status: 'offline',
-              ipAddress: 'N/A',
-              userAgent: navigator.userAgent,
-            });
-          }
-          return;
-        }
-        
-        console.log(`✅ Hotkey validation passed for ${email}`);
+      // Server no longer returns an access token here. It returns a
+      // challengeToken that must be exchanged for a session at
+      // /admin/2fa/verify AFTER a valid TOTP code is submitted.
+      if (!data.challengeToken) {
+        setError('Login response missing 2FA challenge');
+        return;
       }
+      setChallengeToken(data.challengeToken);
 
-      // Store admin data with the real access token and unique code
-      const adminWithToken = {
-        ...data.admin,
-        realAccessToken: data.accessToken, // Store the real JWT token
-        uniqueCode: data.uniqueCode, // Store unique code for this session
+      // Set up a minimal admin shell for the 2FA screens. The real admin
+      // profile (with access token) is returned by /admin/2fa/verify.
+      const shellAdmin: AdminUser = {
+        ...DEFAULT_ADMIN,
+        email: email.trim().toLowerCase(),
       };
-      
-      // NOTE: Do NOT store unique code here - AdminRoute handles this
-      // The URL unique code is the source of truth, not the backend response
-      
-      setAdminData(adminWithToken);
-      
-      // ⚡ CHECK IF 2FA IS ALREADY SAVED (FOR ALL ADMINS)
-      const isDefaultAdmin = adminWithToken.email === 'airoboengin@smilykat.com';
-      
-      if (isDefaultAdmin) {
-        // 👑 DEFAULT ADMIN: Check server KV first, then localStorage
-        let saved2FA = '';
-        try {
-          const kvRes = await fetch(`${serverUrl}/auth/admin-2fa-secret?adminEmail=${encodeURIComponent(adminWithToken.email)}`);
-          if (kvRes.ok) {
-            const kvData = await kvRes.json();
-            if (kvData.exists && kvData.secret) {
-              saved2FA = kvData.secret;
-              // Sync to localStorage as cache
-              localStorage.setItem('default_admin_2fa', saved2FA);
-              console.log('✅ Default admin 2FA loaded from server KV');
-            }
-          }
-        } catch {}
-        // Fallback to localStorage
-        if (!saved2FA) saved2FA = localStorage.getItem('default_admin_2fa') || '';
+      setAdminData(shellAdmin);
 
-        if (saved2FA) {
-          console.log('✅ Default admin 2FA found - skipping setup, going to verification');
-          setTotpSecret(saved2FA);
-          setStep('2fa-verify');
-        } else {
-          console.log('🔐 Default admin: No saved 2FA - generating fresh setup');
-          await generate2FASetup(adminWithToken);
-          setStep('2fa-setup');
+      if (data.setupRequired) {
+        // First-time enrollment: server generated the secret and returned
+        // an otpauth URL. Render QR here for the user to scan.
+        const secretBase32 = data.secretBase32 || '';
+        setTotpSecret(secretBase32);
+        if (data.otpauthUrl) {
+          try {
+            const qr = await QRCode.toDataURL(data.otpauthUrl);
+            setQrCodeUrl(qr);
+          } catch (qrErr) {
+            console.error('QR generation failed', qrErr);
+          }
         }
+        setStep('2fa-setup');
       } else {
-        // 👤 OTHER ADMINS: Check if 2FA secret exists in admin user data
-        const storedAdmins = JSON.parse(localStorage.getItem('admin_users') || '[]');
-        const adminData = storedAdmins.find((a: AdminUser) => a.id === adminWithToken.id);
-        
-        if (adminData?.twoFactorSecret) {
-          // 2FA already set up - go directly to verification
-          setTotpSecret(adminData.twoFactorSecret);
-          setStep('2fa-verify');
-        } else {
-          // First time login for this admin - setup 2FA
-          await generate2FASetup(adminWithToken);
-          setStep('2fa-setup');
-        }
+        // Already enrolled — go straight to verification. Client never
+        // sees the enrolled TOTP secret.
+        setTotpSecret('');
+        setQrCodeUrl('');
+        setStep('2fa-verify');
       }
-      return;
     } catch (error: any) {
       console.error('Admin login error:', error);
       setError('Login failed. Please try again.');
-      
-      // Log failed login attempt
-      if (typeof (window as any).logAdminActivity === 'function') {
-        (window as any).logAdminActivity({
-          adminId: 'unknown',
-          adminEmail: email,
-          action: 'login',
-          target: 'admin_panel',
-          details: `Login error for ${email}: ${error.message}`,
-          status: 'offline',
-          ipAddress: 'N/A',
-          userAgent: navigator.userAgent,
-        });
-      }
-      return;
-    }
-
-    // Check localStorage for other admins
-    const admins = JSON.parse(localStorage.getItem('admin_users') || '[]');
-    const admin = admins.find((a: AdminUser) => a.email === email && a.password === password);
-
-    if (admin) {
-      setAdminData(admin);
-      
-      // Check if this admin has 2FA secret
-      if (admin.twoFactorSecret) {
-        // 2FA already set up - go directly to verification
-        setStep('2fa-verify');
-      } else {
-        // First time login - setup 2FA
-        await generate2FASetup(admin);
-        setStep('2fa-setup');
-      }
-    } else {
-      setError('Invalid email or password');
-      
-      // Log failed login attempt
-      if (typeof (window as any).logAdminActivity === 'function') {
-        (window as any).logAdminActivity({
-          adminId: 'unknown',
-          adminEmail: email,
-          action: 'login',
-          target: 'admin_panel',
-          details: `Failed login attempt for ${email}`,
-          status: 'offline',
-          ipAddress: 'N/A',
-          userAgent: navigator.userAgent,
-        });
-      }
     }
   };
 
   const handleOtpChange = (index: number, value: string) => {
-    // Only allow digits
     const digit = value.replace(/\D/g, '');
-    
-    // Take only the last character if multiple (when user types fast)
     const singleDigit = digit.slice(-1);
-
     const newOtp = otpCode.split('');
-    while (newOtp.length < 6) newOtp.push(''); // Ensure 6 elements
+    while (newOtp.length < 6) newOtp.push('');
     newOtp[index] = singleDigit;
     setOtpCode(newOtp.join(''));
-
-    // Auto-focus next box if we entered a digit
     if (singleDigit && index < 5) {
       otpInputRefs[index + 1].current?.focus();
     }
   };
 
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
-    // Handle backspace - move to previous box if current is empty
     if (e.key === 'Backspace') {
       const currentOtp = otpCode.split('');
       if (!currentOtp[index] && index > 0) {
@@ -305,174 +161,66 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
   const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    
     if (pastedData) {
-      // Pad with empty strings to ensure 6 characters
       const paddedOtp = (pastedData + '      ').slice(0, 6);
       setOtpCode(paddedOtp);
-      
-      // Focus the last filled box or the next empty box
       const nextIndex = Math.min(pastedData.length, 5);
       otpInputRefs[nextIndex].current?.focus();
     }
   };
 
-  const verify2FA = (code: string, secret: string): boolean => {
+  // Server-side 2FA verification. The client no longer validates the TOTP
+  // code or holds the secret — both are checked in the edge function, and
+  // the real Supabase access token is only issued after that check passes.
+  const submit2faCode = async () => {
+    if (!adminData) return;
+    if (otpCode.length !== 6) {
+      setError('Please enter a 6-digit code');
+      return;
+    }
+    if (!challengeToken) {
+      setError('Session expired. Please log in again.');
+      setStep('credentials');
+      return;
+    }
+
     try {
-      const totp = new OTPAuth.TOTP({
-        issuer: 'AI Trading Platform',
-        label: adminData?.email || '',
-        algorithm: 'SHA1',
-        digits: 6,
-        period: 30,
-        secret: OTPAuth.Secret.fromBase32(secret),
-      });
-
-      const delta = totp.validate({ token: code, window: 1 });
-      return delta !== null;
-    } catch (err) {
-      console.error('2FA verification error:', err);
-      return false;
-    }
-  };
-
-  const handle2FASetupComplete = () => {
-    if (!adminData) return;
-    
-    if (otpCode.length !== 6) {
-      setError('Please enter a 6-digit code');
-      return;
-    }
-
-    const isValid = verify2FA(otpCode, totpSecret);
-    
-    if (!isValid) {
-      setError('Invalid verification code');
-      return;
-    }
-
-    // Save 2FA secret to localStorage + server KV (for default admin)
-    if (adminData.email === DEFAULT_ADMIN.email) {
-      localStorage.setItem('default_admin_2fa', totpSecret);
-      // Persist to server KV so it survives deploys
-      fetch(`${serverUrl}/auth/admin-2fa-secret`, {
+      const res = await fetch(`${serverUrl}/admin/2fa/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminEmail: adminData.email, secret: totpSecret }),
-      }).catch(() => {});
-      console.log('✅ Default admin 2FA setup complete - Secret SAVED to localStorage + server KV');
-    } else {
-      const admins = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = admins.findIndex((a: AdminUser) => a.id === adminData.id);
-      if (index !== -1) {
-        admins[index] = updatedAdmin;
-        localStorage.setItem('admin_users', JSON.stringify(admins));
-      }
-    }
-
-    const updatedAdmin = {
-      ...adminData,
-      twoFactorSecret: totpSecret,
-      twoFactorEnabled: true,
-      lastLogin: Date.now(),
-      status: 'online' as const,
-    };
-
-    // Log successful login
-    if (typeof (window as any).logAdminActivity === 'function') {
-      (window as any).logAdminActivity({
-        adminId: updatedAdmin.id,
-        adminEmail: updatedAdmin.email,
-        action: 'login',
-        target: 'admin_panel',
-        details: `${updatedAdmin.email} logged in successfully (2FA setup completed)`,
-        status: 'online',
-        ipAddress: 'N/A',
-        userAgent: navigator.userAgent,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ challengeToken, code: otpCode }),
       });
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.accessToken || !data.admin) {
+        setError(data.message || 'Invalid verification code');
+        setOtpCode('');
+        otpInputRefs[0].current?.focus();
+        return;
+      }
+
+      const updatedAdmin: AdminUser = {
+        ...data.admin,
+        uniqueCode: data.uniqueCode,
+        lastLogin: Date.now(),
+        status: 'online' as const,
+        twoFactorEnabled: true,
+      };
+
+      trackLogin(updatedAdmin.email, 'success', updatedAdmin.id);
+      onLogin(updatedAdmin, data.accessToken);
+    } catch (err: any) {
+      console.error('2FA verify error', err);
+      setError('Verification failed. Please try again.');
     }
-
-    // 📊 Track successful admin login
-    trackLogin(updatedAdmin.email, 'success', updatedAdmin.id);
-
-    // Pass the real access token back to parent
-    onLogin(updatedAdmin, (adminData as any).realAccessToken);
   };
 
-  const handle2FAVerify = () => {
-    if (!adminData) return;
-    
-    if (otpCode.length !== 6) {
-      setError('Please enter a 6-digit code');
-      return;
-    }
+  const handle2FASetupComplete = () => { void submit2faCode(); };
+  const handle2FAVerify = () => { void submit2faCode(); };
 
-    const secret = adminData.email === DEFAULT_ADMIN.email
-      ? localStorage.getItem('default_admin_2fa') || ''
-      : adminData.twoFactorSecret || '';
 
-    const isValid = verify2FA(otpCode, secret);
-    
-    if (!isValid) {
-      setError('Invalid verification code');
-      setOtpCode('');
-      otpInputRefs[0].current?.focus();
-      
-      // Log failed 2FA attempt
-      if (typeof (window as any).logAdminActivity === 'function') {
-        (window as any).logAdminActivity({
-          adminId: adminData.id,
-          adminEmail: adminData.email,
-          action: 'login',
-          target: 'admin_panel',
-          details: `Failed 2FA verification for ${adminData.email}`,
-          status: 'offline',
-          ipAddress: 'N/A',
-          userAgent: navigator.userAgent,
-        });
-      }
-      return;
-    }
-
-    // Update admin with login info
-    const updatedAdmin = {
-      ...adminData,
-      lastLogin: Date.now(),
-      status: 'online' as const,
-    };
-
-    // Update localStorage
-    if (adminData.email === DEFAULT_ADMIN.email) {
-      // Default admin doesn't get stored in admin_users array
-    } else {
-      const admins = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = admins.findIndex((a: AdminUser) => a.id === adminData.id);
-      if (index !== -1) {
-        admins[index] = updatedAdmin;
-        localStorage.setItem('admin_users', JSON.stringify(admins));
-      }
-    }
-
-    // Log successful login
-    if (typeof (window as any).logAdminActivity === 'function') {
-      (window as any).logAdminActivity({
-        adminId: updatedAdmin.id,
-        adminEmail: updatedAdmin.email,
-        action: 'login',
-        target: 'admin_panel',
-        details: `${updatedAdmin.email} logged in successfully`,
-        status: 'online',
-        ipAddress: 'N/A',
-        userAgent: navigator.userAgent,
-      });
-    }
-
-    // 📊 Track successful admin login
-    trackLogin(updatedAdmin.email, 'success', updatedAdmin.id);
-
-    // Pass the real access token back to parent
-    onLogin(updatedAdmin, (adminData as any).realAccessToken);
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center p-4">
