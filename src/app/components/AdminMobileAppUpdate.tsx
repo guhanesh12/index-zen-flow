@@ -8,11 +8,12 @@ import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 import { Textarea } from './ui/textarea';
 import { toast } from 'sonner';
-import { Loader2, Smartphone, Save } from 'lucide-react';
+import { Loader2, Smartphone, Save, Send } from 'lucide-react';
 
 export function AdminMobileAppUpdate() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
   const [cfg, setCfg] = useState<any>({
     android_current_version: '1.0.0', android_minimum_version: '1.0.0', android_store_url: '',
     ios_current_version: '1.0.0', ios_minimum_version: '1.0.0', ios_store_url: '',
@@ -41,6 +42,36 @@ export function AdminMobileAppUpdate() {
       action: 'mobile_config_updated', module: 'mobile', status: 'success', details: cfg,
     });
     toast.success('Mobile app config saved. RN clients will pick up on next check.');
+  };
+
+  const publishAndNotify = async () => {
+    setSending(true);
+    try {
+      // 1) save latest config first so /mobile-version returns fresh values
+      const { data: userRes } = await supabase.auth.getUser();
+      const { error: upErr } = await supabase.from('mobile_app_config').upsert({
+        id: 1, ...cfg, updated_by: userRes.user?.id, updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (upErr) throw upErr;
+
+      // 2) broadcast FCM push so every installed RN app re-checks version now
+      const { data, error } = await supabase.functions.invoke('admin-push-send', {
+        body: {
+          title: cfg.update_title || 'New Update Available',
+          description: `${cfg.update_message}\n\nLatest: Android ${cfg.android_current_version} • iOS ${cfg.ios_current_version}`,
+          targetUrl: 'app://check-update',
+        },
+      });
+      if (error) throw error;
+      await supabase.from('admin_audit_events').insert({
+        action: 'mobile_update_broadcast', module: 'mobile', status: 'success', details: { ...cfg, delivery: data },
+      });
+      toast.success(`Update pushed to ${data?.totalDelivered ?? 0}/${data?.totalSubscribers ?? 0} devices.`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Broadcast failed');
+    } finally {
+      setSending(false);
+    }
   };
 
   const upd = (k: string, v: any) => setCfg({ ...cfg, [k]: v });
@@ -92,10 +123,14 @@ export function AdminMobileAppUpdate() {
             <Textarea rows={3} value={cfg.update_message} onChange={e => upd('update_message', e.target.value)} /></div>
         </div>
 
-        <div className="flex justify-end">
-          <Button onClick={save} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
+        <div className="flex flex-col sm:flex-row justify-end gap-2">
+          <Button onClick={save} disabled={saving || sending} variant="outline" className="border-blue-500/40">
             {saving ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
             Save Config
+          </Button>
+          <Button onClick={publishAndNotify} disabled={saving || sending} className="bg-green-600 hover:bg-green-700">
+            {sending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Send className="size-4 mr-2" />}
+            Publish & Notify All Users
           </Button>
         </div>
 
