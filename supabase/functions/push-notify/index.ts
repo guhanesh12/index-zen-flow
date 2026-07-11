@@ -92,17 +92,17 @@ Deno.serve(async (req) => {
   try {
     const providedKey = req.headers.get("x-internal-key") || "";
     const body = await req.json().catch(() => ({}));
-    const { event, userId, title, body: msgBody, imageUrl, data, requireInternal } = body || {};
+    const { event, userId, title, body: msgBody, imageUrl, data } = body || {};
 
-    // Enforce internal key for event-triggered calls
-    if (requireInternal !== false) {
-      if (!INTERNAL_KEY || providedKey !== INTERNAL_KEY) {
-        return new Response(
-          JSON.stringify({ success: false, message: "unauthorized" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
+    // 🔒 Always require the internal shared secret — never let a request body
+    // field disable this check (previous requireInternal bypass removed).
+    if (!INTERNAL_KEY || providedKey !== INTERNAL_KEY) {
+      return new Response(
+        JSON.stringify({ success: false, message: "unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
+
 
     if (!title || !msgBody) {
       return new Response(

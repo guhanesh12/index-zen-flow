@@ -422,10 +422,58 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // 🔒 Require a caller identity so anonymous visitors cannot spam the
+    // platform's verified sending domain. Two accepted paths:
+    //   1. Internal shared secret (x-internal-key === INTERNAL_SYNC_KEY) —
+    //      used by trusted edge functions, triggers and cron jobs.
+    //   2. Verified Supabase user session (Bearer <access_token>) — used by
+    //      logged-in users triggering their own transactional emails.
+    // Additionally, the customSubject / customHtml free-form path is
+    // restricted to the internal-secret caller (never the anon key or a
+    // regular user), because it can produce arbitrary branded email.
+    const INTERNAL_KEY = Deno.env.get("INTERNAL_SYNC_KEY") || "";
+    const providedInternal = req.headers.get("x-internal-key") || "";
+    const isInternal = !!INTERNAL_KEY && providedInternal === INTERNAL_KEY;
+
+    let sessionUserId: string | null = null;
+    if (!isInternal) {
+      const authHeader = req.headers.get("authorization") || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
+      // Reject calls whose Bearer is just the public anon key (no real user).
+      if (!token || token === anonKey || token === SERVICE_KEY) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+      if (userErr || !userData?.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      sessionUserId = userData.user.id;
+    }
+
     const body = await req.json();
     let { template, to, name, data = {}, userId, channel = "email", subject: customSubject, html: customHtml } = body;
 
+    // Only internal callers can send free-form HTML/subject email.
+    if (!isInternal && (customHtml || customSubject) && !template) {
+      return new Response(JSON.stringify({ error: "Custom subject/html requires internal caller" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    // Regular authenticated users can only send email to themselves — never to arbitrary recipients.
+    if (!isInternal && sessionUserId) {
+      userId = sessionUserId;
+      // Force `to` to be resolved from this user's profile below (drop attacker-supplied recipient).
+      to = undefined;
+    }
+
     if (!to && !userId) return new Response(JSON.stringify({ error: "Recipient (to) or userId required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+
 
     // Auto-fetch profile for personalisation
     try {

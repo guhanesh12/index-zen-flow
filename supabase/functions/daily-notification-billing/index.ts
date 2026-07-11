@@ -45,8 +45,27 @@ async function sendMail(template: string, to: string, userId: string, data: any 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // 🔒 Only allow the pg_cron scheduler (or trusted internal callers) to run
+  // the daily billing job. Reject anyone missing the shared secret so the
+  // wallet debit + promo email loop cannot be triggered from the internet.
+  const INTERNAL_KEY = Deno.env.get("INTERNAL_SYNC_KEY") || "";
+  const providedKey =
+    req.headers.get("x-internal-key") ||
+    req.headers.get("x-cron-key") ||
+    "";
+  const authHeader = req.headers.get("authorization") || "";
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const isServiceRole = bearer && bearer === SERVICE_KEY;
+  if (!isServiceRole && (!INTERNAL_KEY || providedKey !== INTERNAL_KEY)) {
+    console.warn("[billing] unauthorized invocation blocked");
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const date = todayIST();
   const summary = { date, debited: 0, skipped_no_balance: 0, skipped_no_engine: 0, promo_sent: 0, errors: 0 };
+
 
   try {
     // 1) Users who have email notifications ON

@@ -175,88 +175,40 @@ function deriveLatestSignals(signals: any[] = [], storedLatestSignals: any = nul
   return mergedLatestSignals;
 }
 
-// ⚡ ADMIN AUTH HELPER: Validate admin access (accepts anon key or user session)
+// ⚡ ADMIN AUTH HELPER: Validate admin access via verified user session + role check.
+// Requires a valid Supabase user JWT whose email matches PLATFORM_OWNER_EMAIL
+// OR who has the 'admin' role in user_roles. The anon key / service key are no
+// longer accepted as admin credentials — that path allowed any user JWT to pass.
 async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?: any }> {
-  const authHeader = c.req.header('Authorization');
-  const token = authHeader?.split(' ')[1];
-  
-  console.log('🔐 [ADMIN AUTH] Validating admin access...');
-  console.log('🔐 [ADMIN AUTH] Token present:', !!token);
-  console.log('🔐 [ADMIN AUTH] Token length:', token?.length || 0);
-  
-  if (!token) {
-    console.log('❌ [ADMIN AUTH] No token provided');
-    return { authorized: false, error: { message: 'No authorization token', code: 401 } };
-  }
-  
-  const tokenTrimmed = token.trim();
-  
-  // Check if this looks like a Supabase anon/service key (long JWT starting with eyJ and containing "role":"anon" or "role":"service_role")
-  const looksLikeSupabaseKey = tokenTrimmed.startsWith('eyJ') && tokenTrimmed.length > 200;
-  
-  if (looksLikeSupabaseKey) {
-    console.log('🔐 [ADMIN AUTH] Token looks like Supabase anon/service key, checking against env vars...');
-    
-    // Get environment keys
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')?.trim();
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim();
-    
-    console.log('🔐 [ADMIN AUTH] Environment check:', {
-      hasAnonKey: !!anonKey,
-      hasServiceRole: !!serviceRoleKey,
-      anonKeyLength: anonKey?.length || 0,
-      serviceRoleLength: serviceRoleKey?.length || 0
-    });
-    
-    // If env var not set, allow it (admin panel operates with anon key by default)
-    if (!anonKey && !serviceRoleKey) {
-      console.log('⚠️ [ADMIN AUTH] No Supabase keys in env, allowing token (admin hotkey auth applies)');
-      return { authorized: true };
-    }
-    
-    const isAnonKey = anonKey && tokenTrimmed === anonKey;
-    const isServiceRole = serviceRoleKey && tokenTrimmed === serviceRoleKey;
-    
-    console.log('🔐 [ADMIN AUTH] Key comparison:', {
-      tokenMatchesAnonKey: isAnonKey,
-      tokenMatchesServiceRole: isServiceRole,
-      tokenFirst50: tokenTrimmed.substring(0, 50) + '...',
-      tokenLast20: '...' + tokenTrimmed.substring(tokenTrimmed.length - 20),
-      anonKeyFirst50: anonKey?.substring(0, 50) + '...',
-      anonKeyLast20: anonKey ? '...' + anonKey.substring(anonKey.length - 20) : 'N/A'
-    });
-    
-    // Allow anon key or service role for admin operations
-    if (isAnonKey || isServiceRole) {
-      console.log(`✅ [ADMIN AUTH] Admin operation authorized via ${isServiceRole ? 'service role' : 'anon key'}`);
-      return { authorized: true };
-    }
-    
-    // If token looks like a Supabase key but doesn't match, still allow it for admin operations
-    // (admin authentication is via hotkey, not token)
-    console.log('⚠️ [ADMIN AUTH] Token looks like Supabase key but no exact match, allowing for admin ops');
-    return { authorized: true };
-  }
-  
-  console.log('🔐 [ADMIN AUTH] Token looks like user session JWT, validating with Supabase auth...');
-  
-  // Token looks like a user session JWT, validate it
   const { user, error } = await validateAuth(c);
   if (error || !user) {
-    console.log('❌ [ADMIN AUTH] User session validation failed:', error?.message);
-    return { authorized: false, error: { message: error?.message || 'Invalid token', code: 401 } };
+    return { authorized: false, error: { message: error?.message || 'Unauthorized', code: 401 } };
   }
-  
-  // Check if user is platform owner (admin)
-  const isAdmin = user.email === Deno.env.get('PLATFORM_OWNER_EMAIL');
-  if (!isAdmin) {
-    console.log(`❌ [ADMIN AUTH] User ${user.email} is not admin`);
-    return { authorized: false, error: { message: 'Admin access required', code: 403 } };
+
+  const ownerEmail = (Deno.env.get('PLATFORM_OWNER_EMAIL') || '').trim().toLowerCase();
+  if (ownerEmail && user.email && user.email.trim().toLowerCase() === ownerEmail) {
+    return { authorized: true };
   }
-  
-  console.log(`✅ [ADMIN AUTH] Admin operation authorized via user session: ${user.email}`);
-  return { authorized: true };
+
+  try {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+    const { data: roleRow } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+    if (roleRow) return { authorized: true };
+  } catch (e) {
+    console.error('[ADMIN AUTH] role lookup failed', e);
+  }
+
+  return { authorized: false, error: { message: 'Admin access required', code: 403 } };
 }
+
 
 // ⚡ FAST userId EXTRACTION: Decode JWT payload without signature verification
 // Used for trading endpoints where speed matters and userId is the only requirement.
@@ -489,7 +441,12 @@ app.get("/make-server-c4d79cb7/health", (c) => {
 
 // 🔁 Replay today's signals through CURRENT strategy (admin-only diagnostic)
 app.get("/make-server-c4d79cb7/admin/replay-strategy-today", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) {
+    return c.json({ error: adminCheck.error?.message || 'Forbidden' }, adminCheck.error?.code || 403);
+  }
   try {
+
     const today = new Date(); today.setUTCHours(0,0,0,0);
     const url = `${Deno.env.get('SUPABASE_URL')}/rest/v1/trading_signals?select=created_at,index_name,signal_type,price,raw_data&created_at=gte.${today.toISOString()}&order=created_at.asc`;
     const res = await fetch(url, { headers: { apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!}` } });
@@ -1054,34 +1011,25 @@ app.post("/make-server-c4d79cb7/auth/email-otp/verify", async (c) => {
   }
 });
 
-// 🔥 NEW: Check if email already exists (for better UX during signup)
+// 🔒 Email check endpoint — always returns a neutral response to prevent
+// account enumeration. The real duplicate-email guard lives in
+// supabase.auth.admin.createUser, which returns a proper error at signup time.
 app.post("/make-server-c4d79cb7/auth/check-email", async (c) => {
   try {
     const { email } = await c.req.json();
-
     if (!email) {
       return c.json({ error: 'Email is required' }, 400);
     }
-
-    console.log(`🔍 Checking if email exists: ${email}`);
-
-    // Check if user already exists
-    const { data: existingUsers } = await supabase.auth.admin.listUsers();
-    const userExists = existingUsers?.users?.some(u => u.email === email);
-
-    console.log(`📧 Email ${email} exists: ${userExists}`);
-
+    // Always respond identically — never confirm or deny account existence.
     return c.json({
-      exists: userExists,
-      message: userExists 
-        ? 'An account with this email already exists. Please sign in instead.' 
-        : 'Email is available'
+      exists: false,
+      message: 'If this email is not registered, you can continue with signup.',
     });
   } catch (error: any) {
-    console.error('❌ Error checking email:', error);
     return c.json({ error: error.message || 'Failed to check email' }, 500);
   }
 });
+
 
 // 🔥 SIMPLER ROUTE ALIASES (without /auth/) for easier frontend integration
 app.post("/make-server-c4d79cb7/send-otp", async (c) => {
@@ -2135,14 +2083,13 @@ app.post("/make-server-c4d79cb7/pnl/save", async (c) => {
 // Get positions
 app.get("/make-server-c4d79cb7/positions", async (c) => {
   try {
-    // ⚡ FAST AUTH: decode userId from JWT locally + query param fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
+    // 🔒 Require verified user session (JWT signature validated by Supabase auth)
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
+    const effectiveUserId = user.id;
+
 
     const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -2861,14 +2808,13 @@ app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
 // Get real-time positions and P&L
 app.get("/make-server-c4d79cb7/live-positions", async (c) => {
   try {
-    // ⚡ FAST AUTH: decode userId from JWT locally + query param fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
+    // 🔒 Require verified user session
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
+    const effectiveUserId = user.id;
+
 
     const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -3339,15 +3285,14 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
 // Execute Dhan order with full parameters
 app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
   try {
+    // 🔒 Require verified user session — never trust userId from body for financial ops
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    }
+    const effectiveUserId = user.id;
     const orderRequest = await c.req.json();
 
-    // ⚡ FAST AUTH: decode userId from JWT locally + body fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || orderRequest?.userId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
-    }
 
     console.log(`🔑 execute-dhan-order userId: ${effectiveUserId}`);
 
@@ -4254,17 +4199,14 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
     console.log(`Index: ${index} | Interval: ${interval}M | Account: ₹${accountBalance || 100000}`);
     console.log(`⚡ TIMEFRAME VERIFICATION: This request will fetch ${interval}-minute candles from Dhan API`);
     
-    // ⚡ FAST AUTH: Decode userId from JWT locally (no network call) + body fallback
-    // No signature verification needed — unknown userIds simply return 400 (no credentials found)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || bodyUserId;
-    
-    if (!effectiveUserId) {
-      console.error('❌ No userId found in JWT or request body');
-      return c.json({ error: 'userId required — please re-login or ensure userId is sent in the request' }, 401);
+    // 🔒 Require verified user session — never trust userId from body
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) {
+      return c.json({ error: authError?.message || 'Unauthorized' }, authError?.code || 401);
     }
-    
-    console.log(`🔑 Trading request userId: ${effectiveUserId} (source: ${extractUserIdFromJwt(bearerToken || '') ? 'JWT' : 'body'})`);
+    const effectiveUserId = user.id;
+    console.log(`🔑 Trading request userId: ${effectiveUserId} (verified via Supabase auth)`);
+
     
     // ⚡ FIX: Use user-specific credentials key (same as other endpoints)
     const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
@@ -11059,10 +11001,10 @@ app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
   try {
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-    if (!userId) return c.json({ error: 'userId required' }, 401);
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
+    const userId = user.id;
+
 
     const { data, error } = await supabase
       .from('position_monitor_state')
@@ -11081,10 +11023,10 @@ app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
 // Backward-compatible alias used by older dashboard/mobile builds
 app.get("/make-server-c4d79cb7/positions/monitor/active", async (c) => {
   try {
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-    if (!userId) return c.json({ error: 'userId required' }, 401);
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
+    const userId = user.id;
+
 
     const { data, error } = await supabase
       .from('position_monitor_state')

@@ -16,6 +16,21 @@ async function sendBrevo(payload: any) {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  // 🔒 Require the internal shared secret (or the service-role bearer used
+  // by database triggers). Previously any visitor could spam the admin
+  // inbox and blast welcome emails to arbitrary addresses.
+  const INTERNAL_KEY = Deno.env.get('INTERNAL_SYNC_KEY') || '';
+  const providedKey = req.headers.get('x-internal-key') || '';
+  const authHeader = req.headers.get('authorization') || '';
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const isServiceRole = bearer && bearer === (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '');
+  if (!isServiceRole && (!INTERNAL_KEY || providedKey !== INTERNAL_KEY)) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   try {
     const { fullName = '', email = '', mobile = '', clientId = '' } = await req.json();
     if (!email) {
@@ -23,6 +38,7 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
 
     const signupTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 

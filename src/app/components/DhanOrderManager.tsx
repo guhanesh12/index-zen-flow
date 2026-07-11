@@ -306,37 +306,49 @@ export function DhanOrderManager({
     await placeOrder(orderSymbol, signal);
   };
 
-  // Notification system
+  // Notification system — build DOM with textContent to prevent XSS from
+  // symbol names or broker error messages.
   const showNotification = (type: 'success' | 'error', title: string, message?: string) => {
-    // Create notification element
     const notification = document.createElement('div');
     notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
-      type === 'success' 
-        ? 'bg-green-500/90 border border-green-400' 
+      type === 'success'
+        ? 'bg-green-500/90 border border-green-400'
         : 'bg-red-500/90 border border-red-400'
     } backdrop-blur-sm`;
-    notification.innerHTML = `
-      <div class="flex items-center gap-2 text-white">
-        <div class="text-lg">${type === 'success' ? '✅' : '❌'}</div>
-        <div>
-          <div class="font-bold">${title}</div>
-          ${message ? `<div class="text-sm opacity-90">${message}</div>` : ''}
-        </div>
-      </div>
-    `;
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 text-white';
+
+    const icon = document.createElement('div');
+    icon.className = 'text-lg';
+    icon.textContent = type === 'success' ? '✅' : '❌';
+
+    const textCol = document.createElement('div');
+    const titleEl = document.createElement('div');
+    titleEl.className = 'font-bold';
+    titleEl.textContent = String(title ?? '');
+    textCol.appendChild(titleEl);
+
+    if (message) {
+      const msgEl = document.createElement('div');
+      msgEl.className = 'text-sm opacity-90';
+      msgEl.textContent = String(message);
+      textCol.appendChild(msgEl);
+    }
+
+    row.appendChild(icon);
+    row.appendChild(textCol);
+    notification.appendChild(row);
     document.body.appendChild(notification);
 
-    // Remove after 5 seconds
-    setTimeout(() => {
-      notification.remove();
-    }, 5000);
+    setTimeout(() => notification.remove(), 5000);
   };
 
-  // Expose handleSignal to parent components
-  useEffect(() => {
-    // Store function in window for global access
-    (window as any).placeOrderOnSignal = handleSignal;
-  }, [symbols, orders]);
+  // 🔒 Removed global window.placeOrderOnSignal — any script on the page
+  // (browser extension, injected ad, XSS payload) could otherwise place
+  // real Dhan trades. Cross-component wiring should use React state,
+  // context, or an event bus scoped to the app.
+
 
   const getStatusIcon = (status: OrderDetails['orderStatus']) => {
     switch (status) {
