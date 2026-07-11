@@ -12,6 +12,8 @@ import { AdminUserManagement } from './AdminUserManagement';
 import { AdminSettings } from './AdminSettings';
 import { AdminReferrals } from './AdminReferrals';
 import { AdminCommunication } from './AdminCommunication';
+import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
+import { AdminAuditLogViewer } from './AdminAuditLogViewer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -27,7 +29,9 @@ import {
   Settings, 
   LogOut,
   Gift,
-  Mail
+  Mail,
+  Smartphone,
+  ScrollText
 } from 'lucide-react';
 import type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
@@ -270,6 +274,14 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               <Mail className="size-4 mr-2" />
               Communication
             </TabsTrigger>
+            <TabsTrigger value="mobile" className="data-[state=active]:bg-blue-600">
+              <Smartphone className="size-4 mr-2" />
+              Mobile App
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="data-[state=active]:bg-blue-600">
+              <ScrollText className="size-4 mr-2" />
+              Audit Log
+            </TabsTrigger>
           </TabsList>
 
           {canAccessTab('dashboard') && (
@@ -331,6 +343,14 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
 
           <TabsContent value="communication">
             <AdminCommunication />
+          </TabsContent>
+
+          <TabsContent value="mobile">
+            <AdminMobileAppUpdate />
+          </TabsContent>
+
+          <TabsContent value="audit">
+            <AdminAuditLogViewer />
           </TabsContent>
         </Tabs>
       </div>
