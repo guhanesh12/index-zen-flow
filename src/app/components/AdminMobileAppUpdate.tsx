@@ -22,39 +22,56 @@ export function AdminMobileAppUpdate() {
     update_message: 'Please update to the latest version for the best experience.',
   });
 
+  // Admin panel uses hotkey session (no Supabase JWT), so RLS blocks direct
+  // reads/writes on mobile_app_config. Route everything through the
+  // admin-security-manage edge function which validates the hotkey/url_key.
+  const getAdminAuthBody = () => {
+    let url_key = '';
+    try {
+      const m = window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/);
+      if (m) url_key = m[1];
+      if (!url_key) {
+        const stored = sessionStorage.getItem('admin_user');
+        if (stored) url_key = JSON.parse(stored)?.uniqueCode || '';
+      }
+    } catch { /* ignore */ }
+    return { url_key, admin_code: url_key };
+  };
+
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('mobile_app_config').select('*').eq('id', 1).maybeSingle();
-      if (data) setCfg({ ...cfg, ...data });
+      const { data } = await supabase.functions.invoke('admin-security-manage', {
+        body: { action: 'load_mobile_config', ...getAdminAuthBody() },
+      });
+      if (data?.config) setCfg((prev: any) => ({ ...prev, ...data.config }));
       setLoading(false);
     })();
   }, []);
 
+  const doSave = async () => {
+    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+      body: { action: 'save_mobile_config', config: cfg, ...getAdminAuthBody() },
+    });
+    if (error) throw new Error(error.message);
+    if (data?.error) throw new Error(data.error);
+  };
+
   const save = async () => {
     setSaving(true);
-    const { data: userRes } = await supabase.auth.getUser();
-    const { error } = await supabase.from('mobile_app_config').upsert({
-      id: 1, ...cfg, updated_by: userRes.user?.id, updated_at: new Date().toISOString(),
-    }, { onConflict: 'id' });
-    setSaving(false);
-    if (error) return toast.error(error.message);
-    await supabase.from('admin_audit_events').insert({
-      action: 'mobile_config_updated', module: 'mobile', status: 'success', details: cfg,
-    });
-    toast.success('Mobile app config saved. RN clients will pick up on next check.');
+    try {
+      await doSave();
+      toast.success('Mobile app config saved. RN clients will pick up on next check.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const publishAndNotify = async () => {
     setSending(true);
     try {
-      // 1) save latest config first so /mobile-version returns fresh values
-      const { data: userRes } = await supabase.auth.getUser();
-      const { error: upErr } = await supabase.from('mobile_app_config').upsert({
-        id: 1, ...cfg, updated_by: userRes.user?.id, updated_at: new Date().toISOString(),
-      }, { onConflict: 'id' });
-      if (upErr) throw upErr;
-
-      // 2) broadcast FCM push so every installed RN app re-checks version now
+      await doSave();
       const { data, error } = await supabase.functions.invoke('admin-push-send', {
         body: {
           title: cfg.update_title || 'New Update Available',
@@ -63,9 +80,6 @@ export function AdminMobileAppUpdate() {
         },
       });
       if (error) throw error;
-      await supabase.from('admin_audit_events').insert({
-        action: 'mobile_update_broadcast', module: 'mobile', status: 'success', details: { ...cfg, delivery: data },
-      });
       toast.success(`Update pushed to ${data?.totalDelivered ?? 0}/${data?.totalSubscribers ?? 0} devices.`);
     } catch (e: any) {
       toast.error(e?.message || 'Broadcast failed');
