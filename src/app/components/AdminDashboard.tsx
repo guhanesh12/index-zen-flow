@@ -344,6 +344,14 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
           <TabsContent value="communication">
             <AdminCommunication />
           </TabsContent>
+
+          <TabsContent value="mobile">
+            <AdminMobileAppUpdate />
+          </TabsContent>
+
+          <TabsContent value="audit">
+            <AdminAuditLogViewer />
+          </TabsContent>
         </Tabs>
       </div>
     </div>
