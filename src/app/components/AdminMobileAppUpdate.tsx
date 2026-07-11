@@ -11,8 +11,8 @@ import { toast } from 'sonner';
 import { Loader2, Smartphone, Save, Send } from 'lucide-react';
 
 export function AdminMobileAppUpdate() {
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
   const [cfg, setCfg] = useState<any>({
     android_current_version: '1.0.0', android_minimum_version: '1.0.0', android_store_url: '',
     ios_current_version: '1.0.0', ios_minimum_version: '1.0.0', ios_store_url: '',
