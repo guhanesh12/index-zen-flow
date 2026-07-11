@@ -33,13 +33,40 @@ function ok(data: unknown) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  // Loose authorization mirror of make-server pattern: require *some* bearer token
-  const auth = req.headers.get('authorization') ?? '';
-  if (!auth.startsWith('Bearer ')) return bad(401, 'missing_authorization');
+  // 🔒 Require a verified admin user session (was: accepted any bearer token,
+  // including the public anon key). Owner email OR user_roles(admin) required.
+  const authHeader = req.headers.get('authorization') ?? '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (!token) return bad(401, 'missing_authorization');
+
+  const OWNER_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || '').trim().toLowerCase();
+  let authorized = false;
+  try {
+    const authClient = createClient(SUPA_URL, ANON_KEY || SERVICE_KEY);
+    const { data: userData } = await authClient.auth.getUser(token);
+    const user = userData?.user;
+    if (user) {
+      if (OWNER_EMAIL && (user.email || '').trim().toLowerCase() === OWNER_EMAIL) {
+        authorized = true;
+      } else {
+        const { data: roleRow } = await supa
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin')
+          .maybeSingle();
+        if (roleRow) authorized = true;
+      }
+    }
+  } catch (e) {
+    console.error('admin-security-manage auth error', e);
+  }
+  if (!authorized) return bad(403, 'admin_session_required');
 
   let body: any = {};
   try { body = await req.json(); } catch { /* empty */ }
   const action: string = body?.action ?? 'load';
+
 
   try {
     if (action === 'load') {
