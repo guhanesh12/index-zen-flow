@@ -9377,7 +9377,7 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
     const { email, password } = await c.req.json();
 
-    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykat.com').trim().toLowerCase();
+    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykart.com').trim().toLowerCase();
     const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
 
     if (!DEFAULT_ADMIN_PASSWORD) {
@@ -9471,7 +9471,7 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       await kv.set(`${ADMIN_2FA_ENROLLED_PREFIX}${challenge.email}`, challenge.secret);
     }
 
-    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykat.com').trim().toLowerCase();
+    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykart.com').trim().toLowerCase();
     const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
     if (challenge.email !== DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
       return c.json({ success: false, message: 'Admin session unavailable' }, 500);
@@ -9487,7 +9487,7 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
         email: DEFAULT_ADMIN_EMAIL,
         password: DEFAULT_ADMIN_PASSWORD,
         email_confirm: true,
-        user_metadata: { name: 'Platform Admin', role: 'admin' },
+        user_metadata: { name: 'Super Admin', role: 'super_admin' },
       });
       if (createError && !String(createError.message || '').toLowerCase().includes('already')) {
         console.error('[ADMIN 2FA VERIFY] createUser failed', createError);
@@ -9500,6 +9500,34 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
     }
     if (!signIn?.data?.session?.access_token) {
       return c.json({ success: false, message: 'Failed to obtain admin session' }, 500);
+    }
+
+    // Ensure super-admin profile row exists (idempotent seed)
+    try {
+      const uid = signIn.data.user?.id;
+      if (uid) {
+        await supabase.from('admin_profiles').upsert({
+          user_id: uid,
+          email: DEFAULT_ADMIN_EMAIL,
+          full_name: 'Super Admin',
+          role_label: 'super_admin',
+          status: 'active',
+          is_super_admin: true,
+          last_login_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+        await supabase.from('admin_audit_events').insert({
+          actor_user_id: uid,
+          actor_email: DEFAULT_ADMIN_EMAIL,
+          action: 'admin_login',
+          module: 'auth',
+          status: 'success',
+          user_agent: c.req.header('user-agent') || null,
+          ip_address: c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || null,
+          details: { via: '2fa' },
+        });
+      }
+    } catch (seedErr) {
+      console.warn('[ADMIN 2FA VERIFY] super-admin seed skipped:', seedErr);
     }
 
     const uniqueCode = Array.from({ length: 8 }, () =>

@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.push-notify]
 verify_jwt = false
+
+[functions.mobile-version]
+verify_jwt = false
