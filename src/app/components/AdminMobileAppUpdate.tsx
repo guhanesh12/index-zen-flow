@@ -44,6 +44,36 @@ export function AdminMobileAppUpdate() {
     toast.success('Mobile app config saved. RN clients will pick up on next check.');
   };
 
+  const publishAndNotify = async () => {
+    setSending(true);
+    try {
+      // 1) save latest config first so /mobile-version returns fresh values
+      const { data: userRes } = await supabase.auth.getUser();
+      const { error: upErr } = await supabase.from('mobile_app_config').upsert({
+        id: 1, ...cfg, updated_by: userRes.user?.id, updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (upErr) throw upErr;
+
+      // 2) broadcast FCM push so every installed RN app re-checks version now
+      const { data, error } = await supabase.functions.invoke('admin-push-send', {
+        body: {
+          title: cfg.update_title || 'New Update Available',
+          description: `${cfg.update_message}\n\nLatest: Android ${cfg.android_current_version} • iOS ${cfg.ios_current_version}`,
+          targetUrl: 'app://check-update',
+        },
+      });
+      if (error) throw error;
+      await supabase.from('admin_audit_events').insert({
+        action: 'mobile_update_broadcast', module: 'mobile', status: 'success', details: { ...cfg, delivery: data },
+      });
+      toast.success(`Update pushed to ${data?.totalDelivered ?? 0}/${data?.totalSubscribers ?? 0} devices.`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Broadcast failed');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const upd = (k: string, v: any) => setCfg({ ...cfg, [k]: v });
 
   if (loading) return <div className="flex items-center gap-2 text-slate-400"><Loader2 className="size-4 animate-spin" /> Loading…</div>;
