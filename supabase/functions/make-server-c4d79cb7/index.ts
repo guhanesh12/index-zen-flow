@@ -21,6 +21,7 @@ import { getLandingContent, updateLandingContent, getTermsContent, updateTermsCo
 import * as pushNotifications from "./push_notifications.tsx";
 import { placeOrderViaStaticIP, getUserOrderPlacementIP } from "./static_ip_helper.tsx";
 import * as IPPoolManager from "./ip_pool_manager.tsx";
+import * as OTPAuth from "npm:otpauth@9";
 import * as VPSProvisioning from "./vps_provisioning.tsx";
 import * as VPSPower from "./vps_power.tsx";
 
