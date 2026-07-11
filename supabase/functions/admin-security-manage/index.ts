@@ -37,35 +37,53 @@ Deno.serve(async (req) => {
   // including the public anon key). Owner email OR user_roles(admin) required.
   const authHeader = req.headers.get('authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  if (!token) return bad(401, 'missing_authorization');
 
-  const OWNER_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || '').trim().toLowerCase();
-  let authorized = false;
-  try {
-    const authClient = createClient(SUPA_URL, ANON_KEY || SERVICE_KEY);
-    const { data: userData } = await authClient.auth.getUser(token);
-    const user = userData?.user;
-    if (user) {
-      if (OWNER_EMAIL && (user.email || '').trim().toLowerCase() === OWNER_EMAIL) {
-        authorized = true;
-      } else {
-        const { data: roleRow } = await supa
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', user.id)
-          .eq('role', 'admin')
-          .maybeSingle();
-        if (roleRow) authorized = true;
-      }
-    }
-  } catch (e) {
-    console.error('admin-security-manage auth error', e);
-  }
-  if (!authorized) return bad(403, 'admin_session_required');
-
+  // Parse body once — we may need it for the hotkey/url_key fallback gate.
   let body: any = {};
   try { body = await req.json(); } catch { /* empty */ }
   const action: string = body?.action ?? 'load';
+
+  const OWNER_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || '').trim().toLowerCase();
+  let authorized = false;
+
+  // Path A: verified Supabase Auth session (owner email OR user_roles=admin)
+  if (token) {
+    try {
+      const authClient = createClient(SUPA_URL, ANON_KEY || SERVICE_KEY);
+      const { data: userData } = await authClient.auth.getUser(token);
+      const user = userData?.user;
+      if (user) {
+        if (OWNER_EMAIL && (user.email || '').trim().toLowerCase() === OWNER_EMAIL) {
+          authorized = true;
+        } else {
+          const { data: roleRow } = await supa
+            .from('user_roles').select('role')
+            .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
+          if (roleRow) authorized = true;
+        }
+      }
+    } catch (e) {
+      console.error('admin-security-manage auth error', e);
+    }
+  }
+
+  // Path B: hotkey/URL-key session — the admin panel authenticates via hotkey,
+  // not a Supabase JWT. Accept the caller if body.url_key or body.admin_code
+  // matches an active admin_profiles row.
+  if (!authorized) {
+    const urlKey = String(body?.url_key || body?.admin_code || '').trim();
+    const hotkey = String(body?.hotkey_session || '').trim();
+    if (urlKey || hotkey) {
+      let q = supa.from('admin_profiles').select('user_id,status,is_super_admin').eq('status', 'active');
+      if (urlKey) q = q.eq('url_key', urlKey);
+      else q = q.ilike('hotkey', hotkey);
+      const { data: prof } = await q.maybeSingle();
+      if (prof) authorized = true;
+    }
+  }
+
+  if (!authorized) return bad(403, 'admin_session_required');
+
 
 
   try {
