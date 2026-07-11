@@ -2092,14 +2092,13 @@ app.post("/make-server-c4d79cb7/pnl/save", async (c) => {
 // Get positions
 app.get("/make-server-c4d79cb7/positions", async (c) => {
   try {
-    // ⚡ FAST AUTH: decode userId from JWT locally + query param fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
+    // 🔒 Require verified user session (JWT signature validated by Supabase auth)
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
+    const effectiveUserId = user.id;
+
 
     const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
