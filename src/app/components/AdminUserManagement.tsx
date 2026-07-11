@@ -53,8 +53,9 @@ const getAdminUrlKey = () => {
 };
 const callAdmin = (body: any) =>
   supabase.functions.invoke('admin-security-manage', {
-    body: { url_key: getAdminUrlKey(), admin_code: getAdminUrlKey(), ...body
-      });
+    body: { url_key: getAdminUrlKey(), admin_code: getAdminUrlKey(), ...body },
+  });
+
 
 
 interface AdminRow {
