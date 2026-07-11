@@ -9,7 +9,7 @@ import { Shield, Key, Smartphone, Eye, EyeOff, AlertCircle, CheckCircle } from '
 import { motion, AnimatePresence } from 'motion/react';
 import type { AdminUser } from './AdminTypes';
 import QRCode from 'qrcode';
-import * as OTPAuth from 'otpauth';
+// NOTE: TOTP verification runs server-side; no otpauth client dependency needed here.
 import { trackLogin } from '../hooks/useAnalyticsTracking';
 
 interface AdminLoginProps {
