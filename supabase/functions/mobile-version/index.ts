@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
       forceUpdate: !!cfg.force_update,
       title: cfg.update_title || 'New Update Available',
       message: cfg.update_message || 'Please update to continue using the app.',
-    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }, status: 200 });
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, status: 200 });
   } catch (e) {
     return new Response(JSON.stringify({ error: String((e as any)?.message || e) }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500,
