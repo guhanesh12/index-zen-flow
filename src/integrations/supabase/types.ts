@@ -50,6 +50,57 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_audit_events: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_user_id: string | null
+          browser: string | null
+          created_at: string
+          details: Json
+          device: string | null
+          id: string
+          ip_address: string | null
+          module: string | null
+          status: string
+          target_resource: string | null
+          target_user_id: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_user_id?: string | null
+          browser?: string | null
+          created_at?: string
+          details?: Json
+          device?: string | null
+          id?: string
+          ip_address?: string | null
+          module?: string | null
+          status?: string
+          target_resource?: string | null
+          target_user_id?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_user_id?: string | null
+          browser?: string | null
+          created_at?: string
+          details?: Json
+          device?: string | null
+          id?: string
+          ip_address?: string | null
+          module?: string | null
+          status?: string
+          target_resource?: string | null
+          target_user_id?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       admin_ip_allowlist: {
         Row: {
           added_by: string | null
@@ -71,6 +122,99 @@ export type Database = {
           id?: string
           ip_address?: string
           label?: string | null
+        }
+        Relationships: []
+      }
+      admin_permissions: {
+        Row: {
+          admin_user_id: string
+          can_approve: boolean
+          can_create: boolean
+          can_delete: boolean
+          can_edit: boolean
+          can_export: boolean
+          can_view: boolean
+          created_at: string
+          granted_by: string | null
+          id: string
+          module: string
+          updated_at: string
+        }
+        Insert: {
+          admin_user_id: string
+          can_approve?: boolean
+          can_create?: boolean
+          can_delete?: boolean
+          can_edit?: boolean
+          can_export?: boolean
+          can_view?: boolean
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          module: string
+          updated_at?: string
+        }
+        Update: {
+          admin_user_id?: string
+          can_approve?: boolean
+          can_create?: boolean
+          can_delete?: boolean
+          can_edit?: boolean
+          can_export?: boolean
+          can_view?: boolean
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          module?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      admin_profiles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          email: string
+          full_name: string
+          id: string
+          is_super_admin: boolean
+          last_login_at: string | null
+          last_login_ip: string | null
+          mobile: string | null
+          role_label: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          email: string
+          full_name?: string
+          id?: string
+          is_super_admin?: boolean
+          last_login_at?: string | null
+          last_login_ip?: string | null
+          mobile?: string | null
+          role_label?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          email?: string
+          full_name?: string
+          id?: string
+          is_super_admin?: boolean
+          last_login_at?: string | null
+          last_login_ip?: string | null
+          mobile?: string | null
+          role_label?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -107,6 +251,39 @@ export type Database = {
           ip_allowlist_enabled?: boolean
           updated_at?: string
           updated_by?: string | null
+        }
+        Relationships: []
+      }
+      admin_totp_secrets: {
+        Row: {
+          created_at: string
+          enrolled_at: string | null
+          last_used_at: string | null
+          otpauth_url_encrypted: string | null
+          secret_encrypted: string
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          enrolled_at?: string | null
+          last_used_at?: string | null
+          otpauth_url_encrypted?: string | null
+          secret_encrypted: string
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          enrolled_at?: string | null
+          last_used_at?: string | null
+          otpauth_url_encrypted?: string | null
+          secret_encrypted?: string
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
         }
         Relationships: []
       }
@@ -386,6 +563,51 @@ export type Database = {
         Update: {
           key?: string
           value?: Json
+        }
+        Relationships: []
+      }
+      mobile_app_config: {
+        Row: {
+          android_current_version: string
+          android_minimum_version: string
+          android_store_url: string
+          force_update: boolean
+          id: number
+          ios_current_version: string
+          ios_minimum_version: string
+          ios_store_url: string
+          update_message: string
+          update_title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          android_current_version?: string
+          android_minimum_version?: string
+          android_store_url?: string
+          force_update?: boolean
+          id?: number
+          ios_current_version?: string
+          ios_minimum_version?: string
+          ios_store_url?: string
+          update_message?: string
+          update_title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          android_current_version?: string
+          android_minimum_version?: string
+          android_store_url?: string
+          force_update?: boolean
+          id?: number
+          ios_current_version?: string
+          ios_minimum_version?: string
+          ios_store_url?: string
+          update_message?: string
+          update_title?: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -1215,6 +1437,10 @@ export type Database = {
       expire_signup_bonuses: { Args: never; Returns: number }
       generate_client_id: { Args: never; Returns: string }
       get_broker_encryption_key: { Args: never; Returns: string }
+      has_permission: {
+        Args: { _action: string; _module: string; _user_id: string }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1227,6 +1453,7 @@ export type Database = {
         Args: { _identifier: string; _ip?: string }
         Returns: boolean
       }
+      is_super_admin: { Args: { _user_id: string }; Returns: boolean }
       is_trading_day: { Args: { d?: string }; Returns: boolean }
       is_valid_referral_code: { Args: { _code: string }; Returns: boolean }
       notify_push_event: {
