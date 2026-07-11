@@ -85,7 +85,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     setError('');
 
     try {
-      const response = await fetch(`${serverUrl}/admin/login`, {
+      const response = await fetch(`${SUPABASE_FN_BASE}/admin/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
