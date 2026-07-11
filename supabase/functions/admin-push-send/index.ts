@@ -139,6 +139,46 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    // 🔒 Require verified admin session before broadcasting to every subscriber.
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const internalKey = req.headers.get("x-internal-key") || "";
+    const INTERNAL_SYNC_KEY = Deno.env.get("INTERNAL_SYNC_KEY") || "";
+    const OWNER_EMAIL = (Deno.env.get("PLATFORM_OWNER_EMAIL") || "").trim().toLowerCase();
+
+    let authorized = false;
+    if (INTERNAL_SYNC_KEY && internalKey && internalKey === INTERNAL_SYNC_KEY) {
+      authorized = true;
+    } else if (token) {
+      try {
+        const authClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY") || SERVICE_ROLE);
+        const { data: userData } = await authClient.auth.getUser(token);
+        const user = userData?.user;
+        if (user) {
+          if (OWNER_EMAIL && (user.email || "").trim().toLowerCase() === OWNER_EMAIL) {
+            authorized = true;
+          } else {
+            const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+            const { data: roleRow } = await admin
+              .from("user_roles")
+              .select("role")
+              .eq("user_id", user.id)
+              .eq("role", "admin")
+              .maybeSingle();
+            if (roleRow) authorized = true;
+          }
+        }
+      } catch (e) {
+        console.error("admin-push-send auth error", e);
+      }
+    }
+    if (!authorized) {
+      return new Response(
+        JSON.stringify({ success: false, message: "Forbidden: admin session required" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { title, description, imageUrl, targetUrl } = await req.json();
     if (!title || !description) {
       return new Response(
@@ -146,6 +186,7 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
