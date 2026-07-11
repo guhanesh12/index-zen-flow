@@ -11010,10 +11010,10 @@ app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
   try {
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const queryUserId = c.req.query('userId');
-    const userId = extractUserIdFromJwt(bearerToken || '') || queryUserId;
-    if (!userId) return c.json({ error: 'userId required' }, 401);
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
+    const userId = user.id;
+
 
     const { data, error } = await supabase
       .from('position_monitor_state')
