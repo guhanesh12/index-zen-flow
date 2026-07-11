@@ -417,7 +417,12 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             <Server className="size-4 mr-2" />
             VPS Power
           </TabsTrigger>
+          <TabsTrigger value="app-update">
+            <Smartphone className="size-4 mr-2" />
+            App Update
+          </TabsTrigger>
         </TabsList>
+
 
         {/* API Keys Tab */}
         <TabsContent value="api-keys" className="space-y-4">
@@ -795,7 +800,13 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
         <TabsContent value="vps-power" className="space-y-4">
           <AdminVPSPower serverUrl={serverUrl} accessToken={accessToken} />
         </TabsContent>
+
+        {/* Mobile App Update Tab */}
+        <TabsContent value="app-update" className="space-y-4">
+          <AdminMobileAppUpdate />
+        </TabsContent>
       </Tabs>
+
 
       {/* Add Admin Dialog */}
       <Dialog open={showAddAdmin} onOpenChange={setShowAddAdmin}>
