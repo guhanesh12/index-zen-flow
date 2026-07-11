@@ -402,6 +402,8 @@ const ALLOWED_CORS_ORIGINS = [
   "https://www.indexpilotai.com",
   "https://indexpilotai.com",
   "https://api.indexpilotai.com",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
   // Lovable preview domains
   /\.lovable\.app$/,
   /\.lovableproject\.com$/,
@@ -9359,7 +9361,58 @@ function getPermanentSuperAdminEmail(): string {
 }
 
 function getDefaultAdminPassword(): string {
-  return Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+  return Deno.env.get('SUPER_ADMIN_INITIAL_PASSWORD') || Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+}
+
+function isExistingAuthUserError(error: any): boolean {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('already') || message.includes('registered') || message.includes('exists');
+}
+
+async function findAuthUserByEmail(email: string): Promise<any | null> {
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) {
+      console.error('[ADMIN AUTH] listUsers failed', error);
+      return null;
+    }
+    const user = data?.users?.find((u: any) => String(u.email || '').toLowerCase() === email);
+    if (user) return user;
+    if (!data?.users || data.users.length < 1000) return null;
+  }
+  return null;
+}
+
+async function ensureSuperAdminAuthSession(email: string, password: string) {
+  let signIn = await supabase.auth.signInWithPassword({ email, password });
+  if (signIn?.data?.session?.access_token) return signIn;
+
+  const { data: created, error: createError } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { name: 'Super Admin', role: 'super_admin' },
+  });
+
+  if (createError && !isExistingAuthUserError(createError)) {
+    console.error('[ADMIN AUTH] createUser failed', createError);
+    return signIn;
+  }
+
+  const existingUserId = created?.user?.id || (await findAuthUserByEmail(email))?.id;
+  if (existingUserId) {
+    const { error: updateError } = await supabase.auth.admin.updateUserById(existingUserId, {
+      password,
+      email_confirm: true,
+      user_metadata: { name: 'Super Admin', role: 'super_admin' },
+    });
+    if (updateError) {
+      console.error('[ADMIN AUTH] updateUserById failed', updateError);
+    }
+  }
+
+  signIn = await supabase.auth.signInWithPassword({ email, password });
+  return signIn;
 }
 
 function newChallengeToken(): string {
@@ -9490,27 +9543,9 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       return c.json({ success: false, message: 'Admin session unavailable' }, 500);
     }
 
-    // Now — and only now — sign in and return the access token
-    let signIn = await supabase.auth.signInWithPassword({
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-    });
-    if (!signIn?.data?.session?.access_token) {
-      const { error: createError } = await supabase.auth.admin.createUser({
-        email: DEFAULT_ADMIN_EMAIL,
-        password: DEFAULT_ADMIN_PASSWORD,
-        email_confirm: true,
-        user_metadata: { name: 'Super Admin', role: 'super_admin' },
-      });
-      if (createError && !String(createError.message || '').toLowerCase().includes('already')) {
-        console.error('[ADMIN 2FA VERIFY] createUser failed', createError);
-        return c.json({ success: false, message: 'Failed to authenticate admin' }, 500);
-      }
-      signIn = await supabase.auth.signInWithPassword({
-        email: DEFAULT_ADMIN_EMAIL,
-        password: DEFAULT_ADMIN_PASSWORD,
-      });
-    }
+    // Now — and only now — ensure the permanent auth user exists with the
+    // configured initial password, then return a real Supabase access token.
+    const signIn = await ensureSuperAdminAuthSession(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD);
     if (!signIn?.data?.session?.access_token) {
       return c.json({ success: false, message: 'Failed to obtain admin session' }, 500);
     }
