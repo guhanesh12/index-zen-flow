@@ -8,7 +8,7 @@ import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 import { Textarea } from './ui/textarea';
 import { toast } from 'sonner';
-import { Loader2, Smartphone, Save } from 'lucide-react';
+import { Loader2, Smartphone, Save, Send } from 'lucide-react';
 
 export function AdminMobileAppUpdate() {
   const [loading, setLoading] = useState(true);
