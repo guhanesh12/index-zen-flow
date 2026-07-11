@@ -45,21 +45,27 @@ Deno.serve(async (req) => {
 
   const OWNER_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || '').trim().toLowerCase();
   let authorized = false;
+  let actorUserId: string | null = null;
+  let actorEmail: string | null = null;
 
-  // Path A: verified Supabase Auth session (owner email OR user_roles=admin)
-  if (token) {
+  // Path A: verified Supabase Auth session. Ignore the public anon JWT; it has
+  // no user `sub` claim and causes noisy 403 auth logs if passed to getUser().
+  if (token && token !== ANON_KEY) {
     try {
       const authClient = createClient(SUPA_URL, ANON_KEY || SERVICE_KEY);
       const { data: userData } = await authClient.auth.getUser(token);
       const user = userData?.user;
       if (user) {
+        actorUserId = user.id;
+        actorEmail = (user.email || '').trim().toLowerCase();
         if (OWNER_EMAIL && (user.email || '').trim().toLowerCase() === OWNER_EMAIL) {
           authorized = true;
         } else {
-          const { data: roleRow } = await supa
-            .from('user_roles').select('role')
-            .eq('user_id', user.id).eq('role', 'admin').maybeSingle();
-          if (roleRow) authorized = true;
+          const [{ data: roleRow }, { data: adminProfile }] = await Promise.all([
+            supa.from('user_roles').select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle(),
+            supa.from('admin_profiles').select('user_id,status').eq('user_id', user.id).eq('status', 'active').maybeSingle(),
+          ]);
+          if (roleRow || adminProfile) authorized = true;
         }
       }
     } catch (e) {
@@ -67,18 +73,49 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Path B: hotkey/URL-key session — the admin panel authenticates via hotkey,
-  // not a Supabase JWT. Accept the caller if body.url_key or body.admin_code
-  // matches an active admin_profiles row.
+  // Path B: hotkey/URL-key session. Admin dashboard URLs can contain either a
+  // permanent admin_profiles.url_key or a short-lived admin_unique_code_* issued
+  // after 2FA; support both so management calls do not fail on hotkey routes.
   if (!authorized) {
     const urlKey = String(body?.url_key || body?.admin_code || '').trim();
     const hotkey = String(body?.hotkey_session || '').trim();
     if (urlKey || hotkey) {
-      let q = supa.from('admin_profiles').select('user_id,status,is_super_admin').eq('status', 'active');
+      let q = supa.from('admin_profiles').select('user_id,email,status,is_super_admin').eq('status', 'active');
       if (urlKey) q = q.eq('url_key', urlKey);
       else q = q.ilike('hotkey', hotkey);
       const { data: prof } = await q.maybeSingle();
-      if (prof) authorized = true;
+      if (prof) {
+        actorUserId = prof.user_id;
+        actorEmail = prof.email || null;
+        authorized = true;
+      } else if (urlKey) {
+        const { data: sessionRow } = await supa
+          .from('kv_store_c4d79cb7')
+          .select('value')
+          .eq('key', `admin_unique_code_${urlKey}`)
+          .maybeSingle();
+        const raw = sessionRow?.value;
+        const session = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (session?.expiresAt && new Date(session.expiresAt).getTime() > Date.now()) {
+          const sessionEmail = String(session.email || '').trim().toLowerCase();
+          if (OWNER_EMAIL && sessionEmail === OWNER_EMAIL) {
+            actorEmail = sessionEmail;
+            authorized = true;
+          } else if (sessionEmail) {
+            const { data: sessionProf } = await supa
+              .from('admin_profiles')
+              .select('user_id,email,status')
+              .eq('email', sessionEmail)
+              .eq('status', 'active')
+              .maybeSingle();
+            if (sessionProf) {
+              actorUserId = sessionProf.user_id;
+              actorEmail = sessionProf.email || sessionEmail;
+              authorized = true;
+            }
+          }
+        }
+      }
     }
   }
 

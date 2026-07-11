@@ -46,6 +46,11 @@ const COL: Record<string, string> = {
 // against the admin-security-manage edge function.
 const getAdminUrlKey = () => {
   try {
+    const adminRaw = sessionStorage.getItem('admin_user');
+    if (adminRaw) {
+      const admin = JSON.parse(adminRaw);
+      if (admin?.uniqueCode) return String(admin.uniqueCode);
+    }
     const m = window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/);
     if (m?.[1]) return m[1];
     return sessionStorage.getItem('admin_unique_code') || '';
@@ -53,6 +58,9 @@ const getAdminUrlKey = () => {
 };
 const callAdmin = (body: any) =>
   supabase.functions.invoke('admin-security-manage', {
+    headers: sessionStorage.getItem('admin_access_token')
+      ? { Authorization: `Bearer ${sessionStorage.getItem('admin_access_token')}` }
+      : undefined,
     body: { url_key: getAdminUrlKey(), admin_code: getAdminUrlKey(), ...body },
   });
 
