@@ -52,8 +52,10 @@ const getAdminUrlKey = () => {
   } catch { return ''; }
 };
 const callAdmin = (body: any) =>
-  callAdmin({ url_key: getAdminUrlKey(), admin_code: getAdminUrlKey(), ...body },
+  supabase.functions.invoke('admin-security-manage', {
+    body: { url_key: getAdminUrlKey(), admin_code: getAdminUrlKey(), ...body },
   });
+
 
 interface AdminRow {
   user_id: string; email: string; full_name: string | null; mobile: string | null;
