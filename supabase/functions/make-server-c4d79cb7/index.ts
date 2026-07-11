@@ -11562,34 +11562,20 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 🔐 ADMIN 2FA SECRET — PERSIST IN KV (NOT localStorage)
+// 🔐 ADMIN 2FA SECRETS — server-side only. The legacy
+// /auth/admin-2fa-secret endpoints previously returned the TOTP
+// secret over an unauthenticated GET, which meant anyone who knew
+// (or guessed) the admin email could pull the shared secret and
+// generate valid codes. They have been removed. Enrollment now
+// happens exclusively through /admin/login → /admin/2fa/verify,
+// which stores the secret under admin_2fa_enrolled:<email> and
+// never exposes it back to any client.
 // ═══════════════════════════════════════════════════════════════
 
-app.get("/make-server-c4d79cb7/auth/admin-2fa-secret", async (c) => {
-  try {
-    const { adminEmail } = c.req.query();
-    if (!adminEmail) return c.json({ error: 'adminEmail required' }, 400);
-    const key = `admin_2fa_secret:${adminEmail.toLowerCase()}`;
-    const secret = await kv.get(key);
-    if (!secret) return c.json({ exists: false });
-    return c.json({ exists: true, secret });
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500);
-  }
-});
+app.all("/make-server-c4d79cb7/auth/admin-2fa-secret", (c) =>
+  c.json({ error: 'Endpoint removed. 2FA is enrolled server-side.' }, 410)
+);
 
-app.post("/make-server-c4d79cb7/auth/admin-2fa-secret", async (c) => {
-  try {
-    const { adminEmail, secret } = await c.req.json();
-    if (!adminEmail || !secret) return c.json({ error: 'adminEmail and secret required' }, 400);
-    const key = `admin_2fa_secret:${adminEmail.toLowerCase()}`;
-    await kv.set(key, secret);
-    console.log(`✅ Saved 2FA secret for admin: ${adminEmail}`);
-    return c.json({ success: true });
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500);
-  }
-});
 
 // ==================== BACKEND ENGINE CRON ROUTES ====================
 
