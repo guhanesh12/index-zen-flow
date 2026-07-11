@@ -194,7 +194,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     }
 
     try {
-      const res = await fetch(`${serverUrl}/admin/2fa/verify`, {
+      const res = await fetch(`${SUPABASE_FN_BASE}/admin/2fa/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
