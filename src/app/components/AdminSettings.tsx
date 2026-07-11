@@ -10,6 +10,8 @@ import { SystemHealth } from './SystemHealth';
 import { BrevoIntegration } from './BrevoIntegration';
 import { BackendConfiguration } from './BackendConfiguration';
 import { AdminVPSPower } from './AdminVPSPower';
+import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
+
 import { toast } from 'sonner';
 import type { AdminUser } from './AdminTypes';
 import QRCode from 'qrcode';
