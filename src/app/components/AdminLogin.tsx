@@ -20,11 +20,14 @@ interface AdminLoginProps {
   pressedHotkey?: string; // Track which hotkey was pressed to access login
 }
 
-// Default admin account
+// 🔒 SECURITY: Do NOT hardcode admin passwords or hotkey secrets here.
+// The admin's password is validated server-side at /auth/admin-login only.
+// This constant intentionally stores no password — the field is kept for
+// AdminUser type shape compatibility and is never used for authentication.
 const DEFAULT_ADMIN: AdminUser = {
   id: 'admin_001',
   email: 'airoboengin@smilykat.com',
-  password: '9600727185Aa@',
+  password: '', // never stored in client — validated server-side
   role: {
     dashboard: true,
     users: true,
@@ -35,7 +38,7 @@ const DEFAULT_ADMIN: AdminUser = {
     support: true,
     landing: true,
     adminUsers: true,
-    adminManagement: true, // Full admin access including admin management
+    adminManagement: true,
   },
   hotkey: {
     windows: 'Control+Alt+GUHAN',
@@ -43,6 +46,7 @@ const DEFAULT_ADMIN: AdminUser = {
   },
   twoFactorEnabled: false,
 };
+
 
 export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHotkey }: AdminLoginProps) {
   const [email, setEmail] = useState('');
