@@ -9377,7 +9377,7 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
     const { email, password } = await c.req.json();
 
-    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykat.com').trim().toLowerCase();
+    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykart.com').trim().toLowerCase();
     const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
 
     if (!DEFAULT_ADMIN_PASSWORD) {
