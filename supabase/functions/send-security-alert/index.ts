@@ -43,7 +43,21 @@ function renderHtml(b: AlertBody): string {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  // 🔒 Require internal shared secret (or service-role bearer used by triggers).
+  const INTERNAL_KEY = Deno.env.get('INTERNAL_SYNC_KEY') || '';
+  const providedKey = req.headers.get('x-internal-key') || '';
+  const authHeader = req.headers.get('authorization') || '';
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const isServiceRole = bearer && bearer === (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '');
+  if (!isServiceRole && (!INTERNAL_KEY || providedKey !== INTERNAL_KEY)) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   try {
+
     if (!BREVO_KEY) throw new Error('BREVO_API_KEY not configured');
     const body = (await req.json()) as AlertBody;
     if (!body?.to || !body?.subject || !body?.event) {
