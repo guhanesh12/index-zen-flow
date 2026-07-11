@@ -3294,15 +3294,14 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
 // Execute Dhan order with full parameters
 app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
   try {
+    // 🔒 Require verified user session — never trust userId from body for financial ops
+    const { user, error } = await validateAuth(c);
+    if (error || !user) {
+      return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    }
+    const effectiveUserId = user.id;
     const orderRequest = await c.req.json();
 
-    // ⚡ FAST AUTH: decode userId from JWT locally + body fallback (no API call)
-    const bearerToken = c.req.header('Authorization')?.split(' ')[1];
-    const effectiveUserId = extractUserIdFromJwt(bearerToken || '') || orderRequest?.userId;
-
-    if (!effectiveUserId) {
-      return c.json({ error: "userId required — please re-login or ensure userId is sent in the request" }, 401);
-    }
 
     console.log(`🔑 execute-dhan-order userId: ${effectiveUserId}`);
 
