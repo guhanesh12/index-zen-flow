@@ -358,7 +358,9 @@ function AdminLoginPage() {
           console.log('✅ Admin logged in, navigating to dashboard (SPA)');
           sessionStorage.setItem('admin_access_token', token || '');
           sessionStorage.setItem('admin_user', JSON.stringify(admin));
-          navigate(`/admin/hotkey/${uniqueCode}/dashboard`, { replace: true });
+          const sessionCode = admin?.uniqueCode || uniqueCode;
+          if (sessionCode) sessionStorage.setItem('admin_unique_code', sessionCode);
+          navigate(`/admin/hotkey/${sessionCode}/dashboard`, { replace: true });
         }}
         serverUrl={serverUrl}
         accessToken={publicAnonKey}
