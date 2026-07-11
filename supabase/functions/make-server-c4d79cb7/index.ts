@@ -1011,34 +1011,25 @@ app.post("/make-server-c4d79cb7/auth/email-otp/verify", async (c) => {
   }
 });
 
-// 🔥 NEW: Check if email already exists (for better UX during signup)
+// 🔒 Email check endpoint — always returns a neutral response to prevent
+// account enumeration. The real duplicate-email guard lives in
+// supabase.auth.admin.createUser, which returns a proper error at signup time.
 app.post("/make-server-c4d79cb7/auth/check-email", async (c) => {
   try {
     const { email } = await c.req.json();
-
     if (!email) {
       return c.json({ error: 'Email is required' }, 400);
     }
-
-    console.log(`🔍 Checking if email exists: ${email}`);
-
-    // Check if user already exists
-    const { data: existingUsers } = await supabase.auth.admin.listUsers();
-    const userExists = existingUsers?.users?.some(u => u.email === email);
-
-    console.log(`📧 Email ${email} exists: ${userExists}`);
-
+    // Always respond identically — never confirm or deny account existence.
     return c.json({
-      exists: userExists,
-      message: userExists 
-        ? 'An account with this email already exists. Please sign in instead.' 
-        : 'Email is available'
+      exists: false,
+      message: 'If this email is not registered, you can continue with signup.',
     });
   } catch (error: any) {
-    console.error('❌ Error checking email:', error);
     return c.json({ error: error.message || 'Failed to check email' }, 500);
   }
 });
+
 
 // 🔥 SIMPLER ROUTE ALIASES (without /auth/) for easier frontend integration
 app.post("/make-server-c4d79cb7/send-otp", async (c) => {
