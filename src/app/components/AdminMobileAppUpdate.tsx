@@ -123,10 +123,14 @@ export function AdminMobileAppUpdate() {
             <Textarea rows={3} value={cfg.update_message} onChange={e => upd('update_message', e.target.value)} /></div>
         </div>
 
-        <div className="flex justify-end">
-          <Button onClick={save} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
+        <div className="flex flex-col sm:flex-row justify-end gap-2">
+          <Button onClick={save} disabled={saving || sending} variant="outline" className="border-blue-500/40">
             {saving ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
             Save Config
+          </Button>
+          <Button onClick={publishAndNotify} disabled={saving || sending} className="bg-green-600 hover:bg-green-700">
+            {sending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Send className="size-4 mr-2" />}
+            Publish & Notify All Users
           </Button>
         </div>
 
