@@ -9348,6 +9348,19 @@ app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
 const ADMIN_2FA_ENROLLED_PREFIX = 'admin_2fa_enrolled:';
 const ADMIN_2FA_CHALLENGE_PREFIX = 'admin_2fa_challenge:';
 const ADMIN_2FA_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
+
+function getPermanentSuperAdminEmail(): string {
+  const configuredEmail = (Deno.env.get('PLATFORM_OWNER_EMAIL') || '').trim().toLowerCase();
+  if (configuredEmail && configuredEmail !== PERMANENT_SUPER_ADMIN_EMAIL) {
+    console.warn('[ADMIN LOGIN] PLATFORM_OWNER_EMAIL differs from permanent super-admin email; using permanent email');
+  }
+  return PERMANENT_SUPER_ADMIN_EMAIL;
+}
+
+function getDefaultAdminPassword(): string {
+  return Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+}
 
 function newChallengeToken(): string {
   const bytes = new Uint8Array(32);
@@ -9377,8 +9390,8 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
     const { email, password } = await c.req.json();
 
-    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykart.com').trim().toLowerCase();
-    const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+    const DEFAULT_ADMIN_EMAIL = getPermanentSuperAdminEmail();
+    const DEFAULT_ADMIN_PASSWORD = getDefaultAdminPassword();
 
     if (!DEFAULT_ADMIN_PASSWORD) {
       console.error('[ADMIN LOGIN] DEFAULT_ADMIN_PASSWORD env var is not configured');
@@ -9471,8 +9484,8 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       await kv.set(`${ADMIN_2FA_ENROLLED_PREFIX}${challenge.email}`, challenge.secret);
     }
 
-    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykart.com').trim().toLowerCase();
-    const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+    const DEFAULT_ADMIN_EMAIL = getPermanentSuperAdminEmail();
+    const DEFAULT_ADMIN_PASSWORD = getDefaultAdminPassword();
     if (challenge.email !== DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
       return c.json({ success: false, message: 'Admin session unavailable' }, 500);
     }
