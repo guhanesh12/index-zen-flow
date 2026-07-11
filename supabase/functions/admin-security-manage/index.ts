@@ -300,6 +300,20 @@ Deno.serve(async (req) => {
       return ok({ success: true });
     }
 
+    if (action === 'load_mobile_config') {
+      const { data } = await supa.from('mobile_app_config').select('*').eq('id', 1).maybeSingle();
+      return ok({ config: data || null });
+    }
+
+    if (action === 'save_mobile_config') {
+      const cfg = body?.config || {};
+      const { error } = await supa.from('mobile_app_config').upsert({
+        id: 1, ...cfg, updated_by: actorUserId, updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (error) return bad(500, error.message);
+      return ok({ success: true });
+    }
+
     return bad(400, 'unknown_action');
   } catch (e) {
     return bad(500, (e as Error).message);
