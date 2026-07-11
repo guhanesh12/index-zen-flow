@@ -40,6 +40,21 @@ const COL: Record<string, string> = {
   delete: 'can_delete', export: 'can_export', approve: 'can_approve',
 };
 
+
+// Extract the admin URL key from the current pathname (/admin/hotkey/<key>/...)
+// or from sessionStorage — required to authenticate hotkey-based admin sessions
+// against the admin-security-manage edge function.
+const getAdminUrlKey = () => {
+  try {
+    const m = window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/);
+    if (m?.[1]) return m[1];
+    return sessionStorage.getItem('admin_unique_code') || '';
+  } catch { return ''; }
+};
+const callAdmin = (body: any) =>
+  callAdmin({ url_key: getAdminUrlKey(), admin_code: getAdminUrlKey(), ...body },
+  });
+
 interface AdminRow {
   user_id: string; email: string; full_name: string | null; mobile: string | null;
   role_label: string | null; status: string; is_super_admin: boolean;
@@ -114,8 +129,7 @@ export function AdminUserManagement() {
     const hk = form.hotkey.trim();
     if (!hk) return setHkCheck({ state: 'taken', msg: 'Enter a hotkey first' });
     setHkCheck({ state: 'checking' });
-    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'check_hotkey', hotkey: hk, exclude_user_id: selected?.user_id },
+    const { data, error } = await callAdmin({ action: 'check_hotkey', hotkey: hk, exclude_user_id: selected?.user_id },
     });
     if (error) return setHkCheck({ state: 'taken', msg: error.message });
     if (data?.available) setHkCheck({ state: 'ok', msg: 'Available ✓' });
@@ -132,16 +146,14 @@ export function AdminUserManagement() {
       if (form.password.length < 8) return toast.error('Password must be 8+ characters');
       if (hkCheck.state !== 'ok') return toast.error('Verify hotkey availability first');
       setSaving(true);
-      const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-        body: { action: 'create_admin', ...form },
+      const { data, error } = await callAdmin({ action: 'create_admin', ...form },
       });
       setSaving(false);
       if (error || !data?.success) return toast.error((data?.error) || error?.message || 'Create failed');
       toast.success('Admin created. Share the URL key & credentials securely.');
     } else {
       setSaving(true);
-      const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-        body: {
+      const { data, error } = await callAdmin({
           action: 'update_admin', user_id: selected.user_id,
           full_name: form.full_name, mobile: form.mobile, role_label: form.role_label,
           employee_code: form.employee_code, username: form.username, hotkey: form.hotkey,
@@ -150,8 +162,7 @@ export function AdminUserManagement() {
       if (error || !data?.success) { setSaving(false); return toast.error((data?.error) || error?.message || 'Update failed'); }
       if (form.password) {
         if (form.password !== form.confirm) { setSaving(false); return toast.error('Passwords do not match'); }
-        await supabase.functions.invoke('admin-security-manage', {
-          body: { action: 'set_password', user_id: selected.user_id, password: form.password },
+        await callAdmin({ action: 'set_password', user_id: selected.user_id, password: form.password },
         });
       }
       setSaving(false);
@@ -163,8 +174,7 @@ export function AdminUserManagement() {
   const toggleStatus = async (a: AdminRow) => {
     if (a.is_super_admin) return toast.error('Cannot disable super admin');
     const next = a.status === 'active' ? 'disabled' : 'active';
-    await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'update_admin', user_id: a.user_id, status: next },
+    await callAdmin({ action: 'update_admin', user_id: a.user_id, status: next },
     });
     toast.success(`Admin ${next}`); load();
   };
@@ -172,8 +182,7 @@ export function AdminUserManagement() {
   const removeAdmin = async (a: AdminRow) => {
     if (a.is_super_admin) return toast.error('Cannot delete super admin');
     if (!confirm(`Delete admin ${a.email}? This cannot be undone.`)) return;
-    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'delete_admin', user_id: a.user_id },
+    const { data, error } = await callAdmin({ action: 'delete_admin', user_id: a.user_id },
     });
     if (error || !data?.success) return toast.error((data?.error) || error?.message || 'Delete failed');
     toast.success('Admin deleted'); load();
@@ -181,8 +190,7 @@ export function AdminUserManagement() {
 
   const resetTotp = async (a: AdminRow) => {
     if (!confirm(`Reset Google Authenticator for ${a.email}?\nThey will scan a new QR on next login.`)) return;
-    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'reset_totp', user_id: a.user_id },
+    const { data, error } = await callAdmin({ action: 'reset_totp', user_id: a.user_id },
     });
     if (error || !data?.success) return toast.error((data?.error) || error?.message || 'Reset failed');
     toast.success('2FA reset — new QR on next login');
@@ -190,8 +198,7 @@ export function AdminUserManagement() {
 
   const rotateKey = async (a: AdminRow) => {
     if (!confirm(`Rotate URL login key for ${a.email}?\nOld key will stop working.`)) return;
-    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'rotate_url_key', user_id: a.user_id },
+    const { data, error } = await callAdmin({ action: 'rotate_url_key', user_id: a.user_id },
     });
     if (error || !data?.success) return toast.error((data?.error) || error?.message || 'Failed');
     toast.success(`New URL key: ${data.url_key}`); load();
@@ -209,7 +216,7 @@ export function AdminUserManagement() {
     });
     setPermissions(map); setPermOpen(true);
   };
-  const togglePerm = (m: string, act: string) => setPermissions(p => ({ ...p, [m]: { ...p[m], [act]: !p[m][act] } }));
+  const togglePerm = (m: string, act: string) => setPermissions(p => ({ ...p, [m]: { ...p[m], [act]: !p[m][act] })));
   const toggleAllModule = (m: string, on: boolean) => {
     setPermissions(p => ({ ...p, [m]: Object.fromEntries(ACTIONS.map(a => [a, on])) as any }));
   };
