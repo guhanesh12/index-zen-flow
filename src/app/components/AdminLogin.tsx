@@ -26,7 +26,7 @@ interface AdminLoginProps {
 // AdminUser type shape compatibility and is never used for authentication.
 const DEFAULT_ADMIN: AdminUser = {
   id: 'admin_001',
-  email: 'airoboengin@smilykat.com',
+  email: 'airoboengin@smilykart.com',
   password: '', // never stored in client — validated server-side
   role: {
     dashboard: true,
@@ -46,6 +46,15 @@ const DEFAULT_ADMIN: AdminUser = {
   },
   twoFactorEnabled: false,
 };
+
+// Admin auth ALWAYS talks to Supabase edge functions directly, never through the
+// custom api.indexpilotai.com proxy — that proxy caches an older /admin/login
+// build that bypasses 2FA. Using the Supabase URL guarantees we hit the current
+// deployed function.
+const SUPABASE_FN_BASE =
+  (import.meta as any).env?.VITE_SUPABASE_URL
+    ? `${(import.meta as any).env.VITE_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/make-server-c4d79cb7`
+    : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
 
 
 export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHotkey }: AdminLoginProps) {
