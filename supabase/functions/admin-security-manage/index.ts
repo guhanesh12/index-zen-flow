@@ -118,8 +118,136 @@ Deno.serve(async (req) => {
       return ok({ removed: true });
     }
 
+    // ---------- Admin management ops ----------
+    const randKey = (len = 12) => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let s = '';
+      const bytes = new Uint8Array(len);
+      crypto.getRandomValues(bytes);
+      for (let i = 0; i < len; i++) s += chars[bytes[i] % chars.length];
+      return s;
+    };
+
+    if (action === 'check_hotkey') {
+      const hk = String(body?.hotkey ?? '').trim();
+      const excludeUser = body?.exclude_user_id ? String(body.exclude_user_id) : null;
+      if (!hk) return bad(400, 'hotkey_required');
+      let q = supa.from('admin_profiles').select('user_id,email').ilike('hotkey', hk);
+      if (excludeUser) q = q.neq('user_id', excludeUser);
+      const { data } = await q.maybeSingle();
+      return ok({ available: !data, taken_by: data?.email || null });
+    }
+
+    if (action === 'create_admin') {
+      const email = String(body?.email || '').trim().toLowerCase();
+      const password = String(body?.password || '');
+      const full_name = String(body?.full_name || '').trim();
+      const mobile = String(body?.mobile || '').trim();
+      const employee_code = String(body?.employee_code || '').trim().toUpperCase();
+      const username = String(body?.username || '').trim().toLowerCase();
+      const hotkey = String(body?.hotkey || '').trim().toUpperCase();
+      const role_label = String(body?.role_label || 'admin').trim();
+      if (!email || !password || !hotkey || !username) return bad(400, 'missing_required_fields');
+      if (password.length < 8) return bad(400, 'password_too_short');
+
+      // Uniqueness pre-checks
+      const { data: dupHk } = await supa.from('admin_profiles').select('user_id').ilike('hotkey', hotkey).maybeSingle();
+      if (dupHk) return bad(409, 'hotkey_taken');
+      const { data: dupUn } = await supa.from('admin_profiles').select('user_id').ilike('username', username).maybeSingle();
+      if (dupUn) return bad(409, 'username_taken');
+      if (employee_code) {
+        const { data: dupEc } = await supa.from('admin_profiles').select('user_id').ilike('employee_code', employee_code).maybeSingle();
+        if (dupEc) return bad(409, 'employee_code_taken');
+      }
+
+      // Create auth user
+      const { data: created, error: cErr } = await supa.auth.admin.createUser({
+        email, password, email_confirm: true,
+        user_metadata: { full_name, mobile },
+      });
+      if (cErr || !created?.user) return bad(500, cErr?.message || 'auth_create_failed');
+      const uid = created.user.id;
+      const url_key = randKey(12);
+
+      const { error: pErr } = await supa.from('admin_profiles').upsert({
+        user_id: uid, email, full_name, mobile, employee_code, username, hotkey,
+        role_label, status: 'active', is_super_admin: false, url_key,
+      }, { onConflict: 'user_id' });
+      if (pErr) return bad(500, pErr.message);
+
+      // Grant admin role
+      await supa.from('user_roles').upsert({ user_id: uid, role: 'admin' }, { onConflict: 'user_id,role' });
+
+      return ok({ success: true, user_id: uid, url_key });
+    }
+
+    if (action === 'update_admin') {
+      const user_id = String(body?.user_id || '');
+      if (!user_id) return bad(400, 'user_id_required');
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      const fields = ['full_name', 'mobile', 'employee_code', 'username', 'role_label', 'hotkey', 'status'];
+      for (const f of fields) if (f in (body || {})) {
+        let v = body[f];
+        if (typeof v === 'string') v = v.trim();
+        if (f === 'hotkey' && typeof v === 'string') v = v.toUpperCase();
+        if (f === 'username' && typeof v === 'string') v = v.toLowerCase();
+        if (f === 'employee_code' && typeof v === 'string') v = v.toUpperCase();
+        patch[f] = v;
+      }
+
+      if (patch.hotkey) {
+        const { data: d } = await supa.from('admin_profiles').select('user_id').ilike('hotkey', String(patch.hotkey)).neq('user_id', user_id).maybeSingle();
+        if (d) return bad(409, 'hotkey_taken');
+      }
+      if (patch.username) {
+        const { data: d } = await supa.from('admin_profiles').select('user_id').ilike('username', String(patch.username)).neq('user_id', user_id).maybeSingle();
+        if (d) return bad(409, 'username_taken');
+      }
+      const { error } = await supa.from('admin_profiles').update(patch).eq('user_id', user_id);
+      if (error) return bad(500, error.message);
+      return ok({ success: true });
+    }
+
+    if (action === 'set_password') {
+      const user_id = String(body?.user_id || '');
+      const password = String(body?.password || '');
+      if (!user_id || password.length < 8) return bad(400, 'invalid_input');
+      const { error } = await supa.auth.admin.updateUserById(user_id, { password });
+      if (error) return bad(500, error.message);
+      return ok({ success: true });
+    }
+
+    if (action === 'reset_totp') {
+      const user_id = String(body?.user_id || '');
+      if (!user_id) return bad(400, 'user_id_required');
+      const { error } = await supa.from('admin_totp_secrets').delete().eq('user_id', user_id);
+      if (error) return bad(500, error.message);
+      return ok({ success: true });
+    }
+
+    if (action === 'rotate_url_key') {
+      const user_id = String(body?.user_id || '');
+      if (!user_id) return bad(400, 'user_id_required');
+      const url_key = randKey(12);
+      const { error } = await supa.from('admin_profiles').update({ url_key }).eq('user_id', user_id);
+      if (error) return bad(500, error.message);
+      return ok({ success: true, url_key });
+    }
+
+    if (action === 'delete_admin') {
+      const user_id = String(body?.user_id || '');
+      if (!user_id) return bad(400, 'user_id_required');
+      const { data: prof } = await supa.from('admin_profiles').select('is_super_admin').eq('user_id', user_id).maybeSingle();
+      if (prof?.is_super_admin) return bad(400, 'cannot_delete_super_admin');
+      await supa.from('admin_profiles').delete().eq('user_id', user_id);
+      await supa.from('user_roles').delete().eq('user_id', user_id).eq('role', 'admin');
+      await supa.auth.admin.deleteUser(user_id).catch(() => {});
+      return ok({ success: true });
+    }
+
     return bad(400, 'unknown_action');
   } catch (e) {
     return bad(500, (e as Error).message);
   }
 });
+

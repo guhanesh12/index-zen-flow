@@ -16,35 +16,53 @@ export type Database = {
     Tables: {
       admin_access_log: {
         Row: {
+          admin_email: string | null
+          admin_user_id: string | null
           allowed: boolean
           country_code: string | null
           created_at: string
           email: string | null
+          event: string | null
           id: string
           ip_address: string | null
           reason: string | null
+          session_id: string | null
+          url: string | null
+          url_key: string | null
           user_agent: string | null
           user_id: string | null
         }
         Insert: {
+          admin_email?: string | null
+          admin_user_id?: string | null
           allowed: boolean
           country_code?: string | null
           created_at?: string
           email?: string | null
+          event?: string | null
           id?: string
           ip_address?: string | null
           reason?: string | null
+          session_id?: string | null
+          url?: string | null
+          url_key?: string | null
           user_agent?: string | null
           user_id?: string | null
         }
         Update: {
+          admin_email?: string | null
+          admin_user_id?: string | null
           allowed?: boolean
           country_code?: string | null
           created_at?: string
           email?: string | null
+          event?: string | null
           id?: string
           ip_address?: string | null
           reason?: string | null
+          session_id?: string | null
+          url?: string | null
+          url_key?: string | null
           user_agent?: string | null
           user_id?: string | null
         }
@@ -175,46 +193,67 @@ export type Database = {
           created_at: string
           created_by: string | null
           email: string
+          employee_code: string | null
           full_name: string
+          hotkey: string | null
           id: string
+          is_online: boolean
           is_super_admin: boolean
           last_login_at: string | null
           last_login_ip: string | null
+          last_login_url: string | null
+          last_seen_at: string | null
           mobile: string | null
           role_label: string
           status: string
           updated_at: string
+          url_key: string | null
           user_id: string
+          username: string | null
         }
         Insert: {
           created_at?: string
           created_by?: string | null
           email: string
+          employee_code?: string | null
           full_name?: string
+          hotkey?: string | null
           id?: string
+          is_online?: boolean
           is_super_admin?: boolean
           last_login_at?: string | null
           last_login_ip?: string | null
+          last_login_url?: string | null
+          last_seen_at?: string | null
           mobile?: string | null
           role_label?: string
           status?: string
           updated_at?: string
+          url_key?: string | null
           user_id: string
+          username?: string | null
         }
         Update: {
           created_at?: string
           created_by?: string | null
           email?: string
+          employee_code?: string | null
           full_name?: string
+          hotkey?: string | null
           id?: string
+          is_online?: boolean
           is_super_admin?: boolean
           last_login_at?: string | null
           last_login_ip?: string | null
+          last_login_url?: string | null
+          last_seen_at?: string | null
           mobile?: string | null
           role_label?: string
           status?: string
           updated_at?: string
+          url_key?: string | null
           user_id?: string
+          username?: string | null
         }
         Relationships: []
       }
@@ -1449,6 +1488,10 @@ export type Database = {
         Returns: boolean
       }
       is_account_active: { Args: { _user_id: string }; Returns: boolean }
+      is_admin_hotkey_available: {
+        Args: { _exclude_user?: string; _hotkey: string }
+        Returns: boolean
+      }
       is_login_locked: {
         Args: { _identifier: string; _ip?: string }
         Returns: boolean
