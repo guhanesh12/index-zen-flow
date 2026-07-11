@@ -441,7 +441,12 @@ app.get("/make-server-c4d79cb7/health", (c) => {
 
 // 🔁 Replay today's signals through CURRENT strategy (admin-only diagnostic)
 app.get("/make-server-c4d79cb7/admin/replay-strategy-today", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) {
+    return c.json({ error: adminCheck.error?.message || 'Forbidden' }, adminCheck.error?.code || 403);
+  }
   try {
+
     const today = new Date(); today.setUTCHours(0,0,0,0);
     const url = `${Deno.env.get('SUPABASE_URL')}/rest/v1/trading_signals?select=created_at,index_name,signal_type,price,raw_data&created_at=gte.${today.toISOString()}&order=created_at.asc`;
     const res = await fetch(url, { headers: { apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!}` } });
