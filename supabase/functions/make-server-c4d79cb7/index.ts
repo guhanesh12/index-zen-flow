@@ -9335,145 +9335,206 @@ app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
 });
 
 // Admin login - returns JWT token for hardcoded admin credentials
+// ═══════════════════════════════════════════════════════════════
+// 🔐 ADMIN LOGIN — SERVER-SIDE 2FA ENFORCED
+// Step 1: /admin/login validates credentials but does NOT return an
+//   access token. It returns a short-lived challengeToken and either
+//   an otpauth URL (first-time setup) or a 2FA prompt.
+// Step 2: /admin/2fa/verify verifies the TOTP code server-side and
+//   only then signs in and returns the real Supabase access token.
+// TOTP secrets live in KV, never in localStorage.
+// ═══════════════════════════════════════════════════════════════
+
+const ADMIN_2FA_ENROLLED_PREFIX = 'admin_2fa_enrolled:';
+const ADMIN_2FA_CHALLENGE_PREFIX = 'admin_2fa_challenge:';
+const ADMIN_2FA_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function newChallengeToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function verifyTotpServerSide(secretBase32: string, code: string, label: string): boolean {
+  try {
+    const totp = new OTPAuth.TOTP({
+      issuer: 'IndexpilotAI',
+      label,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(secretBase32),
+    });
+    // window: 1 → tolerate ±30s clock skew
+    return totp.validate({ token: (code || '').trim(), window: 1 }) !== null;
+  } catch (e) {
+    console.error('[ADMIN 2FA] verify error', e);
+    return false;
+  }
+}
+
 app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
     const { email, password } = await c.req.json();
-    
-    // Hardcoded admin credentials
-    const DEFAULT_ADMIN_EMAIL = 'airoboengin@smilykat.com';
-    const DEFAULT_ADMIN_PASSWORD = '9600727185Aa@';
-    
-    // Validate credentials
-    if (email !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
+
+    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykat.com').trim().toLowerCase();
+    const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+
+    if (!DEFAULT_ADMIN_PASSWORD) {
+      console.error('[ADMIN LOGIN] DEFAULT_ADMIN_PASSWORD env var is not configured');
+      return c.json({ success: false, message: 'Admin login not configured' }, 500);
+    }
+
+    const emailLower = String(email || '').trim().toLowerCase();
+    if (emailLower !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
-    
-    // Generate unique code for this login session (8 character alphanumeric)
-    const uniqueCode = Array.from({ length: 8 }, () => 
+
+    // Look up enrolled 2FA secret (server-side only)
+    const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${emailLower}`);
+    const challengeToken = newChallengeToken();
+
+    if (enrolledSecret) {
+      await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
+        email: emailLower,
+        secret: enrolledSecret,
+        pending: false,
+        expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
+      }));
+      return c.json({
+        success: true,
+        requires2fa: true,
+        setupRequired: false,
+        challengeToken,
+      });
+    }
+
+    // First-time setup: generate secret server-side, store pending on challenge only
+    const newSecret = new OTPAuth.Secret({ size: 20 });
+    const totp = new OTPAuth.TOTP({
+      issuer: 'IndexpilotAI',
+      label: emailLower,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: newSecret,
+    });
+    const otpauthUrl = totp.toString();
+    await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
+      email: emailLower,
+      secret: newSecret.base32,
+      pending: true,
+      expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
+    }));
+
+    return c.json({
+      success: true,
+      requires2fa: true,
+      setupRequired: true,
+      challengeToken,
+      otpauthUrl,
+      // Secret is returned ONCE for user to type into authenticator manually if
+      // QR scanning fails. It is not usable without also knowing the admin
+      // credentials that produced this challenge.
+      secretBase32: newSecret.base32,
+    });
+  } catch (error: any) {
+    console.error('Admin login error:', error);
+    return c.json({ success: false, message: error.message || 'Login failed' }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
+  try {
+    const { challengeToken, code } = await c.req.json();
+    if (!challengeToken || !code) {
+      return c.json({ success: false, message: 'challengeToken and code required' }, 400);
+    }
+    const raw = await kv.get(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
+    if (!raw) {
+      return c.json({ success: false, message: 'Challenge expired. Please log in again.' }, 401);
+    }
+    const challenge = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!challenge?.email || !challenge?.secret || !challenge?.expiresAt || challenge.expiresAt < Date.now()) {
+      await kv.del(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
+      return c.json({ success: false, message: 'Challenge expired. Please log in again.' }, 401);
+    }
+
+    const ok = verifyTotpServerSide(challenge.secret, String(code), challenge.email);
+    if (!ok) {
+      return c.json({ success: false, message: 'Invalid verification code' }, 401);
+    }
+
+    // Consume challenge, promote pending secret to enrolled
+    await kv.del(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
+    if (challenge.pending) {
+      await kv.set(`${ADMIN_2FA_ENROLLED_PREFIX}${challenge.email}`, challenge.secret);
+    }
+
+    const DEFAULT_ADMIN_EMAIL = (Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykat.com').trim().toLowerCase();
+    const DEFAULT_ADMIN_PASSWORD = Deno.env.get('DEFAULT_ADMIN_PASSWORD') || '';
+    if (challenge.email !== DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
+      return c.json({ success: false, message: 'Admin session unavailable' }, 500);
+    }
+
+    // Now — and only now — sign in and return the access token
+    let signIn = await supabase.auth.signInWithPassword({
+      email: DEFAULT_ADMIN_EMAIL,
+      password: DEFAULT_ADMIN_PASSWORD,
+    });
+    if (!signIn?.data?.session?.access_token) {
+      const { error: createError } = await supabase.auth.admin.createUser({
+        email: DEFAULT_ADMIN_EMAIL,
+        password: DEFAULT_ADMIN_PASSWORD,
+        email_confirm: true,
+        user_metadata: { name: 'Platform Admin', role: 'admin' },
+      });
+      if (createError && !String(createError.message || '').toLowerCase().includes('already')) {
+        console.error('[ADMIN 2FA VERIFY] createUser failed', createError);
+        return c.json({ success: false, message: 'Failed to authenticate admin' }, 500);
+      }
+      signIn = await supabase.auth.signInWithPassword({
+        email: DEFAULT_ADMIN_EMAIL,
+        password: DEFAULT_ADMIN_PASSWORD,
+      });
+    }
+    if (!signIn?.data?.session?.access_token) {
+      return c.json({ success: false, message: 'Failed to obtain admin session' }, 500);
+    }
+
+    const uniqueCode = Array.from({ length: 8 }, () =>
       'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
     ).join('');
-    
-    // Store unique code in KV with timestamp (expires in 24 hours)
-    const codeData = {
+    await kv.set(`admin_unique_code_${uniqueCode}`, JSON.stringify({
       code: uniqueCode,
       email: DEFAULT_ADMIN_EMAIL,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    };
-    await kv.set(`admin_unique_code_${uniqueCode}`, JSON.stringify(codeData));
-    
-    // Also store by email for lookup
-    await kv.set(`admin_current_code_${email}`, uniqueCode);
-    
-    console.log(`🔐 Generated unique code for admin: ${uniqueCode}`);
-    
-    // Get or create the admin user in Supabase
-    // First try to sign in with Supabase
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-    });
-    
-    if (signInData?.session?.access_token) {
-      // Successfully signed in with existing account
-      console.log(`✅ Admin logged in: ${email}`);
-      return c.json({
-        success: true,
-        accessToken: signInData.session.access_token,
-        uniqueCode: uniqueCode, // Return unique code to client
-        admin: {
-          id: 'admin_001',
-          email: DEFAULT_ADMIN_EMAIL,
-          role: {
-            dashboard: true,
-            users: true,
-            transactions: true,
-            instruments: true,
-            journals: true,
-            settings: true,
-            support: true,
-            landing: true,
-            adminUsers: true,
-            adminManagement: true, // Permission to create and manage admin users
-          },
-          hotkey: {
-            windows: 'Control+Alt+GUHAN',
-            mac: 'Meta+Alt+GUHAN',
-          },
-          twoFactorEnabled: false,
-        }
-      });
-    }
-    
-    // If sign in failed, try to create the user
-    const { data: userData, error: createError } = await supabase.auth.admin.createUser({
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-      email_confirm: true, // Auto-confirm
-      user_metadata: {
-        name: 'Platform Admin',
-        role: 'admin'
-      }
-    });
-    
-    if (createError) {
-      console.error('Error creating admin user:', createError);
-      return c.json({ 
-        success: false, 
-        message: 'Failed to authenticate admin user' 
-      }, 500);
-    }
-    
-    // Now sign in with the newly created user
-    const { data: newSignInData, error: newSignInError } = await supabase.auth.signInWithPassword({
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-    });
-    
-    if (!newSignInData?.session?.access_token) {
-      console.error('Error signing in new admin:', newSignInError);
-      return c.json({ 
-        success: false, 
-        message: 'Failed to get access token' 
-      }, 500);
-    }
-    
-    console.log(`✅ Admin user created and logged in: ${email}`);
+    }));
+    await kv.set(`admin_current_code_${DEFAULT_ADMIN_EMAIL}`, uniqueCode);
+
     return c.json({
       success: true,
-      accessToken: newSignInData.session.access_token,
-      uniqueCode: uniqueCode, // Return unique code to client
+      accessToken: signIn.data.session.access_token,
+      uniqueCode,
       admin: {
         id: 'admin_001',
         email: DEFAULT_ADMIN_EMAIL,
         role: {
-          dashboard: true,
-          users: true,
-          transactions: true,
-          instruments: true,
-          journals: true,
-          settings: true,
-          support: true,
-          landing: true,
-          adminUsers: true,
-          adminManagement: true, // Permission to create and manage admin users
+          dashboard: true, users: true, transactions: true, instruments: true,
+          journals: true, settings: true, support: true, landing: true,
+          adminUsers: true, adminManagement: true,
         },
-        hotkey: {
-          windows: 'Control+Alt+GUHAN',
-          mac: 'Meta+Alt+GUHAN',
-        },
-        twoFactorEnabled: false,
-      }
+        hotkey: { windows: 'Control+Alt+GUHAN', mac: 'Meta+Alt+GUHAN' },
+        twoFactorEnabled: true,
+      },
     });
-    
   } catch (error: any) {
-    console.error('Admin login error:', error);
-    return c.json({ 
-      success: false, 
-      message: error.message || 'Login failed' 
-    }, 500);
+    console.error('Admin 2FA verify error:', error);
+    return c.json({ success: false, message: error.message || 'Verification failed' }, 500);
   }
 });
+
 
 // Admin hotkey verification endpoint
 app.post("/make-server-c4d79cb7/admin/verify-hotkey", async (c) => {
