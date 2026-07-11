@@ -314,6 +314,33 @@ Deno.serve(async (req) => {
       return ok({ success: true });
     }
 
+    if (action === 'broadcast_mobile_update') {
+      // Save first, then broadcast via admin-push-send using INTERNAL_SYNC_KEY
+      const cfg = body?.config || {};
+      const { error: upErr } = await supa.from('mobile_app_config').upsert({
+        id: 1, ...cfg, updated_by: actorUserId, updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (upErr) return bad(500, upErr.message);
+
+      const INTERNAL = Deno.env.get('INTERNAL_SYNC_KEY') || '';
+      const resp = await fetch(`${SUPA_URL}/functions/v1/admin-push-send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-internal-key': INTERNAL,
+          'Authorization': `Bearer ${SERVICE_KEY}`,
+        },
+        body: JSON.stringify({
+          title: cfg.update_title || 'New Update Available',
+          description: `${cfg.update_message || ''}\n\nLatest: Android ${cfg.android_current_version} • iOS ${cfg.ios_current_version}`,
+          targetUrl: 'app://check-update',
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) return bad(resp.status, json?.message || 'broadcast_failed');
+      return ok(json);
+    }
+
     return bad(400, 'unknown_action');
   } catch (e) {
     return bad(500, (e as Error).message);
