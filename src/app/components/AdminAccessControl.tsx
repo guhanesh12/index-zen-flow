@@ -24,6 +24,33 @@ interface Config {
 interface IpRow { id: string; ip_address: string; label: string | null; created_at: string }
 interface LogRow { id: string; ip_address: string | null; country_code: string | null; allowed: boolean; reason: string | null; email: string | null; created_at: string }
 
+const getAdminSessionCode = () => {
+  try {
+    const adminRaw = sessionStorage.getItem('admin_user');
+    if (adminRaw) {
+      const admin = JSON.parse(adminRaw);
+      if (admin?.uniqueCode) return String(admin.uniqueCode);
+    }
+    const match = window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/);
+    return match?.[1] || sessionStorage.getItem('admin_unique_code') || '';
+  } catch {
+    return sessionStorage.getItem('admin_unique_code') || '';
+  }
+};
+
+const callAdminSecurity = (body: Record<string, unknown>) => {
+  const sessionCode = getAdminSessionCode();
+  const accessToken = sessionStorage.getItem('admin_access_token');
+  return supabase.functions.invoke('admin-security-manage', {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    body: {
+      url_key: sessionCode,
+      admin_code: sessionCode,
+      ...body,
+    },
+  });
+};
+
 export function AdminAccessControl() {
   const [cfg, setCfg] = useState<Config | null>(null);
   const [ips, setIps] = useState<IpRow[]>([]);
@@ -38,9 +65,7 @@ export function AdminAccessControl() {
   async function load() {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-        body: { action: 'load' },
-      });
+      const { data, error } = await callAdminSecurity({ action: 'load' });
       if (error) throw new Error(error.message);
       if ((data as any)?.error) throw new Error((data as any).error);
       const d = data as { cfg: Config; ips: IpRow[]; logs: LogRow[] };
@@ -75,9 +100,7 @@ export function AdminAccessControl() {
   async function saveConfig(patch: Partial<Config>) {
     if (!cfg) return;
     setSaving(true);
-    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'save_config', patch },
-    });
+    const { data, error } = await callAdminSecurity({ action: 'save_config', patch });
     setSaving(false);
     if (error || (data as any)?.error) {
       toast.error('Failed to save: ' + (error?.message ?? (data as any)?.error));
@@ -90,9 +113,7 @@ export function AdminAccessControl() {
   async function addIp(ip: string, label?: string) {
     const v = ip.trim();
     if (!v) return;
-    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'add_ip', ip: v, label: label?.trim() || null },
-    });
+    const { data, error } = await callAdminSecurity({ action: 'add_ip', ip: v, label: label?.trim() || null });
     if (error || (data as any)?.error) { toast.error(error?.message ?? (data as any)?.error); return; }
     setNewIp(''); setNewIpLabel('');
     toast.success('IP added to allowlist');
@@ -100,9 +121,7 @@ export function AdminAccessControl() {
   }
 
   async function removeIp(id: string) {
-    const { data, error } = await supabase.functions.invoke('admin-security-manage', {
-      body: { action: 'remove_ip', id },
-    });
+    const { data, error } = await callAdminSecurity({ action: 'remove_ip', id });
     if (error || (data as any)?.error) { toast.error(error?.message ?? (data as any)?.error); return; }
     toast.success('Removed'); load();
   }
