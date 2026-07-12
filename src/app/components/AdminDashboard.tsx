@@ -170,14 +170,12 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     );
   }
 
-  // DB-driven tab visibility. Falls back to the legacy role flag on the admin
-  // record so pre-existing installs keep working until permissions are set.
+  // DB-driven tab visibility. When no rows are configured yet, everything is
+  // allowed (backwards compatible) — configure it in Admin Management.
   const tabs = useAllowedTabs();
-  const canAccessTab = (tab: keyof AdminUser['role']) => {
+  const canAccessTab = (tab: string) => {
     if (tabs.loading) return false;
-    if (tabs.isSuperAdmin) return true;
-    if (tabs.allowMain(tab as string)) return true;
-    return !!currentAdmin.role[tab] && tabs.allowMain(tab as string);
+    return tabs.allowMain(tab);
   };
 
   return (
