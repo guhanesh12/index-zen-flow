@@ -277,13 +277,13 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
               <CardContent>
                 <form onSubmit={handleCredentialsSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="text-slate-300">Email</Label>
+                    <Label htmlFor="email" className="text-slate-300">Email or Username</Label>
                     <Input
                       id="email"
-                      type="email"
+                      type="text"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@example.com"
+                      placeholder="admin@example.com or username"
                       className="bg-slate-800 border-slate-700 text-white"
                       required
                     />

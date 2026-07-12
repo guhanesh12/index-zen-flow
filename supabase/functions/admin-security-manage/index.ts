@@ -311,8 +311,13 @@ Deno.serve(async (req) => {
     if (action === 'reset_totp') {
       const user_id = String(body?.user_id || '');
       if (!user_id) return bad(400, 'user_id_required');
+      const { data: prof } = await supa.from('admin_profiles').select('email').eq('user_id', user_id).maybeSingle();
       const { error } = await supa.from('admin_totp_secrets').delete().eq('user_id', user_id);
       if (error) return bad(500, error.message);
+      const email = String(prof?.email || '').trim().toLowerCase();
+      if (email) {
+        await supa.from('kv_store_c4d79cb7').delete().eq('key', `admin_2fa_enrolled:${email}`);
+      }
       return ok({ success: true });
     }
 
