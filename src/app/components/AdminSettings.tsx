@@ -259,6 +259,8 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const visibleSettingsSubTabs = SETTINGS_SUB_TABS.filter((key) => showSub(key));
+
   const handleAddAdmin = () => {
     if (!newAdmin.email || !newAdmin.password) {
       alert('Please fill all required fields');
@@ -469,6 +471,18 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             </TabsTrigger>
           )}
         </TabsList>
+
+        {tabPerms.loading && (
+          <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">
+            Loading settings access...
+          </div>
+        )}
+
+        {!tabPerms.loading && visibleSettingsSubTabs.length === 0 && (
+          <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">
+            No settings sections are assigned to this account.
+          </div>
+        )}
 
 
         {/* API Keys Tab */}
