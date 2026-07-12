@@ -239,19 +239,23 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 Transactions
               </TabsTrigger>
             )}
-            <TabsTrigger value="support" className="data-[state=active]:bg-blue-600 relative">
-              <MessageSquare className="size-4 mr-2" />
-              Support
-              {pendingSupportCount > 0 && (
-                <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                  {pendingSupportCount}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="landing" className="data-[state=active]:bg-blue-600">
-              <Globe className="size-4 mr-2" />
-              Landing Page
-            </TabsTrigger>
+            {canAccessTab('support') && (
+              <TabsTrigger value="support" className="data-[state=active]:bg-blue-600 relative">
+                <MessageSquare className="size-4 mr-2" />
+                Support
+                {pendingSupportCount > 0 && (
+                  <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                    {pendingSupportCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
+            {canAccessTab('landing') && (
+              <TabsTrigger value="landing" className="data-[state=active]:bg-blue-600">
+                <Globe className="size-4 mr-2" />
+                Landing Page
+              </TabsTrigger>
+            )}
             {canAccessTab('adminUsers') && (
               <TabsTrigger value="adminUsers" className="data-[state=active]:bg-blue-600">
                 <Activity className="size-4 mr-2" />
@@ -270,22 +274,30 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 Settings
               </TabsTrigger>
             )}
-            <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
-              <Gift className="size-4 mr-2" />
-              Referrals
-            </TabsTrigger>
-            <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
-              <Mail className="size-4 mr-2" />
-              Communication
-            </TabsTrigger>
-            <TabsTrigger value="mobile" className="data-[state=active]:bg-blue-600">
-              <Smartphone className="size-4 mr-2" />
-              Mobile App
-            </TabsTrigger>
-            <TabsTrigger value="audit" className="data-[state=active]:bg-blue-600">
-              <ScrollText className="size-4 mr-2" />
-              Audit Log
-            </TabsTrigger>
+            {canAccessTab('referrals') && (
+              <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
+                <Gift className="size-4 mr-2" />
+                Referrals
+              </TabsTrigger>
+            )}
+            {canAccessTab('communication') && (
+              <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
+                <Mail className="size-4 mr-2" />
+                Communication
+              </TabsTrigger>
+            )}
+            {canAccessTab('mobile') && (
+              <TabsTrigger value="mobile" className="data-[state=active]:bg-blue-600">
+                <Smartphone className="size-4 mr-2" />
+                Mobile App
+              </TabsTrigger>
+            )}
+            {canAccessTab('audit') && (
+              <TabsTrigger value="audit" className="data-[state=active]:bg-blue-600">
+                <ScrollText className="size-4 mr-2" />
+                Audit Log
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {canAccessTab('dashboard') && (
