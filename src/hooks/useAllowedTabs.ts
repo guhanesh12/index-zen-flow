@@ -36,6 +36,7 @@ export function useAllowedTabs(): AllowedTabs {
   const [loading, setLoading]     = useState(true);
   const [isSuper, setIsSuper]     = useState(false);
   const [allowed, setAllowed]     = useState<Set<string>>(new Set());
+  const [subConfiguredParents, setSubConfiguredParents] = useState<Set<string>>(new Set());
   const [hasConfig, setHasConfig] = useState(false);
   const [tick, setTick]           = useState(0);
 
@@ -61,7 +62,7 @@ export function useAllowedTabs(): AllowedTabs {
           uid = data.user?.id || null;
           email = String(data.user?.email || '').trim().toLowerCase() || email;
         }
-        if (!uid) { if (!cancelled) { setAllowed(new Set()); setIsSuper(false); setHasConfig(false); setLoading(false); } return; }
+        if (!uid) { if (!cancelled) { setAllowed(new Set()); setSubConfiguredParents(new Set()); setIsSuper(false); setHasConfig(false); setLoading(false); } return; }
 
         // The platform owner must never be restricted by stale/missing rows.
         if (email === PERMANENT_SUPER_ADMIN_EMAIL) {
@@ -69,6 +70,7 @@ export function useAllowedTabs(): AllowedTabs {
             setIsSuper(true);
             setHasConfig(true);
             setAllowed(new Set(allTabModules()));
+            setSubConfiguredParents(new Set(TAB_TREE.map((tab) => tab.key)));
             setLoading(false);
           }
           return;
@@ -91,6 +93,7 @@ export function useAllowedTabs(): AllowedTabs {
         setIsSuper(superAdmin);
         setHasConfig(!!data?.has_config);
         setAllowed(new Set<string>(superAdmin ? allTabModules() : ((data?.allowed as string[]) || [])));
+        setSubConfiguredParents(new Set<string>(superAdmin ? TAB_TREE.map((tab) => tab.key) : ((data?.sub_configured_parents as string[]) || [])));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -113,7 +116,7 @@ export function useAllowedTabs(): AllowedTabs {
     hasAnyConfig: hasConfig,
     // Non-super admins see only explicitly assigned tabs. No config = no tabs.
     allowMain: (k: string) => isSuper || allowed.has(tabModule(k)),
-    allowSub:  (p: string, s: string) => isSuper || allowed.has(subTabModule(p, s)),
+    allowSub:  (p: string, s: string) => isSuper || allowed.has(subTabModule(p, s)) || (!subConfiguredParents.has(p) && allowed.has(tabModule(p))),
     refresh:   () => setTick(t => t + 1),
   };
 }

@@ -390,10 +390,16 @@ Deno.serve(async (req) => {
         const module = String(r.module || '');
         return module.startsWith('tab:') ? module : `tab:${module}`;
       });
+      const subConfiguredParents = Array.from(new Set(relevantRows
+        .map((r: any) => String(r?.module || ''))
+        .filter((module) => module.startsWith('tab:') && module.slice(4).includes(':'))
+        .map((module) => module.slice(4).split(':')[0])
+        .filter(Boolean)));
       return ok({
         is_super_admin: isSuper,
         has_config: isSuper || relevantRows.length > 0,
         allowed,
+        sub_configured_parents: subConfiguredParents,
       });
     }
 
