@@ -364,9 +364,51 @@ Deno.serve(async (req) => {
       // on the logged-in admin's dashboard (so it works without a supabase
       // auth session, since admin login stores its token in sessionStorage
       // rather than calling supabase.auth.setSession()).
-      const user_id = String(body?.user_id || actorUserId || '');
-      if (!user_id) return bad(400, 'user_id_required');
       const bodyEmail = String(body?.email || '').trim().toLowerCase();
+      const wantsCurrentAdmin = body?.self === true;
+      const routeKey = String(body?.url_key || body?.admin_code || '').trim();
+      let targetUserId = wantsCurrentAdmin ? actorUserId : String(body?.user_id || actorUserId || '');
+      let targetEmail = wantsCurrentAdmin ? (actorEmail || bodyEmail) : bodyEmail;
+
+      // For current-dashboard permission checks, trust the verified admin route
+      // identity over any regular Supabase session token. This prevents a normal
+      // app session from restricting the permanent super-admin route to one tab.
+      if (wantsCurrentAdmin && routeKey) {
+        const { data: routeProfile } = await supa
+          .from('admin_profiles')
+          .select('user_id,email,status,is_super_admin')
+          .eq('url_key', routeKey)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (routeProfile) {
+          targetUserId = routeProfile.user_id;
+          targetEmail = String(routeProfile.email || targetEmail || '').trim().toLowerCase();
+        } else {
+          const { data: sessionRow } = await supa
+            .from('kv_store_c4d79cb7')
+            .select('value')
+            .eq('key', `admin_unique_code_${routeKey}`)
+            .maybeSingle();
+          const raw = sessionRow?.value;
+          const session = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          if (session?.expiresAt && new Date(session.expiresAt).getTime() > Date.now()) {
+            targetUserId = session.userId || targetUserId;
+            targetEmail = String(session.email || targetEmail || '').trim().toLowerCase();
+          }
+        }
+      }
+
+      if (targetEmail === PERMANENT_SUPER_ADMIN_EMAIL) {
+        return ok({
+          is_super_admin: true,
+          has_config: true,
+          allowed: [],
+          sub_configured_parents: [],
+        });
+      }
+
+      const user_id = String(targetUserId || body?.user_id || '');
+      if (!user_id) return bad(400, 'user_id_required');
       const { data: prof } = await supa
         .from('admin_profiles')
         .select('email,is_super_admin,status')

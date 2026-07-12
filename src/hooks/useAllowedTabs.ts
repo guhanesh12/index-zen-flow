@@ -46,6 +46,10 @@ export function useAllowedTabs(): AllowedTabs {
     (async () => {
       setLoading(true);
       try {
+        const url_key =
+          sessionStorage.getItem('admin_unique_code') ||
+          (window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/)?.[1] ?? '');
+
         // Resolve current admin user_id — prefer sessionStorage.admin_user,
         // fall back to the authenticated supabase user.
         let uid: string | null = null;
@@ -57,13 +61,18 @@ export function useAllowedTabs(): AllowedTabs {
             uid = j?.user_id || j?.id || null;
             email = String(j?.email || '').trim().toLowerCase() || null;
           }
+          if (!email) {
+            email = String(localStorage.getItem('current_admin_email') || '').trim().toLowerCase() || null;
+          }
         } catch { /* ignore */ }
-        if (!uid) {
+        // On admin hotkey routes the regular Supabase auth session can belong to
+        // a normal app user. Do NOT use it to decide admin tab permissions.
+        if (!uid && !url_key) {
           const { data } = await supabase.auth.getUser();
           uid = data.user?.id || null;
           email = String(data.user?.email || '').trim().toLowerCase() || email;
         }
-        if (!uid) { if (!cancelled) { setAllowed(new Set()); setSubConfiguredParents(new Set()); setIsSuper(false); setHasConfig(false); setLoading(false); } return; }
+        if (!uid && !url_key) { if (!cancelled) { setAllowed(new Set()); setSubConfiguredParents(new Set()); setIsSuper(false); setHasConfig(false); setLoading(false); } return; }
 
         // The platform owner must never be restricted by stale/missing rows.
         if (email === PERMANENT_SUPER_ADMIN_EMAIL) {
@@ -77,14 +86,10 @@ export function useAllowedTabs(): AllowedTabs {
           return;
         }
 
-        const url_key =
-          sessionStorage.getItem('admin_unique_code') ||
-          (window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/)?.[1] ?? '');
-
         const token = sessionStorage.getItem('admin_access_token') || undefined;
         const { data, error } = await supabase.functions.invoke('admin-security-manage', {
           headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          body: { action: 'get_tab_access', user_id: uid, email, url_key, admin_code: url_key },
+          body: { action: 'get_tab_access', self: true, user_id: uid || undefined, email, url_key, admin_code: url_key },
         });
         if (error) {
           console.warn('useAllowedTabs: get_tab_access failed', error.message);
