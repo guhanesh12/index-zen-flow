@@ -12,14 +12,18 @@ import { Gift, Settings as SettingsIcon, Trophy, List, Save, Users, IndianRupee,
 import { toast } from 'sonner';
 import { projectId } from '@/utils-ext/supabase/info';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
+import { useAllowedTabs } from '@/hooks/useAllowedTabs';
 
 interface Props {
   accessToken: string;
 }
 
 const fmt = (n: number) => `₹${(Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+const REFERRAL_SUB_TABS = ['settings', 'list', 'leaderboard'];
 
 export function AdminReferrals({ accessToken }: Props) {
+  const tabPerms = useAllowedTabs();
+  const [activeSubTab, setActiveSubTab] = useState('settings');
   const serverUrl = getServerUrl(projectId);
   const [stats, setStats] = useState<any>({ total: 0, successful: 0, pending: 0, totalPayout: 0 });
   const [settings, setSettings] = useState<any>({
@@ -55,6 +59,15 @@ export function AdminReferrals({ accessToken }: Props) {
   };
 
   useEffect(() => { load(); }, []);
+
+  const showSub = (key: string) => tabPerms.loading ? false : tabPerms.allowSub('referrals', key);
+
+  useEffect(() => {
+    if (tabPerms.loading) return;
+    if (showSub(activeSubTab)) return;
+    const firstAllowed = REFERRAL_SUB_TABS.find((key) => tabPerms.allowSub('referrals', key));
+    if (firstAllowed) setActiveSubTab(firstAllowed);
+  }, [tabPerms.loading, tabPerms.isSuperAdmin, tabPerms.hasAnyConfig, activeSubTab]);
 
   const save = async () => {
     setSaving(true);
@@ -124,14 +137,14 @@ export function AdminReferrals({ accessToken }: Props) {
         })}
       </div>
 
-      <Tabs defaultValue="settings" className="w-full">
+      <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
         <TabsList className="bg-zinc-900 border border-zinc-800">
-          <TabsTrigger value="settings" className="gap-2"><SettingsIcon className="w-4 h-4" /> Settings</TabsTrigger>
-          <TabsTrigger value="list" className="gap-2"><List className="w-4 h-4" /> Referrals</TabsTrigger>
-          <TabsTrigger value="leaderboard" className="gap-2"><Trophy className="w-4 h-4" /> Leaderboard</TabsTrigger>
+          {showSub('settings') && <TabsTrigger value="settings" className="gap-2"><SettingsIcon className="w-4 h-4" /> Settings</TabsTrigger>}
+          {showSub('list') && <TabsTrigger value="list" className="gap-2"><List className="w-4 h-4" /> Referrals</TabsTrigger>}
+          {showSub('leaderboard') && <TabsTrigger value="leaderboard" className="gap-2"><Trophy className="w-4 h-4" /> Leaderboard</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="settings" className="mt-4">
+        {showSub('settings') && <TabsContent value="settings" className="mt-4">
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader>
               <CardTitle className="text-white">Reward Configuration</CardTitle>
@@ -188,9 +201,9 @@ export function AdminReferrals({ accessToken }: Props) {
               </Button>
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="list" className="mt-4">
+        {showSub('list') && <TabsContent value="list" className="mt-4">
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -248,9 +261,9 @@ export function AdminReferrals({ accessToken }: Props) {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="leaderboard" className="mt-4">
+        {showSub('leaderboard') && <TabsContent value="leaderboard" className="mt-4">
           <Card className="bg-zinc-900 border-zinc-800">
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
@@ -286,7 +299,7 @@ export function AdminReferrals({ accessToken }: Props) {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
     </div>
   );

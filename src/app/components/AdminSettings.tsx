@@ -58,10 +58,16 @@ interface AdminSettingsProps {
   onAdminUpdate: (admin: AdminUser) => void;
 }
 
+const SETTINGS_SUB_TABS = [
+  'api-keys', 'notifications', 'push-notifications', 'security', 'activity-monitor',
+  'access-control', 'monitoring', 'system-health', 'backend', 'brevo', 'vps-power', 'app-update',
+];
+
 export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpdate }: AdminSettingsProps) {
   // Hide sub-tabs the logged-in admin isn't allowed to see.
   const tabPerms = useAllowedTabs();
   const showSub = (key: string) => tabPerms.loading ? false : tabPerms.allowSub('settings', key);
+  const [activeSettingsSubTab, setActiveSettingsSubTab] = useState('api-keys');
   const [settings, setSettings] = useState<PlatformSettings>({
     twoFactorApiKey: '',
     razorpayKeyId: '',
@@ -130,6 +136,13 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
     loadSettings();
     loadAdmins();
   }, []);
+
+  useEffect(() => {
+    if (tabPerms.loading) return;
+    if (showSub(activeSettingsSubTab)) return;
+    const firstAllowed = SETTINGS_SUB_TABS.find((key) => tabPerms.allowSub('settings', key));
+    if (firstAllowed) setActiveSettingsSubTab(firstAllowed);
+  }, [tabPerms.loading, tabPerms.isSuperAdmin, tabPerms.hasAnyConfig, activeSettingsSubTab]);
 
   const loadSettings = async () => {
     try {
@@ -377,7 +390,7 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
         </div>
       </div>
 
-      <Tabs defaultValue="api-keys" className="space-y-6">
+      <Tabs value={activeSettingsSubTab} onValueChange={setActiveSettingsSubTab} className="space-y-6">
         <TabsList className="bg-slate-800 border border-blue-500/20">
           {showSub('api-keys') && (
             <TabsTrigger value="api-keys">
