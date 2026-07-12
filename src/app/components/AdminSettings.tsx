@@ -65,7 +65,11 @@ const SETTINGS_SUB_TABS = [
 
 export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpdate }: AdminSettingsProps) {
   // Hide sub-tabs the logged-in admin isn't allowed to see.
-  const tabPerms = useAllowedTabs();
+  const tabPerms = useAllowedTabs({
+    enabled: !!currentAdmin,
+    userId: currentAdmin?.user_id || currentAdmin?.id || null,
+    email: currentAdmin?.email || null,
+  });
   const showSub = (key: string) => tabPerms.loading ? false : tabPerms.allowSub('settings', key);
   const [activeSettingsSubTab, setActiveSettingsSubTab] = useState('api-keys');
   const [settings, setSettings] = useState<PlatformSettings>({
