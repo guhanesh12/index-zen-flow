@@ -92,6 +92,13 @@ export function AdminUserManagement() {
   const [form, setForm] = useState({ ...empty });
   const [hkCheck, setHkCheck] = useState<{ state: 'idle' | 'checking' | 'ok' | 'taken'; msg?: string }>({ state: 'idle' });
   const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>({});
+  // Tab visibility toggles used inside the Create/Edit dialog.
+  // Shape: { mainKey: boolean, `${mainKey}:${subKey}`: boolean }
+  const [tabAccess, setTabAccess] = useState<Record<string, boolean>>(() => {
+    const seed: Record<string, boolean> = {};
+    TAB_TREE.forEach(t => { seed[t.key] = true; t.subs.forEach(s => { seed[`${t.key}:${s.key}`] = true; }); });
+    return seed;
+  });
   const [saving, setSaving] = useState(false);
   const [activity, setActivity] = useState<any[]>([]);
 
