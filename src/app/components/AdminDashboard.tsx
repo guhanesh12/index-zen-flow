@@ -53,7 +53,11 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
   const [realAccessToken, setRealAccessToken] = useState(accessToken);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   // Must be called unconditionally (rules of hooks) — before any early returns below.
-  const tabs = useAllowedTabs();
+  const tabs = useAllowedTabs({
+    enabled: isAuthenticated && !!currentAdmin,
+    userId: currentAdmin?.user_id || currentAdmin?.id || null,
+    email: currentAdmin?.email || null,
+  });
 
   // Update realAccessToken when accessToken changes
   useEffect(() => {
