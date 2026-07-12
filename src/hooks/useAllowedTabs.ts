@@ -5,6 +5,7 @@ import { tabModule, subTabModule } from '@/app/adminTabs';
 interface AllowedTabs {
   loading: boolean;
   isSuperAdmin: boolean;
+  hasAnyConfig: boolean;
   allowMain: (key: string) => boolean;
   allowSub:  (parent: string, sub: string) => boolean;
   refresh:   () => void;
