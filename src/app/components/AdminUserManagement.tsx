@@ -14,7 +14,9 @@ import { toast } from 'sonner';
 import {
   Loader2, Plus, Edit, Trash2, RotateCcw, Shield, ShieldCheck, Crown, Copy,
   CheckCircle2, XCircle, KeyRound, Fingerprint, Link2, Search, RefreshCw, Circle,
+  LayoutGrid,
 } from 'lucide-react';
+import { TAB_TREE, tabModule, subTabModule } from '@/app/adminTabs';
 
 const MODULES = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -90,6 +92,13 @@ export function AdminUserManagement() {
   const [form, setForm] = useState({ ...empty });
   const [hkCheck, setHkCheck] = useState<{ state: 'idle' | 'checking' | 'ok' | 'taken'; msg?: string }>({ state: 'idle' });
   const [permissions, setPermissions] = useState<Record<string, Record<string, boolean>>>({});
+  // Tab visibility toggles used inside the Create/Edit dialog.
+  // Shape: { mainKey: boolean, `${mainKey}:${subKey}`: boolean }
+  const [tabAccess, setTabAccess] = useState<Record<string, boolean>>(() => {
+    const seed: Record<string, boolean> = {};
+    TAB_TREE.forEach(t => { seed[t.key] = true; t.subs.forEach(s => { seed[`${t.key}:${s.key}`] = true; }); });
+    return seed;
+  });
   const [saving, setSaving] = useState(false);
   const [activity, setActivity] = useState<any[]>([]);
 
@@ -121,11 +130,40 @@ export function AdminUserManagement() {
   }, [others, search]);
 
   // --- CRUD ---
+  const resetTabAccessAllOn = () => {
+    const seed: Record<string, boolean> = {};
+    TAB_TREE.forEach(t => { seed[t.key] = true; t.subs.forEach(s => { seed[`${t.key}:${s.key}`] = true; }); });
+    setTabAccess(seed);
+  };
+  const loadTabAccessForUser = async (uid: string) => {
+    const { data } = await supabase
+      .from('admin_permissions')
+      .select('module,can_view')
+      .eq('admin_user_id', uid)
+      .like('module', 'tab:%');
+    // Default everything ON; then apply saved values (rows explicitly toggled off will disable).
+    const map: Record<string, boolean> = {};
+    TAB_TREE.forEach(t => { map[t.key] = true; t.subs.forEach(s => { map[`${t.key}:${s.key}`] = true; }); });
+    (data || []).forEach((r: any) => {
+      const m: string = r.module;
+      // module = 'tab:<key>' or 'tab:<key>:<sub>'
+      const rest = m.slice(4);
+      if (rest.includes(':')) {
+        const [p, s] = rest.split(':');
+        map[`${p}:${s}`] = !!r.can_view;
+      } else {
+        map[rest] = !!r.can_view;
+      }
+    });
+    setTabAccess(map);
+  };
   const openCreate = () => {
     setSelected(null); setForm({ ...empty });
-    setHkCheck({ state: 'idle' }); setEditOpen(true);
+    setHkCheck({ state: 'idle' });
+    resetTabAccessAllOn();
+    setEditOpen(true);
   };
-  const openEdit = (a: AdminRow) => {
+  const openEdit = async (a: AdminRow) => {
     setSelected(a);
     setForm({
       email: a.email, full_name: a.full_name || '', mobile: a.mobile || '',
@@ -133,7 +171,10 @@ export function AdminUserManagement() {
       hotkey: a.hotkey || '', username: a.username || '',
       employee_code: a.employee_code || '',
     });
-    setHkCheck({ state: 'idle' }); setEditOpen(true);
+    setHkCheck({ state: 'idle' });
+    resetTabAccessAllOn();
+    await loadTabAccessForUser(a.user_id);
+    setEditOpen(true);
   };
 
   const checkHotkey = async () => {
@@ -144,6 +185,20 @@ export function AdminUserManagement() {
     if (error) return setHkCheck({ state: 'taken', msg: error.message });
     if (data?.available) setHkCheck({ state: 'ok', msg: 'Available ✓' });
     else setHkCheck({ state: 'taken', msg: `Taken by ${data?.taken_by || 'another admin'}` });
+  };
+
+  const persistTabAccess = async (uid: string) => {
+    // One row per main tab + one row per sub-tab. can_view carries the switch.
+    const rows: any[] = [];
+    TAB_TREE.forEach(t => {
+      rows.push({ admin_user_id: uid, module: tabModule(t.key),
+        can_view: !!tabAccess[t.key], can_create: false, can_edit: false, can_delete: false, can_export: false, can_approve: false });
+      t.subs.forEach(s => {
+        rows.push({ admin_user_id: uid, module: subTabModule(t.key, s.key),
+          can_view: !!tabAccess[`${t.key}:${s.key}`], can_create: false, can_edit: false, can_delete: false, can_export: false, can_approve: false });
+      });
+    });
+    await supabase.from('admin_permissions').upsert(rows, { onConflict: 'admin_user_id,module' });
   };
 
   const save = async () => {
@@ -157,9 +212,13 @@ export function AdminUserManagement() {
       if (hkCheck.state !== 'ok') return toast.error('Verify hotkey availability first');
       setSaving(true);
       const { data, error } = await callAdmin({ action: 'create_admin', ...form });
+      if (error || !data?.success) { setSaving(false); return toast.error((data?.error) || error?.message || 'Create failed'); }
+      const newUid = data?.user_id || data?.admin?.user_id || data?.admin?.id;
+      if (newUid) {
+        try { await persistTabAccess(newUid); } catch (e:any) { console.warn('tab access save failed', e); }
+      }
       setSaving(false);
-      if (error || !data?.success) return toast.error((data?.error) || error?.message || 'Create failed');
-      toast.success('Admin created. Share the URL key & credentials securely.');
+      toast.success('Admin created with tab access. Share the URL key & credentials securely.');
     } else {
       setSaving(true);
       const { data, error } = await callAdmin({
@@ -172,6 +231,7 @@ export function AdminUserManagement() {
         if (form.password !== form.confirm) { setSaving(false); return toast.error('Passwords do not match'); }
         await callAdmin({ action: 'set_password', user_id: selected.user_id, password: form.password });
       }
+      try { await persistTabAccess(selected.user_id); } catch (e:any) { console.warn('tab access save failed', e); }
       setSaving(false);
       toast.success('Admin updated');
     }
@@ -392,7 +452,7 @@ export function AdminUserManagement() {
 
       {/* ---------- Create / Edit dialog ---------- */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl bg-slate-900 border-slate-700">
+        <DialogContent className="max-w-3xl bg-slate-900 border-slate-700 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-white">{selected ? `Edit ${selected.email}` : 'Create New Admin'}</DialogTitle>
           </DialogHeader>
@@ -427,6 +487,63 @@ export function AdminUserManagement() {
                   <div className="text-amber-400/80">This hotkey + username + password + 2FA combo is the ONLY way this admin can log in.</div>
                 </div>
               )}
+            </div>
+
+            {/* ---------- Tab Access ---------- */}
+            <div className="col-span-2 border-t border-slate-800 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-slate-200 flex items-center gap-2">
+                  <LayoutGrid className="size-4 text-blue-400" />
+                  Tab Access — only ON tabs will show for this admin
+                </Label>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                    const s: Record<string, boolean> = {};
+                    TAB_TREE.forEach(t => { s[t.key] = true; t.subs.forEach(x => { s[`${t.key}:${x.key}`] = true; }); });
+                    setTabAccess(s);
+                  }}>All On</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                    const s: Record<string, boolean> = {};
+                    TAB_TREE.forEach(t => { s[t.key] = false; t.subs.forEach(x => { s[`${t.key}:${x.key}`] = false; }); });
+                    setTabAccess(s);
+                  }}>All Off</Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[42vh] overflow-auto pr-1">
+                {TAB_TREE.map(t => (
+                  <div key={t.key} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-medium text-white">{t.label}</div>
+                      <Switch
+                        checked={!!tabAccess[t.key]}
+                        onCheckedChange={(v) => {
+                          setTabAccess(prev => {
+                            const next = { ...prev, [t.key]: v };
+                            // Cascade to subs so parent-off hides everything under it.
+                            t.subs.forEach(s => { next[`${t.key}:${s.key}`] = v; });
+                            return next;
+                          });
+                        }}
+                      />
+                    </div>
+                    {t.subs.length > 0 && (
+                      <div className="mt-2 pl-2 border-l border-slate-800 space-y-1.5">
+                        {t.subs.map(s => (
+                          <div key={s.key} className="flex items-center justify-between">
+                            <div className="text-xs text-slate-300">{s.label}</div>
+                            <Switch
+                              checked={!!tabAccess[`${t.key}:${s.key}`]}
+                              disabled={!tabAccess[t.key]}
+                              onCheckedChange={(v) => setTabAccess(prev => ({ ...prev, [`${t.key}:${s.key}`]: v }))}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="text-xs text-slate-500 mt-2">Turning a main tab off automatically hides all its sub-tabs.</div>
             </div>
           </div>
           <DialogFooter>

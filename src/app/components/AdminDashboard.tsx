@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 import type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
+import { useAllowedTabs } from '@/hooks/useAllowedTabs';
+
 // Re-export types for backward compatibility
 export type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
@@ -168,10 +170,12 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     );
   }
 
-  const canAccessTab = (tab: keyof AdminUser['role']) => {
-    const hasAccess = currentAdmin.role[tab];
-    console.log(`🔍 Checking tab access: ${tab} = ${hasAccess}`);
-    return hasAccess;
+  // DB-driven tab visibility. When no rows are configured yet, everything is
+  // allowed (backwards compatible) — configure it in Admin Management.
+  const tabs = useAllowedTabs();
+  const canAccessTab = (tab: string) => {
+    if (tabs.loading) return false;
+    return tabs.allowMain(tab);
   };
 
   return (
@@ -235,19 +239,23 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 Transactions
               </TabsTrigger>
             )}
-            <TabsTrigger value="support" className="data-[state=active]:bg-blue-600 relative">
-              <MessageSquare className="size-4 mr-2" />
-              Support
-              {pendingSupportCount > 0 && (
-                <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                  {pendingSupportCount}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="landing" className="data-[state=active]:bg-blue-600">
-              <Globe className="size-4 mr-2" />
-              Landing Page
-            </TabsTrigger>
+            {canAccessTab('support') && (
+              <TabsTrigger value="support" className="data-[state=active]:bg-blue-600 relative">
+                <MessageSquare className="size-4 mr-2" />
+                Support
+                {pendingSupportCount > 0 && (
+                  <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                    {pendingSupportCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
+            {canAccessTab('landing') && (
+              <TabsTrigger value="landing" className="data-[state=active]:bg-blue-600">
+                <Globe className="size-4 mr-2" />
+                Landing Page
+              </TabsTrigger>
+            )}
             {canAccessTab('adminUsers') && (
               <TabsTrigger value="adminUsers" className="data-[state=active]:bg-blue-600">
                 <Activity className="size-4 mr-2" />
@@ -266,22 +274,30 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 Settings
               </TabsTrigger>
             )}
-            <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
-              <Gift className="size-4 mr-2" />
-              Referrals
-            </TabsTrigger>
-            <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
-              <Mail className="size-4 mr-2" />
-              Communication
-            </TabsTrigger>
-            <TabsTrigger value="mobile" className="data-[state=active]:bg-blue-600">
-              <Smartphone className="size-4 mr-2" />
-              Mobile App
-            </TabsTrigger>
-            <TabsTrigger value="audit" className="data-[state=active]:bg-blue-600">
-              <ScrollText className="size-4 mr-2" />
-              Audit Log
-            </TabsTrigger>
+            {canAccessTab('referrals') && (
+              <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
+                <Gift className="size-4 mr-2" />
+                Referrals
+              </TabsTrigger>
+            )}
+            {canAccessTab('communication') && (
+              <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
+                <Mail className="size-4 mr-2" />
+                Communication
+              </TabsTrigger>
+            )}
+            {canAccessTab('mobile') && (
+              <TabsTrigger value="mobile" className="data-[state=active]:bg-blue-600">
+                <Smartphone className="size-4 mr-2" />
+                Mobile App
+              </TabsTrigger>
+            )}
+            {canAccessTab('audit') && (
+              <TabsTrigger value="audit" className="data-[state=active]:bg-blue-600">
+                <ScrollText className="size-4 mr-2" />
+                Audit Log
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {canAccessTab('dashboard') && (
@@ -302,13 +318,17 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
-          <TabsContent value="support">
-            <AdminSupport serverUrl={serverUrl} accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('support') && (
+            <TabsContent value="support">
+              <AdminSupport serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="landing">
-            <AdminLandingPage serverUrl={serverUrl} accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('landing') && (
+            <TabsContent value="landing">
+              <AdminLandingPage serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
           {canAccessTab('adminUsers') && (
             <TabsContent value="adminUsers">
@@ -337,21 +357,29 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
-          <TabsContent value="referrals">
-            <AdminReferrals accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('referrals') && (
+            <TabsContent value="referrals">
+              <AdminReferrals accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="communication">
-            <AdminCommunication />
-          </TabsContent>
+          {canAccessTab('communication') && (
+            <TabsContent value="communication">
+              <AdminCommunication />
+            </TabsContent>
+          )}
 
-          <TabsContent value="mobile">
-            <AdminMobileAppUpdate />
-          </TabsContent>
+          {canAccessTab('mobile') && (
+            <TabsContent value="mobile">
+              <AdminMobileAppUpdate />
+            </TabsContent>
+          )}
 
-          <TabsContent value="audit">
-            <AdminAuditLogViewer />
-          </TabsContent>
+          {canAccessTab('audit') && (
+            <TabsContent value="audit">
+              <AdminAuditLogViewer />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>
