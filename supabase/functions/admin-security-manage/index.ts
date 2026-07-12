@@ -290,6 +290,12 @@ Deno.serve(async (req) => {
       }
       const { error } = await supa.from('admin_profiles').update(patch).eq('user_id', user_id);
       if (error) return bad(500, error.message);
+      // Refresh hotkey KV entry if hotkey/name changed
+      if (patch.hotkey || patch.full_name) {
+        const { data: prof } = await supa.from('admin_profiles')
+          .select('hotkey,full_name,email').eq('user_id', user_id).maybeSingle();
+        if (prof?.hotkey) await syncHotkeyKV(user_id, prof.hotkey, prof.full_name || prof.email);
+      }
       return ok({ success: true });
     }
 
