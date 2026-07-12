@@ -60,7 +60,7 @@ export function useAllowedTabs(): AllowedTabs {
           .like('module', 'tab:%');
         const set = new Set<string>();
         (rows || []).forEach((r: any) => { if (r.can_view) set.add(r.module); });
-        if (!cancelled) setAllowed(set);
+        if (!cancelled) { setAllowed(set); setHasConfig((rows || []).length > 0); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -71,8 +71,11 @@ export function useAllowedTabs(): AllowedTabs {
   return {
     loading,
     isSuperAdmin: isSuper,
-    allowMain: (k: string) => isSuper || allowed.has(tabModule(k)),
-    allowSub:  (p: string, s: string) => isSuper || allowed.has(subTabModule(p, s)),
+    hasAnyConfig: hasConfig,
+    // If no tab rows exist yet for this admin, allow everything
+    // (backwards-compatible fallback until an admin sets access).
+    allowMain: (k: string) => isSuper || !hasConfig || allowed.has(tabModule(k)),
+    allowSub:  (p: string, s: string) => isSuper || !hasConfig || allowed.has(subTabModule(p, s)),
     refresh:   () => setTick(t => t + 1),
   };
 }
