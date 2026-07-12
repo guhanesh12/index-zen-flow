@@ -59,6 +59,9 @@ interface AdminSettingsProps {
 }
 
 export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpdate }: AdminSettingsProps) {
+  // Hide sub-tabs the logged-in admin isn't allowed to see.
+  const tabPerms = useAllowedTabs();
+  const showSub = (key: string) => tabPerms.loading ? false : tabPerms.allowSub('settings', key);
   const [settings, setSettings] = useState<PlatformSettings>({
     twoFactorApiKey: '',
     razorpayKeyId: '',
