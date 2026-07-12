@@ -136,6 +136,11 @@ export function AdminUserManagement() {
     TAB_TREE.forEach(t => { seed[t.key] = true; t.subs.forEach(s => { seed[`${t.key}:${s.key}`] = true; }); });
     setTabAccess(seed);
   };
+  const resetTabAccessAllOff = () => {
+    const seed: Record<string, boolean> = {};
+    TAB_TREE.forEach(t => { seed[t.key] = false; t.subs.forEach(s => { seed[`${t.key}:${s.key}`] = false; }); });
+    setTabAccess(seed);
+  };
   const loadTabAccessForUser = async (uid: string) => {
     // Read through the edge function (service role) so the toggles reflect
     // what's actually saved server-side even when the browser has no
@@ -162,7 +167,7 @@ export function AdminUserManagement() {
   const openCreate = () => {
     setSelected(null); setForm({ ...empty });
     setHkCheck({ state: 'idle' });
-    resetTabAccessAllOn();
+    resetTabAccessAllOff();
     setEditOpen(true);
   };
   const openEdit = async (a: AdminRow) => {
@@ -276,10 +281,11 @@ export function AdminUserManagement() {
   // --- Permissions ---
   const openPerms = async (a: AdminRow) => {
     setSelected(a);
-    const { data } = await supabase.from('admin_permissions').select('*').eq('admin_user_id', a.user_id);
+    const { data, error } = await callAdmin({ action: 'get_permissions', user_id: a.user_id });
+    if (error) toast.error(error.message);
     const map: Record<string, Record<string, boolean>> = {};
     MODULES.forEach(m => {
-      const row = (data || []).find((r: any) => r.module === m.key);
+      const row = ((data?.permissions || []) as any[]).find((r: any) => r.module === m.key);
       map[m.key] = {};
       ACTIONS.forEach(act => { map[m.key][act] = a.is_super_admin ? true : !!row?.[COL[act]]; });
     });
@@ -293,12 +299,10 @@ export function AdminUserManagement() {
     if (!selected) return;
     setSaving(true);
     try {
-      for (const m of MODULES) {
-        const row: any = { admin_user_id: selected.user_id, module: m.key };
-        ACTIONS.forEach(a => row[COL[a]] = !!permissions[m.key]?.[a]);
-        await supabase.from('admin_permissions').upsert(row, { onConflict: 'admin_user_id,module' });
-      }
+      const { data, error } = await callAdmin({ action: 'save_permissions', user_id: selected.user_id, permissions });
+      if (error || !data?.success) throw new Error((data?.error) || error?.message || 'Save failed');
       toast.success('Permissions saved'); setPermOpen(false);
+      try { window.dispatchEvent(new CustomEvent('admin-tabs-updated', { detail: { user_id: selected.user_id } })); } catch { /* ignore */ }
     } catch (e: any) { toast.error(e?.message || 'Save failed'); }
     finally { setSaving(false); }
   };

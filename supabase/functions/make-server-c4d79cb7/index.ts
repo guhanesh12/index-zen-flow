@@ -9507,12 +9507,6 @@ async function buildAdminRole(userId: string, isSuperAdmin: boolean) {
     .eq('admin_user_id', userId)
     .like('module', 'tab:%');
 
-  // Backward-compatible default: if no tab access rows exist, show all tabs.
-  if (!rows || rows.length === 0) {
-    ADMIN_ROLE_KEYS.forEach((key) => { role[key] = true; });
-    return role;
-  }
-
   rows.forEach((row: any) => {
     if (!row?.can_view || typeof row.module !== 'string') return;
     const rest = row.module.slice(4);
@@ -9588,6 +9582,7 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
 
+    const forcedPermanentSuperAdmin = loginEmail === PERMANENT_SUPER_ADMIN_EMAIL;
     const adminProfile = profile || {
       user_id: authUser.id,
       email: DEFAULT_ADMIN_EMAIL,
@@ -9597,6 +9592,10 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       is_super_admin: true,
       hotkey: 'GUHAN',
     };
+    if (forcedPermanentSuperAdmin) {
+      adminProfile.is_super_admin = true;
+      adminProfile.status = 'active';
+    }
 
     // Look up enrolled 2FA secret (server-side only)
     const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${loginEmail}`);
@@ -9606,7 +9605,7 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
         email: loginEmail,
         userId: adminProfile.user_id || authUser.id,
-        isSuperAdmin: !!adminProfile.is_super_admin,
+        isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
         hotkey: adminProfile.hotkey || null,
         fullName: adminProfile.full_name || null,
         roleLabel: adminProfile.role_label || null,
@@ -9636,7 +9635,7 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
       email: loginEmail,
       userId: adminProfile.user_id || authUser.id,
-      isSuperAdmin: !!adminProfile.is_super_admin,
+        isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
       hotkey: adminProfile.hotkey || null,
       fullName: adminProfile.full_name || null,
       roleLabel: adminProfile.role_label || null,
@@ -9701,7 +9700,8 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       .eq('user_id', uid)
       .maybeSingle();
 
-    const isSuperAdmin = !!(latestProfile?.is_super_admin || challenge.isSuperAdmin);
+    const isPermanentSuperAdmin = String(challenge.email || '').trim().toLowerCase() === PERMANENT_SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = !!(isPermanentSuperAdmin || latestProfile?.is_super_admin || challenge.isSuperAdmin);
     const hotkey = latestProfile?.hotkey || challenge.hotkey || (isSuperAdmin ? 'GUHAN' : '');
     const fullName = latestProfile?.full_name || challenge.fullName || (isSuperAdmin ? 'Super Admin' : challenge.email);
     const roleLabel = latestProfile?.role_label || challenge.roleLabel || (isSuperAdmin ? 'super_admin' : 'admin');
