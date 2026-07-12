@@ -332,6 +332,7 @@ Deno.serve(async (req) => {
       if (prof?.is_super_admin) return bad(400, 'cannot_delete_super_admin');
       await supa.from('admin_profiles').delete().eq('user_id', user_id);
       await supa.from('user_roles').delete().eq('user_id', user_id).eq('role', 'admin');
+      await removeHotkeyKV(user_id);
       await supa.auth.admin.deleteUser(user_id).catch(() => {});
       return ok({ success: true });
     }
