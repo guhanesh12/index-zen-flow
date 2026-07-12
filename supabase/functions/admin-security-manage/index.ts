@@ -260,6 +260,9 @@ Deno.serve(async (req) => {
       // Grant admin role
       await supa.from('user_roles').upsert({ user_id: uid, role: 'admin' }, { onConflict: 'user_id,role' });
 
+      // Sync hotkey into KV so global hotkey listener picks it up
+      await syncHotkeyKV(uid, hotkey, full_name || email);
+
       return ok({ success: true, user_id: uid, url_key });
     }
 
