@@ -47,6 +47,8 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
   const [pendingSupportCount, setPendingSupportCount] = useState(0);
   const [realAccessToken, setRealAccessToken] = useState(accessToken);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  // Must be called unconditionally (rules of hooks) — before any early returns below.
+  const tabs = useAllowedTabs();
 
   // Update realAccessToken when accessToken changes
   useEffect(() => {
