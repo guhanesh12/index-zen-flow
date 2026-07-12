@@ -452,7 +452,7 @@ export function AdminUserManagement() {
 
       {/* ---------- Create / Edit dialog ---------- */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl bg-slate-900 border-slate-700">
+        <DialogContent className="max-w-3xl bg-slate-900 border-slate-700 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-white">{selected ? `Edit ${selected.email}` : 'Create New Admin'}</DialogTitle>
           </DialogHeader>
@@ -487,6 +487,63 @@ export function AdminUserManagement() {
                   <div className="text-amber-400/80">This hotkey + username + password + 2FA combo is the ONLY way this admin can log in.</div>
                 </div>
               )}
+            </div>
+
+            {/* ---------- Tab Access ---------- */}
+            <div className="col-span-2 border-t border-slate-800 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-slate-200 flex items-center gap-2">
+                  <LayoutGrid className="size-4 text-blue-400" />
+                  Tab Access — only ON tabs will show for this admin
+                </Label>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                    const s: Record<string, boolean> = {};
+                    TAB_TREE.forEach(t => { s[t.key] = true; t.subs.forEach(x => { s[`${t.key}:${x.key}`] = true; }); });
+                    setTabAccess(s);
+                  }}>All On</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                    const s: Record<string, boolean> = {};
+                    TAB_TREE.forEach(t => { s[t.key] = false; t.subs.forEach(x => { s[`${t.key}:${x.key}`] = false; }); });
+                    setTabAccess(s);
+                  }}>All Off</Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[42vh] overflow-auto pr-1">
+                {TAB_TREE.map(t => (
+                  <div key={t.key} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-medium text-white">{t.label}</div>
+                      <Switch
+                        checked={!!tabAccess[t.key]}
+                        onCheckedChange={(v) => {
+                          setTabAccess(prev => {
+                            const next = { ...prev, [t.key]: v };
+                            // Cascade to subs so parent-off hides everything under it.
+                            t.subs.forEach(s => { next[`${t.key}:${s.key}`] = v; });
+                            return next;
+                          });
+                        }}
+                      />
+                    </div>
+                    {t.subs.length > 0 && (
+                      <div className="mt-2 pl-2 border-l border-slate-800 space-y-1.5">
+                        {t.subs.map(s => (
+                          <div key={s.key} className="flex items-center justify-between">
+                            <div className="text-xs text-slate-300">{s.label}</div>
+                            <Switch
+                              checked={!!tabAccess[`${t.key}:${s.key}`]}
+                              disabled={!tabAccess[t.key]}
+                              onCheckedChange={(v) => setTabAccess(prev => ({ ...prev, [`${t.key}:${s.key}`]: v }))}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="text-xs text-slate-500 mt-2">Turning a main tab off automatically hides all its sub-tabs.</div>
             </div>
           </div>
           <DialogFooter>
