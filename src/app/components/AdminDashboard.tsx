@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 import type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
+import { useAllowedTabs } from '@/hooks/useAllowedTabs';
+
 // Re-export types for backward compatibility
 export type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
