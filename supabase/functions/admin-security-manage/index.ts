@@ -342,6 +342,60 @@ Deno.serve(async (req) => {
       return ok({ success: true });
     }
 
+    // ---------- Tab access (per-admin visibility of dashboard tabs) ----------
+    if (action === 'get_tab_access') {
+      // Returns { is_super_admin, has_config, allowed: string[] } for a given user_id.
+      // Used both by the Edit dialog (to prefill toggles) and by useAllowedTabs
+      // on the logged-in admin's dashboard (so it works without a supabase
+      // auth session, since admin login stores its token in sessionStorage
+      // rather than calling supabase.auth.setSession()).
+      const user_id = String(body?.user_id || actorUserId || '');
+      if (!user_id) return bad(400, 'user_id_required');
+      const { data: prof } = await supa
+        .from('admin_profiles')
+        .select('is_super_admin,status')
+        .eq('user_id', user_id)
+        .maybeSingle();
+      const isSuper = !!(prof?.is_super_admin && prof?.status === 'active');
+      const { data: rows } = await supa
+        .from('admin_permissions')
+        .select('module,can_view')
+        .eq('admin_user_id', user_id)
+        .like('module', 'tab:%');
+      const allowed = (rows || []).filter((r: any) => r.can_view).map((r: any) => r.module);
+      return ok({
+        is_super_admin: isSuper,
+        has_config: (rows || []).length > 0,
+        allowed,
+      });
+    }
+
+    if (action === 'save_tab_access') {
+      // body.user_id + body.tab_access: { [mainKey]: bool, [`${main}:${sub}`]: bool }
+      const user_id = String(body?.user_id || '');
+      const tabAccess = (body?.tab_access || {}) as Record<string, boolean>;
+      if (!user_id) return bad(400, 'user_id_required');
+      const { data: prof } = await supa
+        .from('admin_profiles').select('is_super_admin').eq('user_id', user_id).maybeSingle();
+      if (prof?.is_super_admin) return ok({ success: true, skipped: 'super_admin' });
+      const rows = Object.entries(tabAccess).map(([k, v]) => {
+        const module = k.includes(':') ? `tab:${k}` : `tab:${k}`;
+        return {
+          admin_user_id: user_id,
+          module,
+          can_view: !!v,
+          can_create: false, can_edit: false, can_delete: false,
+          can_export: false, can_approve: false,
+        };
+      });
+      if (rows.length === 0) return ok({ success: true });
+      const { error } = await supa
+        .from('admin_permissions')
+        .upsert(rows, { onConflict: 'admin_user_id,module' });
+      if (error) return bad(500, error.message);
+      return ok({ success: true, count: rows.length });
+    }
+
     if (action === 'load_mobile_config') {
       const { data } = await supa.from('mobile_app_config').select('*').eq('id', 1).maybeSingle();
       return ok({ config: data || null });
