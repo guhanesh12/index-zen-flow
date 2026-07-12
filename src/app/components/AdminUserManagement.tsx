@@ -14,7 +14,9 @@ import { toast } from 'sonner';
 import {
   Loader2, Plus, Edit, Trash2, RotateCcw, Shield, ShieldCheck, Crown, Copy,
   CheckCircle2, XCircle, KeyRound, Fingerprint, Link2, Search, RefreshCw, Circle,
+  LayoutGrid,
 } from 'lucide-react';
+import { TAB_TREE, tabModule, subTabModule } from '@/app/adminTabs';
 
 const MODULES = [
   { key: 'dashboard', label: 'Dashboard' },
