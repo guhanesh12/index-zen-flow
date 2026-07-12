@@ -9352,6 +9352,20 @@ const ADMIN_2FA_CHALLENGE_PREFIX = 'admin_2fa_challenge:';
 const ADMIN_2FA_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
 
+const ADMIN_ROLE_KEYS = [
+  'dashboard', 'users', 'transactions', 'instruments', 'journals', 'settings',
+  'support', 'landing', 'adminUsers', 'adminManagement', 'referrals',
+  'communication', 'mobile', 'security', 'audit', 'wallet',
+];
+
+function createPublicAuthClient() {
+  return createClient(
+    Deno.env.get('SUPABASE_URL') || '',
+    Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+}
+
 function getPermanentSuperAdminEmail(): string {
   const configuredEmail = (Deno.env.get('PLATFORM_OWNER_EMAIL') || '').trim().toLowerCase();
   if (configuredEmail && configuredEmail !== PERMANENT_SUPER_ADMIN_EMAIL) {
@@ -9384,7 +9398,8 @@ async function findAuthUserByEmail(email: string): Promise<any | null> {
 }
 
 async function ensureSuperAdminAuthSession(email: string, password: string) {
-  let signIn = await supabase.auth.signInWithPassword({ email, password });
+  const authClient = createPublicAuthClient();
+  let signIn = await authClient.auth.signInWithPassword({ email, password });
   if (signIn?.data?.session?.access_token) return signIn;
 
   const { data: created, error: createError } = await supabase.auth.admin.createUser({
@@ -9411,8 +9426,100 @@ async function ensureSuperAdminAuthSession(email: string, password: string) {
     }
   }
 
-  signIn = await supabase.auth.signInWithPassword({ email, password });
+  signIn = await authClient.auth.signInWithPassword({ email, password });
   return signIn;
+}
+
+async function findAdminProfileForLogin(identifier: string): Promise<any | null> {
+  const normalized = String(identifier || '').trim().toLowerCase();
+  if (!normalized) return null;
+
+  const column = normalized.includes('@') ? 'email' : 'username';
+  let { data, error } = await supabase
+    .from('admin_profiles')
+    .select('*')
+    .eq('status', 'active')
+    .ilike(column, normalized)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[ADMIN LOGIN] profile lookup failed', error);
+    return null;
+  }
+  if (data) return data;
+
+  // Convenience fallback: allow an email typed into the username field, or a
+  // username that happens to equal the email prefix, without weakening password auth.
+  if (column === 'username') {
+    const fallback = await supabase
+      .from('admin_profiles')
+      .select('*')
+      .eq('status', 'active')
+      .ilike('email', normalized)
+      .maybeSingle();
+    if (fallback.error) console.error('[ADMIN LOGIN] email fallback lookup failed', fallback.error);
+    return fallback.data || null;
+  }
+
+  return null;
+}
+
+async function validateAdminPassword(email: string, password: string) {
+  const authClient = createPublicAuthClient();
+  const result = await authClient.auth.signInWithPassword({ email, password });
+  if (result.error || !result.data?.user) return { ok: false, error: result.error, user: null };
+  return { ok: true, error: null, user: result.data.user };
+}
+
+async function createAdminSession(email: string) {
+  // Generate a one-time magic-link token server-side and immediately exchange it
+  // for a session after password + 2FA have already been verified. This avoids
+  // storing the admin password or a pre-2FA access token in the database.
+  const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+    type: 'magiclink',
+    email,
+  });
+  const tokenHash = (linkData as any)?.properties?.hashed_token;
+  if (linkError || !tokenHash) {
+    console.error('[ADMIN SESSION] generateLink failed', linkError);
+    return null;
+  }
+
+  const authClient = createPublicAuthClient();
+  const { data: sessionData, error: verifyError } = await authClient.auth.verifyOtp({
+    token_hash: tokenHash,
+    type: 'magiclink',
+  });
+  if (verifyError || !sessionData?.session?.access_token) {
+    console.error('[ADMIN SESSION] verifyOtp failed', verifyError);
+    return null;
+  }
+  return sessionData;
+}
+
+async function buildAdminRole(userId: string, isSuperAdmin: boolean) {
+  const role = Object.fromEntries(ADMIN_ROLE_KEYS.map((key) => [key, !!isSuperAdmin])) as Record<string, boolean>;
+  if (isSuperAdmin) return role;
+
+  const { data: rows } = await supabase
+    .from('admin_permissions')
+    .select('module,can_view')
+    .eq('admin_user_id', userId)
+    .like('module', 'tab:%');
+
+  // Backward-compatible default: if no tab access rows exist, show all tabs.
+  if (!rows || rows.length === 0) {
+    ADMIN_ROLE_KEYS.forEach((key) => { role[key] = true; });
+    return role;
+  }
+
+  rows.forEach((row: any) => {
+    if (!row?.can_view || typeof row.module !== 'string') return;
+    const rest = row.module.slice(4);
+    const mainKey = rest.split(':')[0];
+    if (mainKey) role[mainKey] = true;
+  });
+  return role;
 }
 
 function newChallengeToken(): string {
@@ -9446,23 +9553,63 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     const DEFAULT_ADMIN_EMAIL = getPermanentSuperAdminEmail();
     const DEFAULT_ADMIN_PASSWORD = getDefaultAdminPassword();
 
-    if (!DEFAULT_ADMIN_PASSWORD) {
-      console.error('[ADMIN LOGIN] DEFAULT_ADMIN_PASSWORD env var is not configured');
-      return c.json({ success: false, message: 'Admin login not configured' }, 500);
-    }
-
-    const emailLower = String(email || '').trim().toLowerCase();
-    if (emailLower !== DEFAULT_ADMIN_EMAIL || password !== DEFAULT_ADMIN_PASSWORD) {
+    const identifier = String(email || '').trim().toLowerCase();
+    const passwordText = String(password || '');
+    if (!identifier || !passwordText) {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
 
+    const profile = await findAdminProfileForLogin(identifier);
+    const isDefaultSuperAdminLogin = identifier === DEFAULT_ADMIN_EMAIL && !!DEFAULT_ADMIN_PASSWORD;
+    const loginEmail = (profile?.email || (isDefaultSuperAdminLogin ? DEFAULT_ADMIN_EMAIL : '')).trim().toLowerCase();
+
+    if (!loginEmail) {
+      return c.json({ success: false, message: 'Invalid email or password' }, 401);
+    }
+
+    let authUser: any = null;
+    if (isDefaultSuperAdminLogin && passwordText === DEFAULT_ADMIN_PASSWORD) {
+      const ensured = await ensureSuperAdminAuthSession(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD);
+      authUser = ensured?.data?.user || null;
+    } else {
+      const valid = await validateAdminPassword(loginEmail, passwordText);
+      if (!valid.ok || !valid.user) {
+        return c.json({ success: false, message: 'Invalid email or password' }, 401);
+      }
+      authUser = valid.user;
+    }
+
+    if (!authUser?.id) {
+      return c.json({ success: false, message: 'Invalid email or password' }, 401);
+    }
+
+    if (profile?.user_id && profile.user_id !== authUser.id) {
+      console.warn('[ADMIN LOGIN] profile/auth user mismatch', { profileUserId: profile.user_id, authUserId: authUser.id });
+      return c.json({ success: false, message: 'Invalid email or password' }, 401);
+    }
+
+    const adminProfile = profile || {
+      user_id: authUser.id,
+      email: DEFAULT_ADMIN_EMAIL,
+      full_name: 'Super Admin',
+      role_label: 'super_admin',
+      status: 'active',
+      is_super_admin: true,
+      hotkey: 'GUHAN',
+    };
+
     // Look up enrolled 2FA secret (server-side only)
-    const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${emailLower}`);
+    const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${loginEmail}`);
     const challengeToken = newChallengeToken();
 
     if (enrolledSecret) {
       await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
-        email: emailLower,
+        email: loginEmail,
+        userId: adminProfile.user_id || authUser.id,
+        isSuperAdmin: !!adminProfile.is_super_admin,
+        hotkey: adminProfile.hotkey || null,
+        fullName: adminProfile.full_name || null,
+        roleLabel: adminProfile.role_label || null,
         secret: enrolledSecret,
         pending: false,
         expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
@@ -9479,7 +9626,7 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     const newSecret = new OTPAuth.Secret({ size: 20 });
     const totp = new OTPAuth.TOTP({
       issuer: 'IndexpilotAI',
-      label: emailLower,
+      label: loginEmail,
       algorithm: 'SHA1',
       digits: 6,
       period: 30,
@@ -9487,7 +9634,12 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     });
     const otpauthUrl = totp.toString();
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
-      email: emailLower,
+      email: loginEmail,
+      userId: adminProfile.user_id || authUser.id,
+      isSuperAdmin: !!adminProfile.is_super_admin,
+      hotkey: adminProfile.hotkey || null,
+      fullName: adminProfile.full_name || null,
+      roleLabel: adminProfile.role_label || null,
       secret: newSecret.base32,
       pending: true,
       expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
@@ -9537,35 +9689,42 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       await kv.set(`${ADMIN_2FA_ENROLLED_PREFIX}${challenge.email}`, challenge.secret);
     }
 
-    const DEFAULT_ADMIN_EMAIL = getPermanentSuperAdminEmail();
-    const DEFAULT_ADMIN_PASSWORD = getDefaultAdminPassword();
-    if (challenge.email !== DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
-      return c.json({ success: false, message: 'Admin session unavailable' }, 500);
-    }
-
-    // Now — and only now — ensure the permanent auth user exists with the
-    // configured initial password, then return a real Supabase access token.
-    const signIn = await ensureSuperAdminAuthSession(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD);
-    if (!signIn?.data?.session?.access_token) {
+    const sessionData = await createAdminSession(challenge.email);
+    if (!sessionData?.session?.access_token || !sessionData?.user?.id) {
       return c.json({ success: false, message: 'Failed to obtain admin session' }, 500);
     }
 
-    // Ensure super-admin profile row exists (idempotent seed)
+    const uid = sessionData.user.id;
+    const { data: latestProfile } = await supabase
+      .from('admin_profiles')
+      .select('*')
+      .eq('user_id', uid)
+      .maybeSingle();
+
+    const isSuperAdmin = !!(latestProfile?.is_super_admin || challenge.isSuperAdmin);
+    const hotkey = latestProfile?.hotkey || challenge.hotkey || (isSuperAdmin ? 'GUHAN' : '');
+    const fullName = latestProfile?.full_name || challenge.fullName || (isSuperAdmin ? 'Super Admin' : challenge.email);
+    const roleLabel = latestProfile?.role_label || challenge.roleLabel || (isSuperAdmin ? 'super_admin' : 'admin');
+
+    // Ensure/update admin profile row (idempotent seed for super admin; login stamp for all admins)
     try {
-      const uid = signIn.data.user?.id;
       if (uid) {
         await supabase.from('admin_profiles').upsert({
           user_id: uid,
-          email: DEFAULT_ADMIN_EMAIL,
-          full_name: 'Super Admin',
-          role_label: 'super_admin',
+          email: challenge.email,
+          full_name: fullName,
+          role_label: roleLabel,
           status: 'active',
-          is_super_admin: true,
+          is_super_admin: isSuperAdmin,
+          hotkey: hotkey || null,
+          is_online: true,
           last_login_at: new Date().toISOString(),
+          last_seen_at: new Date().toISOString(),
+          last_login_ip: c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || null,
         }, { onConflict: 'user_id' });
         await supabase.from('admin_audit_events').insert({
           actor_user_id: uid,
-          actor_email: DEFAULT_ADMIN_EMAIL,
+          actor_email: challenge.email,
           action: 'admin_login',
           module: 'auth',
           status: 'success',
@@ -9583,25 +9742,28 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
     ).join('');
     await kv.set(`admin_unique_code_${uniqueCode}`, JSON.stringify({
       code: uniqueCode,
-      email: DEFAULT_ADMIN_EMAIL,
+      email: challenge.email,
+      userId: uid,
+      hotkey,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     }));
-    await kv.set(`admin_current_code_${DEFAULT_ADMIN_EMAIL}`, uniqueCode);
+    await kv.set(`admin_current_code_${challenge.email}`, uniqueCode);
+
+    const role = await buildAdminRole(uid, isSuperAdmin);
 
     return c.json({
       success: true,
-      accessToken: signIn.data.session.access_token,
+      accessToken: sessionData.session.access_token,
       uniqueCode,
       admin: {
-        id: 'admin_001',
-        email: DEFAULT_ADMIN_EMAIL,
-        role: {
-          dashboard: true, users: true, transactions: true, instruments: true,
-          journals: true, settings: true, support: true, landing: true,
-          adminUsers: true, adminManagement: true,
-        },
-        hotkey: { windows: 'Control+Alt+GUHAN', mac: 'Meta+Alt+GUHAN' },
+        id: uid,
+        user_id: uid,
+        email: challenge.email,
+        full_name: fullName,
+        username: latestProfile?.username || null,
+        role,
+        hotkey: { windows: `Control+Alt+${hotkey || 'GUHAN'}`, mac: `Meta+Alt+${hotkey || 'GUHAN'}` },
         twoFactorEnabled: true,
       },
     });
