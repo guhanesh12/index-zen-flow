@@ -183,6 +183,33 @@ Deno.serve(async (req) => {
       return s;
     };
 
+    const syncHotkeyKV = async (uid: string, hotkey: string, name: string) => {
+      if (!hotkey) return;
+      const key = `admin:hotkey:${uid}`;
+      await supa.from('kv_store_c4d79cb7').upsert({
+        key,
+        value: { id: uid, adminId: uid, hotkey: hotkey.toUpperCase(), name, createdAt: new Date().toISOString() },
+      }, { onConflict: 'key' });
+    };
+    const removeHotkeyKV = async (uid: string) => {
+      await supa.from('kv_store_c4d79cb7').delete().eq('key', `admin:hotkey:${uid}`);
+    };
+
+    if (action === 'list_admins') {
+      const { data, error } = await supa.from('admin_profiles').select('*')
+        .order('is_super_admin', { ascending: false })
+        .order('created_at', { ascending: false });
+      if (error) return bad(500, error.message);
+      return ok({ admins: data || [] });
+    }
+
+    if (action === 'list_activity') {
+      const { data, error } = await supa.from('admin_access_log').select('*')
+        .order('created_at', { ascending: false }).limit(300);
+      if (error) return bad(500, error.message);
+      return ok({ activity: data || [] });
+    }
+
     if (action === 'check_hotkey') {
       const hk = String(body?.hotkey ?? '').trim();
       const excludeUser = body?.exclude_user_id ? String(body.exclude_user_id) : null;
