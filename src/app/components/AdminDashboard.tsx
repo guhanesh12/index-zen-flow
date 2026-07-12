@@ -155,7 +155,7 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     if (canAccessTab(activeTab)) return;
     const firstAllowed = ADMIN_MAIN_TAB_KEYS.find((key) => tabs.allowMain(key));
     if (firstAllowed) setActiveTab(firstAllowed);
-  }, [isAuthenticated, currentAdmin, tabs.loading, tabs.isSuperAdmin, tabs.hasAnyConfig, activeTab]);
+  }, [isAuthenticated, currentAdmin, tabs.loading, tabs.permissionKey, activeTab]);
 
   // Don't render anything if admin panel is not shown
   if (!show) {

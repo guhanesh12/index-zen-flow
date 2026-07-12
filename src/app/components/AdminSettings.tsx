@@ -142,7 +142,7 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
     if (showSub(activeSettingsSubTab)) return;
     const firstAllowed = SETTINGS_SUB_TABS.find((key) => tabPerms.allowSub('settings', key));
     if (firstAllowed) setActiveSettingsSubTab(firstAllowed);
-  }, [tabPerms.loading, tabPerms.isSuperAdmin, tabPerms.hasAnyConfig, activeSettingsSubTab]);
+  }, [tabPerms.loading, tabPerms.permissionKey, activeSettingsSubTab]);
 
   const loadSettings = async () => {
     try {

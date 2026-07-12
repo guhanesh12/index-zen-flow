@@ -67,7 +67,7 @@ export function AdminReferrals({ accessToken }: Props) {
     if (showSub(activeSubTab)) return;
     const firstAllowed = REFERRAL_SUB_TABS.find((key) => tabPerms.allowSub('referrals', key));
     if (firstAllowed) setActiveSubTab(firstAllowed);
-  }, [tabPerms.loading, tabPerms.isSuperAdmin, tabPerms.hasAnyConfig, activeSubTab]);
+  }, [tabPerms.loading, tabPerms.permissionKey, activeSubTab]);
 
   const save = async () => {
     setSaving(true);

@@ -19,6 +19,7 @@ interface AllowedTabs {
   hasAnyConfig: boolean;
   allowMain: (key: string) => boolean;
   allowSub:  (parent: string, sub: string) => boolean;
+  permissionKey: string;
   refresh:   () => void;
 }
 
@@ -117,6 +118,7 @@ export function useAllowedTabs(): AllowedTabs {
     // Non-super admins see only explicitly assigned tabs. No config = no tabs.
     allowMain: (k: string) => isSuper || allowed.has(tabModule(k)),
     allowSub:  (p: string, s: string) => isSuper || allowed.has(subTabModule(p, s)) || (!subConfiguredParents.has(p) && allowed.has(tabModule(p))),
+    permissionKey: `${isSuper}:${hasConfig}:${Array.from(allowed).sort().join('|')}:${Array.from(subConfiguredParents).sort().join('|')}`,
     refresh:   () => setTick(t => t + 1),
   };
 }

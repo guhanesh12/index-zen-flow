@@ -220,7 +220,7 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
     if (showSub(activeSubTab)) return;
     const firstAllowed = DASHBOARD_SUB_TABS.find((key) => tabPerms.allowSub('dashboard', key));
     if (firstAllowed) setActiveSubTab(firstAllowed);
-  }, [tabPerms.loading, tabPerms.isSuperAdmin, tabPerms.hasAnyConfig, activeSubTab]);
+  }, [tabPerms.loading, tabPerms.permissionKey, activeSubTab]);
 
   // Color palette
   const COLORS = {
