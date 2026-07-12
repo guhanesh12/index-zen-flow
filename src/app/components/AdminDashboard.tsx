@@ -40,6 +40,11 @@ import { useAllowedTabs } from '@/hooks/useAllowedTabs';
 // Re-export types for backward compatibility
 export type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
+const ADMIN_MAIN_TAB_KEYS = [
+  'dashboard', 'users', 'transactions', 'support', 'landing', 'adminUsers',
+  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'audit',
+];
+
 export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedHotkey }: AdminDashboardProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(null);
@@ -129,6 +134,11 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     if (onClose) onClose();
   };
 
+  const canAccessTab = (tab: string) => {
+    if (tabs.loading) return false;
+    return tabs.allowMain(tab);
+  };
+
   // Listen for pending support count updates
   useEffect(() => {
     const handlePendingCount = (event: any) => {
@@ -139,6 +149,13 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
       window.removeEventListener('admin-pending-support-count', handlePendingCount);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentAdmin || tabs.loading) return;
+    if (canAccessTab(activeTab)) return;
+    const firstAllowed = ADMIN_MAIN_TAB_KEYS.find((key) => tabs.allowMain(key));
+    if (firstAllowed) setActiveTab(firstAllowed);
+  }, [isAuthenticated, currentAdmin, tabs.loading, tabs.permissionKey, activeTab]);
 
   // Don't render anything if admin panel is not shown
   if (!show) {
@@ -172,11 +189,18 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     );
   }
 
-  // DB-driven tab visibility (hook called at the top of the component).
-  const canAccessTab = (tab: string) => {
-    if (tabs.loading) return false;
-    return tabs.allowMain(tab);
-  };
+  const hasAllowedTabs = ADMIN_MAIN_TAB_KEYS.some((key) => canAccessTab(key));
+
+  if (tabs.loading) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-white text-2xl mb-2">Admin Portal</div>
+          <div className="text-slate-400">Loading permissions...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[9999] min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-auto">
@@ -299,6 +323,12 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               </TabsTrigger>
             )}
           </TabsList>
+
+          {!hasAllowedTabs && (
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-6 text-slate-300">
+              No admin tabs are assigned to this account.
+            </div>
+          )}
 
           {canAccessTab('dashboard') && (
             <TabsContent value="dashboard">

@@ -25,6 +25,7 @@ import {
   Signal
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useAllowedTabs } from '@/hooks/useAllowedTabs';
 import { 
   LineChart, 
   Line, 
@@ -100,7 +101,11 @@ interface AdminDashboardProps {
   accessToken: string;
 }
 
+const DASHBOARD_SUB_TABS = ['overview', 'revenue', 'users', 'trading', 'system'];
+
 export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboardProps) {
+  const tabPerms = useAllowedTabs();
+  const [activeSubTab, setActiveSubTab] = useState('overview');
   const [stats, setStats] = useState<AdvancedStats>({
     totalRevenue: 0,
     monthlyRevenue: 0,
@@ -208,6 +213,15 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
     return () => clearInterval(interval);
   }, [fetchAdvancedStats]);
 
+  const showSub = (key: string) => tabPerms.loading ? false : tabPerms.allowSub('dashboard', key);
+
+  useEffect(() => {
+    if (tabPerms.loading) return;
+    if (showSub(activeSubTab)) return;
+    const firstAllowed = DASHBOARD_SUB_TABS.find((key) => tabPerms.allowSub('dashboard', key));
+    if (firstAllowed) setActiveSubTab(firstAllowed);
+  }, [tabPerms.loading, tabPerms.permissionKey, activeSubTab]);
+
   // Color palette
   const COLORS = {
     primary: '#3b82f6',
@@ -309,17 +323,17 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
         </button>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-6">
+      <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="space-y-6">
         <TabsList className="bg-slate-800 border border-slate-700">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="revenue">Revenue</TabsTrigger>
-          <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="trading">Trading</TabsTrigger>
-          <TabsTrigger value="system">System Health</TabsTrigger>
+          {showSub('overview') && <TabsTrigger value="overview">Overview</TabsTrigger>}
+          {showSub('revenue') && <TabsTrigger value="revenue">Revenue</TabsTrigger>}
+          {showSub('users') && <TabsTrigger value="users">Users</TabsTrigger>}
+          {showSub('trading') && <TabsTrigger value="trading">Trading</TabsTrigger>}
+          {showSub('system') && <TabsTrigger value="system">System Health</TabsTrigger>}
         </TabsList>
 
         {/* OVERVIEW TAB */}
-        <TabsContent value="overview" className="space-y-6">
+        {showSub('overview') && <TabsContent value="overview" className="space-y-6">
           {/* Top KPIs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
@@ -545,10 +559,10 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
               suffix={` (${stats.totalUsers > 0 ? ((stats.profitableUsers / stats.totalUsers) * 100).toFixed(1) : 0}%)`}
             />
           </div>
-        </TabsContent>
+        </TabsContent>}
 
         {/* REVENUE TAB */}
-        <TabsContent value="revenue" className="space-y-6">
+        {showSub('revenue') && <TabsContent value="revenue" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               title="Total Revenue"
@@ -649,10 +663,10 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </TabsContent>}
 
         {/* USERS TAB */}
-        <TabsContent value="users" className="space-y-6">
+        {showSub('users') && <TabsContent value="users" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               title="Total Users"
@@ -751,10 +765,10 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </TabsContent>}
 
         {/* TRADING TAB */}
-        <TabsContent value="trading" className="space-y-6">
+        {showSub('trading') && <TabsContent value="trading" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               title="Total Trades"
@@ -855,10 +869,10 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </TabsContent>}
 
         {/* SYSTEM HEALTH TAB */}
-        <TabsContent value="system" className="space-y-6">
+        {showSub('system') && <TabsContent value="system" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               title="System Uptime"
@@ -969,7 +983,7 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
     </div>
   );

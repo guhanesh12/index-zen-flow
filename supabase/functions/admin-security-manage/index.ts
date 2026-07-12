@@ -14,6 +14,21 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const SUPA_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
+const TAB_KEYS = new Set([
+  'dashboard', 'users', 'transactions', 'support', 'landing', 'adminUsers',
+  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'audit',
+]);
+const PERMISSION_MODULES = new Set([
+  'dashboard', 'users', 'transactions', 'wallet', 'referrals', 'instruments',
+  'journals', 'support', 'landing', 'communication', 'mobile', 'adminUsers',
+  'adminManagement', 'security', 'audit', 'settings',
+]);
+const PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'approve'] as const;
+const PERMISSION_COL: Record<string, string> = {
+  view: 'can_view', create: 'can_create', edit: 'can_edit',
+  delete: 'can_delete', export: 'can_export', approve: 'can_approve',
+};
 
 const supa = createClient(SUPA_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -58,7 +73,7 @@ Deno.serve(async (req) => {
       if (user) {
         actorUserId = user.id;
         actorEmail = (user.email || '').trim().toLowerCase();
-        if (OWNER_EMAIL && (user.email || '').trim().toLowerCase() === OWNER_EMAIL) {
+        if ((user.email || '').trim().toLowerCase() === PERMANENT_SUPER_ADMIN_EMAIL || (OWNER_EMAIL && (user.email || '').trim().toLowerCase() === OWNER_EMAIL)) {
           authorized = true;
         } else {
           const [{ data: roleRow }, { data: adminProfile }] = await Promise.all([
@@ -98,7 +113,7 @@ Deno.serve(async (req) => {
         const session = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (session?.expiresAt && new Date(session.expiresAt).getTime() > Date.now()) {
           const sessionEmail = String(session.email || '').trim().toLowerCase();
-          if (OWNER_EMAIL && sessionEmail === OWNER_EMAIL) {
+          if (sessionEmail === PERMANENT_SUPER_ADMIN_EMAIL || (OWNER_EMAIL && sessionEmail === OWNER_EMAIL)) {
             actorEmail = sessionEmail;
             authorized = true;
           } else if (sessionEmail) {
@@ -351,23 +366,109 @@ Deno.serve(async (req) => {
       // rather than calling supabase.auth.setSession()).
       const user_id = String(body?.user_id || actorUserId || '');
       if (!user_id) return bad(400, 'user_id_required');
+      const bodyEmail = String(body?.email || '').trim().toLowerCase();
       const { data: prof } = await supa
         .from('admin_profiles')
-        .select('is_super_admin,status')
+        .select('email,is_super_admin,status')
         .eq('user_id', user_id)
         .maybeSingle();
-      const isSuper = !!(prof?.is_super_admin && prof?.status === 'active');
+      const profileEmail = String(prof?.email || bodyEmail || '').trim().toLowerCase();
+      const isSuper = !!(prof?.status === 'active' && (prof?.is_super_admin || profileEmail === PERMANENT_SUPER_ADMIN_EMAIL));
+      if (isSuper && profileEmail === PERMANENT_SUPER_ADMIN_EMAIL && !prof?.is_super_admin) {
+        await supa.from('admin_profiles').update({ is_super_admin: true, status: 'active' }).eq('user_id', user_id);
+      }
       const { data: rows } = await supa
         .from('admin_permissions')
         .select('module,can_view')
-        .eq('admin_user_id', user_id)
-        .like('module', 'tab:%');
-      const allowed = (rows || []).filter((r: any) => r.can_view).map((r: any) => r.module);
+        .eq('admin_user_id', user_id);
+      const relevantRows = (rows || []).filter((r: any) => {
+        const module = String(r?.module || '');
+        if (module.startsWith('tab:')) return true;
+        return TAB_KEYS.has(module);
+      });
+      const allowed = relevantRows.filter((r: any) => r.can_view).map((r: any) => {
+        const module = String(r.module || '');
+        return module.startsWith('tab:') ? module : `tab:${module}`;
+      });
+      const subConfiguredParents = Array.from(new Set(relevantRows
+        .map((r: any) => String(r?.module || ''))
+        .filter((module) => module.startsWith('tab:') && module.slice(4).includes(':'))
+        .map((module) => module.slice(4).split(':')[0])
+        .filter(Boolean)));
       return ok({
         is_super_admin: isSuper,
-        has_config: (rows || []).length > 0,
+        has_config: isSuper || relevantRows.length > 0,
         allowed,
+        sub_configured_parents: subConfiguredParents,
       });
+    }
+
+    if (action === 'get_permissions') {
+      const user_id = String(body?.user_id || '');
+      if (!user_id) return bad(400, 'user_id_required');
+      const { data: prof } = await supa
+        .from('admin_profiles')
+        .select('email,is_super_admin,status')
+        .eq('user_id', user_id)
+        .maybeSingle();
+      const email = String(prof?.email || '').trim().toLowerCase();
+      const isSuper = !!(prof?.status === 'active' && (prof?.is_super_admin || email === PERMANENT_SUPER_ADMIN_EMAIL));
+      const { data: rows, error } = await supa
+        .from('admin_permissions')
+        .select('*')
+        .eq('admin_user_id', user_id)
+        .in('module', Array.from(PERMISSION_MODULES));
+      if (error) return bad(500, error.message);
+      if (isSuper) {
+        const permissions = Array.from(PERMISSION_MODULES).map((module) => ({
+          module, can_view: true, can_create: true, can_edit: true,
+          can_delete: true, can_export: true, can_approve: true,
+        }));
+        return ok({ permissions, is_super_admin: true });
+      }
+      return ok({ permissions: rows || [], is_super_admin: false });
+    }
+
+    if (action === 'save_permissions') {
+      const user_id = String(body?.user_id || '');
+      const permissions = (body?.permissions || {}) as Record<string, Record<string, boolean>>;
+      if (!user_id) return bad(400, 'user_id_required');
+      const { data: prof } = await supa
+        .from('admin_profiles')
+        .select('email,is_super_admin,status')
+        .eq('user_id', user_id)
+        .maybeSingle();
+      const email = String(prof?.email || '').trim().toLowerCase();
+      if (prof?.status === 'active' && (prof?.is_super_admin || email === PERMANENT_SUPER_ADMIN_EMAIL)) {
+        return ok({ success: true, skipped: 'super_admin' });
+      }
+      const rows: Record<string, unknown>[] = [];
+      const tabRows: Record<string, unknown>[] = [];
+      for (const [module, acts] of Object.entries(permissions)) {
+        if (!PERMISSION_MODULES.has(module)) continue;
+        const row: Record<string, unknown> = { admin_user_id: user_id, module };
+        for (const actionName of PERMISSION_ACTIONS) {
+          row[PERMISSION_COL[actionName]] = !!acts?.[actionName];
+        }
+        rows.push(row);
+        if (TAB_KEYS.has(module)) {
+          tabRows.push({
+            admin_user_id: user_id,
+            module: `tab:${module}`,
+            can_view: !!acts?.view,
+            can_create: false, can_edit: false, can_delete: false,
+            can_export: false, can_approve: false,
+          });
+        }
+      }
+      const upserts = [...rows, ...tabRows];
+      if (upserts.length) {
+        const { error } = await supa
+          .from('admin_permissions')
+          .upsert(upserts, { onConflict: 'admin_user_id,module' });
+        if (error) return bad(500, error.message);
+      }
+      return ok({ success: true, count: upserts.length });
     }
 
     if (action === 'save_tab_access') {
