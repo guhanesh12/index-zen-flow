@@ -183,6 +183,33 @@ Deno.serve(async (req) => {
       return s;
     };
 
+    const syncHotkeyKV = async (uid: string, hotkey: string, name: string) => {
+      if (!hotkey) return;
+      const key = `admin:hotkey:${uid}`;
+      await supa.from('kv_store_c4d79cb7').upsert({
+        key,
+        value: { id: uid, adminId: uid, hotkey: hotkey.toUpperCase(), name, createdAt: new Date().toISOString() },
+      }, { onConflict: 'key' });
+    };
+    const removeHotkeyKV = async (uid: string) => {
+      await supa.from('kv_store_c4d79cb7').delete().eq('key', `admin:hotkey:${uid}`);
+    };
+
+    if (action === 'list_admins') {
+      const { data, error } = await supa.from('admin_profiles').select('*')
+        .order('is_super_admin', { ascending: false })
+        .order('created_at', { ascending: false });
+      if (error) return bad(500, error.message);
+      return ok({ admins: data || [] });
+    }
+
+    if (action === 'list_activity') {
+      const { data, error } = await supa.from('admin_access_log').select('*')
+        .order('created_at', { ascending: false }).limit(300);
+      if (error) return bad(500, error.message);
+      return ok({ activity: data || [] });
+    }
+
     if (action === 'check_hotkey') {
       const hk = String(body?.hotkey ?? '').trim();
       const excludeUser = body?.exclude_user_id ? String(body.exclude_user_id) : null;
@@ -233,6 +260,9 @@ Deno.serve(async (req) => {
       // Grant admin role
       await supa.from('user_roles').upsert({ user_id: uid, role: 'admin' }, { onConflict: 'user_id,role' });
 
+      // Sync hotkey into KV so global hotkey listener picks it up
+      await syncHotkeyKV(uid, hotkey, full_name || email);
+
       return ok({ success: true, user_id: uid, url_key });
     }
 
@@ -260,6 +290,12 @@ Deno.serve(async (req) => {
       }
       const { error } = await supa.from('admin_profiles').update(patch).eq('user_id', user_id);
       if (error) return bad(500, error.message);
+      // Refresh hotkey KV entry if hotkey/name changed
+      if (patch.hotkey || patch.full_name) {
+        const { data: prof } = await supa.from('admin_profiles')
+          .select('hotkey,full_name,email').eq('user_id', user_id).maybeSingle();
+        if (prof?.hotkey) await syncHotkeyKV(user_id, prof.hotkey, prof.full_name || prof.email);
+      }
       return ok({ success: true });
     }
 
@@ -296,6 +332,7 @@ Deno.serve(async (req) => {
       if (prof?.is_super_admin) return bad(400, 'cannot_delete_super_admin');
       await supa.from('admin_profiles').delete().eq('user_id', user_id);
       await supa.from('user_roles').delete().eq('user_id', user_id).eq('role', 'admin');
+      await removeHotkeyKV(user_id);
       await supa.auth.admin.deleteUser(user_id).catch(() => {});
       return ok({ success: true });
     }

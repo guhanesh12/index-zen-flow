@@ -104,13 +104,14 @@ export function AdminUserManagement() {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from('admin_profiles').select('*').order('is_super_admin', { ascending: false }).order('created_at', { ascending: false });
-    setAdmins((data as any) || []);
+    const { data, error } = await callAdmin({ action: 'list_admins' });
+    if (error) toast.error(error.message);
+    setAdmins((data?.admins as any) || []);
     setLoading(false);
   };
   const loadActivity = async () => {
-    const { data } = await supabase.from('admin_access_log').select('*').order('created_at', { ascending: false }).limit(300);
-    setActivity(data || []);
+    const { data } = await callAdmin({ action: 'list_activity' });
+    setActivity((data?.activity as any) || []);
   };
   useEffect(() => { load(); loadActivity(); }, []);
   useEffect(() => {
