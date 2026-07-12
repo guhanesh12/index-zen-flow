@@ -17,10 +17,11 @@ interface AllowedTabs {
  * Super admins are always allowed everything.
  */
 export function useAllowedTabs(): AllowedTabs {
-  const [loading, setLoading]   = useState(true);
-  const [isSuper, setIsSuper]   = useState(false);
-  const [allowed, setAllowed]   = useState<Set<string>>(new Set());
-  const [tick, setTick]         = useState(0);
+  const [loading, setLoading]     = useState(true);
+  const [isSuper, setIsSuper]     = useState(false);
+  const [allowed, setAllowed]     = useState<Set<string>>(new Set());
+  const [hasConfig, setHasConfig] = useState(false);
+  const [tick, setTick]           = useState(0);
 
   useEffect(() => {
     let cancelled = false;
