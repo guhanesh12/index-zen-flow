@@ -200,6 +200,11 @@ export function AdminUserManagement() {
     });
     const { data, error } = await callAdmin({ action: 'save_tab_access', user_id: uid, tab_access });
     if (error || !data?.success) throw new Error(error?.message || 'save_tab_access_failed');
+    // Live-refresh the admin dashboard tab visibility for the currently
+    // logged-in admin (no page reload required).
+    try {
+      window.dispatchEvent(new CustomEvent('admin-tabs-updated', { detail: { user_id: uid } }));
+    } catch { /* ignore */ }
   };
 
   const save = async () => {
