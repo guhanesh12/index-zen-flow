@@ -370,6 +370,15 @@ Deno.serve(async (req) => {
       let targetUserId = wantsCurrentAdmin ? actorUserId : String(body?.user_id || actorUserId || '');
       let targetEmail = wantsCurrentAdmin ? (actorEmail || bodyEmail) : bodyEmail;
 
+      if (bodyEmail === PERMANENT_SUPER_ADMIN_EMAIL) {
+        return ok({
+          is_super_admin: true,
+          has_config: true,
+          allowed: [],
+          sub_configured_parents: [],
+        });
+      }
+
       // For current-dashboard permission checks, trust the verified admin route
       // identity over any regular Supabase session token. This prevents a normal
       // app session from restricting the permanent super-admin route to one tab.

@@ -23,6 +23,12 @@ interface AllowedTabs {
   refresh:   () => void;
 }
 
+interface UseAllowedTabsOptions {
+  userId?: string | null;
+  email?: string | null;
+  enabled?: boolean;
+}
+
 /**
  * Loads the currently logged-in admin's tab permissions from
  * `admin_permissions` (module = `tab:<key>` or `tab:<key>:<sub>`, can_view=true).
@@ -33,7 +39,7 @@ interface AllowedTabs {
  * A direct RLS-scoped read would return zero rows for those sessions and cause
  * the fallback to (incorrectly) show every tab.
  */
-export function useAllowedTabs(): AllowedTabs {
+export function useAllowedTabs(options: UseAllowedTabsOptions = {}): AllowedTabs {
   const [loading, setLoading]     = useState(true);
   const [isSuper, setIsSuper]     = useState(false);
   const [allowed, setAllowed]     = useState<Set<string>>(new Set());
@@ -46,20 +52,31 @@ export function useAllowedTabs(): AllowedTabs {
     (async () => {
       setLoading(true);
       try {
+        if (options.enabled === false) {
+          if (!cancelled) {
+            setAllowed(new Set());
+            setSubConfiguredParents(new Set());
+            setIsSuper(false);
+            setHasConfig(false);
+            setLoading(false);
+          }
+          return;
+        }
+
         const url_key =
           sessionStorage.getItem('admin_unique_code') ||
           (window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/)?.[1] ?? '');
 
         // Resolve current admin user_id — prefer sessionStorage.admin_user,
         // fall back to the authenticated supabase user.
-        let uid: string | null = null;
-        let email: string | null = null;
+        let uid: string | null = options.userId || null;
+        let email: string | null = String(options.email || '').trim().toLowerCase() || null;
         try {
           const raw = sessionStorage.getItem('admin_user');
-          if (raw) {
+          if (raw && (!uid || !email)) {
             const j = JSON.parse(raw);
-            uid = j?.user_id || j?.id || null;
-            email = String(j?.email || '').trim().toLowerCase() || null;
+            uid = uid || j?.user_id || j?.id || null;
+            email = email || String(j?.email || '').trim().toLowerCase() || null;
           }
           if (!email) {
             email = String(localStorage.getItem('current_admin_email') || '').trim().toLowerCase() || null;
@@ -105,7 +122,7 @@ export function useAllowedTabs(): AllowedTabs {
       }
     })();
     return () => { cancelled = true; };
-  }, [tick]);
+  }, [tick, options.enabled, options.userId, options.email]);
 
   // Refresh when another part of the app saves new tab permissions
   // (e.g. AdminUserManagement → Save Changes). Avoids a full page reload
