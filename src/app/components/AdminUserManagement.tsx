@@ -130,11 +130,40 @@ export function AdminUserManagement() {
   }, [others, search]);
 
   // --- CRUD ---
+  const resetTabAccessAllOn = () => {
+    const seed: Record<string, boolean> = {};
+    TAB_TREE.forEach(t => { seed[t.key] = true; t.subs.forEach(s => { seed[`${t.key}:${s.key}`] = true; }); });
+    setTabAccess(seed);
+  };
+  const loadTabAccessForUser = async (uid: string) => {
+    const { data } = await supabase
+      .from('admin_permissions')
+      .select('module,can_view')
+      .eq('admin_user_id', uid)
+      .like('module', 'tab:%');
+    // Default everything ON; then apply saved values (rows explicitly toggled off will disable).
+    const map: Record<string, boolean> = {};
+    TAB_TREE.forEach(t => { map[t.key] = true; t.subs.forEach(s => { map[`${t.key}:${s.key}`] = true; }); });
+    (data || []).forEach((r: any) => {
+      const m: string = r.module;
+      // module = 'tab:<key>' or 'tab:<key>:<sub>'
+      const rest = m.slice(4);
+      if (rest.includes(':')) {
+        const [p, s] = rest.split(':');
+        map[`${p}:${s}`] = !!r.can_view;
+      } else {
+        map[rest] = !!r.can_view;
+      }
+    });
+    setTabAccess(map);
+  };
   const openCreate = () => {
     setSelected(null); setForm({ ...empty });
-    setHkCheck({ state: 'idle' }); setEditOpen(true);
+    setHkCheck({ state: 'idle' });
+    resetTabAccessAllOn();
+    setEditOpen(true);
   };
-  const openEdit = (a: AdminRow) => {
+  const openEdit = async (a: AdminRow) => {
     setSelected(a);
     setForm({
       email: a.email, full_name: a.full_name || '', mobile: a.mobile || '',
@@ -142,7 +171,10 @@ export function AdminUserManagement() {
       hotkey: a.hotkey || '', username: a.username || '',
       employee_code: a.employee_code || '',
     });
-    setHkCheck({ state: 'idle' }); setEditOpen(true);
+    setHkCheck({ state: 'idle' });
+    resetTabAccessAllOn();
+    await loadTabAccessForUser(a.user_id);
+    setEditOpen(true);
   };
 
   const checkHotkey = async () => {
@@ -153,6 +185,20 @@ export function AdminUserManagement() {
     if (error) return setHkCheck({ state: 'taken', msg: error.message });
     if (data?.available) setHkCheck({ state: 'ok', msg: 'Available ✓' });
     else setHkCheck({ state: 'taken', msg: `Taken by ${data?.taken_by || 'another admin'}` });
+  };
+
+  const persistTabAccess = async (uid: string) => {
+    // One row per main tab + one row per sub-tab. can_view carries the switch.
+    const rows: any[] = [];
+    TAB_TREE.forEach(t => {
+      rows.push({ admin_user_id: uid, module: tabModule(t.key),
+        can_view: !!tabAccess[t.key], can_create: false, can_edit: false, can_delete: false, can_export: false, can_approve: false });
+      t.subs.forEach(s => {
+        rows.push({ admin_user_id: uid, module: subTabModule(t.key, s.key),
+          can_view: !!tabAccess[`${t.key}:${s.key}`], can_create: false, can_edit: false, can_delete: false, can_export: false, can_approve: false });
+      });
+    });
+    await supabase.from('admin_permissions').upsert(rows, { onConflict: 'admin_user_id,module' });
   };
 
   const save = async () => {
@@ -166,9 +212,13 @@ export function AdminUserManagement() {
       if (hkCheck.state !== 'ok') return toast.error('Verify hotkey availability first');
       setSaving(true);
       const { data, error } = await callAdmin({ action: 'create_admin', ...form });
+      if (error || !data?.success) { setSaving(false); return toast.error((data?.error) || error?.message || 'Create failed'); }
+      const newUid = data?.user_id || data?.admin?.user_id || data?.admin?.id;
+      if (newUid) {
+        try { await persistTabAccess(newUid); } catch (e:any) { console.warn('tab access save failed', e); }
+      }
       setSaving(false);
-      if (error || !data?.success) return toast.error((data?.error) || error?.message || 'Create failed');
-      toast.success('Admin created. Share the URL key & credentials securely.');
+      toast.success('Admin created with tab access. Share the URL key & credentials securely.');
     } else {
       setSaving(true);
       const { data, error } = await callAdmin({
@@ -181,6 +231,7 @@ export function AdminUserManagement() {
         if (form.password !== form.confirm) { setSaving(false); return toast.error('Passwords do not match'); }
         await callAdmin({ action: 'set_password', user_id: selected.user_id, password: form.password });
       }
+      try { await persistTabAccess(selected.user_id); } catch (e:any) { console.warn('tab access save failed', e); }
       setSaving(false);
       toast.success('Admin updated');
     }
