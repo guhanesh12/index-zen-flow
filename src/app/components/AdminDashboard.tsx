@@ -318,13 +318,17 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
-          <TabsContent value="support">
-            <AdminSupport serverUrl={serverUrl} accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('support') && (
+            <TabsContent value="support">
+              <AdminSupport serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="landing">
-            <AdminLandingPage serverUrl={serverUrl} accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('landing') && (
+            <TabsContent value="landing">
+              <AdminLandingPage serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
           {canAccessTab('adminUsers') && (
             <TabsContent value="adminUsers">
@@ -353,21 +357,29 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
-          <TabsContent value="referrals">
-            <AdminReferrals accessToken={realAccessToken} />
-          </TabsContent>
+          {canAccessTab('referrals') && (
+            <TabsContent value="referrals">
+              <AdminReferrals accessToken={realAccessToken} />
+            </TabsContent>
+          )}
 
-          <TabsContent value="communication">
-            <AdminCommunication />
-          </TabsContent>
+          {canAccessTab('communication') && (
+            <TabsContent value="communication">
+              <AdminCommunication />
+            </TabsContent>
+          )}
 
-          <TabsContent value="mobile">
-            <AdminMobileAppUpdate />
-          </TabsContent>
+          {canAccessTab('mobile') && (
+            <TabsContent value="mobile">
+              <AdminMobileAppUpdate />
+            </TabsContent>
+          )}
 
-          <TabsContent value="audit">
-            <AdminAuditLogViewer />
-          </TabsContent>
+          {canAccessTab('audit') && (
+            <TabsContent value="audit">
+              <AdminAuditLogViewer />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>
