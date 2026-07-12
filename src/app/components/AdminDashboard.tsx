@@ -172,9 +172,7 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     );
   }
 
-  // DB-driven tab visibility. When no rows are configured yet, everything is
-  // allowed (backwards compatible) — configure it in Admin Management.
-  const tabs = useAllowedTabs();
+  // DB-driven tab visibility (hook called at the top of the component).
   const canAccessTab = (tab: string) => {
     if (tabs.loading) return false;
     return tabs.allowMain(tab);
