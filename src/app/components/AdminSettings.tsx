@@ -65,7 +65,11 @@ const SETTINGS_SUB_TABS = [
 
 export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpdate }: AdminSettingsProps) {
   // Hide sub-tabs the logged-in admin isn't allowed to see.
-  const tabPerms = useAllowedTabs();
+  const tabPerms = useAllowedTabs({
+    enabled: !!currentAdmin,
+    userId: currentAdmin?.user_id || currentAdmin?.id || null,
+    email: currentAdmin?.email || null,
+  });
   const showSub = (key: string) => tabPerms.loading ? false : tabPerms.allowSub('settings', key);
   const [activeSettingsSubTab, setActiveSettingsSubTab] = useState('api-keys');
   const [settings, setSettings] = useState<PlatformSettings>({
@@ -254,6 +258,8 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  const visibleSettingsSubTabs = SETTINGS_SUB_TABS.filter((key) => showSub(key));
 
   const handleAddAdmin = () => {
     if (!newAdmin.email || !newAdmin.password) {
@@ -465,6 +471,18 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             </TabsTrigger>
           )}
         </TabsList>
+
+        {tabPerms.loading && (
+          <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">
+            Loading settings access...
+          </div>
+        )}
+
+        {!tabPerms.loading && visibleSettingsSubTabs.length === 0 && (
+          <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">
+            No settings sections are assigned to this account.
+          </div>
+        )}
 
 
         {/* API Keys Tab */}
