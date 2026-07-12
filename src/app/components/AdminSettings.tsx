@@ -379,54 +379,78 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
 
       <Tabs defaultValue="api-keys" className="space-y-6">
         <TabsList className="bg-slate-800 border border-blue-500/20">
-          <TabsTrigger value="api-keys">
-            <Key className="size-4 mr-2" />
-            API Keys
-          </TabsTrigger>
-          <TabsTrigger value="notifications">
-            <Bell className="size-4 mr-2" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="push-notifications">
-            <MessageSquare className="size-4 mr-2" />
-            Push Notifications
-          </TabsTrigger>
-          <TabsTrigger value="security">
-            <Shield className="size-4 mr-2" />
-            Security
-          </TabsTrigger>
-          <TabsTrigger value="activity-monitor">
-            <Activity className="size-4 mr-2" />
-            Activity Monitor
-          </TabsTrigger>
-          <TabsTrigger value="access-control">
-            <Shield className="size-4 mr-2" />
-            Access Control
-          </TabsTrigger>
-          <TabsTrigger value="monitoring">
-            <Activity className="size-4 mr-2" />
-            Advanced Monitoring
-          </TabsTrigger>
-          <TabsTrigger value="system-health">
-            <Activity className="size-4 mr-2" />
-            System Health
-          </TabsTrigger>
-          <TabsTrigger value="backend">
-            <Server className="size-4 mr-2" />
-            Backend Config
-          </TabsTrigger>
-          <TabsTrigger value="brevo">
-            <Mail className="size-4 mr-2" />
-            Brevo Communications
-          </TabsTrigger>
-          <TabsTrigger value="vps-power">
-            <Server className="size-4 mr-2" />
-            VPS Power
-          </TabsTrigger>
-          <TabsTrigger value="app-update">
-            <Smartphone className="size-4 mr-2" />
-            App Update
-          </TabsTrigger>
+          {showSub('api-keys') && (
+            <TabsTrigger value="api-keys">
+              <Key className="size-4 mr-2" />
+              API Keys
+            </TabsTrigger>
+          )}
+          {showSub('notifications') && (
+            <TabsTrigger value="notifications">
+              <Bell className="size-4 mr-2" />
+              Notifications
+            </TabsTrigger>
+          )}
+          {showSub('push-notifications') && (
+            <TabsTrigger value="push-notifications">
+              <MessageSquare className="size-4 mr-2" />
+              Push Notifications
+            </TabsTrigger>
+          )}
+          {showSub('security') && (
+            <TabsTrigger value="security">
+              <Shield className="size-4 mr-2" />
+              Security
+            </TabsTrigger>
+          )}
+          {showSub('activity-monitor') && (
+            <TabsTrigger value="activity-monitor">
+              <Activity className="size-4 mr-2" />
+              Activity Monitor
+            </TabsTrigger>
+          )}
+          {showSub('access-control') && (
+            <TabsTrigger value="access-control">
+              <Shield className="size-4 mr-2" />
+              Access Control
+            </TabsTrigger>
+          )}
+          {showSub('monitoring') && (
+            <TabsTrigger value="monitoring">
+              <Activity className="size-4 mr-2" />
+              Advanced Monitoring
+            </TabsTrigger>
+          )}
+          {showSub('system-health') && (
+            <TabsTrigger value="system-health">
+              <Activity className="size-4 mr-2" />
+              System Health
+            </TabsTrigger>
+          )}
+          {showSub('backend') && (
+            <TabsTrigger value="backend">
+              <Server className="size-4 mr-2" />
+              Backend Config
+            </TabsTrigger>
+          )}
+          {showSub('brevo') && (
+            <TabsTrigger value="brevo">
+              <Mail className="size-4 mr-2" />
+              Brevo Communications
+            </TabsTrigger>
+          )}
+          {showSub('vps-power') && (
+            <TabsTrigger value="vps-power">
+              <Server className="size-4 mr-2" />
+              VPS Power
+            </TabsTrigger>
+          )}
+          {showSub('app-update') && (
+            <TabsTrigger value="app-update">
+              <Smartphone className="size-4 mr-2" />
+              App Update
+            </TabsTrigger>
+          )}
         </TabsList>
 
 
