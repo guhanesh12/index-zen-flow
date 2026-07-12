@@ -24,6 +24,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { useAllowedTabs } from '@/hooks/useAllowedTabs';
 import {
   Settings, Smartphone, AlertCircle, Bell, CheckCircle, Activity,
   Eye, EyeOff, Key, Mail, MessageSquare, Server, Shield, UserPlus
