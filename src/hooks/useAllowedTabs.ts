@@ -14,7 +14,12 @@ interface AllowedTabs {
 /**
  * Loads the currently logged-in admin's tab permissions from
  * `admin_permissions` (module = `tab:<key>` or `tab:<key>:<sub>`, can_view=true).
- * Super admins are always allowed everything.
+ *
+ * Reads go through the admin-security-manage edge function (service role) so
+ * that hotkey-based admin sessions — which store their token in sessionStorage
+ * but never call supabase.auth.setSession — can still see their own permissions.
+ * A direct RLS-scoped read would return zero rows for those sessions and cause
+ * the fallback to (incorrectly) show every tab.
  */
 export function useAllowedTabs(): AllowedTabs {
   const [loading, setLoading]     = useState(true);
@@ -42,26 +47,24 @@ export function useAllowedTabs(): AllowedTabs {
           const { data } = await supabase.auth.getUser();
           uid = data.user?.id || null;
         }
-        if (!uid) { if (!cancelled) { setAllowed(new Set()); setIsSuper(false); setLoading(false); } return; }
+        if (!uid) { if (!cancelled) { setAllowed(new Set()); setIsSuper(false); setHasConfig(false); setLoading(false); } return; }
 
-        const { data: prof } = await supabase
-          .from('admin_profiles')
-          .select('is_super_admin,status')
-          .eq('user_id', uid)
-          .maybeSingle();
-        const superAdmin = !!(prof?.is_super_admin && prof?.status === 'active');
-        if (!cancelled) setIsSuper(superAdmin);
+        const url_key =
+          sessionStorage.getItem('admin_unique_code') ||
+          (window.location.pathname.match(/\/admin\/hotkey\/([^/]+)/)?.[1] ?? '');
 
-        if (superAdmin) { if (!cancelled) { setAllowed(new Set()); setLoading(false); } return; }
-
-        const { data: rows } = await supabase
-          .from('admin_permissions')
-          .select('module,can_view')
-          .eq('admin_user_id', uid)
-          .like('module', 'tab:%');
-        const set = new Set<string>();
-        (rows || []).forEach((r: any) => { if (r.can_view) set.add(r.module); });
-        if (!cancelled) { setAllowed(set); setHasConfig((rows || []).length > 0); }
+        const token = sessionStorage.getItem('admin_access_token') || undefined;
+        const { data, error } = await supabase.functions.invoke('admin-security-manage', {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: { action: 'get_tab_access', user_id: uid, url_key, admin_code: url_key },
+        });
+        if (error) {
+          console.warn('useAllowedTabs: get_tab_access failed', error.message);
+        }
+        if (cancelled) return;
+        setIsSuper(!!data?.is_super_admin);
+        setHasConfig(!!data?.has_config);
+        setAllowed(new Set<string>((data?.allowed as string[]) || []));
       } finally {
         if (!cancelled) setLoading(false);
       }
