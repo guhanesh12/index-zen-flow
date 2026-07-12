@@ -137,25 +137,26 @@ export function AdminUserManagement() {
     setTabAccess(seed);
   };
   const loadTabAccessForUser = async (uid: string) => {
-    const { data } = await supabase
-      .from('admin_permissions')
-      .select('module,can_view')
-      .eq('admin_user_id', uid)
-      .like('module', 'tab:%');
-    // Default everything ON; then apply saved values (rows explicitly toggled off will disable).
+    // Read through the edge function (service role) so the toggles reflect
+    // what's actually saved server-side even when the browser has no
+    // supabase.auth session (hotkey-based admin login).
+    const { data, error } = await callAdmin({ action: 'get_tab_access', user_id: uid });
     const map: Record<string, boolean> = {};
+    // Default everything ON; explicit rows below can turn tabs off.
     TAB_TREE.forEach(t => { map[t.key] = true; t.subs.forEach(s => { map[`${t.key}:${s.key}`] = true; }); });
-    (data || []).forEach((r: any) => {
-      const m: string = r.module;
-      // module = 'tab:<key>' or 'tab:<key>:<sub>'
-      const rest = m.slice(4);
-      if (rest.includes(':')) {
-        const [p, s] = rest.split(':');
-        map[`${p}:${s}`] = !!r.can_view;
-      } else {
-        map[rest] = !!r.can_view;
-      }
-    });
+    if (!error && data?.has_config) {
+      // Start from OFF when config exists, then flip on only allowed modules.
+      TAB_TREE.forEach(t => { map[t.key] = false; t.subs.forEach(s => { map[`${t.key}:${s.key}`] = false; }); });
+      (data.allowed as string[] || []).forEach((m) => {
+        const rest = m.startsWith('tab:') ? m.slice(4) : m;
+        if (rest.includes(':')) {
+          const [p, s] = rest.split(':');
+          map[`${p}:${s}`] = true;
+        } else {
+          map[rest] = true;
+        }
+      });
+    }
     setTabAccess(map);
   };
   const openCreate = () => {
@@ -189,17 +190,16 @@ export function AdminUserManagement() {
   };
 
   const persistTabAccess = async (uid: string) => {
-    // One row per main tab + one row per sub-tab. can_view carries the switch.
-    const rows: any[] = [];
+    // Build a full map (main + sub) so every switch state is persisted.
+    const tab_access: Record<string, boolean> = {};
     TAB_TREE.forEach(t => {
-      rows.push({ admin_user_id: uid, module: tabModule(t.key),
-        can_view: !!tabAccess[t.key], can_create: false, can_edit: false, can_delete: false, can_export: false, can_approve: false });
+      tab_access[t.key] = !!tabAccess[t.key];
       t.subs.forEach(s => {
-        rows.push({ admin_user_id: uid, module: subTabModule(t.key, s.key),
-          can_view: !!tabAccess[`${t.key}:${s.key}`], can_create: false, can_edit: false, can_delete: false, can_export: false, can_approve: false });
+        tab_access[`${t.key}:${s.key}`] = !!tabAccess[`${t.key}:${s.key}`];
       });
     });
-    await supabase.from('admin_permissions').upsert(rows, { onConflict: 'admin_user_id,module' });
+    const { data, error } = await callAdmin({ action: 'save_tab_access', user_id: uid, tab_access });
+    if (error || !data?.success) throw new Error(error?.message || 'save_tab_access_failed');
   };
 
   const save = async () => {
