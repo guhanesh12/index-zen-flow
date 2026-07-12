@@ -72,6 +72,15 @@ export function useAllowedTabs(): AllowedTabs {
     return () => { cancelled = true; };
   }, [tick]);
 
+  // Refresh when another part of the app saves new tab permissions
+  // (e.g. AdminUserManagement → Save Changes). Avoids a full page reload
+  // to see the newly-restricted tab set take effect.
+  useEffect(() => {
+    const onUpdate = () => setTick(t => t + 1);
+    window.addEventListener('admin-tabs-updated', onUpdate);
+    return () => window.removeEventListener('admin-tabs-updated', onUpdate);
+  }, []);
+
   return {
     loading,
     isSuperAdmin: isSuper,
