@@ -365,10 +365,19 @@ Deno.serve(async (req) => {
       // auth session, since admin login stores its token in sessionStorage
       // rather than calling supabase.auth.setSession()).
       const bodyEmail = String(body?.email || '').trim().toLowerCase();
+      const bodyUserId = String(body?.user_id || '').trim();
       const wantsCurrentAdmin = body?.self === true;
       const routeKey = String(body?.url_key || body?.admin_code || '').trim();
-      let targetUserId = wantsCurrentAdmin ? actorUserId : String(body?.user_id || actorUserId || '');
-      let targetEmail = wantsCurrentAdmin ? (actorEmail || bodyEmail) : bodyEmail;
+      const bodyMatchesVerifiedToken = wantsCurrentAdmin && !!actorUserId && (
+        (!!bodyUserId && bodyUserId === actorUserId) ||
+        (!!bodyEmail && !!actorEmail && bodyEmail === String(actorEmail).trim().toLowerCase())
+      );
+      let targetUserId = wantsCurrentAdmin
+        ? (bodyMatchesVerifiedToken ? (bodyUserId || actorUserId) : actorUserId)
+        : String(bodyUserId || actorUserId || '');
+      let targetEmail = wantsCurrentAdmin
+        ? (bodyMatchesVerifiedToken ? (bodyEmail || actorEmail) : (actorEmail || bodyEmail))
+        : bodyEmail;
 
       if (bodyEmail === PERMANENT_SUPER_ADMIN_EMAIL) {
         return ok({
@@ -379,10 +388,11 @@ Deno.serve(async (req) => {
         });
       }
 
-      // For current-dashboard permission checks, trust the verified admin route
-      // identity over any regular Supabase session token. This prevents a normal
-      // app session from restricting the permanent super-admin route to one tab.
-      if (wantsCurrentAdmin && routeKey) {
+      // For current-dashboard permission checks, only use the route identity when
+      // there is no verified admin access token matching the logged-in admin in
+      // sessionStorage. Otherwise stale/other route keys can override the real
+      // logged-in admin and show the wrong tab set (often Dashboard only).
+      if (wantsCurrentAdmin && routeKey && !bodyMatchesVerifiedToken) {
         const { data: routeProfile } = await supa
           .from('admin_profiles')
           .select('user_id,email,status,is_super_admin')
