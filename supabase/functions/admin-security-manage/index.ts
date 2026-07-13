@@ -368,15 +368,16 @@ Deno.serve(async (req) => {
       const bodyUserId = String(body?.user_id || '').trim();
       const wantsCurrentAdmin = body?.self === true;
       const routeKey = String(body?.url_key || body?.admin_code || '').trim();
+      const explicitSelfIdentity = wantsCurrentAdmin && (!!bodyUserId || !!bodyEmail);
       const bodyMatchesVerifiedToken = wantsCurrentAdmin && !!actorUserId && (
         (!!bodyUserId && bodyUserId === actorUserId) ||
         (!!bodyEmail && !!actorEmail && bodyEmail === String(actorEmail).trim().toLowerCase())
       );
       let targetUserId = wantsCurrentAdmin
-        ? (bodyMatchesVerifiedToken ? (bodyUserId || actorUserId) : actorUserId)
+        ? (explicitSelfIdentity ? bodyUserId : actorUserId)
         : String(bodyUserId || actorUserId || '');
       let targetEmail = wantsCurrentAdmin
-        ? (bodyMatchesVerifiedToken ? (bodyEmail || actorEmail) : (actorEmail || bodyEmail))
+        ? (explicitSelfIdentity ? (bodyEmail || actorEmail) : (actorEmail || bodyEmail))
         : bodyEmail;
 
       if (bodyEmail === PERMANENT_SUPER_ADMIN_EMAIL) {
@@ -389,10 +390,10 @@ Deno.serve(async (req) => {
       }
 
       // For current-dashboard permission checks, only use the route identity when
-      // there is no verified admin access token matching the logged-in admin in
-      // sessionStorage. Otherwise stale/other route keys can override the real
-      // logged-in admin and show the wrong tab set (often Dashboard only).
-      if (wantsCurrentAdmin && routeKey && !bodyMatchesVerifiedToken) {
+      // the client did not send the logged-in admin's own id/email. Otherwise a
+      // stale/other route key can override the real admin and show the wrong tab
+      // set (often Dashboard only).
+      if (wantsCurrentAdmin && routeKey && !explicitSelfIdentity && !bodyMatchesVerifiedToken) {
         const { data: routeProfile } = await supa
           .from('admin_profiles')
           .select('user_id,email,status,is_super_admin')
@@ -414,6 +415,19 @@ Deno.serve(async (req) => {
             targetUserId = session.userId || targetUserId;
             targetEmail = String(session.email || targetEmail || '').trim().toLowerCase();
           }
+        }
+      }
+
+      if (wantsCurrentAdmin && !targetUserId && targetEmail) {
+        const { data: emailProfile } = await supa
+          .from('admin_profiles')
+          .select('user_id,email,status,is_super_admin')
+          .eq('email', targetEmail)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (emailProfile) {
+          targetUserId = emailProfile.user_id;
+          targetEmail = String(emailProfile.email || targetEmail || '').trim().toLowerCase();
         }
       }
 
