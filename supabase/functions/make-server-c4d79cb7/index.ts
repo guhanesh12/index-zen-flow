@@ -9992,6 +9992,8 @@ app.post("/make-server-c4d79cb7/landing/content", async (c) => {
 
 // Force reset landing page content to DEFAULT (useful after updates to DEFAULT_LANDING_CONTENT)
 app.post("/make-server-c4d79cb7/landing/content/reset", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const { DEFAULT_LANDING_CONTENT } = await import('./landing_admin.tsx');
     await kv.set('landing_page_content', DEFAULT_LANDING_CONTENT);
