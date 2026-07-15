@@ -7046,8 +7046,11 @@ app.get("/make-server-c4d79cb7/admin/ip-pool/health", async (c) => {
 // ==================== ADMIN ROUTES ====================
 
 // Get all admin hotkeys (public endpoint for loading on app start)
-// Alias: /admin/hotkeys → same as /admin/hotkeys/all
+// 🔒 Admin hotkey codes are secrets — do not expose them publicly.
+// Use POST /admin/verify-hotkey to check a typed sequence server-side instead.
 app.get("/make-server-c4d79cb7/admin/hotkeys", async (c) => {
+  const { authorized, error } = await validateAdminAuth(c);
+  if (!authorized) return c.json({ error: error?.message || 'Unauthorized' }, error?.code || 401);
   try {
     const hotkeys = await kv.getByPrefix('admin:hotkey:');
     const hotkeyList = hotkeys.map((h: any) => ({
@@ -7064,13 +7067,10 @@ app.get("/make-server-c4d79cb7/admin/hotkeys", async (c) => {
 });
 
 app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
+  const { authorized, error } = await validateAdminAuth(c);
+  if (!authorized) return c.json({ error: error?.message || 'Unauthorized' }, error?.code || 401);
   try {
-    console.log('🔑 Fetching all admin hotkeys');
-    
-    // Get all hotkeys from KV store
     const hotkeys = await kv.getByPrefix('admin:hotkey:');
-    
-    // Return array of hotkeys, extracting value from {key, value} objects
     const hotkeyList = hotkeys.map((h: any) => ({
       id: h.value.id,
       hotkey: h.value.hotkey,
@@ -7078,8 +7078,6 @@ app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
       name: h.value.name,
       createdAt: h.value.createdAt
     }));
-    
-    console.log(`✅ Returning ${hotkeyList.length} admin hotkeys`);
     return c.json({ success: true, hotkeys: hotkeyList });
   } catch (error: any) {
     console.error('❌ Error fetching hotkeys:', error);
