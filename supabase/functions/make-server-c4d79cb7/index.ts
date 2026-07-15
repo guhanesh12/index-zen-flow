@@ -11130,6 +11130,8 @@ app.all("/make-server-c4d79cb7/cron/vps-reconcile", async (c) => {
 
 // ⚡ BUG FIX 2/3: Pre-market auto-resume — re-arms engines that auto-stopped
 app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     const result = await PersistentTradingEngine.autoResumeEngines();
     return c.json({ success: true, ...result });
