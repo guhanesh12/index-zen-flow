@@ -8513,8 +8513,11 @@ app.delete("/make-server-c4d79cb7/user/notifications", async (c) => {
 
 // DEBUG: Check all user notifications in KV store
 app.get("/make-server-c4d79cb7/debug/all-notifications", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
     console.log('🔍 DEBUG: Fetching ALL user notifications from KV store...');
+
     
     const allUserNotifs = await kv.getByPrefix('user_notifications:');
     
