@@ -4754,9 +4754,12 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
 app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
   console.log('🔥 AUTO-FETCH BACKTEST ROUTE HIT');
   try {
-    const body = await c.req.json();
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    const body = await c.req.json().catch(() => ({}));
     const {
-      userId,
       securityId = '13',           // NIFTY 50
       exchangeSegment = 'IDX_I',
       instrument = 'INDEX',
@@ -4764,12 +4767,13 @@ app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
       days = 30,
       quantity = 75
     } = body;
+    const userId = user.id;
 
-    if (!userId) return c.json({ success: false, error: 'userId required' }, 400);
     const credentials = await kv.get(`api_credentials:${userId}`) as any;
     if (!credentials?.dhanAccessToken) {
       return c.json({ success: false, error: 'Dhan credentials not configured' }, 400);
     }
+
 
     const toDate = new Date();
     const fromDate = new Date();
