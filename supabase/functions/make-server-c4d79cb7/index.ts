@@ -12291,6 +12291,8 @@ app.get("/make-server-c4d79cb7/admin/referrals/overview", async (c) => {
 });
 
 app.patch("/make-server-c4d79cb7/admin/referrals/settings", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
     const body = await c.req.json();
     const updates: any = {};
@@ -12313,16 +12315,21 @@ app.patch("/make-server-c4d79cb7/admin/referrals/settings", async (c) => {
 });
 
 app.get("/make-server-c4d79cb7/admin/referrals/list", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   const { data } = await supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(500);
   return c.json({ referrals: data || [] });
 });
 
 app.get("/make-server-c4d79cb7/admin/referrals/leaderboard", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   const { data } = await supabase
     .from('referral_earnings')
     .select('user_id, total_earned, successful_count, pending_count')
     .order('total_earned', { ascending: false })
     .limit(50);
+
   // join client ids
   const ids = (data || []).map((d: any) => d.user_id);
   let profiles: any[] = [];
