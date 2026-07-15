@@ -28,6 +28,7 @@ const TEMPLATE_LABELS: Record<string, string> = {
 };
 
 export function AdminCommunication() {
+  const [tab, setTab] = useState<'settings' | 'broadcast'>('settings');
   const [settings, setSettings] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
