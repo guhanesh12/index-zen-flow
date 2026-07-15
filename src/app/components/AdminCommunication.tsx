@@ -227,6 +227,7 @@ export function AdminCommunication() {
           </div>
         </CardContent>
       </Card>
+      </>}
     </div>
   );
 }
