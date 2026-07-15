@@ -82,7 +82,7 @@
     "react-responsive-masonry": "^2.7.1",
     "react-router-dom": "^7.9.6",
     "react-slick": "^0.31.0",
-    "recharts": "^2.15.4",
+    "recharts": "^3.9.2",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
