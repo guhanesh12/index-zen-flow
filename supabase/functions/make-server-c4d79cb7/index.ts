@@ -11837,7 +11837,7 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
     if (!session?.sessionId) session = await kv.get(`reset_otp:+91${phoneKey}`);
     if (!session?.sessionId) session = await kv.get(`reset_otp:91${phoneKey}`);
 
-    console.log(`🔍 reset-password verify - phone:${phone} key:${phoneKey} hasSession:${!!session?.sessionId} otp:${otp}`);
+    console.log(`🔍 reset-password verify - phoneKey:${phoneKey} hasSession:${!!session?.sessionId}`);
 
     if (!session?.sessionId) return c.json({ error: 'OTP session expired. Please request a new OTP.' }, 400);
 
