@@ -4590,15 +4590,14 @@ app.post("/make-server-c4d79cb7/backtest/run", async (c) => {
   try {
     console.log('📊 Starting backtest...');
     
-    const body = await c.req.json();
-    console.log('📥 Request body:', JSON.stringify(body, null, 2));
-    
-    const { userId, initialCapital = 100000, quantity = 75 } = body;
-    
-    if (!userId) {
-      console.log('❌ No userId provided');
-      return c.json({ success: false, error: 'User ID required' }, 400);
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
+    const body = await c.req.json().catch(() => ({}));
+    const { initialCapital = 100000, quantity = 75 } = body;
+    const userId = user.id;
+
     
     console.log(`👤 User ID: ${userId}`);
     
