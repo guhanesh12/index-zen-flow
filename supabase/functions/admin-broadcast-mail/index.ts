@@ -209,15 +209,12 @@ Deno.serve(async (req) => {
       });
       const j = await resp.json().catch(() => ({}));
       if (resp.ok && j?.ok !== false) sent++; else failed++;
-      // Tag the just-created log with the campaign id (best-effort, latest matching row).
       if (campaignId) {
-        await admin.from("email_logs")
-          .update({ campaign_id: campaignId })
-          .eq("recipient", r.email)
+        const { data: logs } = await admin.from("email_logs")
+          .select("id").eq("recipient", r.email).eq("template", "broadcast")
           .is("campaign_id", null)
-          .eq("template", "broadcast")
-          .order("created_at", { ascending: false })
-          .limit(1);
+          .order("created_at", { ascending: false }).limit(1);
+        if (logs?.[0]?.id) await admin.from("email_logs").update({ campaign_id: campaignId }).eq("id", logs[0].id);
       }
       // Rate limit ~10/sec for Brevo
       await new Promise((res) => setTimeout(res, 110));
