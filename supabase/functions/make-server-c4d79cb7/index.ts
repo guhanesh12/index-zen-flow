@@ -10107,6 +10107,8 @@ app.post("/make-server-c4d79cb7/landing/pages", async (c) => {
 
 // Delete page (NO AUTH - Public endpoint for landing page management)
 app.delete("/make-server-c4d79cb7/landing/pages/:slug", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const slug = c.req.param('slug');
     await deletePage(slug);
