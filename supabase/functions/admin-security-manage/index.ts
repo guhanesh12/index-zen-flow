@@ -136,6 +136,32 @@ Deno.serve(async (req) => {
 
   if (!authorized) return bad(403, 'admin_session_required');
 
+  // 🔒 Determine if the caller is a super-admin. Sensitive admin-management
+  // actions (create/delete admins, reset passwords/TOTP, rotate url keys,
+  // list admins) must be restricted to super-admins so a compromised regular
+  // admin cannot hijack the super-admin account.
+  let isSuperAdmin = false;
+  {
+    const emailLc = String(actorEmail || '').trim().toLowerCase();
+    if (emailLc && (emailLc === PERMANENT_SUPER_ADMIN_EMAIL || (OWNER_EMAIL && emailLc === OWNER_EMAIL))) {
+      isSuperAdmin = true;
+    } else if (actorUserId) {
+      const { data: sp } = await supa
+        .from('admin_profiles')
+        .select('is_super_admin,status')
+        .eq('user_id', actorUserId)
+        .maybeSingle();
+      if (sp?.is_super_admin && sp?.status === 'active') isSuperAdmin = true;
+    }
+  }
+  const SUPER_ADMIN_ONLY_ACTIONS = new Set([
+    'create_admin', 'delete_admin', 'set_password', 'reset_totp',
+    'rotate_url_key', 'list_admins', 'update_admin',
+  ]);
+  if (SUPER_ADMIN_ONLY_ACTIONS.has(action) && !isSuperAdmin) {
+    return bad(403, 'super_admin_required');
+  }
+
 
 
   try {
