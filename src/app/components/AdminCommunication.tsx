@@ -7,8 +7,9 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 import { Badge } from './ui/badge';
-import { Mail, MessageSquare, Phone, Send, RefreshCw, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { Mail, MessageSquare, Phone, Send, RefreshCw, CheckCircle2, XCircle, Clock, AlertCircle, Megaphone, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
+import AdminBroadcastMail from './AdminBroadcastMail';
 
 const TEMPLATE_LABELS: Record<string, string> = {
   welcome: 'Welcome Email',
