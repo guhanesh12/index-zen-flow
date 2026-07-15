@@ -210,6 +210,23 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
   return { authorized: false, error: { message: 'Admin access required', code: 403 } };
 }
 
+// 🔒 Internal-only guard: requires x-internal-key header matching INTERNAL_SYNC_KEY.
+// Used for cron/scheduler endpoints and server-to-server calls.
+function requireInternalKey(c: any): boolean {
+  const key = c.req.header('x-internal-key') || '';
+  const expected = Deno.env.get('INTERNAL_SYNC_KEY') || '';
+  return !!expected && key === expected;
+}
+
+// 🔒 Cron/internal OR admin auth — cron jobs use internal key, admins can trigger manually.
+async function requireCronOrAdmin(c: any): Promise<{ ok: boolean }> {
+  if (requireInternalKey(c)) return { ok: true };
+  const a = await validateAdminAuth(c);
+  return { ok: a.authorized };
+}
+
+
+
 
 // ⚡ FAST userId EXTRACTION: Decode JWT payload without signature verification
 // Used for trading endpoints where speed matters and userId is the only requirement.
@@ -633,6 +650,10 @@ app.post("/make-server-c4d79cb7/test-order-simulation", async (c) => {
 
 // 🔥 TEST: Check 2factor.in API key configuration
 app.get("/make-server-c4d79cb7/auth/test-2factor", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) {
+    return c.json({ success: false, error: 'Unauthorized' }, 401);
+  }
   try {
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     
@@ -6356,6 +6377,8 @@ app.get("/make-server-c4d79cb7/vps-power/my-status", async (c) => {
 
 // CRON: shutdown all (called by pg_cron at 15:31 IST). No auth — internal sync key OR anon.
 app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const result = await VPSPower.autoShutdownAll();
     return c.json({ success: true, ...result });
@@ -6366,6 +6389,8 @@ app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
 
 // CRON: startup all (08:55 IST Mon-Fri).
 app.post("/make-server-c4d79cb7/vps-power/auto-startup", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const result = await VPSPower.autoStartupAll();
     return c.json({ success: true, ...result });
@@ -8129,9 +8154,14 @@ app.get("/make-server-c4d79cb7/debug/analytics", async (c) => {
 // Subscribe to push notifications (RN/web both call this)
 app.post("/make-server-c4d79cb7/push/subscribe", async (c) => {
   try {
-    const { userId, deviceToken, browser, device, platform } = await c.req.json();
-    console.log('📢 push/subscribe:', { userId, browser, device, platform });
-    const result = await pushNotifications.saveSubscriber({ userId, deviceToken, browser, device, platform });
+    // 🔒 Derive userId from verified JWT — never trust request body
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) {
+      return c.json({ success: false, message: 'Unauthorized' }, 401);
+    }
+    const { deviceToken, browser, device, platform } = await c.req.json();
+    console.log('📢 push/subscribe:', { userId: user.id, browser, device, platform });
+    const result = await pushNotifications.saveSubscriber({ userId: user.id, deviceToken, browser, device, platform });
     return result.success
       ? c.json({ success: true, message: 'Subscribed successfully' })
       : c.json({ success: false, message: result.error }, 500);
@@ -9936,6 +9966,8 @@ app.get("/make-server-c4d79cb7/landing/content", async (c) => {
 
 // Update landing page content (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/content", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
     
@@ -9960,6 +9992,8 @@ app.post("/make-server-c4d79cb7/landing/content", async (c) => {
 
 // Force reset landing page content to DEFAULT (useful after updates to DEFAULT_LANDING_CONTENT)
 app.post("/make-server-c4d79cb7/landing/content/reset", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const { DEFAULT_LANDING_CONTENT } = await import('./landing_admin.tsx');
     await kv.set('landing_page_content', DEFAULT_LANDING_CONTENT);
@@ -9984,6 +10018,8 @@ app.get("/make-server-c4d79cb7/landing/terms", async (c) => {
 
 // Update Terms & Conditions (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/terms", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const data = await c.req.json();
     const updatedContent = await updateTermsContent(data);
@@ -10009,6 +10045,8 @@ app.get("/make-server-c4d79cb7/landing/privacy", async (c) => {
 
 // Update Privacy Policy (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/privacy", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const data = await c.req.json();
     const updatedContent = await updatePrivacyContent(data);
@@ -10053,6 +10091,8 @@ app.get("/make-server-c4d79cb7/landing/pages/:slug", async (c) => {
 
 // Create or update page (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/pages", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const pageData = await c.req.json();
     const pages = await savePage(pageData);
@@ -10067,6 +10107,8 @@ app.post("/make-server-c4d79cb7/landing/pages", async (c) => {
 
 // Delete page (NO AUTH - Public endpoint for landing page management)
 app.delete("/make-server-c4d79cb7/landing/pages/:slug", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const slug = c.req.param('slug');
     await deletePage(slug);
@@ -10081,6 +10123,8 @@ app.delete("/make-server-c4d79cb7/landing/pages/:slug", async (c) => {
 
 // Toggle page enabled status (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/pages/:slug/toggle", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const slug = c.req.param('slug');
     const { enabled } = await c.req.json();
@@ -10118,6 +10162,8 @@ app.get("/make-server-c4d79cb7/landing/social-links", async (c) => {
 
 // Update social media links (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/social-links", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const linksData = await c.req.json();
     const updatedLinks = await updateSocialLinks(linksData);
@@ -10684,6 +10730,8 @@ app.get('/make-server-c4d79cb7/admin/landing-page', async (c) => {
 
 // Admin: Update landing page content (NO AUTH - Public endpoint for landing page management)
 app.post('/make-server-c4d79cb7/admin/landing-page', async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ success: false, message: 'Unauthorized' }, 401);
   try {
     const { content } = await c.req.json();
 
@@ -11064,6 +11112,8 @@ app.put("/make-server-c4d79cb7/dhan-static-ip/modify", async (c) => {
 // 24/7 CRON TRIGGER FOR ENGINE TICK
 // ==========================================
 app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   console.log("==========================================");
   console.log("⏱️ [CRON] 24/7 Engine Tick Triggered via HTTP");
   console.log("==========================================");
@@ -11086,6 +11136,8 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
 
 // Manual VPS reconcile (admin/debug)
 app.all("/make-server-c4d79cb7/cron/vps-reconcile", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     const result = await VPSPower.reconcileAllWithEngine();
     return c.json({ success: true, ...result });
@@ -11096,6 +11148,8 @@ app.all("/make-server-c4d79cb7/cron/vps-reconcile", async (c) => {
 
 // ⚡ BUG FIX 2/3: Pre-market auto-resume — re-arms engines that auto-stopped
 app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     const result = await PersistentTradingEngine.autoResumeEngines();
     return c.json({ success: true, ...result });
@@ -11107,6 +11161,8 @@ app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
 
 // 📥 Daily 08:50 IST — refresh centralized instrument master (NIFTY / BANKNIFTY / SENSEX options)
 app.all("/make-server-c4d79cb7/cron/refresh-instruments", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     const url = new URL(c.req.url);
     const force = url.searchParams.get("force") === "1";
@@ -11226,6 +11282,8 @@ app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
 
 // 📧 Daily 09:08 IST premarket email — sent only on NSE trading days
 app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     // Trading-day check using DB function
     const { data: isTradingDay } = await supabase.rpc('is_trading_day');
