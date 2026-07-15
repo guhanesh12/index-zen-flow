@@ -4502,18 +4502,18 @@ app.post("/make-server-c4d79cb7/backtest/test-dhan", async (c) => {
   console.log('🧪 TEST DHAN API ENDPOINT HIT');
   
   try {
-    const body = await c.req.json();
-    const { userId } = body;
-    
-    if (!userId) {
-      return c.json({ success: false, error: 'User ID required' }, 400);
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
+    const userId = user.id;
     
     const credentials = await kv.get(`api_credentials:${userId}`) as any;
     
     if (!credentials || !credentials.dhanAccessToken) {
       return c.json({ success: false, error: 'No Dhan credentials' }, 400);
     }
+
     
     // Test with 7 days of data first (smaller request)
     const toDate = new Date();
