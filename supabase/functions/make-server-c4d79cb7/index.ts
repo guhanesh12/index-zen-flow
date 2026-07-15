@@ -10091,6 +10091,8 @@ app.get("/make-server-c4d79cb7/landing/pages/:slug", async (c) => {
 
 // Create or update page (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/pages", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const pageData = await c.req.json();
     const pages = await savePage(pageData);
