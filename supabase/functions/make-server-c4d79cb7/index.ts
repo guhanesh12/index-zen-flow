@@ -8109,8 +8109,11 @@ app.post("/make-server-c4d79cb7/analytics/signup", async (c) => {
 
 // 🐛 DEBUG ENDPOINT - Inspect all analytics data in KV store
 app.get("/make-server-c4d79cb7/debug/analytics", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
     console.log(`🐛 [DEBUG] Fetching all analytics data from KV store...`);
+
     
     // Get all data
     const sessionData = await kv.getByPrefix('visitor_session:');
