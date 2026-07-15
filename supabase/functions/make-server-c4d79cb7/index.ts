@@ -7046,8 +7046,11 @@ app.get("/make-server-c4d79cb7/admin/ip-pool/health", async (c) => {
 // ==================== ADMIN ROUTES ====================
 
 // Get all admin hotkeys (public endpoint for loading on app start)
-// Alias: /admin/hotkeys → same as /admin/hotkeys/all
+// 🔒 Admin hotkey codes are secrets — do not expose them publicly.
+// Use POST /admin/verify-hotkey to check a typed sequence server-side instead.
 app.get("/make-server-c4d79cb7/admin/hotkeys", async (c) => {
+  const { authorized, error } = await validateAdminAuth(c);
+  if (!authorized) return c.json({ error: error?.message || 'Unauthorized' }, error?.code || 401);
   try {
     const hotkeys = await kv.getByPrefix('admin:hotkey:');
     const hotkeyList = hotkeys.map((h: any) => ({
@@ -7064,13 +7067,10 @@ app.get("/make-server-c4d79cb7/admin/hotkeys", async (c) => {
 });
 
 app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
+  const { authorized, error } = await validateAdminAuth(c);
+  if (!authorized) return c.json({ error: error?.message || 'Unauthorized' }, error?.code || 401);
   try {
-    console.log('🔑 Fetching all admin hotkeys');
-    
-    // Get all hotkeys from KV store
     const hotkeys = await kv.getByPrefix('admin:hotkey:');
-    
-    // Return array of hotkeys, extracting value from {key, value} objects
     const hotkeyList = hotkeys.map((h: any) => ({
       id: h.value.id,
       hotkey: h.value.hotkey,
@@ -7078,8 +7078,6 @@ app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
       name: h.value.name,
       createdAt: h.value.createdAt
     }));
-    
-    console.log(`✅ Returning ${hotkeyList.length} admin hotkeys`);
     return c.json({ success: true, hotkeys: hotkeyList });
   } catch (error: any) {
     console.error('❌ Error fetching hotkeys:', error);
@@ -7090,6 +7088,8 @@ app.get("/make-server-c4d79cb7/admin/hotkeys/all", async (c) => {
 // Get all platform users (admin only)
 app.get("/make-server-c4d79cb7/admin/users", async (c) => {
   try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     console.log('📊 Admin: Fetching all users');
     
     // 🔥 FIXED: Fetch users from Supabase Auth instead of KV store
@@ -7426,6 +7426,8 @@ app.post("/make-server-c4d79cb7/admin/users/:userId/status", async (c) => {
 // Get admin dashboard stats
 app.get("/make-server-c4d79cb7/admin/stats", async (c) => {
   try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     console.log('📊 Admin: Fetching dashboard stats');
     
     const platformOwnerEmail = Deno.env.get('PLATFORM_OWNER_EMAIL') || 'airoboengin@smilykat.com';
@@ -7533,6 +7535,8 @@ app.get("/make-server-c4d79cb7/admin/stats", async (c) => {
 // ═══════════════════════════════════════════════════════════════
 app.get("/make-server-c4d79cb7/admin/advanced-stats", async (c) => {
   try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     console.log('📊 [ADVANCED ADMIN] Fetching comprehensive analytics...');
     
     // Fetch all users from Supabase Auth (graceful fallback if fails)
@@ -7921,6 +7925,8 @@ app.post("/make-server-c4d79cb7/admin/users/:userId/wallet", async (c) => {
 // ═══════════════════════════════════════════════════════════════
 app.get("/make-server-c4d79cb7/admin/monitoring", async (c) => {
   try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const timeRange = c.req.query('range') || 'today';
     console.log(`📊 [MONITORING] Fetching REAL analytics (range: ${timeRange})...`);
 
@@ -8501,6 +8507,8 @@ app.get("/make-server-c4d79cb7/debug/all-notifications", async (c) => {
 // Get all transactions (admin only)
 app.get("/make-server-c4d79cb7/admin/transactions", async (c) => {
   try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const period = c.req.query('period') || 'all';
     
     console.log(`📊 Admin: Fetching transactions (period: ${period})`);
