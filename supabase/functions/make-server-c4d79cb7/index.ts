@@ -9966,6 +9966,8 @@ app.get("/make-server-c4d79cb7/landing/content", async (c) => {
 
 // Update landing page content (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/content", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
     
