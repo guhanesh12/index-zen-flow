@@ -6377,6 +6377,8 @@ app.get("/make-server-c4d79cb7/vps-power/my-status", async (c) => {
 
 // CRON: shutdown all (called by pg_cron at 15:31 IST). No auth — internal sync key OR anon.
 app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const result = await VPSPower.autoShutdownAll();
     return c.json({ success: true, ...result });
@@ -6387,6 +6389,8 @@ app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
 
 // CRON: startup all (08:55 IST Mon-Fri).
 app.post("/make-server-c4d79cb7/vps-power/auto-startup", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const result = await VPSPower.autoStartupAll();
     return c.json({ success: true, ...result });
