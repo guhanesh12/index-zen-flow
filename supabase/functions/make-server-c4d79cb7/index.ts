@@ -633,6 +633,10 @@ app.post("/make-server-c4d79cb7/test-order-simulation", async (c) => {
 
 // 🔥 TEST: Check 2factor.in API key configuration
 app.get("/make-server-c4d79cb7/auth/test-2factor", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) {
+    return c.json({ success: false, error: 'Unauthorized' }, 401);
+  }
   try {
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     
