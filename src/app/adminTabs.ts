@@ -41,7 +41,10 @@ export const TAB_TREE: TabDef[] = [
     { key: 'list',        label: 'Referrals' },
     { key: 'leaderboard', label: 'Leaderboard' },
   ]},
-  { key: 'communication', label: 'Communication', subs: [] },
+  { key: 'communication', label: 'Communication', subs: [
+    { key: 'settings',  label: 'Settings & Logs' },
+    { key: 'broadcast', label: 'Broadcast Mail' },
+  ]},
   { key: 'mobile',        label: 'Mobile App',   subs: [] },
   { key: 'audit',         label: 'Audit Log',    subs: [] },
 ];

@@ -354,6 +354,51 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
     );
     return { subject: `Email integration test`, html, text: htmlToText(html) };
   },
+
+  // Auto-close: fires when SL/target/auto-exit closes a position and engine is auto-stopped.
+  position_auto_close: (d) => {
+    const pnl = Number(d.pnl || 0);
+    const isProfit = pnl >= 0;
+    const pnlStr = `${isProfit ? "+" : "-"}₹${Math.abs(pnl).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+    const reason = (d.exit_reason || "auto_exit").toString().replace(/_/g, " ");
+    const html = plain(
+      `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Position auto-closed · engine stopped</h2>
+       <p>Hi ${d.name || "there"}, one of your positions was closed automatically. As a safety measure, your trading engine has been switched <b>OFF</b>. You can restart it from your dashboard.</p>
+       ${codeBox(pnlStr, isProfit ? "Profit booked" : "Loss booked")}
+       ${details([
+         ["Symbol", d.symbol || "—"],
+         ["Entry → Exit", `₹${d.entry_price ?? "—"} → ₹${d.exit_price ?? "—"}`],
+         ["Quantity", String(d.quantity || 1)],
+         ["Exit reason", reason],
+         ["Engine status", "Stopped (auto)"],
+         ["Closed at", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST"],
+       ])}
+       ${btn("Review & restart engine", `${BRAND.url}/dashboard`)}
+       <p style="margin:14px 0 0;color:#6b7280;font-size:13px">The engine will not place new orders until you restart it.</p>`,
+      { preheader: `${pnlStr} on ${d.symbol || "position"} — engine off` }
+    );
+    return { subject: `Position closed & engine stopped — ${d.symbol || "—"}`, html, text: htmlToText(html) };
+  },
+
+  // Admin broadcast: rich shell for manual/segmented campaigns from admin UI.
+  broadcast: (d) => {
+    const heading = d.heading || d.subject || "An update from IndexPilot AI";
+    const bodyHtml = (d.body || "").toString()
+      .split(/\n{2,}/).map((p: string) =>
+        `<p style="margin:0 0 12px">${p.replace(/\n/g, "<br/>")}</p>`).join("");
+    const banner = d.banner_url
+      ? `<img src="${d.banner_url}" alt="" style="display:block;width:100%;max-width:536px;border-radius:8px;margin:0 0 16px"/>`
+      : "";
+    const html = plain(
+      `${banner}
+       <h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">${heading}</h2>
+       <p>Hi ${d.name || "there"},</p>
+       ${bodyHtml || "<p>—</p>"}
+       ${d.cta_url ? btn(d.cta_label || "Learn more", d.cta_url) : ""}`,
+      { preheader: d.preheader || heading }
+    );
+    return { subject: d.subject || heading, html, text: htmlToText(html), promotional: !!d.promotional };
+  },
 };
 
 // ============= BREVO SENDER =============

@@ -443,8 +443,75 @@ export type Database = {
         }
         Relationships: []
       }
+      email_campaigns: {
+        Row: {
+          admin_email: string | null
+          admin_user_id: string | null
+          banner_url: string | null
+          body: string
+          completed_at: string | null
+          created_at: string
+          cta_label: string | null
+          cta_url: string | null
+          error: string | null
+          failed_count: number
+          heading: string | null
+          id: string
+          segment: string
+          segment_filter: Json | null
+          sent_count: number
+          status: string
+          subject: string
+          total_recipients: number
+          updated_at: string
+        }
+        Insert: {
+          admin_email?: string | null
+          admin_user_id?: string | null
+          banner_url?: string | null
+          body: string
+          completed_at?: string | null
+          created_at?: string
+          cta_label?: string | null
+          cta_url?: string | null
+          error?: string | null
+          failed_count?: number
+          heading?: string | null
+          id?: string
+          segment: string
+          segment_filter?: Json | null
+          sent_count?: number
+          status?: string
+          subject: string
+          total_recipients?: number
+          updated_at?: string
+        }
+        Update: {
+          admin_email?: string | null
+          admin_user_id?: string | null
+          banner_url?: string | null
+          body?: string
+          completed_at?: string | null
+          created_at?: string
+          cta_label?: string | null
+          cta_url?: string | null
+          error?: string | null
+          failed_count?: number
+          heading?: string | null
+          id?: string
+          segment?: string
+          segment_filter?: Json | null
+          sent_count?: number
+          status?: string
+          subject?: string
+          total_recipients?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       email_logs: {
         Row: {
+          campaign_id: string | null
           channel: string
           created_at: string
           error: string | null
@@ -459,6 +526,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          campaign_id?: string | null
           channel?: string
           created_at?: string
           error?: string | null
@@ -473,6 +541,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          campaign_id?: string | null
           channel?: string
           created_at?: string
           error?: string | null
@@ -486,7 +555,15 @@ export type Database = {
           template?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "email_logs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "email_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       failed_login_attempts: {
         Row: {
