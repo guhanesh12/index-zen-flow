@@ -8133,9 +8133,14 @@ app.get("/make-server-c4d79cb7/debug/analytics", async (c) => {
 // Subscribe to push notifications (RN/web both call this)
 app.post("/make-server-c4d79cb7/push/subscribe", async (c) => {
   try {
-    const { userId, deviceToken, browser, device, platform } = await c.req.json();
-    console.log('📢 push/subscribe:', { userId, browser, device, platform });
-    const result = await pushNotifications.saveSubscriber({ userId, deviceToken, browser, device, platform });
+    // 🔒 Derive userId from verified JWT — never trust request body
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) {
+      return c.json({ success: false, message: 'Unauthorized' }, 401);
+    }
+    const { deviceToken, browser, device, platform } = await c.req.json();
+    console.log('📢 push/subscribe:', { userId: user.id, browser, device, platform });
+    const result = await pushNotifications.saveSubscriber({ userId: user.id, deviceToken, browser, device, platform });
     return result.success
       ? c.json({ success: true, message: 'Subscribed successfully' })
       : c.json({ success: false, message: result.error }, 500);
