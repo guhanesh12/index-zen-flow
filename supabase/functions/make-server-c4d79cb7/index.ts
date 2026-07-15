@@ -12224,8 +12224,11 @@ app.get("/make-server-c4d79cb7/referral/my", async (c) => {
 // Internal: process first trade reward (called by engine)
 app.post("/make-server-c4d79cb7/referral/process-first-trade", async (c) => {
   try {
+    const gate = await requireCronOrAdmin(c);
+    if (!gate.ok) return c.json({ error: 'Unauthorized' }, 401);
     const { user_id } = await c.req.json();
     if (!user_id) return c.json({ error: 'user_id required' }, 400);
+
     const { data: ref } = await supabase.from('referrals').select('*').eq('referee_user_id', user_id).maybeSingle();
     if (!ref || ref.status === 'rewarded') return c.json({ ok: true, skipped: true });
 
