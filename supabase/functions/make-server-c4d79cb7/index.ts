@@ -10123,6 +10123,8 @@ app.delete("/make-server-c4d79cb7/landing/pages/:slug", async (c) => {
 
 // Toggle page enabled status (NO AUTH - Public endpoint for landing page management)
 app.post("/make-server-c4d79cb7/landing/pages/:slug/toggle", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const slug = c.req.param('slug');
     const { enabled } = await c.req.json();
