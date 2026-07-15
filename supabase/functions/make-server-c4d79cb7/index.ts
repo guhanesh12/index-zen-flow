@@ -210,6 +210,23 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
   return { authorized: false, error: { message: 'Admin access required', code: 403 } };
 }
 
+// 🔒 Internal-only guard: requires x-internal-key header matching INTERNAL_SYNC_KEY.
+// Used for cron/scheduler endpoints and server-to-server calls.
+function requireInternalKey(c: any): boolean {
+  const key = c.req.header('x-internal-key') || '';
+  const expected = Deno.env.get('INTERNAL_SYNC_KEY') || '';
+  return !!expected && key === expected;
+}
+
+// 🔒 Cron/internal OR admin auth — cron jobs use internal key, admins can trigger manually.
+async function requireCronOrAdmin(c: any): Promise<{ ok: boolean }> {
+  if (requireInternalKey(c)) return { ok: true };
+  const a = await validateAdminAuth(c);
+  return { ok: a.authorized };
+}
+
+
+
 
 // ⚡ FAST userId EXTRACTION: Decode JWT payload without signature verification
 // Used for trading endpoints where speed matters and userId is the only requirement.
