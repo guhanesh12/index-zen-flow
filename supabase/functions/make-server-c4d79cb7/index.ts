@@ -4502,18 +4502,18 @@ app.post("/make-server-c4d79cb7/backtest/test-dhan", async (c) => {
   console.log('🧪 TEST DHAN API ENDPOINT HIT');
   
   try {
-    const body = await c.req.json();
-    const { userId } = body;
-    
-    if (!userId) {
-      return c.json({ success: false, error: 'User ID required' }, 400);
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
+    const userId = user.id;
     
     const credentials = await kv.get(`api_credentials:${userId}`) as any;
     
     if (!credentials || !credentials.dhanAccessToken) {
       return c.json({ success: false, error: 'No Dhan credentials' }, 400);
     }
+
     
     // Test with 7 days of data first (smaller request)
     const toDate = new Date();
@@ -4590,15 +4590,14 @@ app.post("/make-server-c4d79cb7/backtest/run", async (c) => {
   try {
     console.log('📊 Starting backtest...');
     
-    const body = await c.req.json();
-    console.log('📥 Request body:', JSON.stringify(body, null, 2));
-    
-    const { userId, initialCapital = 100000, quantity = 75 } = body;
-    
-    if (!userId) {
-      console.log('❌ No userId provided');
-      return c.json({ success: false, error: 'User ID required' }, 400);
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
+    const body = await c.req.json().catch(() => ({}));
+    const { initialCapital = 100000, quantity = 75 } = body;
+    const userId = user.id;
+
     
     console.log(`👤 User ID: ${userId}`);
     
@@ -4755,9 +4754,12 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
 app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
   console.log('🔥 AUTO-FETCH BACKTEST ROUTE HIT');
   try {
-    const body = await c.req.json();
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    const body = await c.req.json().catch(() => ({}));
     const {
-      userId,
       securityId = '13',           // NIFTY 50
       exchangeSegment = 'IDX_I',
       instrument = 'INDEX',
@@ -4765,12 +4767,13 @@ app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
       days = 30,
       quantity = 75
     } = body;
+    const userId = user.id;
 
-    if (!userId) return c.json({ success: false, error: 'userId required' }, 400);
     const credentials = await kv.get(`api_credentials:${userId}`) as any;
     if (!credentials?.dhanAccessToken) {
       return c.json({ success: false, error: 'Dhan credentials not configured' }, 400);
     }
+
 
     const toDate = new Date();
     const fromDate = new Date();
@@ -8106,8 +8109,11 @@ app.post("/make-server-c4d79cb7/analytics/signup", async (c) => {
 
 // 🐛 DEBUG ENDPOINT - Inspect all analytics data in KV store
 app.get("/make-server-c4d79cb7/debug/analytics", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
     console.log(`🐛 [DEBUG] Fetching all analytics data from KV store...`);
+
     
     // Get all data
     const sessionData = await kv.getByPrefix('visitor_session:');
@@ -8507,8 +8513,11 @@ app.delete("/make-server-c4d79cb7/user/notifications", async (c) => {
 
 // DEBUG: Check all user notifications in KV store
 app.get("/make-server-c4d79cb7/debug/all-notifications", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
     console.log('🔍 DEBUG: Fetching ALL user notifications from KV store...');
+
     
     const allUserNotifs = await kv.getByPrefix('user_notifications:');
     
@@ -11828,7 +11837,7 @@ app.post("/make-server-c4d79cb7/auth/reset-password", async (c) => {
     if (!session?.sessionId) session = await kv.get(`reset_otp:+91${phoneKey}`);
     if (!session?.sessionId) session = await kv.get(`reset_otp:91${phoneKey}`);
 
-    console.log(`🔍 reset-password verify - phone:${phone} key:${phoneKey} hasSession:${!!session?.sessionId} otp:${otp}`);
+    console.log(`🔍 reset-password verify - phoneKey:${phoneKey} hasSession:${!!session?.sessionId}`);
 
     if (!session?.sessionId) return c.json({ error: 'OTP session expired. Please request a new OTP.' }, 400);
 
@@ -12215,8 +12224,11 @@ app.get("/make-server-c4d79cb7/referral/my", async (c) => {
 // Internal: process first trade reward (called by engine)
 app.post("/make-server-c4d79cb7/referral/process-first-trade", async (c) => {
   try {
+    const gate = await requireCronOrAdmin(c);
+    if (!gate.ok) return c.json({ error: 'Unauthorized' }, 401);
     const { user_id } = await c.req.json();
     if (!user_id) return c.json({ error: 'user_id required' }, 400);
+
     const { data: ref } = await supabase.from('referrals').select('*').eq('referee_user_id', user_id).maybeSingle();
     if (!ref || ref.status === 'rewarded') return c.json({ ok: true, skipped: true });
 
@@ -12257,7 +12269,10 @@ app.post("/make-server-c4d79cb7/referral/process-first-trade", async (c) => {
 
 // Admin: referral overview & settings
 app.get("/make-server-c4d79cb7/admin/referrals/overview", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
+
     const [{ count: totalRefs }, { count: successRefs }, { count: pendingRefs }, { data: payouts }, { data: settings }] = await Promise.all([
       supabase.from('referrals').select('id', { count: 'exact', head: true }),
       supabase.from('referrals').select('id', { count: 'exact', head: true }).eq('status', 'rewarded'),
@@ -12276,6 +12291,8 @@ app.get("/make-server-c4d79cb7/admin/referrals/overview", async (c) => {
 });
 
 app.patch("/make-server-c4d79cb7/admin/referrals/settings", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
     const body = await c.req.json();
     const updates: any = {};
@@ -12298,16 +12315,21 @@ app.patch("/make-server-c4d79cb7/admin/referrals/settings", async (c) => {
 });
 
 app.get("/make-server-c4d79cb7/admin/referrals/list", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   const { data } = await supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(500);
   return c.json({ referrals: data || [] });
 });
 
 app.get("/make-server-c4d79cb7/admin/referrals/leaderboard", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   const { data } = await supabase
     .from('referral_earnings')
     .select('user_id, total_earned, successful_count, pending_count')
     .order('total_earned', { ascending: false })
     .limit(50);
+
   // join client ids
   const ids = (data || []).map((d: any) => d.user_id);
   let profiles: any[] = [];
