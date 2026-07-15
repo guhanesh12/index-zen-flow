@@ -11143,6 +11143,8 @@ app.all("/make-server-c4d79cb7/cron/engine-auto-resume", async (c) => {
 
 // 📥 Daily 08:50 IST — refresh centralized instrument master (NIFTY / BANKNIFTY / SENSEX options)
 app.all("/make-server-c4d79cb7/cron/refresh-instruments", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     const url = new URL(c.req.url);
     const force = url.searchParams.get("force") === "1";
