@@ -11118,6 +11118,8 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
 
 // Manual VPS reconcile (admin/debug)
 app.all("/make-server-c4d79cb7/cron/vps-reconcile", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     const result = await VPSPower.reconcileAllWithEngine();
     return c.json({ success: true, ...result });
