@@ -11264,6 +11264,8 @@ app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
 
 // 📧 Daily 09:08 IST premarket email — sent only on NSE trading days
 app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   try {
     // Trading-day check using DB function
     const { data: isTradingDay } = await supabase.rpc('is_trading_day');
