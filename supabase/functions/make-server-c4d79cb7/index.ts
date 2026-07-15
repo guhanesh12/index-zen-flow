@@ -11094,6 +11094,8 @@ app.put("/make-server-c4d79cb7/dhan-static-ip/modify", async (c) => {
 // 24/7 CRON TRIGGER FOR ENGINE TICK
 // ==========================================
 app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
   console.log("==========================================");
   console.log("⏱️ [CRON] 24/7 Engine Tick Triggered via HTTP");
   console.log("==========================================");
