@@ -12269,7 +12269,10 @@ app.post("/make-server-c4d79cb7/referral/process-first-trade", async (c) => {
 
 // Admin: referral overview & settings
 app.get("/make-server-c4d79cb7/admin/referrals/overview", async (c) => {
+  const adminCheck = await validateAdminAuth(c);
+  if (!adminCheck.authorized) return c.json({ error: 'Admin access required' }, 403);
   try {
+
     const [{ count: totalRefs }, { count: successRefs }, { count: pendingRefs }, { data: payouts }, { data: settings }] = await Promise.all([
       supabase.from('referrals').select('id', { count: 'exact', head: true }),
       supabase.from('referrals').select('id', { count: 'exact', head: true }).eq('status', 'rewarded'),
