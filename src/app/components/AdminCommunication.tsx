@@ -115,6 +115,14 @@ export function AdminCommunication() {
 
   return (
     <div className="space-y-6">
+      <div className="flex gap-2 border-b border-zinc-800">
+        <button onClick={() => setTab('settings')} className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === 'settings' ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-zinc-400 hover:text-white'}`}><Settings2 className="h-4 w-4 inline mr-1.5"/>Settings & Logs</button>
+        <button onClick={() => setTab('broadcast')} className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === 'broadcast' ? 'border-purple-500 text-purple-400' : 'border-transparent text-zinc-400 hover:text-white'}`}><Megaphone className="h-4 w-4 inline mr-1.5"/>Broadcast Mail</button>
+      </div>
+
+      {tab === 'broadcast' && <AdminBroadcastMail />}
+
+      {tab === 'settings' && <>
       {/* Service Status */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
