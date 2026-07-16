@@ -11236,13 +11236,28 @@ app.post("/make-server-c4d79cb7/auto-symbol/resolve", async (c) => {
 const AUTO_SYMBOL_INDICES = new Set(["NIFTY", "BANKNIFTY", "SENSEX"]);
 const AUTO_SYMBOL_MONEYNESS = new Set(["ATM", "ITM1", "ITM2", "OTM1", "OTM2"]);
 
-function normalizeAutoSymbolSlot(body: any, userId: string) {
+const FREE_SLOTS = 3;
+const EXTRA_SLOT_PRICE = 49;
+const HARD_SLOT_CAP = 20;
+
+async function getExtraSlots(userId: string): Promise<number> {
+  try {
+    const q = await kv.get(`slot_quota:${userId}`);
+    const n = Number(q?.extra || 0);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch { return 0; }
+}
+async function getMaxSlots(userId: string): Promise<number> {
+  return Math.min(HARD_SLOT_CAP, FREE_SLOTS + await getExtraSlots(userId));
+}
+
+function normalizeAutoSymbolSlot(body: any, userId: string, maxSlots: number) {
   const slot = Number(body?.slot);
   const indexName = String(body?.index_name || "").toUpperCase().trim();
   const moneyness = String(body?.moneyness || "ATM").toUpperCase().trim();
   const lotCount = Number(body?.lot_count);
 
-  if (!Number.isInteger(slot) || slot < 1 || slot > 3) throw new Error("Slot must be 1, 2, or 3");
+  if (!Number.isInteger(slot) || slot < 1 || slot > maxSlots) throw new Error(`Slot must be between 1 and ${maxSlots}`);
   if (!AUTO_SYMBOL_INDICES.has(indexName)) throw new Error("Index must be NIFTY, BANKNIFTY, or SENSEX");
   if (!AUTO_SYMBOL_MONEYNESS.has(moneyness)) throw new Error("Moneyness must be ATM, ITM1, ITM2, OTM1, or OTM2");
   if (!Number.isFinite(lotCount) || lotCount < 1 || lotCount > 50) throw new Error("Lot count must be between 1 and 50");
@@ -11273,6 +11288,7 @@ function normalizeAutoSymbolSlot(body: any, userId: string) {
     trailing_step_per_lot,
   };
 }
+
 
 
 // 📋 List user symbol config (auto-selection slots)
