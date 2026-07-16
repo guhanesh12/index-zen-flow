@@ -9,7 +9,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/app/components/ui/select";
 import { Badge } from "@/app/components/ui/badge";
-import { Loader2, Plus, Trash2, Zap, RefreshCw, Target, Shield, TrendingUp } from "lucide-react";
+import { Loader2, Plus, Trash2, Zap, RefreshCw, Target, Shield, TrendingUp, Info, Sparkles } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/app/components/ui/popover";
 import { toast } from "sonner";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
