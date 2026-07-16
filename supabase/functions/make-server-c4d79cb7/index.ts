@@ -11302,7 +11302,16 @@ app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
       .eq("user_id", user.id)
       .order("slot", { ascending: true });
     if (error) throw error;
-    return c.json({ success: true, slots: data || [] });
+    const extra = await getExtraSlots(user.id);
+    return c.json({
+      success: true,
+      slots: data || [],
+      max_slots: Math.min(HARD_SLOT_CAP, FREE_SLOTS + extra),
+      free_slots: FREE_SLOTS,
+      extra_slots: extra,
+      slot_price: EXTRA_SLOT_PRICE,
+      hard_cap: HARD_SLOT_CAP,
+    });
   } catch (error: any) {
     return c.json({ success: false, error: error.message }, 500);
   }
@@ -11314,7 +11323,8 @@ app.post("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
     const { user, error: authError } = await validateAuth(c);
     if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
     const body = await c.req.json();
-    const row = normalizeAutoSymbolSlot(body, user.id);
+    const maxSlots = await getMaxSlots(user.id);
+    const row = normalizeAutoSymbolSlot(body, user.id, maxSlots);
     const { data, error } = await supabase
       .from("user_symbol_config")
       .upsert(row, { onConflict: "user_id,slot" })
@@ -11333,7 +11343,8 @@ app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
     const { user, error: authError } = await validateAuth(c);
     if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
     const slot = Number(c.req.param("slot"));
-    if (!Number.isInteger(slot) || slot < 1 || slot > 3) return c.json({ success: false, error: "Invalid slot" }, 400);
+    const maxSlots = await getMaxSlots(user.id);
+    if (!Number.isInteger(slot) || slot < 1 || slot > maxSlots) return c.json({ success: false, error: "Invalid slot" }, 400);
     const { error } = await supabase
       .from("user_symbol_config")
       .delete()
@@ -11345,6 +11356,81 @@ app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
     return c.json({ success: false, error: error.message }, 500);
   }
 });
+
+// 💳 Buy an extra auto-symbol slot (₹49) — debits wallet
+app.post("/make-server-c4d79cb7/auto-symbol/purchase-slot", async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
+
+    const extra = await getExtraSlots(user.id);
+    const currentMax = Math.min(HARD_SLOT_CAP, FREE_SLOTS + extra);
+    if (currentMax >= HARD_SLOT_CAP) {
+      return c.json({ success: false, error: `Maximum ${HARD_SLOT_CAP} slots reached` }, 400);
+    }
+
+    const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0, totalProfit: 0, totalDeducted: 0 };
+    const balance = Number(wallet.balance || 0);
+    if (balance < EXTRA_SLOT_PRICE) {
+      return c.json({
+        success: false,
+        error: `Insufficient wallet balance. Need ₹${EXTRA_SLOT_PRICE}, have ₹${balance.toFixed(2)}. Please recharge your wallet.`,
+        need_recharge: true,
+        required: EXTRA_SLOT_PRICE,
+        balance,
+      }, 402);
+    }
+
+    const newBalance = balance - EXTRA_SLOT_PRICE;
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Number(wallet.totalDeducted || 0) + EXTRA_SLOT_PRICE,
+      lastUpdated: Date.now(),
+    });
+
+    const newExtra = extra + 1;
+    await kv.set(`slot_quota:${user.id}`, { extra: newExtra, updatedAt: Date.now() });
+
+    // Log transaction
+    const txn = {
+      id: `txn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      userId: user.id,
+      type: 'debit',
+      amount: EXTRA_SLOT_PRICE,
+      balance: newBalance,
+      timestamp: new Date().toISOString(),
+      description: `Extra auto-symbol slot #${FREE_SLOTS + newExtra} purchased`,
+      source: 'wallet',
+    };
+    try {
+      const list = await kv.get(`wallet_transactions:${user.id}`) || [];
+      list.push(txn);
+      await kv.set(`wallet_transactions:${user.id}`, list);
+    } catch { /* ignore */ }
+    try {
+      await supabase.from('wallet_transactions').insert({
+        user_id: user.id,
+        type: 'debit',
+        amount: EXTRA_SLOT_PRICE,
+        reference_id: 'auto_symbol_slot',
+        description: txn.description,
+      });
+    } catch { /* ignore */ }
+
+    return c.json({
+      success: true,
+      new_slot: FREE_SLOTS + newExtra,
+      max_slots: Math.min(HARD_SLOT_CAP, FREE_SLOTS + newExtra),
+      extra_slots: newExtra,
+      wallet_balance: newBalance,
+      price: EXTRA_SLOT_PRICE,
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
 
 // 📧 Daily 09:08 IST premarket email — sent only on NSE trading days
 app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
