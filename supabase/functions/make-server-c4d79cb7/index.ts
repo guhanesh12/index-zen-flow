@@ -11252,6 +11252,13 @@ function normalizeAutoSymbolSlot(body: any, userId: string) {
     return Number.isFinite(n) && n >= 0 ? n : 0;
   };
 
+  // Per-lot defaults — engine auto-scales by lot_count and moneyness.
+  const target_per_lot = num(body?.target_per_lot) || 6000;
+  const stop_loss_per_lot = num(body?.stop_loss_per_lot) || 3000;
+  const trailing_enabled = body?.trailing_enabled === undefined ? true : !!body.trailing_enabled;
+  const trailing_activation_per_lot = num(body?.trailing_activation_per_lot) || Math.round(target_per_lot * 0.66);
+  const trailing_step_per_lot = num(body?.trailing_step_per_lot) || Math.round(stop_loss_per_lot * 0.33);
+
   return {
     user_id: userId,
     slot,
@@ -11259,11 +11266,11 @@ function normalizeAutoSymbolSlot(body: any, userId: string) {
     moneyness,
     lot_count: Math.floor(lotCount),
     enabled: body?.enabled !== false,
-    target_per_lot: num(body?.target_per_lot),
-    stop_loss_per_lot: num(body?.stop_loss_per_lot),
-    trailing_enabled: !!body?.trailing_enabled,
-    trailing_activation_per_lot: num(body?.trailing_activation_per_lot),
-    trailing_step_per_lot: num(body?.trailing_step_per_lot),
+    target_per_lot,
+    stop_loss_per_lot,
+    trailing_enabled,
+    trailing_activation_per_lot,
+    trailing_step_per_lot,
   };
 }
 
