@@ -1450,11 +1450,16 @@ app.get("/make-server-c4d79cb7/symbols", async (c) => {
 // Add symbol
 app.post("/make-server-c4d79cb7/symbols", async (c) => {
   try {
+    const adminCheck = await validateAdminAuth(c);
+    if (!adminCheck.authorized) {
+      return c.json({ error: adminCheck.error?.message || "Admin access required" }, adminCheck.error?.code || 403);
+    }
     const { user, error } = await validateAuth(c);
 
     if (!user || error) {
       return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
+
 
     const newSymbol = await c.req.json();
     
@@ -1476,11 +1481,16 @@ app.post("/make-server-c4d79cb7/symbols", async (c) => {
 // Update symbol
 app.put("/make-server-c4d79cb7/symbols/:id", async (c) => {
   try {
+    const adminCheck = await validateAdminAuth(c);
+    if (!adminCheck.authorized) {
+      return c.json({ error: adminCheck.error?.message || "Admin access required" }, adminCheck.error?.code || 403);
+    }
     const { user, error } = await validateAuth(c);
 
     if (!user || error) {
       return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
+
 
     const id = c.req.param('id');
     const updatedSymbol = await c.req.json();
@@ -1505,11 +1515,16 @@ app.put("/make-server-c4d79cb7/symbols/:id", async (c) => {
 // Delete symbol
 app.delete("/make-server-c4d79cb7/symbols/:id", async (c) => {
   try {
+    const adminCheck = await validateAdminAuth(c);
+    if (!adminCheck.authorized) {
+      return c.json({ error: adminCheck.error?.message || "Admin access required" }, adminCheck.error?.code || 403);
+    }
     const { user, error } = await validateAuth(c);
 
     if (!user || error) {
       return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
+
 
     const id = c.req.param('id');
     
@@ -1605,10 +1620,15 @@ app.post("/make-server-c4d79cb7/sync-user-symbol", async (c) => {
 // ⚠️ MIGRATION: Migrate old per-user symbols to global storage (ONE-TIME)
 app.post("/make-server-c4d79cb7/migrate-symbols", async (c) => {
   try {
+    const adminCheck = await validateAdminAuth(c);
+    if (!adminCheck.authorized) {
+      return c.json({ error: adminCheck.error?.message || "Admin access required" }, adminCheck.error?.code || 403);
+    }
     const { user, error } = await validateAuth(c);
     if (error || !user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
+
 
     console.log('🔄 Starting symbol migration to global storage...');
     console.log(`🔐 Initiated by: ${user.email}`);

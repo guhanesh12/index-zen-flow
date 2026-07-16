@@ -196,131 +196,31 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
   };
 
   const handleReset2FA = async () => {
-    // Generate new 2FA secret FOR CURRENT ADMIN ONLY
-    const secret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({
-      issuer: 'IndexpilotAI',
-      label: currentAdmin.email,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: secret,
-    });
-
-    const otpauthUrl = totp.toString();
-    const qrCode = await QRCode.toDataURL(otpauthUrl);
-    
-    setQrCodeUrl(qrCode);
-    setTotpSecret(secret.base32);
-    setShow2FADialog(true);
+    toast.error('This legacy flow has been removed. Use Admin Management → Reset 2FA to rotate 2FA securely via the server.');
   };
 
-  const handleReset2FAForUser = async (admin: AdminUser) => {
-    // Generate new 2FA secret for SPECIFIC admin
-    const secret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({
-      issuer: 'IndexpilotAI',
-      label: admin.email,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: secret,
-    });
-
-    const otpauthUrl = totp.toString();
-    const qrCode = await QRCode.toDataURL(otpauthUrl);
-    
-    setQrCodeUrl(qrCode);
-    setTotpSecret(secret.base32);
-    setSelectedUser(admin);
-    setShow2FADialog(true);
+  const handleReset2FAForUser = async (_admin: AdminUser) => {
+    toast.error('This legacy flow has been removed. Use Admin Management → Reset 2FA to rotate 2FA securely via the server.');
   };
 
   const handleSaveNew2FA = () => {
-    // Save new secret to localStorage for specific user
-    const userToUpdate = selectedUser || currentAdmin;
-    
-    if (userToUpdate.email === 'airoboengin@smilykat.com') {
-      localStorage.setItem('default_admin_2fa', totpSecret);
-    } else {
-      const stored = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = stored.findIndex((a: AdminUser) => a.id === userToUpdate.id);
-      if (index !== -1) {
-        stored[index].twoFactorSecret = totpSecret;
-        stored[index].twoFactorEnabled = true;
-        localStorage.setItem('admin_users', JSON.stringify(stored));
-      }
-    }
-    
+    // Legacy client-side 2FA save removed — never persist TOTP secrets in localStorage.
     setShow2FADialog(false);
     setSelectedUser(null);
-    loadAdmins(); // Refresh admin list
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    toast.error('Client-side 2FA save is disabled. Use Admin Management to rotate 2FA via the server.');
   };
+
 
   const visibleSettingsSubTabs = SETTINGS_SUB_TABS.filter((key) => showSub(key));
 
   const handleAddAdmin = () => {
-    if (!newAdmin.email || !newAdmin.password) {
-      alert('Please fill all required fields');
-      return;
-    }
-
-    // Validate hotkey uniqueness
-    const defaultHotkey = { windows: 'Control+Alt+GUHAN', mac: 'Meta+Alt+GUHAN' };
-    const allAdmins = [
-      { hotkey: defaultHotkey },
-      ...admins
-    ];
-
-    const hotkeyExists = allAdmins.some(
-      admin => admin.hotkey.windows === newAdmin.hotkeyWindows || 
-               admin.hotkey.mac === newAdmin.hotkeyMac
-    );
-
-    if (hotkeyExists) {
-      setHotkeyError('This hotkey is already in use by another admin. Please choose a unique hotkey.');
-      return;
-    }
-
-    setHotkeyError('');
-
-    const admin: AdminUser = {
-      id: `admin_${Date.now()}`,
-      email: newAdmin.email,
-      password: newAdmin.password,
-      role: newAdmin.role,
-      hotkey: {
-        windows: newAdmin.hotkeyWindows,
-        mac: newAdmin.hotkeyMac,
-      },
-      twoFactorEnabled: false,
-    };
-
-    const updated = [...admins, admin];
-    localStorage.setItem('admin_users', JSON.stringify(updated));
-    setAdmins(updated);
+    // Legacy client-side "Add Admin" flow removed — plaintext credentials must not be
+    // written to localStorage. Admin creation is handled server-side via
+    // AdminUserManagement / admin-security-manage edge function.
     setShowAddAdmin(false);
-    setNewAdmin({
-      email: '',
-      password: '',
-      hotkeyWindows: 'Control+Alt+',
-      hotkeyMac: 'Meta+Alt+',
-      role: {
-        dashboard: true,
-        users: true,
-        transactions: true,
-        instruments: true,
-        journals: true,
-        settings: true,
-        support: true,
-        landing: true,
-        adminUsers: true,
-        adminManagement: true,
-      },
-    });
+    toast.error('Add Admin from this screen has been removed. Use Admin Management to create admins securely.');
   };
+
 
   const handleVerifyHotkey = () => {
     // Check if entered hotkeys are unique (no need to press keys)
@@ -355,13 +255,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
     }
   };
 
-  const handleDeleteAdmin = (id: string) => {
-    if (confirm('Are you sure you want to delete this admin?')) {
-      const updated = admins.filter(a => a.id !== id);
-      localStorage.setItem('admin_users', JSON.stringify(updated));
-      setAdmins(updated);
-    }
+  const handleDeleteAdmin = (_id: string) => {
+    toast.error('Deleting admins from this screen has been removed. Use Admin Management to remove admins securely.');
   };
+
 
   const togglePassword = (key: string) => {
     setShowPasswords(prev => ({ ...prev, [key]: !prev[key] }));
