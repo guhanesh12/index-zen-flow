@@ -112,12 +112,17 @@ export function AutoSymbolConfig({
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
       setSlots((j.slots || []).map(normalizeRow));
+      if (Number.isFinite(j.max_slots)) setMaxSlots(j.max_slots);
+      if (Number.isFinite(j.extra_slots)) setExtraSlots(j.extra_slots);
+      if (Number.isFinite(j.slot_price)) setSlotPrice(j.slot_price);
+      if (Number.isFinite(j.hard_cap)) setHardCap(j.hard_cap);
     } catch (e: any) {
       toast.error(`Failed to load auto symbol config: ${e.message}`);
     } finally {
       setLoading(false);
     }
   }
+
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [accessToken, userId]);
 
