@@ -1620,10 +1620,15 @@ app.post("/make-server-c4d79cb7/sync-user-symbol", async (c) => {
 // ⚠️ MIGRATION: Migrate old per-user symbols to global storage (ONE-TIME)
 app.post("/make-server-c4d79cb7/migrate-symbols", async (c) => {
   try {
+    const adminCheck = await validateAdminAuth(c);
+    if (!adminCheck.authorized) {
+      return c.json({ error: adminCheck.error?.message || "Admin access required" }, adminCheck.error?.code || 403);
+    }
     const { user, error } = await validateAuth(c);
     if (error || !user) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
+
 
     console.log('🔄 Starting symbol migration to global storage...');
     console.log(`🔐 Initiated by: ${user.email}`);
