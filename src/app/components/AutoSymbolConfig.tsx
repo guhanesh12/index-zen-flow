@@ -155,7 +155,7 @@ export function AutoSymbolConfig({
     setSlots(prev => [...prev, {
       slot: n, index_name: "NIFTY", moneyness: "ATM", lot_count: 1, enabled: true,
       target_per_lot: 500, stop_loss_per_lot: 300,
-      trailing_enabled: false, trailing_activation_per_lot: 400, trailing_step_per_lot: 100,
+      trailing_enabled: true, trailing_activation_per_lot: 0, trailing_step_per_lot: 0,
     }].sort((a, b) => a.slot - b.slot));
   }
 
