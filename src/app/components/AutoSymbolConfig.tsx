@@ -186,7 +186,18 @@ export function AutoSymbolConfig({
   }
 
   function updateLocal(idx: number, patch: Partial<Slot>) {
-    setSlots(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s));
+    setSlots(prev => prev.map((s, i) => {
+      if (i !== idx) return s;
+      const next = { ...s, ...patch };
+      // Auto-update trailing values when target or SL changes
+      if (patch.target_per_lot !== undefined) {
+        next.trailing_activation_per_lot = Math.round((patch.target_per_lot as number) * 0.66);
+      }
+      if (patch.stop_loss_per_lot !== undefined) {
+        next.trailing_step_per_lot = Math.round((patch.stop_loss_per_lot as number) * 0.33);
+      }
+      return next;
+    }));
   }
 
   return (
