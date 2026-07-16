@@ -128,7 +128,7 @@ export function AutoSymbolConfig({
 
   function nextSlotNumber(): number {
     const used = new Set(slots.map(s => s.slot));
-    for (let i = 1; i <= 3; i++) if (!used.has(i)) return i;
+    for (let i = 1; i <= maxSlots; i++) if (!used.has(i)) return i;
     return 0;
   }
 
@@ -166,8 +166,34 @@ export function AutoSymbolConfig({
     }
   }
 
+  async function buyExtraSlot() {
+    if (!confirm(`Buy 1 extra symbol slot for ₹${slotPrice}?\n\nAmount will be debited from your wallet.`)) return;
+    setBuying(true);
+    try {
+      const r = await fetchWithAuth(`${serverUrl}/auto-symbol/purchase-slot`, {
+        method: "POST", headers: await getHeaders(),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) {
+        if (j.need_recharge) {
+          toast.error(j.error || "Insufficient wallet balance");
+          window.dispatchEvent(new Event("open-wallet-recharge"));
+        } else {
+          throw new Error(j.error || `HTTP ${r.status}`);
+        }
+        return;
+      }
+      toast.success(`Slot ${j.new_slot} unlocked! ₹${slotPrice} debited. Balance: ₹${Number(j.wallet_balance).toFixed(2)}`);
+      window.dispatchEvent(new Event("wallet-balance-updated"));
+      await load();
+    } catch (e: any) {
+      toast.error(`Purchase failed: ${e.message}`);
+    } finally {
+      setBuying(false);
+    }
+  }
+
   // Default per-lot risk — auto-scales by lot_count and moneyness on the engine side.
-  // Trailing is enabled by default so profits are protected as the market moves.
   const DEFAULT_SLOT = {
     lot_count: 1,
     enabled: true,
@@ -186,8 +212,8 @@ export function AutoSymbolConfig({
 
   function addSlot() {
     const n = nextSlotNumber();
-    if (!n) { toast.warning("Maximum 3 slots"); return; }
-    const preset = SLOT_PRESETS[n - 1] || SLOT_PRESETS[0];
+    if (!n) { toast.warning(`All ${maxSlots} slots are in use. Buy an extra slot to add more.`); return; }
+    const preset = SLOT_PRESETS[(n - 1) % SLOT_PRESETS.length] || SLOT_PRESETS[0];
     setSlots(prev => [...prev, {
       slot: n,
       index_name: preset.index_name,
@@ -195,6 +221,7 @@ export function AutoSymbolConfig({
       ...DEFAULT_SLOT,
     }].sort((a, b) => a.slot - b.slot));
   }
+
 
   function updateLocal(idx: number, patch: Partial<Slot>) {
     setSlots(prev => prev.map((s, i) => {
