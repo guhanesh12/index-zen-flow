@@ -196,68 +196,20 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
   };
 
   const handleReset2FA = async () => {
-    // Generate new 2FA secret FOR CURRENT ADMIN ONLY
-    const secret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({
-      issuer: 'IndexpilotAI',
-      label: currentAdmin.email,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: secret,
-    });
-
-    const otpauthUrl = totp.toString();
-    const qrCode = await QRCode.toDataURL(otpauthUrl);
-    
-    setQrCodeUrl(qrCode);
-    setTotpSecret(secret.base32);
-    setShow2FADialog(true);
+    toast.error('This legacy flow has been removed. Use Admin Management → Reset 2FA to rotate 2FA securely via the server.');
   };
 
-  const handleReset2FAForUser = async (admin: AdminUser) => {
-    // Generate new 2FA secret for SPECIFIC admin
-    const secret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({
-      issuer: 'IndexpilotAI',
-      label: admin.email,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: secret,
-    });
-
-    const otpauthUrl = totp.toString();
-    const qrCode = await QRCode.toDataURL(otpauthUrl);
-    
-    setQrCodeUrl(qrCode);
-    setTotpSecret(secret.base32);
-    setSelectedUser(admin);
-    setShow2FADialog(true);
+  const handleReset2FAForUser = async (_admin: AdminUser) => {
+    toast.error('This legacy flow has been removed. Use Admin Management → Reset 2FA to rotate 2FA securely via the server.');
   };
 
   const handleSaveNew2FA = () => {
-    // Save new secret to localStorage for specific user
-    const userToUpdate = selectedUser || currentAdmin;
-    
-    if (userToUpdate.email === 'airoboengin@smilykat.com') {
-      localStorage.setItem('default_admin_2fa', totpSecret);
-    } else {
-      const stored = JSON.parse(localStorage.getItem('admin_users') || '[]');
-      const index = stored.findIndex((a: AdminUser) => a.id === userToUpdate.id);
-      if (index !== -1) {
-        stored[index].twoFactorSecret = totpSecret;
-        stored[index].twoFactorEnabled = true;
-        localStorage.setItem('admin_users', JSON.stringify(stored));
-      }
-    }
-    
+    // Legacy client-side 2FA save removed — never persist TOTP secrets in localStorage.
     setShow2FADialog(false);
     setSelectedUser(null);
-    loadAdmins(); // Refresh admin list
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    toast.error('Client-side 2FA save is disabled. Use Admin Management to rotate 2FA via the server.');
   };
+
 
   const visibleSettingsSubTabs = SETTINGS_SUB_TABS.filter((key) => showSub(key));
 
