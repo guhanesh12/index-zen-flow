@@ -1494,27 +1494,13 @@ class PersistentTradingEngine {
                   const mm = MONEYNESS_MULT[slot.moneyness] || MONEYNESS_MULT.ATM;
                   const tgtPerLot = Number(slot.target_per_lot) || 0;
                   const slPerLot = Number(slot.stop_loss_per_lot) || 0;
-                  const rawTrailActPerLot = Number(slot.trailing_activation_per_lot) || 0;
-                  const rawTrailStepPerLot = Number(slot.trailing_step_per_lot) || 0;
+                  const trailActPerLot = Number(slot.trailing_activation_per_lot) || 0;
+                  const trailStepPerLot = Number(slot.trailing_step_per_lot) || 0;
                   const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
                   const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
-
-                  // 🤖 SMART AI TRAILING: if trailing is enabled but the user did not fill
-                  // activation / step (both 0), derive intelligent defaults from Target & SL.
-                  // Activation = 40% of scaled target · Target-jump = 25% of scaled target ·
-                  // SL-jump = 30% of scaled SL. Everything is already lot & moneyness scaled.
-                  const smartMode = !!slot.trailing_enabled && (rawTrailActPerLot <= 0 || rawTrailStepPerLot <= 0);
-                  const trailingActivationAmount = smartMode
-                    ? +(targetAmount * 0.40).toFixed(2)
-                    : +(rawTrailActPerLot * lotCount * mm.tgt).toFixed(2);
-                  const trailingStep = smartMode
-                    ? +(stopLossAmount * 0.30).toFixed(2)
-                    : +(rawTrailStepPerLot * lotCount).toFixed(2);
-                  const targetJumpAmount = smartMode
-                    ? +(targetAmount * 0.25).toFixed(2)
-                    : +(rawTrailStepPerLot * lotCount * mm.tgt).toFixed(2);
-                  const trailingEnabled =
-                    !!slot.trailing_enabled && trailingActivationAmount > 0 && trailingStep > 0 && targetJumpAmount > 0;
+                  const trailingActivationAmount = +(trailActPerLot * lotCount * mm.tgt).toFixed(2);
+                  const trailingStep = +(trailStepPerLot * lotCount).toFixed(2);
+                  const trailingEnabled = !!slot.trailing_enabled && trailingActivationAmount > 0 && trailingStep > 0;
 
                   resolved.push({
                     id: `AUTO_${slot.slot}_${r.security_id}`,
@@ -1541,15 +1527,13 @@ class PersistentTradingEngine {
                     stopLossAmount,
                     trailingEnabled,
                     trailingActivationAmount,
-                    targetJumpAmount,
                     stopLossJumpAmount: trailingStep,
                     trailingStep,
-                    smartTrailing: smartMode,
                     __autoSlot: slot.slot,
                     __moneyness: slot.moneyness,
                   });
                   console.log(
-                    `🎯 [AUTO_SYMBOL] slot ${slot.slot}: ${indexName} ${slot.moneyness} ${targetOptionType} → ${r.symbol} qty ${finalQuantity} | Tgt ₹${targetAmount} SL ₹${stopLossAmount} ${trailingEnabled ? `${smartMode ? "SMART-TRAIL" : "TRAIL"} act ₹${trailingActivationAmount} tgtJmp ₹${targetJumpAmount} slJmp ₹${trailingStep}` : "trail OFF"}`,
+                    `🎯 [AUTO_SYMBOL] slot ${slot.slot}: ${indexName} ${slot.moneyness} ${targetOptionType} → ${r.symbol} qty ${finalQuantity} | Tgt ₹${targetAmount} SL ₹${stopLossAmount} ${trailingEnabled ? `TRAIL act ₹${trailingActivationAmount} step ₹${trailingStep}` : "trail OFF"}`,
                   );
 
                 }
@@ -2236,27 +2220,9 @@ class PersistentTradingEngine {
           }
         }
 
-        let _activation = Number(position.trailingActivationAmount ?? 0);
-        let _targetJump = Number(position.targetJumpAmount ?? 0);
-        let _slJump = Number(position.stopLossJumpAmount ?? 0);
-
-        // 🤖 SMART AI TRAILING back-fill: if trailing is enabled but any jump/activation
-        // is missing (older auto-symbol rows, manual symbols), derive intelligent defaults
-        // from base Target/SL so the ratchet can actually engage.
-        if (position.trailingEnabled === true && _baseTarget > 0 && _baseSL > 0) {
-          if (_activation <= 0) {
-            _activation = Math.max(1, Math.round(_baseTarget * 0.40));
-            position.trailingActivationAmount = _activation;
-          }
-          if (_targetJump <= 0) {
-            _targetJump = Math.max(1, Math.round(_baseTarget * 0.25));
-            position.targetJumpAmount = _targetJump;
-          }
-          if (_slJump <= 0) {
-            _slJump = Math.max(1, Math.round(_baseSL * 0.30));
-            position.stopLossJumpAmount = _slJump;
-          }
-        }
+        const _activation = Number(position.trailingActivationAmount ?? 0);
+        const _targetJump = Number(position.targetJumpAmount ?? 0);
+        const _slJump = Number(position.stopLossJumpAmount ?? 0);
 
         const _trailingConfigured =
           position.trailingEnabled === true && _activation > 0 && _targetJump > 0 && _slJump > 0;
