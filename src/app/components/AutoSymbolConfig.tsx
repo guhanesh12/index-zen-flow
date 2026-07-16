@@ -381,11 +381,35 @@ export function AutoSymbolConfig({
           );
         })}
 
-        {slots.length < 3 && !loading && (
-          <Button variant="outline" className="w-full" onClick={addSlot}>
-            <Plus className="mr-2 h-4 w-4" /> Add Symbol (slot {nextSlotNumber()} of 3)
-          </Button>
+        {!loading && (
+          <div className="space-y-2 pt-1">
+            {slots.length < maxSlots && (
+              <Button variant="outline" className="w-full" onClick={addSlot}>
+                <Plus className="mr-2 h-4 w-4" /> Add Symbol (slot {nextSlotNumber()} of {maxSlots})
+              </Button>
+            )}
+            {maxSlots < hardCap && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center justify-between gap-3">
+                <div className="text-xs">
+                  <div className="font-semibold text-amber-500">Need more symbols?</div>
+                  <div className="text-muted-foreground">
+                    You have <strong>{maxSlots}</strong> slots ({3} free + {extraSlots} paid). Unlock slot {maxSlots + 1} for ₹{slotPrice} — debited from your wallet.
+                  </div>
+                </div>
+                <Button size="sm" onClick={buyExtraSlot} disabled={buying} className="shrink-0 bg-amber-500 hover:bg-amber-600 text-black">
+                  {buying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                  Buy Slot ₹{slotPrice}
+                </Button>
+              </div>
+            )}
+            {maxSlots >= hardCap && (
+              <div className="text-center text-xs text-muted-foreground">
+                Maximum {hardCap} slots reached.
+              </div>
+            )}
+          </div>
         )}
+
       </CardContent>
     </Card>
   );
