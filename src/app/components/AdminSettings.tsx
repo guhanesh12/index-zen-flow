@@ -214,45 +214,12 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
   const visibleSettingsSubTabs = SETTINGS_SUB_TABS.filter((key) => showSub(key));
 
   const handleAddAdmin = () => {
-    if (!newAdmin.email || !newAdmin.password) {
-      alert('Please fill all required fields');
-      return;
-    }
+    // Legacy client-side "Add Admin" flow removed — plaintext credentials must not be
+    // written to localStorage. Admin creation is handled server-side via
+    // AdminUserManagement / admin-security-manage edge function.
+    setShowAddAdmin(false);
+    toast.error('Add Admin from this screen has been removed. Use Admin Management to create admins securely.');
 
-    // Validate hotkey uniqueness
-    const defaultHotkey = { windows: 'Control+Alt+GUHAN', mac: 'Meta+Alt+GUHAN' };
-    const allAdmins = [
-      { hotkey: defaultHotkey },
-      ...admins
-    ];
-
-    const hotkeyExists = allAdmins.some(
-      admin => admin.hotkey.windows === newAdmin.hotkeyWindows || 
-               admin.hotkey.mac === newAdmin.hotkeyMac
-    );
-
-    if (hotkeyExists) {
-      setHotkeyError('This hotkey is already in use by another admin. Please choose a unique hotkey.');
-      return;
-    }
-
-    setHotkeyError('');
-
-    const admin: AdminUser = {
-      id: `admin_${Date.now()}`,
-      email: newAdmin.email,
-      password: newAdmin.password,
-      role: newAdmin.role,
-      hotkey: {
-        windows: newAdmin.hotkeyWindows,
-        mac: newAdmin.hotkeyMac,
-      },
-      twoFactorEnabled: false,
-    };
-
-    const updated = [...admins, admin];
-    localStorage.setItem('admin_users', JSON.stringify(updated));
-    setAdmins(updated);
     setShowAddAdmin(false);
     setNewAdmin({
       email: '',
