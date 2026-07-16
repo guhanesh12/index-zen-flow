@@ -4987,27 +4987,13 @@ app.post('/make-server-c4d79cb7/clear-journal-data', async (c) => {
   }
 });
 
-// Sync manual trades from Dhan positions (run daily)
-app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
+// Core: sync a single user's trades from Dhan into journal entries.
+// Reused by /sync-manual-trades (per-user) and /cron/journal-daily-sync (all users at 3:30 IST).
+async function syncUserJournalTrades(userId: string): Promise<{ success: boolean; syncedCount: number; skippedCount: number; totalPnL: number; error?: string; }> {
   try {
-    const { user, error: authError } = await validateAuth(c);
-    if (authError) {
-      // ⚡ Only log unexpected auth errors (suppress "No authorization token" for public access)
-      if (authError.message !== 'No authorization token provided') {
-        console.error('❌ Auth error in sync-manual-trades:', authError.message);
-      }
-      return c.json({ error: authError.message }, authError.code);
-    }
-
-    console.log(`📊 Starting sync for user: ${user.id}`);
-
-    // Get Dhan credentials (FIXED: use correct key format)
-    const credentials = await kv.get(`api_credentials:${user.id}`);
-    console.log('🔑 Credentials check:', credentials ? 'Found' : 'Not found');
-    
+    const credentials = await kv.get(`api_credentials:${userId}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
-      console.error('❌ Missing Dhan credentials');
-      return c.json({ error: 'Dhan credentials not configured' }, 400);
+      return { success: false, syncedCount: 0, skippedCount: 0, totalPnL: 0, error: 'Dhan credentials not configured' };
     }
 
     const dhanService = new DhanService({
@@ -5015,26 +5001,17 @@ app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
       accessToken: credentials.dhanAccessToken
     });
 
-    console.log('🚀 Fetching positions + trade history from Dhan API...');
-
-    // 1) Current-day positions (open + just-closed today)
     const positions = await dhanService.getPositions();
-    console.log(`📊 Found ${positions.length} positions from Dhan`);
-
-    // 2) Historical trade book (last 7 days) — required for yesterday's P&L
     const trades = await dhanService.getTradeHistory(7);
-    console.log(`📚 Found ${trades.length} historical trades from Dhan`);
 
     let addedCount = 0;
     let skippedCount = 0;
     let totalDayPnL = 0;
 
-    // ---- Process historical trades: group by (date, symbol) and compute realized P&L ----
-    // Group trades
+    // Group historical trades by (date, symbol)
     const groups = new Map<string, any[]>();
     for (const t of trades) {
       const tradeTimeRaw: string = t.exchangeTime || t.createTime || t.updateTime || t.tradedTime || '';
-      // Extract YYYY-MM-DD
       let date = '';
       if (tradeTimeRaw) {
         const m = String(tradeTimeRaw).match(/(\d{4}-\d{2}-\d{2})/);
@@ -5049,14 +5026,9 @@ app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
 
     for (const [key, list] of groups.entries()) {
       const [date, symbol] = key.split('|');
-
-      // Skip if a journal entry for this date+symbol already exists
-      const existingForDay = await kv.getByPrefix(`journal:${user.id}:${date}`);
+      const existingForDay = await kv.getByPrefix(`journal:${userId}:${date}`);
       const dup = existingForDay.find((e: any) => e.value?.symbol === symbol);
-      if (dup) {
-        skippedCount++;
-        continue;
-      }
+      if (dup) { skippedCount++; continue; }
 
       let buyQty = 0, buyVal = 0, sellQty = 0, sellVal = 0;
       for (const t of list) {
@@ -5067,16 +5039,16 @@ app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
         else if (side === 'SELL') { sellQty += qty; sellVal += qty * price; }
       }
       const matchedQty = Math.min(buyQty, sellQty);
-      if (matchedQty === 0) continue; // not yet closed; skip until exit happens
+      if (matchedQty === 0) continue;
       const avgBuy = buyQty > 0 ? buyVal / buyQty : 0;
       const avgSell = sellQty > 0 ? sellVal / sellQty : 0;
       const pnl = (avgSell - avgBuy) * matchedQty;
       totalDayPnL += pnl;
 
-      const entryId = `journal:${user.id}:${date}:${Date.now()}_${addedCount}`;
-      const entry = {
+      const entryId = `journal:${userId}:${date}:${Date.now()}_${addedCount}`;
+      await kv.set(entryId, {
         id: entryId,
-        userId: user.id,
+        userId,
         date,
         timestamp: new Date(date).getTime(),
         symbol,
@@ -5088,15 +5060,13 @@ app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
         pnl,
         orderId: list[0]?.orderId || `TRD_${date}_${symbol}`,
         notes: `Dhan TradeBook | ${list.length} trades | Buy ₹${avgBuy.toFixed(2)} → Sell ₹${avgSell.toFixed(2)}`,
-      };
-      console.log(`  ✅ Saving historical: ${date} ${symbol} P&L ₹${pnl.toFixed(2)}`);
-      await kv.set(entryId, entry);
+      });
       addedCount++;
     }
 
-    // ---- Process today's open positions (unrealized) so dashboard reflects today ----
+    // Today's open/closed positions
     const today = new Date().toISOString().split('T')[0];
-    const existingToday = await kv.getByPrefix(`journal:${user.id}:${today}`);
+    const existingToday = await kv.getByPrefix(`journal:${userId}:${today}`);
     const existingSymbolsToday = new Set(existingToday.map((e: any) => e.value?.symbol).filter(Boolean));
 
     for (const pos of positions) {
@@ -5115,10 +5085,10 @@ app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
       const exitPrice = pos.netQty === 0 ? (sellAvg > 0 ? sellAvg : ltp) : ltp;
       const quantity = Math.abs(pos.buyQty || pos.sellQty || pos.netQty || 0);
 
-      const entryId = `journal:${user.id}:${today}:${Date.now()}_${addedCount}`;
-      const entry = {
+      const entryId = `journal:${userId}:${today}:${Date.now()}_${addedCount}`;
+      await kv.set(entryId, {
         id: entryId,
-        userId: user.id,
+        userId,
         date: today,
         timestamp: Date.now(),
         symbol,
@@ -5130,24 +5100,68 @@ app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
         pnl: totalPnL,
         orderId: pos.drvPositionId || pos.positionId || `POS_${Date.now()}`,
         notes: `Dhan Position | Real ₹${realizedPnL.toFixed(2)} | Unreal ₹${unrealizedPnL.toFixed(2)} | ${pos.netQty === 0 ? 'Closed' : 'Open'}`,
-      };
-      await kv.set(entryId, entry);
+      });
       addedCount++;
     }
 
-    console.log(`✅ Sync complete! Added: ${addedCount} | Skipped: ${skippedCount} | Total P&L: ₹${totalDayPnL.toFixed(2)}`);
+    return { success: true, syncedCount: addedCount, skippedCount, totalPnL: totalDayPnL };
+  } catch (error: any) {
+    return { success: false, syncedCount: 0, skippedCount: 0, totalPnL: 0, error: error?.message || String(error) };
+  }
+}
 
+// Sync manual trades from Dhan positions (run daily) — per-user endpoint
+app.post('/make-server-c4d79cb7/sync-manual-trades', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError) {
+      if (authError.message !== 'No authorization token provided') {
+        console.error('❌ Auth error in sync-manual-trades:', authError.message);
+      }
+      return c.json({ error: authError.message }, authError.code);
+    }
+    console.log(`📊 Starting sync for user: ${user.id}`);
+    const result = await syncUserJournalTrades(user.id);
+    if (!result.success) {
+      return c.json({ error: result.error || 'Sync failed' }, 400);
+    }
+    console.log(`✅ Sync complete! Added: ${result.syncedCount} | Skipped: ${result.skippedCount} | P&L: ₹${result.totalPnL.toFixed(2)}`);
     return c.json({
       success: true,
-      syncedCount: addedCount,
-      skippedCount,
-      totalPnL: totalDayPnL,
-      message: `Added ${addedCount} trades to journal | P&L: ₹${totalDayPnL.toFixed(2)}`,
+      syncedCount: result.syncedCount,
+      skippedCount: result.skippedCount,
+      totalPnL: result.totalPnL,
+      message: `Added ${result.syncedCount} trades to journal | P&L: ₹${result.totalPnL.toFixed(2)}`,
     });
   } catch (error: any) {
     console.error('❌ Error syncing manual trades:', error);
-    console.error('Stack trace:', error.stack);
     return c.json({ error: error.message }, 500);
+  }
+});
+
+// 📓 Daily 15:30 IST cron — auto-populate journal for ALL users with Dhan credentials
+app.all('/make-server-c4d79cb7/cron/journal-daily-sync', async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const credRows = await kv.getByPrefix('api_credentials:');
+    console.log(`📓 [CRON journal-daily-sync] Users with credentials: ${credRows.length}`);
+    let processed = 0, succeeded = 0, failed = 0, totalAdded = 0;
+    const errors: any[] = [];
+    for (const row of credRows) {
+      const key: string = row.key || '';
+      const userId = key.replace(/^api_credentials:/, '');
+      if (!userId) continue;
+      processed++;
+      const r = await syncUserJournalTrades(userId);
+      if (r.success) { succeeded++; totalAdded += r.syncedCount; }
+      else { failed++; errors.push({ userId, error: r.error }); }
+    }
+    console.log(`📓 [CRON journal-daily-sync] Done. processed=${processed} ok=${succeeded} fail=${failed} added=${totalAdded}`);
+    return c.json({ success: true, processed, succeeded, failed, totalAdded, errors: errors.slice(0, 10) });
+  } catch (error: any) {
+    console.error('❌ [CRON journal-daily-sync] Failed:', error);
+    return c.json({ success: false, error: error.message }, 500);
   }
 });
 
