@@ -67,6 +67,11 @@ export function AutoSymbolConfig({
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
+  const [maxSlots, setMaxSlots] = useState(3);
+  const [extraSlots, setExtraSlots] = useState(0);
+  const [slotPrice, setSlotPrice] = useState(49);
+  const [hardCap, setHardCap] = useState(20);
+  const [buying, setBuying] = useState(false);
 
   async function getHeaders(json = true) {
     const token = (await getAccessToken()) || accessToken;
@@ -75,6 +80,7 @@ export function AutoSymbolConfig({
       Authorization: `Bearer ${token}`,
     };
   }
+
 
   function normalizeRow(r: any): Slot {
     const tgt = Number(r.target_per_lot);
