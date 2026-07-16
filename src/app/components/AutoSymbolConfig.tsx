@@ -148,13 +148,33 @@ export function AutoSymbolConfig({
     }
   }
 
+  // Default per-lot risk — auto-scales by lot_count and moneyness on the engine side.
+  // Trailing is enabled by default so profits are protected as the market moves.
+  const DEFAULT_SLOT = {
+    lot_count: 1,
+    enabled: true,
+    target_per_lot: 6000,
+    stop_loss_per_lot: 3000,
+    trailing_enabled: true,
+    trailing_activation_per_lot: 4000,
+    trailing_step_per_lot: 1000,
+  } as const;
+
+  const SLOT_PRESETS: Array<Pick<Slot, "index_name" | "moneyness">> = [
+    { index_name: "NIFTY",     moneyness: "ATM" },
+    { index_name: "BANKNIFTY", moneyness: "ATM" },
+    { index_name: "SENSEX",    moneyness: "ATM" },
+  ];
+
   function addSlot() {
     const n = nextSlotNumber();
     if (!n) { toast.warning("Maximum 3 slots"); return; }
+    const preset = SLOT_PRESETS[n - 1] || SLOT_PRESETS[0];
     setSlots(prev => [...prev, {
-      slot: n, index_name: "NIFTY", moneyness: "ATM", lot_count: 1, enabled: true,
-      target_per_lot: 500, stop_loss_per_lot: 300,
-      trailing_enabled: false, trailing_activation_per_lot: 400, trailing_step_per_lot: 100,
+      slot: n,
+      index_name: preset.index_name,
+      moneyness: preset.moneyness,
+      ...DEFAULT_SLOT,
     }].sort((a, b) => a.slot - b.slot));
   }
 
