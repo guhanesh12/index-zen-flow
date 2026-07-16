@@ -2236,9 +2236,27 @@ class PersistentTradingEngine {
           }
         }
 
-        const _activation = Number(position.trailingActivationAmount ?? 0);
-        const _targetJump = Number(position.targetJumpAmount ?? 0);
-        const _slJump = Number(position.stopLossJumpAmount ?? 0);
+        let _activation = Number(position.trailingActivationAmount ?? 0);
+        let _targetJump = Number(position.targetJumpAmount ?? 0);
+        let _slJump = Number(position.stopLossJumpAmount ?? 0);
+
+        // 🤖 SMART AI TRAILING back-fill: if trailing is enabled but any jump/activation
+        // is missing (older auto-symbol rows, manual symbols), derive intelligent defaults
+        // from base Target/SL so the ratchet can actually engage.
+        if (position.trailingEnabled === true && _baseTarget > 0 && _baseSL > 0) {
+          if (_activation <= 0) {
+            _activation = Math.max(1, Math.round(_baseTarget * 0.40));
+            position.trailingActivationAmount = _activation;
+          }
+          if (_targetJump <= 0) {
+            _targetJump = Math.max(1, Math.round(_baseTarget * 0.25));
+            position.targetJumpAmount = _targetJump;
+          }
+          if (_slJump <= 0) {
+            _slJump = Math.max(1, Math.round(_baseSL * 0.30));
+            position.stopLossJumpAmount = _slJump;
+          }
+        }
 
         const _trailingConfigured =
           position.trailingEnabled === true && _activation > 0 && _targetJump > 0 && _slJump > 0;
