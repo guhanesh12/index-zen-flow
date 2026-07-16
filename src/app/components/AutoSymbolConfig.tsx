@@ -170,28 +170,64 @@ export function AutoSymbolConfig({
     if (!confirm(`Buy 1 extra symbol slot for ₹${slotPrice}?\n\nAmount will be debited from your wallet.`)) return;
     setBuying(true);
     try {
-      const r = await fetchWithAuth(`${serverUrl}/auto-symbol/purchase-slot`, {
+      const url = `${serverUrl}/auto-symbol/purchase-slot`;
+      console.log("[buyExtraSlot] POST", url);
+      const r = await fetchWithAuth(url, {
         method: "POST", headers: await getHeaders(),
       });
-      const j = await r.json();
+      const text = await r.text();
+      let j: any = {};
+      try { j = JSON.parse(text); } catch { /* non-json */ }
+      console.log("[buyExtraSlot] response", r.status, j || text);
+
       if (!r.ok || !j.success) {
-        if (j.need_recharge) {
-          toast.error(j.error || "Insufficient wallet balance");
+        if (j?.need_recharge) {
+          toast.error(j.error || "Insufficient wallet balance. Please recharge your wallet.");
           window.dispatchEvent(new Event("open-wallet-recharge"));
-        } else {
-          throw new Error(j.error || `HTTP ${r.status}`);
+          return;
         }
-        return;
+        throw new Error(j?.error || text || `HTTP ${r.status}`);
       }
-      toast.success(`Slot ${j.new_slot} unlocked! ₹${slotPrice} debited. Balance: ₹${Number(j.wallet_balance).toFixed(2)}`);
+
+      toast.success(`✅ Slot ${j.new_slot} unlocked! ₹${slotPrice} debited. Wallet balance: ₹${Number(j.wallet_balance).toFixed(2)}`);
       window.dispatchEvent(new Event("wallet-balance-updated"));
+
+      // Reload quota + existing rows, then auto-create the newly-purchased slot
+      // with sensible defaults and persist it, so the user immediately sees a
+      // ready-to-edit slot 4 (just like slots 1–3).
       await load();
+      const newSlotNumber = Number(j.new_slot);
+      const preset = SLOT_PRESETS[(newSlotNumber - 1) % SLOT_PRESETS.length] || SLOT_PRESETS[0];
+      const newSlot: Slot = {
+        slot: newSlotNumber,
+        index_name: preset.index_name,
+        moneyness: preset.moneyness,
+        ...DEFAULT_SLOT,
+      };
+      // Persist to backend so it survives reload
+      try {
+        const sr = await fetchWithAuth(`${serverUrl}/auto-symbol/config`, {
+          method: "POST", headers: await getHeaders(), body: JSON.stringify(newSlot),
+        });
+        const sj = await sr.json();
+        if (sr.ok && sj.success) {
+          window.dispatchEvent(new Event("auto-symbol-config-updated"));
+          await load();
+        } else {
+          // Still show it locally so the user can adjust & save manually
+          setSlots(prev => [...prev.filter(s => s.slot !== newSlotNumber), newSlot].sort((a, b) => a.slot - b.slot));
+        }
+      } catch {
+        setSlots(prev => [...prev.filter(s => s.slot !== newSlotNumber), newSlot].sort((a, b) => a.slot - b.slot));
+      }
     } catch (e: any) {
+      console.error("[buyExtraSlot] failed", e);
       toast.error(`Purchase failed: ${e.message}`);
     } finally {
       setBuying(false);
     }
   }
+
 
   // Default per-lot risk — auto-scales by lot_count and moneyness on the engine side.
   const DEFAULT_SLOT = {
