@@ -1515,11 +1515,16 @@ app.put("/make-server-c4d79cb7/symbols/:id", async (c) => {
 // Delete symbol
 app.delete("/make-server-c4d79cb7/symbols/:id", async (c) => {
   try {
+    const adminCheck = await validateAdminAuth(c);
+    if (!adminCheck.authorized) {
+      return c.json({ error: adminCheck.error?.message || "Admin access required" }, adminCheck.error?.code || 403);
+    }
     const { user, error } = await validateAuth(c);
 
     if (!user || error) {
       return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
+
 
     const id = c.req.param('id');
     
