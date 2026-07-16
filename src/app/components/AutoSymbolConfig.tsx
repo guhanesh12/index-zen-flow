@@ -67,6 +67,11 @@ export function AutoSymbolConfig({
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
+  const [maxSlots, setMaxSlots] = useState(3);
+  const [extraSlots, setExtraSlots] = useState(0);
+  const [slotPrice, setSlotPrice] = useState(49);
+  const [hardCap, setHardCap] = useState(20);
+  const [buying, setBuying] = useState(false);
 
   async function getHeaders(json = true) {
     const token = (await getAccessToken()) || accessToken;
@@ -75,6 +80,7 @@ export function AutoSymbolConfig({
       Authorization: `Bearer ${token}`,
     };
   }
+
 
   function normalizeRow(r: any): Slot {
     const tgt = Number(r.target_per_lot);
@@ -106,6 +112,10 @@ export function AutoSymbolConfig({
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
       setSlots((j.slots || []).map(normalizeRow));
+      if (Number.isFinite(j.max_slots)) setMaxSlots(j.max_slots);
+      if (Number.isFinite(j.extra_slots)) setExtraSlots(j.extra_slots);
+      if (Number.isFinite(j.slot_price)) setSlotPrice(j.slot_price);
+      if (Number.isFinite(j.hard_cap)) setHardCap(j.hard_cap);
     } catch (e: any) {
       toast.error(`Failed to load auto symbol config: ${e.message}`);
     } finally {
@@ -113,11 +123,12 @@ export function AutoSymbolConfig({
     }
   }
 
+
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [accessToken, userId]);
 
   function nextSlotNumber(): number {
     const used = new Set(slots.map(s => s.slot));
-    for (let i = 1; i <= 3; i++) if (!used.has(i)) return i;
+    for (let i = 1; i <= maxSlots; i++) if (!used.has(i)) return i;
     return 0;
   }
 
@@ -155,8 +166,34 @@ export function AutoSymbolConfig({
     }
   }
 
+  async function buyExtraSlot() {
+    if (!confirm(`Buy 1 extra symbol slot for ₹${slotPrice}?\n\nAmount will be debited from your wallet.`)) return;
+    setBuying(true);
+    try {
+      const r = await fetchWithAuth(`${serverUrl}/auto-symbol/purchase-slot`, {
+        method: "POST", headers: await getHeaders(),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) {
+        if (j.need_recharge) {
+          toast.error(j.error || "Insufficient wallet balance");
+          window.dispatchEvent(new Event("open-wallet-recharge"));
+        } else {
+          throw new Error(j.error || `HTTP ${r.status}`);
+        }
+        return;
+      }
+      toast.success(`Slot ${j.new_slot} unlocked! ₹${slotPrice} debited. Balance: ₹${Number(j.wallet_balance).toFixed(2)}`);
+      window.dispatchEvent(new Event("wallet-balance-updated"));
+      await load();
+    } catch (e: any) {
+      toast.error(`Purchase failed: ${e.message}`);
+    } finally {
+      setBuying(false);
+    }
+  }
+
   // Default per-lot risk — auto-scales by lot_count and moneyness on the engine side.
-  // Trailing is enabled by default so profits are protected as the market moves.
   const DEFAULT_SLOT = {
     lot_count: 1,
     enabled: true,
@@ -175,8 +212,8 @@ export function AutoSymbolConfig({
 
   function addSlot() {
     const n = nextSlotNumber();
-    if (!n) { toast.warning("Maximum 3 slots"); return; }
-    const preset = SLOT_PRESETS[n - 1] || SLOT_PRESETS[0];
+    if (!n) { toast.warning(`All ${maxSlots} slots are in use. Buy an extra slot to add more.`); return; }
+    const preset = SLOT_PRESETS[(n - 1) % SLOT_PRESETS.length] || SLOT_PRESETS[0];
     setSlots(prev => [...prev, {
       slot: n,
       index_name: preset.index_name,
@@ -184,6 +221,7 @@ export function AutoSymbolConfig({
       ...DEFAULT_SLOT,
     }].sort((a, b) => a.slot - b.slot));
   }
+
 
   function updateLocal(idx: number, patch: Partial<Slot>) {
     setSlots(prev => prev.map((s, i) => {
@@ -343,11 +381,35 @@ export function AutoSymbolConfig({
           );
         })}
 
-        {slots.length < 3 && !loading && (
-          <Button variant="outline" className="w-full" onClick={addSlot}>
-            <Plus className="mr-2 h-4 w-4" /> Add Symbol (slot {nextSlotNumber()} of 3)
-          </Button>
+        {!loading && (
+          <div className="space-y-2 pt-1">
+            {slots.length < maxSlots && (
+              <Button variant="outline" className="w-full" onClick={addSlot}>
+                <Plus className="mr-2 h-4 w-4" /> Add Symbol (slot {nextSlotNumber()} of {maxSlots})
+              </Button>
+            )}
+            {maxSlots < hardCap && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center justify-between gap-3">
+                <div className="text-xs">
+                  <div className="font-semibold text-amber-500">Need more symbols?</div>
+                  <div className="text-muted-foreground">
+                    You have <strong>{maxSlots}</strong> slots ({3} free + {extraSlots} paid). Unlock slot {maxSlots + 1} for ₹{slotPrice} — debited from your wallet.
+                  </div>
+                </div>
+                <Button size="sm" onClick={buyExtraSlot} disabled={buying} className="shrink-0 bg-amber-500 hover:bg-amber-600 text-black">
+                  {buying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                  Buy Slot ₹{slotPrice}
+                </Button>
+              </div>
+            )}
+            {maxSlots >= hardCap && (
+              <div className="text-center text-xs text-muted-foreground">
+                Maximum {hardCap} slots reached.
+              </div>
+            )}
+          </div>
         )}
+
       </CardContent>
     </Card>
   );

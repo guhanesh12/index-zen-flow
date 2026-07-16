@@ -1077,10 +1077,24 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
           <TabsContent value="symbols">
             <div className="animate-in fade-in-50 duration-500 space-y-4">
-              <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
-              <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
+              <Tabs defaultValue="auto" className="w-full">
+                <TabsList className="w-full grid grid-cols-2 bg-zinc-800/70 border border-zinc-700/50">
+                  <TabsTrigger value="auto" className="flex items-center gap-2">
+                    ⚡ Auto
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">Recommended</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="manual">📝 Manual</TabsTrigger>
+                </TabsList>
+                <TabsContent value="auto" className="mt-4">
+                  <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
+                </TabsContent>
+                <TabsContent value="manual" className="mt-4">
+                  <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
+                </TabsContent>
+              </Tabs>
             </div>
           </TabsContent>
+
 
           <TabsContent value="journal">
             <div className="animate-in fade-in-50 duration-500">
