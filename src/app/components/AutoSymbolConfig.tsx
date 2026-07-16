@@ -321,20 +321,33 @@ export function AutoSymbolConfig({
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-amber-500" />
                   <Label className="text-xs flex-1">Trailing Stop-Loss</Label>
+                  {s.trailing_enabled && s.trailing_activation_per_lot <= 0 && s.trailing_step_per_lot <= 0 && (
+                    <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/40 gap-1">
+                      <Sparkles className="h-3 w-3" /> Smart AI
+                    </Badge>
+                  )}
                   <Switch checked={s.trailing_enabled}
-                    onCheckedChange={(v) => updateLocal(i, { trailing_enabled: v })} />
+                    onCheckedChange={(v) => updateLocal(i, {
+                      trailing_enabled: v,
+                      ...(v ? { trailing_activation_per_lot: 0, trailing_step_per_lot: 0 } : {}),
+                    })} />
                 </div>
                 {s.trailing_enabled && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Activate at ₹ / lot</Label>
-                      <Input type="number" min={0} className="h-8" value={s.trailing_activation_per_lot}
-                        onChange={(e) => updateLocal(i, { trailing_activation_per_lot: Number(e.target.value) || 0 })} />
-                    </div>
-                    <div>
-                      <Label className="text-[11px] text-muted-foreground">Step ₹ / lot</Label>
-                      <Input type="number" min={0} className="h-8" value={s.trailing_step_per_lot}
-                        onChange={(e) => updateLocal(i, { trailing_step_per_lot: Number(e.target.value) || 0 })} />
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Leave both fields at <b>0</b> for Smart AI mode (auto: activate @ 40% of Target, ratchet 25%/step, lock profit). Enter values to override.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">Activate at ₹ / lot (0 = auto)</Label>
+                        <Input type="number" min={0} className="h-8" value={s.trailing_activation_per_lot}
+                          onChange={(e) => updateLocal(i, { trailing_activation_per_lot: Number(e.target.value) || 0 })} />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">Step ₹ / lot (0 = auto)</Label>
+                        <Input type="number" min={0} className="h-8" value={s.trailing_step_per_lot}
+                          onChange={(e) => updateLocal(i, { trailing_step_per_lot: Number(e.target.value) || 0 })} />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -344,12 +357,17 @@ export function AutoSymbolConfig({
               <div className="rounded-md bg-primary/5 border border-primary/20 p-2 text-[11px] font-mono grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div>🎯 Target: <span className="text-green-500 font-bold">₹{eff.target}</span></div>
                 <div>🛡️ SL: <span className="text-red-500 font-bold">₹{eff.stopLoss}</span></div>
-                <div>🔥 Trail act: <span className="text-amber-500 font-bold">₹{eff.trailingAct}</span></div>
-                <div>📈 Trail step: <span className="text-amber-500 font-bold">₹{eff.trailingStep}</span></div>
+                <div>🔥 Trail act: <span className="text-amber-500 font-bold">
+                  ₹{s.trailing_enabled && eff.trailingAct <= 0 ? (eff.target * 0.40).toFixed(2) + " (auto)" : eff.trailingAct}
+                </span></div>
+                <div>📈 Trail step: <span className="text-amber-500 font-bold">
+                  ₹{s.trailing_enabled && eff.trailingStep <= 0 ? (eff.stopLoss * 0.30).toFixed(2) + " (auto)" : eff.trailingStep}
+                </span></div>
                 <div className="col-span-2 sm:col-span-4 text-muted-foreground">
                   {s.moneyness} mult → tgt ×{eff.mm.tgt} · sl ×{eff.mm.sl} · lots ×{s.lot_count} · applies to CE &amp; PE
                 </div>
               </div>
+
 
               <div className="flex justify-end">
                 <Button size="sm" onClick={() => saveSlot(s)} disabled={saving === s.slot}>
