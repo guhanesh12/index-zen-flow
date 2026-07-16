@@ -255,13 +255,10 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
     }
   };
 
-  const handleDeleteAdmin = (id: string) => {
-    if (confirm('Are you sure you want to delete this admin?')) {
-      const updated = admins.filter(a => a.id !== id);
-      localStorage.setItem('admin_users', JSON.stringify(updated));
-      setAdmins(updated);
-    }
+  const handleDeleteAdmin = (_id: string) => {
+    toast.error('Deleting admins from this screen has been removed. Use Admin Management to remove admins securely.');
   };
+
 
   const togglePassword = (key: string) => {
     setShowPasswords(prev => ({ ...prev, [key]: !prev[key] }));
