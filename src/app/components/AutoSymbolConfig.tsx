@@ -163,17 +163,72 @@ export function AutoSymbolConfig({
     setSlots(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s));
   }
 
+  const anyTrailingOn = slots.some(s => s.trailing_enabled);
+  const allTrailingOn = slots.length > 0 && slots.every(s => s.trailing_enabled);
+
+  async function toggleMasterTrailing(on: boolean) {
+    if (slots.length === 0) return;
+    // Turn ON as SMART mode by clearing per-lot values (backend auto-derives them).
+    const updated = slots.map(s => ({
+      ...s,
+      trailing_enabled: on,
+      ...(on ? { trailing_activation_per_lot: 0, trailing_step_per_lot: 0 } : {}),
+    }));
+    setSlots(updated);
+    try {
+      for (const s of updated) {
+        await fetchWithAuth(`${serverUrl}/auto-symbol/config`, {
+          method: "POST", headers: await getHeaders(), body: JSON.stringify(s),
+        });
+      }
+      toast.success(on ? "Smart AI Trailing enabled on all slots" : "Trailing disabled on all slots");
+      window.dispatchEvent(new Event("auto-symbol-config-updated"));
+      await load();
+    } catch (e: any) {
+      toast.error(`Master toggle failed: ${e.message}`);
+    }
+  }
+
   return (
     <Card className="border-primary/20">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Zap className="h-5 w-5 text-primary" />
             Auto Symbol Selection (ATM / ITM / OTM)
           </CardTitle>
-          <Button size="sm" variant="ghost" onClick={load} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </Button>
+          <div className="flex items-center gap-2">
+            {slots.length > 0 && (
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1">
+                <Sparkles className="h-4 w-4 text-amber-500" />
+                <span className="text-xs font-medium">Smart AI Trailing (all)</span>
+                <Switch checked={allTrailingOn} onCheckedChange={toggleMasterTrailing} />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button size="icon" variant="ghost" className="h-6 w-6">
+                      <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80 text-xs space-y-2">
+                    <div className="font-semibold text-sm flex items-center gap-1">
+                      <Sparkles className="h-3.5 w-3.5 text-amber-500" /> How Smart AI Trailing works
+                    </div>
+                    <p>Once your position reaches <b>40% of Target</b>, the engine starts ratcheting:</p>
+                    <ul className="list-disc pl-4 space-y-1">
+                      <li>Every <b>25% of Target</b> gained → Target moves up by the same step.</li>
+                      <li>Stop-Loss tightens by <b>30% of SL</b> per step — eventually crossing 0 to <b>lock guaranteed profit</b>.</li>
+                      <li>All values <b>auto-scale by lot count</b> and moneyness (ITM/ATM/OTM).</li>
+                      <li>Manual per-lot values still work — leave them at 0 to use smart mode.</li>
+                    </ul>
+                    <p className="text-muted-foreground">Goal: let winners run, cut losers early, lock profit fast.</p>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
+            <Button size="sm" variant="ghost" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground mt-1">
           3 slots — one per index. Target / SL / Trailing are entered <strong>per lot</strong> and the
