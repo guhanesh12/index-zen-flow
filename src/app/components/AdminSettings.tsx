@@ -219,27 +219,8 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
     // AdminUserManagement / admin-security-manage edge function.
     setShowAddAdmin(false);
     toast.error('Add Admin from this screen has been removed. Use Admin Management to create admins securely.');
-
-    setShowAddAdmin(false);
-    setNewAdmin({
-      email: '',
-      password: '',
-      hotkeyWindows: 'Control+Alt+',
-      hotkeyMac: 'Meta+Alt+',
-      role: {
-        dashboard: true,
-        users: true,
-        transactions: true,
-        instruments: true,
-        journals: true,
-        settings: true,
-        support: true,
-        landing: true,
-        adminUsers: true,
-        adminManagement: true,
-      },
-    });
   };
+
 
   const handleVerifyHotkey = () => {
     // Check if entered hotkeys are unique (no need to press keys)
