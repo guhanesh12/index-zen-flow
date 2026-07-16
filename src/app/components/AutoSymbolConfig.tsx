@@ -77,17 +77,24 @@ export function AutoSymbolConfig({
   }
 
   function normalizeRow(r: any): Slot {
+    const tgt = Number(r.target_per_lot);
+    const sl  = Number(r.stop_loss_per_lot);
+    const tAct = Number(r.trailing_activation_per_lot);
+    const tStep = Number(r.trailing_step_per_lot);
+    // Auto-fill defaults for legacy / empty rows so users always see sensible values.
+    const target_per_lot = Number.isFinite(tgt) && tgt > 0 ? tgt : 6000;
+    const stop_loss_per_lot = Number.isFinite(sl) && sl > 0 ? sl : 3000;
     return {
       slot: r.slot,
       index_name: r.index_name,
       moneyness: r.moneyness,
       lot_count: Number(r.lot_count) || 1,
       enabled: !!r.enabled,
-      target_per_lot: Number(r.target_per_lot) || 0,
-      stop_loss_per_lot: Number(r.stop_loss_per_lot) || 0,
-      trailing_enabled: !!r.trailing_enabled,
-      trailing_activation_per_lot: Number(r.trailing_activation_per_lot) || 0,
-      trailing_step_per_lot: Number(r.trailing_step_per_lot) || 0,
+      target_per_lot,
+      stop_loss_per_lot,
+      trailing_enabled: r.trailing_enabled === undefined ? true : !!r.trailing_enabled,
+      trailing_activation_per_lot: Number.isFinite(tAct) && tAct > 0 ? tAct : Math.round(target_per_lot * 0.66),
+      trailing_step_per_lot: Number.isFinite(tStep) && tStep > 0 ? tStep : Math.round(stop_loss_per_lot * 0.33),
     };
   }
 
