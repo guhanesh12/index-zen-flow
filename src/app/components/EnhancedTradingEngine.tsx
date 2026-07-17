@@ -704,6 +704,20 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     };
   }, []);
 
+  // ⚡⚡⚡ CRITICAL FIX: Actually invoke checkCandleStatus every second ⚡⚡⚡
+  // Without this, the pre-close window (secondsToClose ≤ 3) is never checked
+  // and no AI signal request is ever fired — signals silently never generate.
+  useEffect(() => {
+    const candleTicker = setInterval(() => {
+      if (!isRunningRef.current) return;
+      checkCandleStatus().catch((err) => {
+        console.error('❌ checkCandleStatus error:', err);
+      });
+    }, 1000);
+    return () => clearInterval(candleTicker);
+  }, []);
+
+
   // ⚡⚡⚡ CRITICAL FIX: Engine Heartbeat Monitor ⚡⚡⚡
   // Detects if engine stops working even though it says it's "running"
   useEffect(() => {
