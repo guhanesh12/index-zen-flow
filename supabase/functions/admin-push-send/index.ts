@@ -135,6 +135,40 @@ async function sendOneFcm(opts: {
   return { ok: false, errorCode: code, raw: j };
 }
 
+async function saveToUserNotificationCenter(admin: any, userId: string, payload: {
+  title: string;
+  description: string;
+  imageUrl?: string;
+  targetUrl?: string;
+}) {
+  const key = `user_notifications:${userId}`;
+  const { data: row } = await admin
+    .from("kv_store_c4d79cb7")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+
+  const existing = Array.isArray(row?.value) ? row.value : [];
+  const item = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    type: "ADMIN_BROADCAST",
+    title: payload.title,
+    message: payload.description,
+    timestamp: Date.now(),
+    read: false,
+    data: {
+      imageUrl: payload.imageUrl || null,
+      targetUrl: payload.targetUrl || null,
+      url: payload.targetUrl || "/notifications",
+      fromAdmin: "true",
+    },
+  };
+
+  await admin
+    .from("kv_store_c4d79cb7")
+    .upsert({ key, value: [item, ...existing].slice(0, 100) }, { onConflict: "key" });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -243,6 +277,21 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Always save manual admin broadcasts into each user's in-app/RN
+    // notification center, even when the device has not registered an FCM
+    // token yet. This makes the bell badge/blink reliable.
+    let inAppSaved = 0;
+    const { data: authData, error: usersErr } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    if (usersErr) console.error("Load auth users failed for in-app notifications", usersErr);
+    const ownerEmail = OWNER_EMAIL;
+    const users = (authData?.users || []).filter((u: any) =>
+      !ownerEmail || (u.email || "").trim().toLowerCase() !== ownerEmail,
+    );
+    await Promise.all(users.map(async (u: any) => {
+      await saveToUserNotificationCenter(admin, u.id, { title, description, imageUrl, targetUrl });
+      inAppSaved++;
+    }));
+
     // Save history record
     const history = {
       id: notificationId,
@@ -254,6 +303,7 @@ Deno.serve(async (req) => {
       totalDelivered: delivered,
       totalFailed: failed,
       totalSubscribers: subs.length,
+      totalInAppSaved: inAppSaved,
       errorBreakdown,
       serviceAccountProjectId: saProjectId,
       status: delivered > 0 ? "sent" : subs.length === 0 ? "sent" : "failed",
@@ -274,6 +324,7 @@ Deno.serve(async (req) => {
         totalDelivered: delivered,
         totalFailed: failed,
         totalSubscribers: subs.length,
+        totalInAppSaved: inAppSaved,
         errorBreakdown,
         serviceAccountProjectId: saProjectId,
         hint:
