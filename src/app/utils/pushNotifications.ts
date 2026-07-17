@@ -5,6 +5,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getFirebaseMessagingRegistration, WEB_PUSH_VAPID_KEY } from '@/utils/firebase/config';
 
 // Firebase configuration — project indexpilotai-e1106
 const firebaseConfig = {
@@ -18,7 +19,7 @@ const firebaseConfig = {
 };
 
 // Web Push VAPID public key (from Firebase Console → Cloud Messaging → Web Push certificates)
-const vapidKey = "BAMIKImrcshfd4Qv_QUkWl2mv3MZczdqMnTnXAnLku9ax9Ri9T3yovmSkdAQDBnigJsF5KoBpcc8FQIcA8TsqIA2";
+const vapidKey = WEB_PUSH_VAPID_KEY;
 
 let app: any = null;
 let messaging: any = null;
@@ -98,8 +99,10 @@ export async function subscribeToPushNotifications(
       };
     }
 
-    // Get device token
-    const token = await getToken(msg, { vapidKey });
+    // Get device token. Firebase needs /firebase-messaging-sw.js to exist;
+    // register it explicitly so web/PWA and RN WebView token creation is reliable.
+    const serviceWorkerRegistration = await getFirebaseMessagingRegistration();
+    const token = await getToken(msg, { vapidKey, serviceWorkerRegistration });
     
     if (!token) {
       return { 

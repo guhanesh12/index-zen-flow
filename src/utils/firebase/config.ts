@@ -1,6 +1,6 @@
 // @ts-nocheck
 // Firebase Configuration — project indexpilotai-e1106
-import { initializeApp } from "firebase/app";
+import { getApp, getApps, initializeApp } from "firebase/app";
 import { getMessaging, Messaging } from "firebase/messaging";
 
 const firebaseConfig = {
@@ -13,7 +13,9 @@ const firebaseConfig = {
   measurementId: "G-6BTDWSVFPQ",
 };
 
-const app = initializeApp(firebaseConfig);
+export const WEB_PUSH_VAPID_KEY = "BAMIKImrcshfd4Qv_QUkWl2mv3MZczdqMnTnXAnLku9ax9Ri9T3yovmSkdAQDBnigJsF5KoBpcc8FQIcA8TsqIA2";
+
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 let messaging: Messaging | null = null;
 if (typeof window !== "undefined" && "serviceWorker" in navigator) {
@@ -21,6 +23,19 @@ if (typeof window !== "undefined" && "serviceWorker" in navigator) {
     messaging = getMessaging(app);
   } catch (error) {
     console.error("Failed to initialize Firebase Messaging:", error);
+  }
+}
+
+export async function getFirebaseMessagingRegistration(): Promise<ServiceWorkerRegistration | undefined> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return undefined;
+
+  try {
+    return await navigator.serviceWorker.register("/firebase-messaging-sw.js", {
+      scope: "/firebase-cloud-messaging-push-scope",
+    });
+  } catch (error) {
+    console.error("Failed to register Firebase Messaging service worker:", error);
+    return undefined;
   }
 }
 

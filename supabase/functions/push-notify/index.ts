@@ -87,6 +87,36 @@ async function sendOne(accessToken: string, projectId: string, deviceToken: stri
   return { ok: false, errorCode: code || "UNKNOWN", raw: j };
 }
 
+async function saveToUserNotificationCenter(admin: any, userId: string, payload: {
+  event?: string;
+  title: string;
+  body: string;
+  imageUrl?: string;
+  data?: Record<string, unknown>;
+}) {
+  const key = `user_notifications:${userId}`;
+  const { data: row } = await admin
+    .from("kv_store_c4d79cb7")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+
+  const existing = Array.isArray(row?.value) ? row.value : [];
+  const item = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    type: payload.event || "SYSTEM_ALERT",
+    title: payload.title,
+    message: payload.body,
+    timestamp: Date.now(),
+    read: false,
+    data: { ...(payload.data || {}), imageUrl: payload.imageUrl || null },
+  };
+
+  await admin
+    .from("kv_store_c4d79cb7")
+    .upsert({ key, value: [item, ...existing].slice(0, 100) }, { onConflict: "key" });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -112,6 +142,16 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+    if (userId) {
+      await saveToUserNotificationCenter(admin, String(userId), {
+        event,
+        title,
+        body: msgBody,
+        imageUrl,
+        data,
+      });
+    }
+
     let query = admin.from("kv_store_c4d79cb7").select("key, value").like("key", "push_subscriber:%");
     const { data: rows, error } = await query;
     if (error) throw new Error(error.message);

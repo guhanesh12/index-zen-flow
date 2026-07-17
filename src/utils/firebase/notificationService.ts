@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Import Firebase messaging
 import { getToken, onMessage, Messaging } from "firebase/messaging";
-import { messaging } from "./config";
+import { getFirebaseMessagingRegistration, messaging, WEB_PUSH_VAPID_KEY } from "./config";
 import { supabase } from "@/utils-ext/supabase/client";
 import { fetchWithApiFallback, getServerUrl } from "@/utils-ext/config/apiConfig";
 
@@ -111,8 +111,10 @@ class NotificationService {
 
     try {
       // Get FCM token
+      const serviceWorkerRegistration = await getFirebaseMessagingRegistration();
       const token = await getToken(messaging, {
-        vapidKey: 'BCJwUHX0XWuHubHBLmhbiKnUjInxpo-bLBR_NxkGmJOod-XlhzMH5e_VZVDCOsLd5zuB0E-kVsXz4XO3l9oU8BQ'
+        vapidKey: WEB_PUSH_VAPID_KEY,
+        serviceWorkerRegistration,
       });
       
       if (token) {
@@ -179,8 +181,8 @@ class NotificationService {
     try {
       const options: NotificationOptions = {
         body: notification.message,
-        icon: '/icon-192x192.png', // Your app icon
-        badge: '/badge-72x72.png', // Small badge icon
+        icon: '/icons/icon-192x192.png',
+        badge: '/icons/icon-72x72.png',
         vibrate: [200, 100, 200],
         tag: notification.id,
         requireInteraction: false,
@@ -190,11 +192,11 @@ class NotificationService {
 
       // Add custom icon based on type
       if (notification.type === 'SIGNAL_DETECTED') {
-        options.icon = '📊';
+        options.icon = '/icons/icon-192x192.png';
       } else if (notification.type === 'ORDER_PLACED') {
-        options.icon = '💰';
+        options.icon = '/icons/icon-192x192.png';
       } else if (notification.type === 'POSITION_CLOSED') {
-        options.icon = '✅';
+        options.icon = '/icons/icon-192x192.png';
       }
 
       new Notification(notification.title, options);
