@@ -4735,38 +4735,38 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           <div className="grid grid-cols-3 gap-4">
             {/* NIFTY */}
             <div className={`p-4 rounded-lg border-2 ${
-              multiSymbolSignals.NIFTY
-                ? multiSymbolSignals.NIFTY.action === 'WAIT'
+              freshNifty
+                ? freshNifty.action === 'WAIT'
                   ? 'bg-zinc-800/50 border-zinc-700'
-                  : multiSymbolSignals.NIFTY.action.includes('CALL')
+                  : freshNifty.action.includes('CALL')
                   ? 'bg-green-900/20 border-green-700'
                   : 'bg-red-900/20 border-red-700'
                 : 'bg-zinc-800/30 border-zinc-700/50'
             }`}>
               <div className="text-sm font-semibold text-zinc-400 mb-2">NIFTY</div>
-              {multiSymbolSignals.NIFTY ? (
+              {freshNifty ? (
                 <>
                   <div className={`text-lg font-bold mb-1 ${
-                    multiSymbolSignals.NIFTY.action === 'WAIT'
+                    freshNifty.action === 'WAIT'
                       ? 'text-zinc-400'
-                      : multiSymbolSignals.NIFTY.action.includes('CALL')
+                      : freshNifty.action.includes('CALL')
                       ? 'text-green-400'
                       : 'text-red-400'
                   }`}>
-                    {multiSymbolSignals.NIFTY.action}
+                    {freshNifty.action}
                   </div>
                   <div className="text-sm text-zinc-400">
-                    Confidence: <span className="font-semibold">{multiSymbolSignals.NIFTY.confidence}%</span>
+                    Confidence: <span className="font-semibold">{freshNifty.confidence}%</span>
                   </div>
                   <div className="text-xs text-zinc-500 mt-2">
-                    {multiSymbolSignals.NIFTY.timeframe || '--'} • {new Date(multiSymbolSignals.NIFTY.timestamp || Date.now()).toLocaleTimeString()}
+                    {freshNifty.timeframe || '--'} • {new Date(freshNifty.timestamp || Date.now()).toLocaleTimeString()}
                   </div>
-                  {multiSymbolSignals.NIFTY.reasoning && (
-                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{multiSymbolSignals.NIFTY.reasoning}</div>
+                  {freshNifty.reasoning && (
+                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{freshNifty.reasoning}</div>
                   )}
-                  {multiSymbolSignals.NIFTY.bias && (
-                    <Badge variant={multiSymbolSignals.NIFTY.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
-                      {multiSymbolSignals.NIFTY.bias}
+                  {freshNifty.bias && (
+                    <Badge variant={freshNifty.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
+                      {freshNifty.bias}
                     </Badge>
                   )}
                 </>
@@ -4777,38 +4777,38 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
             {/* BANKNIFTY */}
             <div className={`p-4 rounded-lg border-2 ${
-              multiSymbolSignals.BANKNIFTY
-                ? multiSymbolSignals.BANKNIFTY.action === 'WAIT'
+              freshBankNifty
+                ? freshBankNifty.action === 'WAIT'
                   ? 'bg-zinc-800/50 border-zinc-700'
-                  : multiSymbolSignals.BANKNIFTY.action.includes('CALL')
+                  : freshBankNifty.action.includes('CALL')
                   ? 'bg-green-900/20 border-green-700'
                   : 'bg-red-900/20 border-red-700'
                 : 'bg-zinc-800/30 border-zinc-700/50'
             }`}>
               <div className="text-sm font-semibold text-zinc-400 mb-2">BANKNIFTY</div>
-              {multiSymbolSignals.BANKNIFTY ? (
+              {freshBankNifty ? (
                 <>
                   <div className={`text-lg font-bold mb-1 ${
-                    multiSymbolSignals.BANKNIFTY.action === 'WAIT'
+                    freshBankNifty.action === 'WAIT'
                       ? 'text-zinc-400'
-                      : multiSymbolSignals.BANKNIFTY.action.includes('CALL')
+                      : freshBankNifty.action.includes('CALL')
                       ? 'text-green-400'
                       : 'text-red-400'
                   }`}>
-                    {multiSymbolSignals.BANKNIFTY.action}
+                    {freshBankNifty.action}
                   </div>
                   <div className="text-sm text-zinc-400">
-                    Confidence: <span className="font-semibold">{multiSymbolSignals.BANKNIFTY.confidence}%</span>
+                    Confidence: <span className="font-semibold">{freshBankNifty.confidence}%</span>
                   </div>
                   <div className="text-xs text-zinc-500 mt-2">
-                    {multiSymbolSignals.BANKNIFTY.timeframe || '--'} • {new Date(multiSymbolSignals.BANKNIFTY.timestamp || Date.now()).toLocaleTimeString()}
+                    {freshBankNifty.timeframe || '--'} • {new Date(freshBankNifty.timestamp || Date.now()).toLocaleTimeString()}
                   </div>
-                  {multiSymbolSignals.BANKNIFTY.reasoning && (
-                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{multiSymbolSignals.BANKNIFTY.reasoning}</div>
+                  {freshBankNifty.reasoning && (
+                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{freshBankNifty.reasoning}</div>
                   )}
-                  {multiSymbolSignals.BANKNIFTY.bias && (
-                    <Badge variant={multiSymbolSignals.BANKNIFTY.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
-                      {multiSymbolSignals.BANKNIFTY.bias}
+                  {freshBankNifty.bias && (
+                    <Badge variant={freshBankNifty.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
+                      {freshBankNifty.bias}
                     </Badge>
                   )}
                 </>
@@ -4819,38 +4819,38 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
             {/* SENSEX */}
             <div className={`p-4 rounded-lg border-2 ${
-              multiSymbolSignals.SENSEX
-                ? multiSymbolSignals.SENSEX.action === 'WAIT'
+              freshSensex
+                ? freshSensex.action === 'WAIT'
                   ? 'bg-zinc-800/50 border-zinc-700'
-                  : multiSymbolSignals.SENSEX.action.includes('CALL')
+                  : freshSensex.action.includes('CALL')
                   ? 'bg-green-900/20 border-green-700'
                   : 'bg-red-900/20 border-red-700'
                 : 'bg-zinc-800/30 border-zinc-700/50'
             }`}>
               <div className="text-sm font-semibold text-zinc-400 mb-2">SENSEX</div>
-              {multiSymbolSignals.SENSEX ? (
+              {freshSensex ? (
                 <>
                   <div className={`text-lg font-bold mb-1 ${
-                    multiSymbolSignals.SENSEX.action === 'WAIT'
+                    freshSensex.action === 'WAIT'
                       ? 'text-zinc-400'
-                      : multiSymbolSignals.SENSEX.action.includes('CALL')
+                      : freshSensex.action.includes('CALL')
                       ? 'text-green-400'
                       : 'text-red-400'
                   }`}>
-                    {multiSymbolSignals.SENSEX.action}
+                    {freshSensex.action}
                   </div>
                   <div className="text-sm text-zinc-400">
-                    Confidence: <span className="font-semibold">{multiSymbolSignals.SENSEX.confidence}%</span>
+                    Confidence: <span className="font-semibold">{freshSensex.confidence}%</span>
                   </div>
                   <div className="text-xs text-zinc-500 mt-2">
-                    {multiSymbolSignals.SENSEX.timeframe || '--'} • {new Date(multiSymbolSignals.SENSEX.timestamp || Date.now()).toLocaleTimeString()}
+                    {freshSensex.timeframe || '--'} • {new Date(freshSensex.timestamp || Date.now()).toLocaleTimeString()}
                   </div>
-                  {multiSymbolSignals.SENSEX.reasoning && (
-                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{multiSymbolSignals.SENSEX.reasoning}</div>
+                  {freshSensex.reasoning && (
+                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{freshSensex.reasoning}</div>
                   )}
-                  {multiSymbolSignals.SENSEX.bias && (
-                    <Badge variant={multiSymbolSignals.SENSEX.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
-                      {multiSymbolSignals.SENSEX.bias}
+                  {freshSensex.bias && (
+                    <Badge variant={freshSensex.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
+                      {freshSensex.bias}
                     </Badge>
                   )}
                 </>
