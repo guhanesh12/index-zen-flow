@@ -10,8 +10,10 @@
  */
 
 import * as kv from "./kv_store.tsx";
+import * as VPSPower from "./vps_power.tsx";
 
 const REQUIRED_ORDER_SERVER_VERSION = "1.1.0";
+const VPS_SELF_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
 
 type VpsServerInspection = {
   version: string;
@@ -358,9 +360,20 @@ export async function placeOrderViaStaticIP(
       err.message?.includes("connect");
 
     if (isNetError) {
+      const healKey = `vps_self_heal:${userId}:${userIP.ipAddress}`;
+      const lastHeal = Number((await kv.get(healKey)) || 0);
+      if (Date.now() - lastHeal > VPS_SELF_HEAL_COOLDOWN_MS) {
+        await kv.set(healKey, Date.now());
+        try {
+          const heal = await VPSPower.userReboot(userId);
+          console.warn(`🔧 [VPS SELF-HEAL] Reboot/power-on requested for ${userIP.ipAddress}: ${JSON.stringify(heal)}`);
+        } catch (healErr: any) {
+          console.warn(`⚠️ [VPS SELF-HEAL] Failed for ${userIP.ipAddress}: ${healErr?.message || healErr}`);
+        }
+      }
       throw new Error(
         `Cannot reach your dedicated VPS at ${userIP.ipAddress}:3000. ` +
-        `Please SSH into your VPS and run: sudo systemctl restart orderserver`
+        `Auto-recovery has been triggered; the backend will retry this signal automatically. If it keeps failing, SSH into your VPS and run: sudo systemctl restart orderserver`
       );
     }
 
