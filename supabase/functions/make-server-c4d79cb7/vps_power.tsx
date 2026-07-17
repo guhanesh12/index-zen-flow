@@ -35,7 +35,7 @@ function getToken(): string | null {
   return Deno.env.get('DIGITALOCEAN_API_TOKEN') || null;
 }
 
-async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'power_off', ipAddress?: string): Promise<{ ok: boolean; error?: string; dropletId?: string }> {
+async function doAction(dropletId: string, type: 'shutdown' | 'power_on' | 'power_off' | 'reboot', ipAddress?: string): Promise<{ ok: boolean; error?: string; dropletId?: string }> {
   const token = getToken();
   if (!token) return { ok: false, error: 'No DIGITALOCEAN_API_TOKEN' };
   const doCall = async (id: string) => fetch(`${DO_BASE}/droplets/${id}/actions`, {
@@ -395,6 +395,31 @@ export async function userPowerOff(userId: string): Promise<{ ok: boolean; error
     userId, dropletId: finalId, ipAddress: v.ipAddress,
     state: r.ok ? 'off' : 'unknown',
     source: 'user', at: new Date().toISOString(),
+    lastError: r.ok ? undefined : r.error,
+  });
+  return { ok: r.ok, error: r.error };
+}
+
+/** Engine self-heal: reboot the user's VPS when the order server becomes unreachable. */
+export async function userReboot(userId: string): Promise<{ ok: boolean; error?: string; skipped?: string }> {
+  const v = await resolveVpsForUser(userId);
+  if (!v) return { ok: false, skipped: 'no_vps_assigned' };
+  if (!v.dropletId) return { ok: false, skipped: 'no_droplet_id' };
+  const { status: cur, dropletId: healedId } = await getDropletStatus(v.dropletId, v.ipAddress);
+  const dropletId = healedId;
+  if (cur === 'off') {
+    const power = await doAction(dropletId, 'power_on', v.ipAddress);
+    await setPowerState({
+      userId, dropletId: power.dropletId || dropletId, ipAddress: v.ipAddress,
+      state: power.ok ? 'on' : 'unknown', source: 'system', at: new Date().toISOString(),
+      lastError: power.ok ? undefined : power.error,
+    });
+    return { ok: power.ok, error: power.error };
+  }
+  const r = await doAction(dropletId, 'reboot', v.ipAddress);
+  await setPowerState({
+    userId, dropletId: r.dropletId || dropletId, ipAddress: v.ipAddress,
+    state: r.ok ? 'on' : 'unknown', source: 'system', at: new Date().toISOString(),
     lastError: r.ok ? undefined : r.error,
   });
   return { ok: r.ok, error: r.error };
