@@ -4716,13 +4716,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       )}
 
       {/* ⚡⚡⚡ MULTI-SYMBOL SIGNALS ⚡⚡⚡ */}
-      {(() => {
-        // Helper: hide signals older than 20 minutes (stale/cached from previous session)
-        const isFresh = (ts?: number) => !!ts && (Date.now() - ts) < 20 * 60 * 1000;
-        const niftySig = isFresh(multiSymbolSignals.NIFTY?.timestamp) ? multiSymbolSignals.NIFTY : null;
-        const bnSig = isFresh(multiSymbolSignals.BANKNIFTY?.timestamp) ? multiSymbolSignals.BANKNIFTY : null;
-        const sxSig = isFresh(multiSymbolSignals.SENSEX?.timestamp) ? multiSymbolSignals.SENSEX : null;
-        return (
       <Card key={`signals-${renderKey}-${multiSymbolSignals.__timestamp || 0}`} className="bg-zinc-900 border-zinc-800">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
