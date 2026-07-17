@@ -240,13 +240,17 @@ export async function resolveAutoSymbol(params: {
 
   const target = atm + offset * gap;
 
-  // Nearest expiry that has the target strike
+  // IST "today" (YYYY-MM-DD) — never pick an already-expired contract
+  const todayIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Nearest NON-EXPIRED expiry that has the target strike
   const { data, error } = await supabase
     .from("instrument_master")
     .select("symbol, security_id, exchange_segment, strike_price, expiry_date, lot_size, option_type, index_name")
     .eq("index_name", index_name)
     .eq("option_type", option_type)
     .eq("strike_price", target)
+    .gte("expiry_date", todayIST)
     .order("expiry_date", { ascending: true })
     .limit(1);
 
@@ -255,16 +259,17 @@ export async function resolveAutoSymbol(params: {
     return null;
   }
   if (!data || data.length === 0) {
-    // Fallback: try the next nearest available strike
+    // Fallback: try the next nearest available NON-EXPIRED strike
     const { data: near } = await supabase
       .from("instrument_master")
       .select("symbol, security_id, exchange_segment, strike_price, expiry_date, lot_size, option_type, index_name")
       .eq("index_name", index_name)
       .eq("option_type", option_type)
+      .gte("expiry_date", todayIST)
       .order("expiry_date", { ascending: true })
       .limit(200);
     if (!near || near.length === 0) return null;
-    // pick closest strike on the earliest expiry
+    // pick closest strike on the earliest non-expired expiry
     const earliest = near[0].expiry_date;
     const sameExp = near.filter(r => r.expiry_date === earliest);
     sameExp.sort((a, b) => Math.abs(a.strike_price - target) - Math.abs(b.strike_price - target));
@@ -272,3 +277,4 @@ export async function resolveAutoSymbol(params: {
   }
   return data[0] as ResolvedSymbol;
 }
+
