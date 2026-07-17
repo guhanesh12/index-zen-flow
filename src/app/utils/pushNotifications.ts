@@ -3,7 +3,7 @@
 // 🔔 PUSH NOTIFICATION SUBSCRIPTION UTILITY
 // ═══════════════════════════════════════════════════════════════
 
-import { initializeApp } from 'firebase/app';
+import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { getFirebaseMessagingRegistration, WEB_PUSH_VAPID_KEY } from '@/utils/firebase/config';
 
@@ -30,7 +30,7 @@ let messaging: any = null;
 export function initializeFirebase() {
   try {
     if (!app) {
-      app = initializeApp(firebaseConfig);
+      app = getApps().length ? getApp() : initializeApp(firebaseConfig);
       console.log('✅ Firebase initialized');
     }
     
