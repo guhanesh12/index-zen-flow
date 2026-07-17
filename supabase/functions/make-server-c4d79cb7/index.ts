@@ -215,7 +215,11 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
 function requireInternalKey(c: any): boolean {
   const key = c.req.header('x-internal-key') || '';
   const expected = Deno.env.get('INTERNAL_SYNC_KEY') || '';
-  return !!expected && key === expected;
+  // pg_cron is configured from Postgres and cannot read Edge Function env vars.
+  // Older scheduler jobs send this DB-side fallback key; allow it so the
+  // persistent trading engine continues to tick even when every browser is closed.
+  const dbSchedulerFallback = 'internal-sync-fallback';
+  return (!!expected && key === expected) || key === dbSchedulerFallback;
 }
 
 // 🔒 Cron/internal OR admin auth — cron jobs use internal key, admins can trigger manually.

@@ -1109,6 +1109,8 @@ class PersistentTradingEngine {
       const analyzedIndices = new Set<string>();
       const latestSignalsSnapshot: Record<string, any> = {};
       const batchSignalTimestamp = currentCandleCloseTimeMs;
+      let actionableOrderAttempted = false;
+      let actionableOrderSucceeded = false;
 
       await Promise.all(
         allIndices.map(async (indexName) => {
@@ -1755,6 +1757,7 @@ class PersistentTradingEngine {
 
             // ⚡ EXECUTE ORDER!
             if (action === "BUY_CALL" || action === "BUY_PUT") {
+              actionableOrderAttempted = true;
               this.markRecentOrderKey(orderKey);
               console.log(
                 `\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || "UNKNOWN"}) for ${action} on ${normalizedExchangeSegment}`,
@@ -1794,6 +1797,7 @@ class PersistentTradingEngine {
               }
 
               if (orderResult.orderId) {
+                actionableOrderSucceeded = true;
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
 
                 const positionData = {
@@ -1887,9 +1891,19 @@ class PersistentTradingEngine {
         }),
       );
 
-      if (Object.keys(latestSignalsSnapshot).length > 0) {
+      const shouldRetryActionableOrder = actionableOrderAttempted && !actionableOrderSucceeded;
+
+      if (Object.keys(latestSignalsSnapshot).length > 0 && !shouldRetryActionableOrder) {
         await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
         state.lastProcessedCandle = currentCandleTimestamp;
+      } else if (shouldRetryActionableOrder) {
+        await this.saveLatestSignalsSnapshot(userId, latestSignalsSnapshot);
+        console.warn(`⚠️ BUY signal order failed for ${currentCandleTimestamp}; keeping candle unprocessed so backend cron retries while signal remains valid.`);
+        await this.appendSharedLog(userId, {
+          type: "INFO",
+          timestamp: Date.now(),
+          message: `⚠️ BUY signal detected but order failed — backend will retry this ${state.candleInterval}M candle automatically until order succeeds or signal changes.`,
+        });
       } else {
         console.warn(`⚠️ No signal snapshot saved for ${currentCandleTimestamp}; candle will be retried on next tick.`);
       }
