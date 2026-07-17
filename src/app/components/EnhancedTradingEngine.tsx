@@ -4323,8 +4323,16 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     await executeExitOrder(position);
   };
 
+  // Stale-signal guard: only show signals generated within the last 20 minutes.
+  // Prevents cached signals from a previous session being displayed as "live".
+  const isSignalFresh = (ts?: number) => !!ts && (Date.now() - ts) < 20 * 60 * 1000;
+  const freshNifty = isSignalFresh(multiSymbolSignals.NIFTY?.timestamp) ? multiSymbolSignals.NIFTY : null;
+  const freshBankNifty = isSignalFresh(multiSymbolSignals.BANKNIFTY?.timestamp) ? multiSymbolSignals.BANKNIFTY : null;
+  const freshSensex = isSignalFresh(multiSymbolSignals.SENSEX?.timestamp) ? multiSymbolSignals.SENSEX : null;
+
   return (
     <div className="space-y-4">
+
       {/* ⚠️ SYMBOL CONFIGURATION WARNING */}
       {(() => {
         const enabledAutoSlots = autoSymbolSlots.filter((slot: any) => slot.enabled !== false);
