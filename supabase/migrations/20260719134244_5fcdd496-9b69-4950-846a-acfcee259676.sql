@@ -1,0 +1,1 @@
+ALTER TABLE public.user_symbol_config DROP CONSTRAINT IF EXISTS user_symbol_config_slot_check; ALTER TABLE public.user_symbol_config ADD CONSTRAINT user_symbol_config_slot_check CHECK (slot BETWEEN 1 AND 50);
