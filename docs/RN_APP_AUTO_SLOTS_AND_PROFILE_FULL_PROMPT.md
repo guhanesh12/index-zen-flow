@@ -24,6 +24,8 @@ Content-Type:  application/json
 
 Never send `service_role` key from the app. Never bundle Firebase service account.
 
+**Critical RN auth rule:** do not call any profile, wallet, referral, broker, slot, or notification API until Supabase auth hydration is complete. The AuthContext must expose `authReady`; screens must wait for `authReady === true && session`. If your logs show `[Auth] Storage timeout - continuing with null values`, delete that custom storage timeout wrapper and use direct `@react-native-async-storage/async-storage` in `createClient()`.
+
 ---
 
 # PART A — AUTO-SYMBOL SLOTS (enable / disable / save / buy paid slot)
@@ -125,7 +127,7 @@ const ANON   = 'eyJhbGciOi...ANON_KEY...';
 
 async function authHeaders() {
   const { data:{ session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Not logged in');
+  if (!session) throw new Error('NOT_SIGNED_IN');
   return {
     Authorization: `Bearer ${session.access_token}`,
     apikey: ANON,
@@ -169,6 +171,8 @@ export async function buyExtraSlot() {
 
 ```tsx
 async function onToggleEnabled(slot, next) {
+  if (!authReady || !session) return;
+
   // Optimistic UI
   setSlots(prev => prev.map(s => s.slot === slot.slot ? { ...s, enabled: next } : s));
   try {
@@ -224,6 +228,8 @@ useEffect(() => {
 | Website shows enabled, app shows disabled | RN reading from stale local cache               | Call `listSlots()` on focus + realtime (A7)  |
 | `Index must be NIFTY, BANKNIFTY, or SENSEX` | Missing index_name in body                    | Include `index_name` in every save           |
 | 401 Unauthorized                          | Missing `Authorization` header                  | Use `authHeaders()` in EVERY call            |
+| Repeated `NOT_SIGNED_IN` on Profile open  | API calls run before Supabase restores session  | Gate all calls behind `authReady && session` |
+| `[Auth] Storage timeout - continuing with null values` | Broken custom storage timeout returns null | Use direct AsyncStorage in Supabase client   |
 | 402 need_recharge on Buy Slot             | Wallet < ₹49                                   | Route to Wallet → Recharge                   |
 | Slot appears saved but engine skips it    | `enabled:false` OR no live symbol for that index| Check `enabled=true`; server auto-resolves    |
 
@@ -294,6 +300,7 @@ await supabase.from('profiles').update({ avatar_url: data.publicUrl }).eq('user_
 
 ## B5. Non-negotiables
 
+- AuthContext must expose `authReady`; Profile screen must render a session loader until `authReady === true`. Do not start React Query hooks with `enabled:true` before a session exists.
 - React Query with `staleTime: 30_000` keyed by `user.id` for every fetch.
 - Pull-to-refresh at screen root re-fetches all hooks in parallel.
 - Optimistic updates on toggles + rollback on error (see A5 pattern).
