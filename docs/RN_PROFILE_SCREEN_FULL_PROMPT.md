@@ -20,12 +20,14 @@ apikey: <SUPABASE_ANON>
 Content-Type: application/json
 ```
 
-Get the access token:
+Get the access token **only after auth hydration is finished**:
 ```ts
 const { data: { session } } = await supabase.auth.getSession();
 const token = session?.access_token;
 ```
-If `token` is null → force login. If a request returns 401 → call `supabase.auth.refreshSession()` once, retry, else logout.
+If `token` is null before hydration is finished, do not call APIs yet. Show `Loading session...`. If hydration is finished and token is still null → force login. If a request returns 401 → call `supabase.auth.refreshSession()` once, retry, else logout.
+
+**Critical RN bug fix:** remove any AsyncStorage timeout wrapper that logs `Storage timeout - continuing with null values`. It causes false `NOT_SIGNED_IN` by returning `null` before Supabase restores the saved session.
 
 ---
 
@@ -148,15 +150,23 @@ await supabase.auth.signOut();
 
 ## 10. Single hook that loads everything (COPY THIS — this is why prior attempts failed)
 
+Before using this hook, your RN app must expose `authReady`, `session`, and `user` from AuthContext. Protected endpoints must not run until `authReady === true && session`.
+
 ```ts
 // hooks/useProfileScreen.ts
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { FN_BASE, SUPABASE_ANON } from '../lib/config';
+import { useAuth } from '../contexts/AuthContext';
 
-async function authFetch(path: string, init: RequestInit = {}) {
-  let { data: { session } } = await supabase.auth.getSession();
+async function authFetch(path: string, session, init: RequestInit = {}) {
   let token = session?.access_token;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token;
+  }
+  if (!token) throw new Error('NOT_SIGNED_IN');
+
   const doFetch = (t: string) => fetch(`${FN_BASE}${path}`, {
     ...init,
     headers: {
@@ -166,11 +176,11 @@ async function authFetch(path: string, init: RequestInit = {}) {
       ...(init.headers || {}),
     },
   });
-  let res = await doFetch(token!);
+  let res = await doFetch(token);
   if (res.status === 401) {
     const { data } = await supabase.auth.refreshSession();
     token = data.session?.access_token;
-    if (!token) throw new Error('SESSION_EXPIRED');
+    if (!token) throw new Error('NOT_SIGNED_IN');
     res = await doFetch(token);
   }
   if (!res.ok) throw new Error(`${path} ${res.status}`);
@@ -178,19 +188,28 @@ async function authFetch(path: string, init: RequestInit = {}) {
 }
 
 export function useProfileScreen() {
+  const { authReady, session, user } = useAuth();
   const [state, setState] = useState<{ loading: boolean; error?: string; data?: any }>({ loading: true });
 
   const load = useCallback(async () => {
+    if (!authReady) {
+      setState(s => ({ ...s, loading: true }));
+      return;
+    }
+
+    if (!session || !user) {
+      setState({ loading: false, error: 'NOT_SIGNED_IN' });
+      return;
+    }
+
     try {
       setState(s => ({ ...s, loading: true, error: undefined }));
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('NO_USER');
 
       const [me, wallet, refs, broker, prefs] = await Promise.all([
-        authFetch('/profile/me'),
-        authFetch('/wallet/balance').catch(() => ({ balance: 0, totalProfit: 0, totalDeducted: 0 })),
-        authFetch('/referral/my').catch(() => ({ referrals: [], earnings: {} })),
-        authFetch('/broker/oauth/status').catch(() => ({ connected: false })),
+        authFetch('/profile/me', session),
+        authFetch('/wallet/balance', session).catch(() => ({ balance: 0, totalProfit: 0, totalDeducted: 0 })),
+        authFetch('/referral/my', session).catch(() => ({ referrals: [], earnings: {} })),
+        authFetch('/broker/oauth/status', session).catch(() => ({ connected: false })),
         supabase.from('notification_preferences').select('*').eq('user_id', user.id).maybeSingle()
           .then(r => r.data || { email_enabled: false, push_enabled: true, sms_enabled: false, whatsapp_enabled: false, trade_alerts: true }),
       ]);
@@ -210,16 +229,19 @@ export function useProfileScreen() {
     } catch (e: any) {
       setState({ loading: false, error: e.message });
     }
-  }, []);
+  }, [authReady, session, user]);
 
   useEffect(() => { load(); }, [load]);
-  return { ...state, refresh: load };
+  return { ...state, refresh: load, authReady };
 }
 ```
 
 Use in the screen:
 ```tsx
-const { loading, error, data, refresh } = useProfileScreen();
+const { authReady, loading, error, data, refresh } = useProfileScreen();
+
+if (!authReady) return <FullScreenLoader text="Loading session..." />;
+if (error === 'NOT_SIGNED_IN') return <LoginRequiredScreen />;
 ```
 Never render the screen from a single `/profiles` table row — you WILL miss wallet balance, referral earnings, broker status, notification prefs. That is the exact bug you saw before.
 
@@ -290,6 +312,8 @@ Hero card gradient border: `linear-gradient(90deg,#22D3EE 0%,#8B5CF6 100%)` — 
 | Wallet shows 0 | reading it from `profiles` | Call `/wallet/balance` |
 | Referral earnings 0 but website shows real number | reading `profile.referral_earnings` | Use `earnings.total_earned` from `/profile/me` |
 | 401 on every call | missing `apikey` header | Both `Authorization` AND `apikey` required |
+| Repeated `NOT_SIGNED_IN` on app open | APIs run before Supabase restores AsyncStorage session | Gate calls behind `authReady && session`; remove storage timeout fallback |
+| `[Auth] Storage timeout - continuing with null values` | Broken custom storage wrapper returns null too early | Use direct `@react-native-async-storage/async-storage` in Supabase client |
 | PATCH returns 400 | sending `email` or `client_id` | Only send full_name / mobile / photo_url |
 | Profile blank after signup | row not created yet | `/profile/me` auto-backfills; just call it once |
 | Toggle flips back | writing wrong columns | Table is `notification_preferences`, PK = `user_id` |
