@@ -3002,6 +3002,11 @@ class PersistentTradingEngine {
           highest_pnl: 0,
           raw_position: {
             ...(symbol.raw_data || {}),
+            optionType: position.optionType || normalizeOptionType(normalizedSymbolName),
+            targetAmount: position.targetAmount || 0,
+            stopLossAmount: position.stopLossAmount || 0,
+            currentTargetAmount: position.currentTargetAmount || position.targetAmount || 0,
+            currentStopLossAmount: position.currentStopLossAmount || position.stopLossAmount || 0,
             trailingActivationAmount: position.trailingActivationAmount || symbol.trailingActivationAmount || 0,
             targetJumpAmount: position.targetJumpAmount || symbol.targetJumpAmount || 0,
             stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 0,
