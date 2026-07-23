@@ -1343,6 +1343,10 @@ class PersistentTradingEngine {
               ),
               exchangeSegment: dbPos.exchange_segment,
               quantity: dbPos.quantity,
+                  targetAmount: dbPos.target_amount,
+                  stopLossAmount: dbPos.stop_loss_amount,
+                  currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
+                  currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
               pnl: dbPos.pnl,
               status: "ACTIVE",
             }));
