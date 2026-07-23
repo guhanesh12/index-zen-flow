@@ -1829,6 +1829,8 @@ class PersistentTradingEngine {
                   trailingActivationAmount: symbol.trailingActivationAmount || 0,
                   targetJumpAmount: symbol.targetJumpAmount || 0,
                   stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
+                  currentTargetAmount: symbol.targetAmount || 0,
+                  currentStopLossAmount: symbol.stopLossAmount || 0,
                   pnl: 0,
                   entryTime: Date.now(),
                   status: "ACTIVE",
