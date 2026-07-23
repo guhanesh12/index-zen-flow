@@ -1355,7 +1355,8 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          if (reversalPosition && confidence >= 80) {
+          const reversalPnl = Number(reversalPosition?.pnl || 0);
+          if (reversalPosition && confidence >= 90 && reversalPnl <= 0) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await placeOrderViaStaticIP(
               userId,
