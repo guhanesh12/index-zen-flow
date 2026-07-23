@@ -1360,7 +1360,8 @@ class PersistentTradingEngine {
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
           const reversalPnl = Number(reversalPosition?.pnl || 0);
-          if (reversalPosition && confidence >= 90 && reversalPnl <= 0) {
+          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
+          if (reversalPosition && confidence >= 90 && reversalPnl <= -reversalSL) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await placeOrderViaStaticIP(
               userId,
@@ -1669,10 +1670,11 @@ class PersistentTradingEngine {
               (p: any) => p.status === "ACTIVE" && p.index && indexName && p.index === indexName,
             );
             const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
+            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.5);
             if (
               sameIndexPosition &&
               confidence >= 90 &&
-              sameIndexPnl <= 0 &&
+              sameIndexPnl <= -sameIndexSL &&
               targetOptionType &&
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
