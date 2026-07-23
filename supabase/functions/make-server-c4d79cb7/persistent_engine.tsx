@@ -1495,14 +1495,15 @@ class PersistentTradingEngine {
                     OTM2: { tgt: 1.50, sl: 0.70 },
                   };
                   const mm = MONEYNESS_MULT[slot.moneyness] || MONEYNESS_MULT.ATM;
-                  const tgtPerLot = Number(slot.target_per_lot) || 0;
-                  const slPerLot = Number(slot.stop_loss_per_lot) || 0;
-                  const trailActPerLot = Number(slot.trailing_activation_per_lot) || 0;
-                  const trailStepPerLot = Number(slot.trailing_step_per_lot) || 0;
+                  const tgtPerLot = Number(slot.target_per_lot) || 6000;
+                  const slPerLot = Number(slot.stop_loss_per_lot) || 3000;
+                  const trailActPerLot = Number(slot.trailing_activation_per_lot) || Math.round(tgtPerLot * 0.66);
+                  const trailStepPerLot = Number(slot.trailing_step_per_lot) || Math.round(slPerLot * 0.33);
                   const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
                   const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
                   const trailingActivationAmount = +(trailActPerLot * lotCount * mm.tgt).toFixed(2);
                   const trailingStep = +(trailStepPerLot * lotCount).toFixed(2);
+                  const targetJumpAmount = trailingStep;
                   const trailingEnabled = !!slot.trailing_enabled && trailingActivationAmount > 0 && trailingStep > 0;
 
                   resolved.push({
@@ -1530,6 +1531,7 @@ class PersistentTradingEngine {
                     stopLossAmount,
                     trailingEnabled,
                     trailingActivationAmount,
+                    targetJumpAmount,
                     stopLossJumpAmount: trailingStep,
                     trailingStep,
                     __autoSlot: slot.slot,
