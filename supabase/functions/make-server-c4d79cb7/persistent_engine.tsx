@@ -2259,11 +2259,12 @@ class PersistentTradingEngine {
         if (_trailingConfigured && position.highestPnl >= _activation) {
           const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
           const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
-          if (numberOfJumps > 0) {
-            const newTarget = _baseTarget + numberOfJumps * _targetJump;
+          if (numberOfJumps >= 0) {
+            const appliedJumps = numberOfJumps + 1;
+            const newTarget = _baseTarget + appliedJumps * _targetJump;
             // SL ratchets UP (in profit direction): baseSL is the loss limit (positive number),
             // each jump reduces it by _slJump. When it crosses 0 it becomes a guaranteed profit lock.
-            const newSL = _baseSL - numberOfJumps * _slJump;
+            const newSL = _baseSL - appliedJumps * _slJump;
             if (newTarget !== position.currentTargetAmount || newSL !== position.currentStopLossAmount) {
               const oldT = position.currentTargetAmount;
               const oldS = position.currentStopLossAmount;
@@ -2277,11 +2278,11 @@ class PersistentTradingEngine {
                 type: "TRAILING_UPDATE",
                 timestamp: Date.now(),
                 symbol: position.symbolName,
-                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${numberOfJumps})`,
+                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${appliedJumps})`,
                 pnl,
                 data: {
                   peak: position.highestPnl,
-                  jumps: numberOfJumps,
+                  jumps: appliedJumps,
                   oldTarget: oldT,
                   newTarget,
                   oldStopLoss: oldS,
