@@ -1668,9 +1668,11 @@ class PersistentTradingEngine {
             const sameIndexPosition = state.activePositions.find(
               (p: any) => p.status === "ACTIVE" && p.index && indexName && p.index === indexName,
             );
+            const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
             if (
               sameIndexPosition &&
               confidence >= 90 &&
+              sameIndexPnl <= 0 &&
               targetOptionType &&
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
