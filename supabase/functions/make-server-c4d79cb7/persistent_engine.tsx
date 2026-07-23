@@ -1343,6 +1343,10 @@ class PersistentTradingEngine {
               ),
               exchangeSegment: dbPos.exchange_segment,
               quantity: dbPos.quantity,
+                  targetAmount: dbPos.target_amount,
+                  stopLossAmount: dbPos.stop_loss_amount,
+                  currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
+                  currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
               pnl: dbPos.pnl,
               status: "ACTIVE",
             }));
@@ -1355,7 +1359,9 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          if (reversalPosition && confidence >= 80) {
+          const reversalPnl = Number(reversalPosition?.pnl || 0);
+          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
+          if (reversalPosition && confidence >= 90 && reversalPnl <= -reversalSL) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await placeOrderViaStaticIP(
               userId,
@@ -1494,14 +1500,15 @@ class PersistentTradingEngine {
                     OTM2: { tgt: 1.50, sl: 0.70 },
                   };
                   const mm = MONEYNESS_MULT[slot.moneyness] || MONEYNESS_MULT.ATM;
-                  const tgtPerLot = Number(slot.target_per_lot) || 0;
-                  const slPerLot = Number(slot.stop_loss_per_lot) || 0;
-                  const trailActPerLot = Number(slot.trailing_activation_per_lot) || 0;
-                  const trailStepPerLot = Number(slot.trailing_step_per_lot) || 0;
+                  const tgtPerLot = Number(slot.target_per_lot) || 6000;
+                  const slPerLot = Number(slot.stop_loss_per_lot) || 3000;
+                  const trailActPerLot = Number(slot.trailing_activation_per_lot) || Math.round(tgtPerLot * 0.66);
+                  const trailStepPerLot = Number(slot.trailing_step_per_lot) || Math.round(slPerLot * 0.33);
                   const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
                   const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
                   const trailingActivationAmount = +(trailActPerLot * lotCount * mm.tgt).toFixed(2);
                   const trailingStep = +(trailStepPerLot * lotCount).toFixed(2);
+                  const targetJumpAmount = trailingStep;
                   const trailingEnabled = !!slot.trailing_enabled && trailingActivationAmount > 0 && trailingStep > 0;
 
                   resolved.push({
@@ -1529,6 +1536,7 @@ class PersistentTradingEngine {
                     stopLossAmount,
                     trailingEnabled,
                     trailingActivationAmount,
+                    targetJumpAmount,
                     stopLossJumpAmount: trailingStep,
                     trailingStep,
                     __autoSlot: slot.slot,
@@ -1648,6 +1656,10 @@ class PersistentTradingEngine {
                   ),
                   exchangeSegment: dbPos.exchange_segment,
                   quantity: dbPos.quantity,
+                  targetAmount: dbPos.target_amount,
+                  stopLossAmount: dbPos.stop_loss_amount,
+                  currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
+                  currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
                   pnl: dbPos.pnl,
                   status: "ACTIVE",
                 }));
@@ -1657,9 +1669,12 @@ class PersistentTradingEngine {
             const sameIndexPosition = state.activePositions.find(
               (p: any) => p.status === "ACTIVE" && p.index && indexName && p.index === indexName,
             );
+            const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
+            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.5);
             if (
               sameIndexPosition &&
               confidence >= 90 &&
+              sameIndexPnl <= -sameIndexSL &&
               targetOptionType &&
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
@@ -1816,6 +1831,8 @@ class PersistentTradingEngine {
                   trailingActivationAmount: symbol.trailingActivationAmount || 0,
                   targetJumpAmount: symbol.targetJumpAmount || 0,
                   stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
+                  currentTargetAmount: symbol.targetAmount || 0,
+                  currentStopLossAmount: symbol.stopLossAmount || 0,
                   pnl: 0,
                   entryTime: Date.now(),
                   status: "ACTIVE",
@@ -2244,11 +2261,12 @@ class PersistentTradingEngine {
         if (_trailingConfigured && position.highestPnl >= _activation) {
           const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
           const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
-          if (numberOfJumps > 0) {
-            const newTarget = _baseTarget + numberOfJumps * _targetJump;
+          if (numberOfJumps >= 0) {
+            const appliedJumps = numberOfJumps + 1;
+            const newTarget = _baseTarget + appliedJumps * _targetJump;
             // SL ratchets UP (in profit direction): baseSL is the loss limit (positive number),
             // each jump reduces it by _slJump. When it crosses 0 it becomes a guaranteed profit lock.
-            const newSL = _baseSL - numberOfJumps * _slJump;
+            const newSL = _baseSL - appliedJumps * _slJump;
             if (newTarget !== position.currentTargetAmount || newSL !== position.currentStopLossAmount) {
               const oldT = position.currentTargetAmount;
               const oldS = position.currentStopLossAmount;
@@ -2262,11 +2280,11 @@ class PersistentTradingEngine {
                 type: "TRAILING_UPDATE",
                 timestamp: Date.now(),
                 symbol: position.symbolName,
-                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${numberOfJumps})`,
+                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${appliedJumps})`,
                 pnl,
                 data: {
                   peak: position.highestPnl,
-                  jumps: numberOfJumps,
+                  jumps: appliedJumps,
                   oldTarget: oldT,
                   newTarget,
                   oldStopLoss: oldS,
@@ -2986,6 +3004,11 @@ class PersistentTradingEngine {
           highest_pnl: 0,
           raw_position: {
             ...(symbol.raw_data || {}),
+            optionType: position.optionType || normalizeOptionType(normalizedSymbolName),
+            targetAmount: position.targetAmount || 0,
+            stopLossAmount: position.stopLossAmount || 0,
+            currentTargetAmount: position.currentTargetAmount || position.targetAmount || 0,
+            currentStopLossAmount: position.currentStopLossAmount || position.stopLossAmount || 0,
             trailingActivationAmount: position.trailingActivationAmount || symbol.trailingActivationAmount || 0,
             targetJumpAmount: position.targetJumpAmount || symbol.targetJumpAmount || 0,
             stopLossJumpAmount: position.stopLossJumpAmount || symbol.stopLossJumpAmount || 0,
