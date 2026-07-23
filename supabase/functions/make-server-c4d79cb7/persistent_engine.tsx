@@ -2506,17 +2506,27 @@ class PersistentTradingEngine {
         const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
         const _withinGrace = _ageMs < 45_000;
 
-        // 1) PROFIT PROTECTION — exit when we've captured meaningful profit and trend is reversing.
-        //    Skipped if trend is still strongly with the position (let winners run).
-        if (!shouldExit && !_withinGrace && (position.highestPnl || 0) > 0 && pnl > 0 && !_strongWith) {
+        // 1) PROFIT PROTECTION — exit only when trend has ACTUALLY reversed against us with
+        //    meaningful give-back. Skip if market bias is still aligned (let winners run).
+        //    Prevents premature exits on short-term P&L wiggles inside a trending move.
+        const _bearishAgainstUs =
+          !!currentSignal && !_alignedNow && momentumStrength >= 3; // market bias flipped against us
+        if (
+          !shouldExit &&
+          !_withinGrace &&
+          (position.highestPnl || 0) > 0 &&
+          pnl > 0 &&
+          !_strongWith &&
+          _bearishAgainstUs // require market to have actually turned, not just P&L blip
+        ) {
           const peak = position.highestPnl || 0;
-          const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.4 : Math.max(150, peak * 0.5);
+          const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.6 : Math.max(300, peak * 0.6);
           const inProfitZone = peak >= profitFloor;
-          const heavyGiveBack = giveBackPct >= 55;
+          const heavyGiveBack = giveBackPct >= 70; // was 55 — too eager
           const reversingMomentum = momentumScore < 0;
           if (inProfitZone && heavyGiveBack && reversingMomentum) {
             shouldExit = true;
-            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, momentum reversing)`;
+            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, market flipped ${marketMomentum})`;
           }
         }
 
