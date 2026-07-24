@@ -4908,9 +4908,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   <div className="text-xs text-zinc-500 mt-2">
                     {freshBankNifty.timeframe || '--'} • {new Date(freshBankNifty.timestamp || Date.now()).toLocaleTimeString()}
                   </div>
-                  {freshBankNifty.reasoning && (
-                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{freshBankNifty.reasoning}</div>
-                  )}
+                  <WhyNoTrade signal={freshBankNifty} />
+
                   {freshBankNifty.bias && (
                     <Badge variant={freshBankNifty.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
                       {freshBankNifty.bias}
