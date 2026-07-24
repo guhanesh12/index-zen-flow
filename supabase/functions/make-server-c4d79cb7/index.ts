@@ -7232,9 +7232,10 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
         
         return {
           id: userId,
-          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Unknown',
+          name: profileRow?.full_name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Unknown',
           email: authUser.email || 'N/A',
-          phone: authUser.user_metadata?.phone || authUser.user_metadata?.mobile || 'N/A',
+          phone: profileRow?.mobile || authUser.user_metadata?.phone || authUser.user_metadata?.mobile || 'N/A',
+          avatarUrl: profileRow?.avatar_url || authUser.user_metadata?.avatar_url || null,
           city: userProfile?.city || authUser.user_metadata?.city || '',
           state: userProfile?.state || authUser.user_metadata?.state || '',
           communityId: userProfile?.communityId || authUser.user_metadata?.communityId || 'N/A',
