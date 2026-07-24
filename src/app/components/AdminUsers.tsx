@@ -530,9 +530,18 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                         {/* User Info */}
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
-                              {user.name.charAt(0).toUpperCase()}
-                            </div>
+                            {user.avatarUrl ? (
+                              <img
+                                src={user.avatarUrl}
+                                alt={user.name}
+                                className="size-10 rounded-full object-cover border border-slate-700"
+                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                              />
+                            ) : (
+                              <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
+                                {user.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
                             <div>
                               <p className="font-medium text-white">{user.name}</p>
                               <p className="text-xs text-slate-400">{user.id.slice(0, 8)}...</p>
