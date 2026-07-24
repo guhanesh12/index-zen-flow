@@ -53,6 +53,7 @@ interface User {
   name: string;
   email: string;
   phone: string;
+  avatarUrl?: string | null;
   city?: string;
   state?: string;
   communityId: string;
