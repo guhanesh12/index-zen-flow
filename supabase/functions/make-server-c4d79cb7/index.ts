@@ -7182,7 +7182,7 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
         
         // ✅ Batch fetch all KV data with safe retry logic
         // ✅ Batch fetch all KV data with safe retry logic
-        const [wallet, dailyProfit, dailyPnl, pnlDetails, credentials, engineStatus, brokerFundsData, cumulativePnl, userProfile] = await Promise.all([
+        const [wallet, dailyProfit, dailyPnl, pnlDetails, credentials, engineStatus, brokerFundsData, cumulativePnl, userProfile, profileRow] = await Promise.all([
           safeKVGet(`wallet:${userId}`, { balance: 0 }),
           safeKVGet(`daily_profit:${userId}:${today}`, null),
           safeKVGet(`daily_pnl:${userId}:${today}`, null),
@@ -7191,7 +7191,8 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
           safeKVGet(`engine_running:${userId}`, false),
           safeKVGet(`broker_funds:${userId}`, null),
           safeKVGet(`total_pnl:${userId}`, 0),
-          safeKVGet(`user_profile:${userId}`, {})
+          safeKVGet(`user_profile:${userId}`, {}),
+          supabase.from('profiles').select('avatar_url, full_name, mobile').eq('user_id', userId).maybeSingle().then((r: any) => r?.data || null).catch(() => null)
         ]);
         
         // ✅ Extract broker funds from KV data
@@ -7231,9 +7232,10 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
         
         return {
           id: userId,
-          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Unknown',
+          name: profileRow?.full_name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Unknown',
           email: authUser.email || 'N/A',
-          phone: authUser.user_metadata?.phone || authUser.user_metadata?.mobile || 'N/A',
+          phone: profileRow?.mobile || authUser.user_metadata?.phone || authUser.user_metadata?.mobile || 'N/A',
+          avatarUrl: profileRow?.avatar_url || authUser.user_metadata?.avatar_url || null,
           city: userProfile?.city || authUser.user_metadata?.city || '',
           state: userProfile?.state || authUser.user_metadata?.state || '',
           communityId: userProfile?.communityId || authUser.user_metadata?.communityId || 'N/A',
