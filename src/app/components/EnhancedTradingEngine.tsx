@@ -97,6 +97,98 @@ interface EnhancedTradingEngineProps {
   onLog: (log: any) => void;
 }
 
+// 🔍 Why-No-Trade explainer: surfaces the exact AI block reason for a candle
+// so the user can see WHY the 9:30 (or any) candle did not place an order.
+function WhyNoTrade({ signal }: { signal: any }) {
+  if (!signal) return null;
+  const dbg = signal.debugInfo || {};
+  const conf = signal.confirmations || {};
+  const passed = Number(conf.total ?? dbg.scoreBreakdown?.totalBullScore ?? 0);
+  const bear = Number(dbg.scoreBreakdown?.totalBearScore ?? 0);
+  const required = Number(conf.required ?? dbg.requiredConfirmations ?? dbg.scoreBreakdown?.requiredConfirmations ?? 0);
+  const bestScore = Math.max(passed, bear);
+  const blockedBy: string[] = Array.isArray(dbg.blockedBy) ? dbg.blockedBy : [];
+  const failed: string[] = Array.isArray(dbg.failedConfirmations) ? dbg.failedConfirmations : [];
+  const warns: string[] = Array.isArray(dbg.marketWarnings) ? dbg.marketWarnings : [];
+  const reason =
+    dbg.finalDecisionReason ||
+    dbg.blockedReason ||
+    signal.reasoning ||
+    signal.reason ||
+    "";
+  const isWait = signal.action === "WAIT";
+  const ts = signal.timestamp ? new Date(signal.timestamp) : null;
+  const candleLabel = ts
+    ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+    : "--";
+
+  return (
+    <div className="mt-2 space-y-1.5 rounded-md border border-zinc-700/60 bg-zinc-900/60 p-2">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-semibold text-zinc-300">
+          {isWait ? "❌ No trade on this candle" : "✅ Trade signal"}
+        </span>
+        <span className="text-zinc-500">candle {candleLabel}</span>
+      </div>
+      {required > 0 && (
+        <div className="text-[11px] text-zinc-400">
+          Confirmations:{" "}
+          <span className={bestScore >= required ? "text-emerald-400" : "text-amber-400"}>
+            {bestScore}/{required}
+          </span>
+          {dbg.scoreBreakdown?.adx != null && (
+            <span className="text-zinc-500"> · ADX {dbg.scoreBreakdown.adx}</span>
+          )}
+          {dbg.regime && <span className="text-zinc-500"> · {String(dbg.regime)}</span>}
+        </div>
+      )}
+      {blockedBy.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {blockedBy.map((b) => (
+            <span
+              key={`b-${b}`}
+              className="rounded bg-red-900/40 border border-red-800/60 px-1.5 py-0.5 text-[10px] text-red-300"
+            >
+              {b}
+            </span>
+          ))}
+        </div>
+      )}
+      {isWait && blockedBy.length === 0 && failed.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {failed.map((f) => (
+            <span
+              key={`f-${f}`}
+              className="rounded bg-amber-900/30 border border-amber-800/50 px-1.5 py-0.5 text-[10px] text-amber-300"
+            >
+              missing: {f}
+            </span>
+          ))}
+        </div>
+      )}
+      {warns.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {warns.map((w) => (
+            <span
+              key={`w-${w}`}
+              className="rounded bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-400"
+            >
+              ⚠ {w}
+            </span>
+          ))}
+        </div>
+      )}
+      {reason && (
+        <div className="text-[11px] text-zinc-300 leading-snug whitespace-pre-wrap">
+          {reason}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
 export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: EnhancedTradingEngineProps) {
   // ⚡ Version: 2.1.0 - Fixed console spam & signal persistence (2026-03-06)
   
