@@ -7182,7 +7182,7 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
         
         // ✅ Batch fetch all KV data with safe retry logic
         // ✅ Batch fetch all KV data with safe retry logic
-        const [wallet, dailyProfit, dailyPnl, pnlDetails, credentials, engineStatus, brokerFundsData, cumulativePnl, userProfile] = await Promise.all([
+        const [wallet, dailyProfit, dailyPnl, pnlDetails, credentials, engineStatus, brokerFundsData, cumulativePnl, userProfile, profileRow] = await Promise.all([
           safeKVGet(`wallet:${userId}`, { balance: 0 }),
           safeKVGet(`daily_profit:${userId}:${today}`, null),
           safeKVGet(`daily_pnl:${userId}:${today}`, null),
@@ -7191,7 +7191,8 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
           safeKVGet(`engine_running:${userId}`, false),
           safeKVGet(`broker_funds:${userId}`, null),
           safeKVGet(`total_pnl:${userId}`, 0),
-          safeKVGet(`user_profile:${userId}`, {})
+          safeKVGet(`user_profile:${userId}`, {}),
+          supabase.from('profiles').select('avatar_url, full_name, mobile').eq('user_id', userId).maybeSingle().then((r: any) => r?.data || null).catch(() => null)
         ]);
         
         // ✅ Extract broker funds from KV data
