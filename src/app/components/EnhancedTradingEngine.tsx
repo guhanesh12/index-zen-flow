@@ -4949,9 +4949,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                   <div className="text-xs text-zinc-500 mt-2">
                     {freshSensex.timeframe || '--'} • {new Date(freshSensex.timestamp || Date.now()).toLocaleTimeString()}
                   </div>
-                  {freshSensex.reasoning && (
-                    <div className="text-xs text-zinc-400 mt-2 line-clamp-3">{freshSensex.reasoning}</div>
-                  )}
+                  <WhyNoTrade signal={freshSensex} />
+
                   {freshSensex.bias && (
                     <Badge variant={freshSensex.bias === 'Bullish' ? 'default' : 'destructive'} className="mt-2">
                       {freshSensex.bias}
