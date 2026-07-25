@@ -17,6 +17,45 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+async function isAuthorizedAdmin(token: string): Promise<boolean> {
+  const ownerEmail = (Deno.env.get("PLATFORM_OWNER_EMAIL") || "").trim().toLowerCase();
+  const authClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY") || SERVICE_ROLE, {
+    auth: { persistSession: false },
+  });
+  const { data: userData, error: userError } = await authClient.auth.getUser(token);
+  const user = userData?.user;
+
+  if (userError || !user) {
+    console.warn("admin-push-send auth denied: invalid user token", userError?.message || "no user");
+    return false;
+  }
+
+  if (ownerEmail && (user.email || "").trim().toLowerCase() === ownerEmail) {
+    return true;
+  }
+
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  const [{ data: roleRow, error: roleError }, { data: profileRow, error: profileError }] = await Promise.all([
+    admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .maybeSingle(),
+    admin
+      .from("admin_profiles")
+      .select("user_id,status")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .maybeSingle(),
+  ]);
+
+  if (roleError) console.warn("admin-push-send role lookup failed", roleError.message);
+  if (profileError) console.warn("admin-push-send profile lookup failed", profileError.message);
+
+  return Boolean(roleRow || profileRow);
+}
+
 function b64url(input: string | Uint8Array): string {
   const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
   let bin = "";
@@ -178,30 +217,13 @@ Deno.serve(async (req) => {
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
     const internalKey = req.headers.get("x-internal-key") || "";
     const INTERNAL_SYNC_KEY = Deno.env.get("INTERNAL_SYNC_KEY") || "";
-    const OWNER_EMAIL = (Deno.env.get("PLATFORM_OWNER_EMAIL") || "").trim().toLowerCase();
 
     let authorized = false;
     if (INTERNAL_SYNC_KEY && internalKey && internalKey === INTERNAL_SYNC_KEY) {
       authorized = true;
     } else if (token) {
       try {
-        const authClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY") || SERVICE_ROLE);
-        const { data: userData } = await authClient.auth.getUser(token);
-        const user = userData?.user;
-        if (user) {
-          if (OWNER_EMAIL && (user.email || "").trim().toLowerCase() === OWNER_EMAIL) {
-            authorized = true;
-          } else {
-            const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-            const { data: roleRow } = await admin
-              .from("user_roles")
-              .select("role")
-              .eq("user_id", user.id)
-              .eq("role", "admin")
-              .maybeSingle();
-            if (roleRow) authorized = true;
-          }
-        }
+        authorized = await isAuthorizedAdmin(token);
       } catch (e) {
         console.error("admin-push-send auth error", e);
       }
@@ -283,7 +305,7 @@ Deno.serve(async (req) => {
     let inAppSaved = 0;
     const { data: authData, error: usersErr } = await admin.auth.admin.listUsers({ perPage: 1000 });
     if (usersErr) console.error("Load auth users failed for in-app notifications", usersErr);
-    const ownerEmail = OWNER_EMAIL;
+    const ownerEmail = (Deno.env.get("PLATFORM_OWNER_EMAIL") || "").trim().toLowerCase();
     const users = (authData?.users || []).filter((u: any) =>
       !ownerEmail || (u.email || "").trim().toLowerCase() !== ownerEmail,
     );
