@@ -201,23 +201,31 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
         targetUrl: targetUrl || undefined,
       });
 
-      // Call the dedicated lightweight edge function (avoids the monolith's
-      // WORKER_RESOURCE_LIMIT boot failure).
-      const { data, error: fnError } = await supabase.functions.invoke('admin-push-send', {
-        body: {
+      // Call the dedicated lightweight edge function directly with the admin's
+      // verified access token — supabase.functions.invoke may fall back to the
+      // anon key when the SDK session isn't hydrated (hotkey admin flow),
+      // which fails JWT verification with "missing sub claim".
+      const supabaseUrl = (supabase as any)?.supabaseUrl || (import.meta as any).env?.VITE_SUPABASE_URL;
+      const anonKey = (supabase as any)?.supabaseKey || (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const resp = await fetch(`${supabaseUrl}/functions/v1/admin-push-send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'apikey': anonKey,
+        },
+        body: JSON.stringify({
           title,
           description,
           imageUrl: finalImageUrl || undefined,
           targetUrl: targetUrl || undefined,
-        },
+        }),
       });
-
-      if (fnError) {
-        const details = (fnError as any)?.context?.text
-          ? await (fnError as any).context.text()
-          : fnError.message;
-        console.error('❌ admin-push-send error:', details);
-        setError(typeof details === 'string' ? details : (fnError.message || 'Failed to send notification'));
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data?.success) {
+        const msg = data?.message || `Request failed (${resp.status})`;
+        console.error('❌ admin-push-send error:', msg, data);
+        setError(msg);
         setSending(false);
         return;
       }
