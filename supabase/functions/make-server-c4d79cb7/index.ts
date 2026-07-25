@@ -4721,6 +4721,10 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
   console.log('🧪 MANUAL STRATEGY TEST ROUTE HIT');
   
   try {
+    const { user, error: authErr } = await validateAuth(c);
+    if (authErr || !user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
     const body = await c.req.json();
     const { open, high, low, close, volume, timestamp, minWarmup } = body;
     
@@ -4730,6 +4734,16 @@ app.post("/make-server-c4d79cb7/backtest/manual-test", async (c) => {
         error: 'Missing required candle data arrays' 
       }, 400);
     }
+    
+    // Cap candle array size to prevent CPU abuse
+    const MAX_CANDLES = 5000;
+    if (close.length > MAX_CANDLES) {
+      return c.json({
+        success: false,
+        error: `Too many candles (max ${MAX_CANDLES})`
+      }, 400);
+    }
+
     
     console.log(`📊 Received ${close.length} candles`);
     console.log(`📅 First: ${new Date(timestamp[0] * 1000).toLocaleString('en-IN')}`);
