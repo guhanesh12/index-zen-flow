@@ -700,6 +700,8 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
           )}
         </CardContent>
       </Card>
+
+      <AutoNotificationTemplates />
     </div>
   );
 }
