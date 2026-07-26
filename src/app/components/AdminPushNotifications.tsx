@@ -700,7 +700,129 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
           )}
         </CardContent>
       </Card>
+
+      <AutoNotificationTemplates />
     </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Auto Notification Templates — editable market open / close
+// ═══════════════════════════════════════════════════════════════
+function AutoNotificationTemplates() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('auto_notification_templates')
+      .select('*')
+      .order('event');
+    if (!error) setRows(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const updateField = (event: string, field: string, value: any) => {
+    setRows((prev) => prev.map((r) => (r.event === event ? { ...r, [field]: value } : r)));
+  };
+
+  const save = async (row: any) => {
+    setSavingKey(row.event);
+    setMsg(null);
+    const { error } = await supabase
+      .from('auto_notification_templates')
+      .update({ title: row.title, body: row.body, image_url: row.image_url || null, enabled: !!row.enabled })
+      .eq('event', row.event);
+    setSavingKey(null);
+    if (error) setMsg('❌ ' + error.message);
+    else setMsg('✅ Saved ' + row.event);
+    setTimeout(() => setMsg(null), 3000);
+  };
+
+  const LABEL: Record<string, string> = {
+    market_open:  '🔔 Market Open (09:00 IST, trading days)',
+    market_close: '🔒 Market Close (15:30 IST, trading days)',
+  };
+
+  return (
+    <Card className="border-amber-500/20 bg-slate-900/50 mt-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="size-5 text-amber-400" />
+          Auto Notifications
+        </CardTitle>
+        <CardDescription>
+          Automatic pushes sent to all subscribers. Skipped on Sundays & NSE holidays.
+          Notifications auto-delete after 24 hours.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {msg && <div className="text-sm text-amber-300">{msg}</div>}
+        {loading ? (
+          <div className="text-zinc-500 text-sm">Loading templates…</div>
+        ) : rows.length === 0 ? (
+          <div className="text-zinc-500 text-sm">No templates found.</div>
+        ) : (
+          rows.map((row) => (
+            <div key={row.event} className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white">{LABEL[row.event] || row.event}</div>
+                <label className="flex items-center gap-2 text-xs text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={!!row.enabled}
+                    onChange={(e) => updateField(row.event, 'enabled', e.target.checked)}
+                  />
+                  Enabled
+                </label>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Title</Label>
+                <Input
+                  value={row.title || ''}
+                  onChange={(e) => updateField(row.event, 'title', e.target.value)}
+                  className="bg-slate-900 border-slate-700"
+                  maxLength={120}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Body</Label>
+                <Textarea
+                  value={row.body || ''}
+                  onChange={(e) => updateField(row.event, 'body', e.target.value)}
+                  className="bg-slate-900 border-slate-700 min-h-[70px]"
+                  maxLength={500}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Image URL (optional)</Label>
+                <Input
+                  value={row.image_url || ''}
+                  onChange={(e) => updateField(row.event, 'image_url', e.target.value)}
+                  placeholder="https://…"
+                  className="bg-slate-900 border-slate-700"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() => save(row)}
+                  disabled={savingKey === row.event}
+                  className="bg-amber-600 hover:bg-amber-700"
+                >
+                  {savingKey === row.event ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

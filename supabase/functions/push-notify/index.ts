@@ -142,15 +142,6 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-    if (userId) {
-      await saveToUserNotificationCenter(admin, String(userId), {
-        event,
-        title,
-        body: msgBody,
-        imageUrl,
-        data,
-      });
-    }
 
     let query = admin.from("kv_store_c4d79cb7").select("key, value").like("key", "push_subscriber:%");
     const { data: rows, error } = await query;
@@ -158,6 +149,16 @@ Deno.serve(async (req) => {
 
     let subs = (rows || []).map((r: any) => ({ key: r.key, ...(r.value || {}) }));
     if (userId) subs = subs.filter((s: any) => s.userId === userId);
+
+    // Save to notification center — targeted user OR every subscribed user for broadcasts
+    const savePayload = { event, title, body: msgBody, imageUrl, data };
+    if (userId) {
+      await saveToUserNotificationCenter(admin, String(userId), savePayload);
+    } else {
+      const uniqueUserIds = Array.from(new Set(subs.map((s: any) => s.userId).filter(Boolean)));
+      await Promise.all(uniqueUserIds.map((uid: string) => saveToUserNotificationCenter(admin, uid, savePayload).catch((e) => console.error('save center failed', uid, e))));
+    }
+
     if (subs.length === 0) {
       return new Response(
         JSON.stringify({ success: true, totalSubscribers: 0, delivered: 0, event }),

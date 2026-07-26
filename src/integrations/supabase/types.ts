@@ -326,6 +326,33 @@ export type Database = {
         }
         Relationships: []
       }
+      auto_notification_templates: {
+        Row: {
+          body: string
+          enabled: boolean
+          event: string
+          image_url: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          enabled?: boolean
+          event: string
+          image_url?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          enabled?: boolean
+          event?: string
+          image_url?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       broker_credentials: {
         Row: {
           access_token: string | null
