@@ -279,6 +279,71 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
   }
 }
 
+// 🧮 Per-lot risk defaults for MANUAL broker positions (user adds lots in Dhan app).
+// Reads any enabled user_symbol_config slot for that index, else falls back to defaults.
+// Applies moneyness multiplier (ITM slower, OTM faster).
+const _MONEYNESS_MULT: Record<string, { tgt: number; sl: number }> = {
+  ITM2: { tgt: 0.7, sl: 1.3 }, ITM1: { tgt: 0.85, sl: 1.15 },
+  ATM:  { tgt: 1.0, sl: 1.0 },
+  OTM1: { tgt: 1.2, sl: 0.85 }, OTM2: { tgt: 1.5, sl: 0.7 },
+};
+function _inferIndexName(sym: string): string {
+  const s = (sym || "").toUpperCase();
+  if (s.includes("BANKNIFTY")) return "BANKNIFTY";
+  if (s.includes("SENSEX")) return "SENSEX";
+  return "NIFTY";
+}
+async function computeManualLotRisk(
+  userId: string,
+  indexName: string,
+  qty: number,
+  lotSize: number,
+  moneyness?: string,
+): Promise<{
+  targetAmount: number; stopLossAmount: number;
+  trailingEnabled: boolean; trailingActivationAmount: number;
+  targetJumpAmount: number; stopLossJumpAmount: number;
+  lotCount: number; perLot: { tgt: number; sl: number; tAct: number; tStep: number };
+}> {
+  const safeLot = Math.max(1, Number(lotSize) || 1);
+  const lotCount = Math.max(1, Math.round(Math.abs(Number(qty) || safeLot) / safeLot));
+
+  let tgtPerLot = 6000, slPerLot = 3000, tActPerLot = 4000, tStepPerLot = 1000;
+  let trailingEnabled = true;
+  try {
+    const { data } = await supabaseAdmin
+      .from("user_symbol_config")
+      .select("target_per_lot, stop_loss_per_lot, trailing_activation_per_lot, trailing_step_per_lot, trailing_enabled, index_name")
+      .eq("user_id", userId)
+      .eq("enabled", true)
+      .order("index_name", { ascending: indexName !== "NIFTY" });
+    const rows = (data || []) as any[];
+    const match = rows.find((r) => (r.index_name || "").toUpperCase() === indexName.toUpperCase()) || rows[0];
+    if (match) {
+      tgtPerLot = Number(match.target_per_lot) || tgtPerLot;
+      slPerLot = Number(match.stop_loss_per_lot) || slPerLot;
+      tActPerLot = Number(match.trailing_activation_per_lot) || Math.round(tgtPerLot * 0.66);
+      tStepPerLot = Number(match.trailing_step_per_lot) || Math.round(slPerLot * 0.33);
+      trailingEnabled = match.trailing_enabled !== false;
+    }
+  } catch (_e) { /* fallback to defaults */ }
+
+  const mm = _MONEYNESS_MULT[(moneyness || "ATM").toUpperCase()] || _MONEYNESS_MULT.ATM;
+  const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
+  const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
+  const trailingActivationAmount = +(tActPerLot * lotCount * mm.tgt).toFixed(2);
+  const trailingStep = +(tStepPerLot * lotCount).toFixed(2);
+  return {
+    targetAmount, stopLossAmount,
+    trailingEnabled: trailingEnabled && trailingActivationAmount > 0 && trailingStep > 0,
+    trailingActivationAmount,
+    targetJumpAmount: trailingStep,
+    stopLossJumpAmount: trailingStep,
+    lotCount,
+    perLot: { tgt: tgtPerLot, sl: slPerLot, tAct: tActPerLot, tStep: tStepPerLot },
+  };
+}
+
 async function getFreshSymbolsForEngine(userId: string, stateSymbols: any[]): Promise<any[]> {
   const dbSymbols = await loadUserSymbolsFromDB(userId);
   if (dbSymbols.length === 0) {
