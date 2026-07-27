@@ -2296,10 +2296,45 @@ class PersistentTradingEngine {
         const entryPrice = parseFloat(
           position.entryPrice || dhanPos.buyAvg || dhanPos.avgPrice || dhanPos.costPrice || 0,
         );
-        const quantity = Math.abs(Number(position.quantity || dhanPos.quantity || dhanPos.netQty || 1));
+        const brokerQty = Math.abs(Number(dhanPos.netQty || dhanPos.quantity || 0));
+        const trackedQty = Math.abs(Number(position.quantity || 0));
+        const quantity = brokerQty || trackedQty || 1;
         const brokerPnl = parseFloat(dhanPos.unrealizedProfit || dhanPos.unrealizedPnl || dhanPos.unrealizedPnL || 0);
         const computedPnl = entryPrice && currentPrice ? (currentPrice - entryPrice) * quantity : 0;
         const pnl = Number.isFinite(brokerPnl) && brokerPnl !== 0 ? brokerPnl : computedPnl;
+
+        // 🔁 LOT CHANGE DETECTION: user added/removed lots manually in Dhan app.
+        // Recompute target/SL/trailing scaled to the new lot count and persist.
+        if (brokerQty > 0 && trackedQty > 0 && brokerQty !== trackedQty) {
+          const lotSize = Number(position.lotSize) || Number(dhanPos.lotSize) || Number(dhanPos.lot_size) || 1;
+          const idxName = position.index || _inferIndexName(position.symbolName || "");
+          const newRisk = await computeManualLotRisk(userId, idxName, brokerQty, lotSize, position.moneyness);
+          const oldLots = Math.max(1, Math.round(trackedQty / Math.max(1, lotSize)));
+          const scale = newRisk.lotCount / oldLots;
+          position.quantity = brokerQty;
+          position.targetAmount = +(Number(position.targetAmount || 0) * scale).toFixed(2) || newRisk.targetAmount;
+          position.stopLossAmount = +(Number(position.stopLossAmount || 0) * scale).toFixed(2) || newRisk.stopLossAmount;
+          position.currentTargetAmount = +(Number(position.currentTargetAmount || position.targetAmount) * scale).toFixed(2);
+          position.currentStopLossAmount = +(Number(position.currentStopLossAmount || position.stopLossAmount) * scale).toFixed(2);
+          position.trailingActivationAmount = +(Number(position.trailingActivationAmount || 0) * scale).toFixed(2) || newRisk.trailingActivationAmount;
+          position.targetJumpAmount = +(Number(position.targetJumpAmount || 0) * scale).toFixed(2) || newRisk.targetJumpAmount;
+          position.stopLossJumpAmount = +(Number(position.stopLossJumpAmount || 0) * scale).toFixed(2) || newRisk.stopLossJumpAmount;
+          position.trailingStep = position.stopLossJumpAmount;
+          console.log(`🔁 [LOT-CHANGE] ${position.symbolName}: qty ${trackedQty}→${brokerQty} (${oldLots}→${newRisk.lotCount} lots) | Tgt ₹${position.targetAmount} SL ₹${position.stopLossAmount} TrailStep ₹${position.stopLossJumpAmount}`);
+          await supabaseAdmin.from("position_monitor_state").update({
+            quantity: brokerQty,
+            target_amount: position.targetAmount,
+            stop_loss_amount: position.stopLossAmount,
+            trailing_enabled: !!position.trailingEnabled,
+            trailing_step: position.stopLossJumpAmount,
+          }).eq("user_id", userId).eq("order_id", position.orderId);
+          await this.appendSharedLog(userId, {
+            type: "POSITION_LOT_CHANGE",
+            timestamp: Date.now(),
+            symbol: position.symbolName,
+            message: `🔁 ${position.symbolName} lot change ${oldLots}→${newRisk.lotCount} | Tgt ₹${position.targetAmount} SL ₹${position.stopLossAmount}`,
+          });
+        }
 
         position.currentPrice = currentPrice;
         position.pnl = pnl;
