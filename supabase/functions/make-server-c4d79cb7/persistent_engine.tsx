@@ -855,10 +855,30 @@ class PersistentTradingEngine {
               // Use user-configured target/SL from Symbols section (no hardcoded defaults)
               const cfg =
                 findSymbolConfigForPosition({ ...pos, symbol: sym, securityId: sid }, userConfiguredSymbols) || {};
-              const cfgTarget = Number(cfg.targetAmount ?? 0);
-              const cfgStopLoss = Number(cfg.stopLossAmount ?? 0);
-              const cfgTrailingEnabled = !!cfg.trailingEnabled;
-              const cfgTrailingStep = Number(cfg.stopLossJumpAmount ?? cfg.trailingStep ?? 0);
+              const idxName = sym.includes("BANKNIFTY") ? "BANKNIFTY" : sym.includes("SENSEX") ? "SENSEX" : "NIFTY";
+              const lotSize = Number(cfg.lotSize) || Number(pos.lotSize) || Number(pos.lot_size) || 1;
+
+              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by lot count from the broker qty
+              // so manual buys in Dhan (e.g., 2 or 3 lots) get proportional SL/Target/Trailing.
+              const autoRisk = await computeManualLotRisk(userId, idxName, qty, lotSize, cfg.moneyness);
+              const cfgTarget = Number(cfg.targetAmount) > 0
+                ? Number(cfg.targetAmount) * autoRisk.lotCount
+                : autoRisk.targetAmount;
+              const cfgStopLoss = Number(cfg.stopLossAmount) > 0
+                ? Number(cfg.stopLossAmount) * autoRisk.lotCount
+                : autoRisk.stopLossAmount;
+              const cfgTrailingEnabled = cfg.trailingEnabled !== undefined
+                ? !!cfg.trailingEnabled
+                : autoRisk.trailingEnabled;
+              const cfgTrailingActivation = Number(cfg.trailingActivationAmount) > 0
+                ? Number(cfg.trailingActivationAmount) * autoRisk.lotCount
+                : autoRisk.trailingActivationAmount;
+              const cfgTargetJump = Number(cfg.targetJumpAmount) > 0
+                ? Number(cfg.targetJumpAmount) * autoRisk.lotCount
+                : autoRisk.targetJumpAmount;
+              const cfgSlJump = Number(cfg.stopLossJumpAmount) > 0
+                ? Number(cfg.stopLossJumpAmount) * autoRisk.lotCount
+                : autoRisk.stopLossJumpAmount;
 
               const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || Array.from(keys)[0] || sym}`;
 
@@ -869,7 +889,7 @@ class PersistentTradingEngine {
                   symbol: sym,
                   symbol_id: sid || null,
                   exchange_segment: pos.exchangeSegment || (sym.includes("SENSEX") ? "BSE_FNO" : "NSE_FNO"),
-                  index_name: sym.includes("BANKNIFTY") ? "BANKNIFTY" : sym.includes("SENSEX") ? "SENSEX" : "NIFTY",
+                  index_name: idxName,
                   entry_price: entry,
                   current_price: ltp,
                   quantity: qty,
@@ -878,16 +898,19 @@ class PersistentTradingEngine {
                   target_amount: cfgTarget,
                   stop_loss_amount: cfgStopLoss,
                   trailing_enabled: cfgTrailingEnabled,
-                  trailing_step: cfgTrailingStep,
+                  trailing_step: cfgSlJump,
                   is_active: true,
                   raw_position: {
                     ...pos,
                     autoImported: true,
                     importedAt: Date.now(),
-                    trailingActivationAmount: Number(cfg.trailingActivationAmount ?? 0),
-                    targetJumpAmount: Number(cfg.targetJumpAmount ?? 0),
-                    stopLossJumpAmount: Number(cfg.stopLossJumpAmount ?? 0),
-                    sourceSymbolConfig: cfg ? { targetAmount: cfgTarget, stopLossAmount: cfgStopLoss } : null,
+                    lotSize,
+                    lotCount: autoRisk.lotCount,
+                    perLotRisk: autoRisk.perLot,
+                    trailingActivationAmount: cfgTrailingActivation,
+                    targetJumpAmount: cfgTargetJump,
+                    stopLossJumpAmount: cfgSlJump,
+                    sourceSymbolConfig: { targetAmount: cfgTarget, stopLossAmount: cfgStopLoss, lotCount: autoRisk.lotCount },
                   },
                 },
                 { onConflict: "user_id,order_id" },
@@ -896,7 +919,7 @@ class PersistentTradingEngine {
               keys.forEach((key) => trackedKeys.add(key));
 
               console.log(
-                `📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss})`,
+                `📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, ${autoRisk.lotCount} lot(s), entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss}, Trail ${cfgTrailingEnabled ? `act ₹${cfgTrailingActivation}/step ₹${cfgSlJump}` : "OFF"})`,
               );
             }
           }
