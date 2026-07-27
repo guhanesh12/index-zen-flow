@@ -279,6 +279,71 @@ async function loadUserSymbolsFromDB(userId: string): Promise<any[]> {
   }
 }
 
+// 🧮 Per-lot risk defaults for MANUAL broker positions (user adds lots in Dhan app).
+// Reads any enabled user_symbol_config slot for that index, else falls back to defaults.
+// Applies moneyness multiplier (ITM slower, OTM faster).
+const _MONEYNESS_MULT: Record<string, { tgt: number; sl: number }> = {
+  ITM2: { tgt: 0.7, sl: 1.3 }, ITM1: { tgt: 0.85, sl: 1.15 },
+  ATM:  { tgt: 1.0, sl: 1.0 },
+  OTM1: { tgt: 1.2, sl: 0.85 }, OTM2: { tgt: 1.5, sl: 0.7 },
+};
+function _inferIndexName(sym: string): string {
+  const s = (sym || "").toUpperCase();
+  if (s.includes("BANKNIFTY")) return "BANKNIFTY";
+  if (s.includes("SENSEX")) return "SENSEX";
+  return "NIFTY";
+}
+async function computeManualLotRisk(
+  userId: string,
+  indexName: string,
+  qty: number,
+  lotSize: number,
+  moneyness?: string,
+): Promise<{
+  targetAmount: number; stopLossAmount: number;
+  trailingEnabled: boolean; trailingActivationAmount: number;
+  targetJumpAmount: number; stopLossJumpAmount: number;
+  lotCount: number; perLot: { tgt: number; sl: number; tAct: number; tStep: number };
+}> {
+  const safeLot = Math.max(1, Number(lotSize) || 1);
+  const lotCount = Math.max(1, Math.round(Math.abs(Number(qty) || safeLot) / safeLot));
+
+  let tgtPerLot = 6000, slPerLot = 3000, tActPerLot = 4000, tStepPerLot = 1000;
+  let trailingEnabled = true;
+  try {
+    const { data } = await supabaseAdmin
+      .from("user_symbol_config")
+      .select("target_per_lot, stop_loss_per_lot, trailing_activation_per_lot, trailing_step_per_lot, trailing_enabled, index_name")
+      .eq("user_id", userId)
+      .eq("enabled", true)
+      .order("index_name", { ascending: indexName !== "NIFTY" });
+    const rows = (data || []) as any[];
+    const match = rows.find((r) => (r.index_name || "").toUpperCase() === indexName.toUpperCase()) || rows[0];
+    if (match) {
+      tgtPerLot = Number(match.target_per_lot) || tgtPerLot;
+      slPerLot = Number(match.stop_loss_per_lot) || slPerLot;
+      tActPerLot = Number(match.trailing_activation_per_lot) || Math.round(tgtPerLot * 0.66);
+      tStepPerLot = Number(match.trailing_step_per_lot) || Math.round(slPerLot * 0.33);
+      trailingEnabled = match.trailing_enabled !== false;
+    }
+  } catch (_e) { /* fallback to defaults */ }
+
+  const mm = _MONEYNESS_MULT[(moneyness || "ATM").toUpperCase()] || _MONEYNESS_MULT.ATM;
+  const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
+  const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
+  const trailingActivationAmount = +(tActPerLot * lotCount * mm.tgt).toFixed(2);
+  const trailingStep = +(tStepPerLot * lotCount).toFixed(2);
+  return {
+    targetAmount, stopLossAmount,
+    trailingEnabled: trailingEnabled && trailingActivationAmount > 0 && trailingStep > 0,
+    trailingActivationAmount,
+    targetJumpAmount: trailingStep,
+    stopLossJumpAmount: trailingStep,
+    lotCount,
+    perLot: { tgt: tgtPerLot, sl: slPerLot, tAct: tActPerLot, tStep: tStepPerLot },
+  };
+}
+
 async function getFreshSymbolsForEngine(userId: string, stateSymbols: any[]): Promise<any[]> {
   const dbSymbols = await loadUserSymbolsFromDB(userId);
   if (dbSymbols.length === 0) {
@@ -790,10 +855,30 @@ class PersistentTradingEngine {
               // Use user-configured target/SL from Symbols section (no hardcoded defaults)
               const cfg =
                 findSymbolConfigForPosition({ ...pos, symbol: sym, securityId: sid }, userConfiguredSymbols) || {};
-              const cfgTarget = Number(cfg.targetAmount ?? 0);
-              const cfgStopLoss = Number(cfg.stopLossAmount ?? 0);
-              const cfgTrailingEnabled = !!cfg.trailingEnabled;
-              const cfgTrailingStep = Number(cfg.stopLossJumpAmount ?? cfg.trailingStep ?? 0);
+              const idxName = sym.includes("BANKNIFTY") ? "BANKNIFTY" : sym.includes("SENSEX") ? "SENSEX" : "NIFTY";
+              const lotSize = Number(cfg.lotSize) || Number(pos.lotSize) || Number(pos.lot_size) || 1;
+
+              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by lot count from the broker qty
+              // so manual buys in Dhan (e.g., 2 or 3 lots) get proportional SL/Target/Trailing.
+              const autoRisk = await computeManualLotRisk(userId, idxName, qty, lotSize, cfg.moneyness);
+              const cfgTarget = Number(cfg.targetAmount) > 0
+                ? Number(cfg.targetAmount) * autoRisk.lotCount
+                : autoRisk.targetAmount;
+              const cfgStopLoss = Number(cfg.stopLossAmount) > 0
+                ? Number(cfg.stopLossAmount) * autoRisk.lotCount
+                : autoRisk.stopLossAmount;
+              const cfgTrailingEnabled = cfg.trailingEnabled !== undefined
+                ? !!cfg.trailingEnabled
+                : autoRisk.trailingEnabled;
+              const cfgTrailingActivation = Number(cfg.trailingActivationAmount) > 0
+                ? Number(cfg.trailingActivationAmount) * autoRisk.lotCount
+                : autoRisk.trailingActivationAmount;
+              const cfgTargetJump = Number(cfg.targetJumpAmount) > 0
+                ? Number(cfg.targetJumpAmount) * autoRisk.lotCount
+                : autoRisk.targetJumpAmount;
+              const cfgSlJump = Number(cfg.stopLossJumpAmount) > 0
+                ? Number(cfg.stopLossJumpAmount) * autoRisk.lotCount
+                : autoRisk.stopLossJumpAmount;
 
               const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || Array.from(keys)[0] || sym}`;
 
@@ -804,7 +889,7 @@ class PersistentTradingEngine {
                   symbol: sym,
                   symbol_id: sid || null,
                   exchange_segment: pos.exchangeSegment || (sym.includes("SENSEX") ? "BSE_FNO" : "NSE_FNO"),
-                  index_name: sym.includes("BANKNIFTY") ? "BANKNIFTY" : sym.includes("SENSEX") ? "SENSEX" : "NIFTY",
+                  index_name: idxName,
                   entry_price: entry,
                   current_price: ltp,
                   quantity: qty,
@@ -813,16 +898,19 @@ class PersistentTradingEngine {
                   target_amount: cfgTarget,
                   stop_loss_amount: cfgStopLoss,
                   trailing_enabled: cfgTrailingEnabled,
-                  trailing_step: cfgTrailingStep,
+                  trailing_step: cfgSlJump,
                   is_active: true,
                   raw_position: {
                     ...pos,
                     autoImported: true,
                     importedAt: Date.now(),
-                    trailingActivationAmount: Number(cfg.trailingActivationAmount ?? 0),
-                    targetJumpAmount: Number(cfg.targetJumpAmount ?? 0),
-                    stopLossJumpAmount: Number(cfg.stopLossJumpAmount ?? 0),
-                    sourceSymbolConfig: cfg ? { targetAmount: cfgTarget, stopLossAmount: cfgStopLoss } : null,
+                    lotSize,
+                    lotCount: autoRisk.lotCount,
+                    perLotRisk: autoRisk.perLot,
+                    trailingActivationAmount: cfgTrailingActivation,
+                    targetJumpAmount: cfgTargetJump,
+                    stopLossJumpAmount: cfgSlJump,
+                    sourceSymbolConfig: { targetAmount: cfgTarget, stopLossAmount: cfgStopLoss, lotCount: autoRisk.lotCount },
                   },
                 },
                 { onConflict: "user_id,order_id" },
@@ -831,7 +919,7 @@ class PersistentTradingEngine {
               keys.forEach((key) => trackedKeys.add(key));
 
               console.log(
-                `📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss})`,
+                `📥 [AUTO-IMPORT] ${userId} ← ${sym} (qty ${qty}, ${autoRisk.lotCount} lot(s), entry ₹${entry}, P&L ₹${pnl.toFixed(2)}, Tgt ₹${cfgTarget}, SL ₹${cfgStopLoss}, Trail ${cfgTrailingEnabled ? `act ₹${cfgTrailingActivation}/step ₹${cfgSlJump}` : "OFF"})`,
               );
             }
           }
@@ -2208,10 +2296,45 @@ class PersistentTradingEngine {
         const entryPrice = parseFloat(
           position.entryPrice || dhanPos.buyAvg || dhanPos.avgPrice || dhanPos.costPrice || 0,
         );
-        const quantity = Math.abs(Number(position.quantity || dhanPos.quantity || dhanPos.netQty || 1));
+        const brokerQty = Math.abs(Number(dhanPos.netQty || dhanPos.quantity || 0));
+        const trackedQty = Math.abs(Number(position.quantity || 0));
+        const quantity = brokerQty || trackedQty || 1;
         const brokerPnl = parseFloat(dhanPos.unrealizedProfit || dhanPos.unrealizedPnl || dhanPos.unrealizedPnL || 0);
         const computedPnl = entryPrice && currentPrice ? (currentPrice - entryPrice) * quantity : 0;
         const pnl = Number.isFinite(brokerPnl) && brokerPnl !== 0 ? brokerPnl : computedPnl;
+
+        // 🔁 LOT CHANGE DETECTION: user added/removed lots manually in Dhan app.
+        // Recompute target/SL/trailing scaled to the new lot count and persist.
+        if (brokerQty > 0 && trackedQty > 0 && brokerQty !== trackedQty) {
+          const lotSize = Number(position.lotSize) || Number(dhanPos.lotSize) || Number(dhanPos.lot_size) || 1;
+          const idxName = position.index || _inferIndexName(position.symbolName || "");
+          const newRisk = await computeManualLotRisk(userId, idxName, brokerQty, lotSize, position.moneyness);
+          const oldLots = Math.max(1, Math.round(trackedQty / Math.max(1, lotSize)));
+          const scale = newRisk.lotCount / oldLots;
+          position.quantity = brokerQty;
+          position.targetAmount = +(Number(position.targetAmount || 0) * scale).toFixed(2) || newRisk.targetAmount;
+          position.stopLossAmount = +(Number(position.stopLossAmount || 0) * scale).toFixed(2) || newRisk.stopLossAmount;
+          position.currentTargetAmount = +(Number(position.currentTargetAmount || position.targetAmount) * scale).toFixed(2);
+          position.currentStopLossAmount = +(Number(position.currentStopLossAmount || position.stopLossAmount) * scale).toFixed(2);
+          position.trailingActivationAmount = +(Number(position.trailingActivationAmount || 0) * scale).toFixed(2) || newRisk.trailingActivationAmount;
+          position.targetJumpAmount = +(Number(position.targetJumpAmount || 0) * scale).toFixed(2) || newRisk.targetJumpAmount;
+          position.stopLossJumpAmount = +(Number(position.stopLossJumpAmount || 0) * scale).toFixed(2) || newRisk.stopLossJumpAmount;
+          position.trailingStep = position.stopLossJumpAmount;
+          console.log(`🔁 [LOT-CHANGE] ${position.symbolName}: qty ${trackedQty}→${brokerQty} (${oldLots}→${newRisk.lotCount} lots) | Tgt ₹${position.targetAmount} SL ₹${position.stopLossAmount} TrailStep ₹${position.stopLossJumpAmount}`);
+          await supabaseAdmin.from("position_monitor_state").update({
+            quantity: brokerQty,
+            target_amount: position.targetAmount,
+            stop_loss_amount: position.stopLossAmount,
+            trailing_enabled: !!position.trailingEnabled,
+            trailing_step: position.stopLossJumpAmount,
+          }).eq("user_id", userId).eq("order_id", position.orderId);
+          await this.appendSharedLog(userId, {
+            type: "POSITION_LOT_CHANGE",
+            timestamp: Date.now(),
+            symbol: position.symbolName,
+            message: `🔁 ${position.symbolName} lot change ${oldLots}→${newRisk.lotCount} | Tgt ₹${position.targetAmount} SL ₹${position.stopLossAmount}`,
+          });
+        }
 
         position.currentPrice = currentPrice;
         position.pnl = pnl;
