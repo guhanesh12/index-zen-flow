@@ -832,6 +832,39 @@ export type Database = {
         }
         Relationships: []
       }
+      pin_reset_otps: {
+        Row: {
+          attempts: number
+          created_at: string
+          expires_at: string
+          id: string
+          mobile: string
+          otp_hash: string
+          user_id: string
+          verified: boolean
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          expires_at: string
+          id?: string
+          mobile: string
+          otp_hash: string
+          user_id: string
+          verified?: boolean
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          expires_at?: string
+          id?: string
+          mobile?: string
+          otp_hash?: string
+          user_id?: string
+          verified?: boolean
+        }
+        Relationships: []
+      }
       position_monitor_state: {
         Row: {
           created_at: string
@@ -1415,6 +1448,39 @@ export type Database = {
           status?: string
           strike_price?: number | null
           symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_pins: {
+        Row: {
+          created_at: string
+          failed_attempts: number
+          last_used_at: string | null
+          locked_until: string | null
+          pin_hash: string
+          pin_salt: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          failed_attempts?: number
+          last_used_at?: string | null
+          locked_until?: string | null
+          pin_hash: string
+          pin_salt: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          failed_attempts?: number
+          last_used_at?: string | null
+          locked_until?: string | null
+          pin_hash?: string
+          pin_salt?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
