@@ -10621,6 +10621,14 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
       }).catch(() => {});
     } catch {}
 
+    // 🔔 FCM push — admin replied to support ticket
+    pushNotifications.sendPushToUser(ticket.userId, {
+      title: "💬 Support Team Replied",
+      body: `#${messageId.slice(-8).toUpperCase()} • ${ticket.subject}`,
+      targetUrl: "/support",
+      data: { type: "TICKET_REPLIED", ticketId: messageId },
+    }).catch((e) => console.error("FCM push (ticket reply) failed:", e));
+
     return c.json({ success: true });
   } catch (error: any) {
     console.error('Error replying to ticket:', error);
