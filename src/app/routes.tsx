@@ -241,10 +241,12 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   };
   
   return (
-    <TradingDashboard 
-      accessToken={accessToken}
-      onLogout={handleLogout}
-    />
+    <PinGate onLogout={handleLogout}>
+      <TradingDashboard 
+        accessToken={accessToken}
+        onLogout={handleLogout}
+      />
+    </PinGate>
   );
 }
 
