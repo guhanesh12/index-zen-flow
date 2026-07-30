@@ -52,6 +52,43 @@ async function sendOtpVia2Factor(mobile: string, otp: string) {
   }
 }
 
+// Send the same OTP by email through the shared Brevo-backed send-email function.
+async function sendOtpViaEmail(email: string, name: string, otp: string) {
+  if (!email) return { ok: false, error: "no_email" };
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-key": Deno.env.get("INTERNAL_SYNC_KEY") || "",
+        apikey: ANON,
+      },
+      body: JSON.stringify({
+        template: "otp",
+        to: email,
+        name: name || "there",
+        data: { code: otp, expiryMinutes: 10 },
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j?.ok !== false) return { ok: true };
+    return { ok: false, error: j?.error || `email_failed_${r.status}` };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function maskMobile(m: string) {
+  const d = (m || "").replace(/\D/g, "").slice(-10);
+  return d.length === 10 ? `${d.slice(0, 2)}****${d.slice(6)}` : "";
+}
+function maskEmail(e: string) {
+  const [u, d] = (e || "").split("@");
+  if (!u || !d) return "";
+  return `${u.slice(0, 2)}${"*".repeat(Math.max(1, u.length - 2))}@${d}`;
+}
+
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
