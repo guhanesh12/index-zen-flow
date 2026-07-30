@@ -52,6 +52,43 @@ async function sendOtpVia2Factor(mobile: string, otp: string) {
   }
 }
 
+// Send the same OTP by email through the shared Brevo-backed send-email function.
+async function sendOtpViaEmail(email: string, name: string, otp: string) {
+  if (!email) return { ok: false, error: "no_email" };
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-key": Deno.env.get("INTERNAL_SYNC_KEY") || "",
+        apikey: ANON,
+      },
+      body: JSON.stringify({
+        template: "otp",
+        to: email,
+        name: name || "there",
+        data: { code: otp, expiryMinutes: 10 },
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j?.ok !== false) return { ok: true };
+    return { ok: false, error: j?.error || `email_failed_${r.status}` };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function maskMobile(m: string) {
+  const d = (m || "").replace(/\D/g, "").slice(-10);
+  return d.length === 10 ? `${d.slice(0, 2)}****${d.slice(6)}` : "";
+}
+function maskEmail(e: string) {
+  const [u, d] = (e || "").split("@");
+  if (!u || !d) return "";
+  return `${u.slice(0, 2)}${"*".repeat(Math.max(1, u.length - 2))}@${d}`;
+}
+
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -65,9 +102,18 @@ Deno.serve(async (req) => {
     // GET status: does this user have a PIN?
     if (action === "status" && req.method === "GET") {
       const { data } = await admin.from("user_pins").select("user_id, locked_until").eq("user_id", user.id).maybeSingle();
+      const { data: prof } = await admin.from("profiles").select("mobile, email").eq("user_id", user.id).maybeSingle();
       const locked = data?.locked_until && new Date(data.locked_until) > new Date();
-      return json(200, { success: true, hasPin: !!data, locked: !!locked, lockedUntil: data?.locked_until || null });
+      return json(200, {
+        success: true,
+        hasPin: !!data,
+        locked: !!locked,
+        lockedUntil: data?.locked_until || null,
+        mobile: maskMobile(prof?.mobile || ""),
+        email: maskEmail(prof?.email || user.email || ""),
+      });
     }
+
 
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
 
@@ -109,22 +155,38 @@ Deno.serve(async (req) => {
       return json(200, { success: true, message: "PIN verified" });
     }
 
-    // Forgot: send OTP to registered mobile
+    // Forgot: send OTP to registered mobile AND email
     if (action === "forgot" && req.method === "POST") {
-      const { data: prof } = await admin.from("profiles").select("mobile").eq("user_id", user.id).maybeSingle();
+      const { data: prof } = await admin.from("profiles")
+        .select("mobile, email, full_name").eq("user_id", user.id).maybeSingle();
       const mobile = (prof?.mobile || "").toString();
-      if (!mobile || mobile.replace(/\D/g, "").length < 10) {
-        return json(400, { success: false, message: "No registered mobile. Update profile first." });
+      const email = (prof?.email || user.email || "").toString();
+      const hasMobile = mobile.replace(/\D/g, "").length >= 10;
+      if (!hasMobile && !email) {
+        return json(400, { success: false, message: "No registered mobile or email. Update profile first." });
       }
       const otp = String(Math.floor(1000 + Math.random() * 9000));
       const otp_hash = await sha256(otp);
       const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      await admin.from("pin_reset_otps").insert({ user_id: user.id, mobile, otp_hash, expires_at });
-      const sent = await sendOtpVia2Factor(mobile, otp);
-      if (!sent.ok) return json(502, { success: false, message: sent.error || "OTP send failed" });
-      const masked = mobile.replace(/\D/g, "").slice(-10).replace(/^(\d{2})(\d{4})(\d{4})$/, "$1****$3");
-      return json(200, { success: true, message: "OTP sent", mobile: masked });
+      await admin.from("pin_reset_otps").insert({ user_id: user.id, mobile: mobile || email, otp_hash, expires_at });
+
+      const [sms, mail] = await Promise.all([
+        hasMobile ? sendOtpVia2Factor(mobile, otp) : Promise.resolve({ ok: false, error: "no_mobile" }),
+        email ? sendOtpViaEmail(email, prof?.full_name || "", otp) : Promise.resolve({ ok: false, error: "no_email" }),
+      ]);
+
+      if (!sms.ok && !mail.ok) {
+        return json(502, { success: false, message: sms.error || mail.error || "OTP send failed" });
+      }
+      return json(200, {
+        success: true,
+        message: `OTP sent${sms.ok ? " to your mobile" : ""}${sms.ok && mail.ok ? " and" : ""}${mail.ok ? " to your email" : ""}`,
+        channels: { sms: sms.ok, email: mail.ok },
+        mobile: sms.ok ? maskMobile(mobile) : null,
+        email: mail.ok ? maskEmail(email) : null,
+      });
     }
+
 
     // Reset: verify OTP + set new PIN
     if (action === "reset" && req.method === "POST") {

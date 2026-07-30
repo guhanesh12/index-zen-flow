@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import ModernLandingPage from './components/ModernLandingPage';
 import ModernLogin from './components/ModernLogin';
+import PinGate from './components/PinGate';
 import ModernRegistration from './components/ModernRegistration';
 import TradingDashboard from './components/TradingDashboard';
 import AdminLogin from './components/AdminLogin';
@@ -241,10 +242,12 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   };
   
   return (
-    <TradingDashboard 
-      accessToken={accessToken}
-      onLogout={handleLogout}
-    />
+    <PinGate onLogout={handleLogout}>
+      <TradingDashboard 
+        accessToken={accessToken}
+        onLogout={handleLogout}
+      />
+    </PinGate>
   );
 }
 

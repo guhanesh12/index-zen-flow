@@ -1,12 +1,25 @@
-# React Native — PIN Login (Set / Verify / Forgot) Full Implementation Prompt
+# React Native — 4-Digit PIN Login (Create / Enter / Forgot / Reset) — FULL A→Z PROMPT
 
-Implement a **4-digit PIN gate** on top of the existing Supabase email/password login. After a user signs in successfully with email+password, the app decides between three screens:
+Implement a **4-digit PIN gate** on top of the existing Supabase email+password login.
+After a successful email/password sign-in, the app asks the backend whether this user
+already has a PIN, and routes to one of three screens.
 
-1. **CreatePinScreen** — user has no PIN saved → set one (PIN + confirm PIN)
-2. **EnterPinScreen** — user has a PIN saved → must enter it to unlock the app
-3. **ForgotPinScreen → OtpScreen → CreatePinScreen** — OTP sent to registered mobile, then set new PIN
+Backend is **already live and deployed** — do not create any Supabase function, just call it.
 
-The PIN is stored **hashed with a per-user salt** in Supabase (`public.user_pins`). All calls are authenticated by the user's Supabase JWT.
+---
+
+## 0. How the system works (analysis)
+
+| Layer | What happens |
+|-------|--------------|
+| `public.user_pins` | one row per user: `pin_hash` (SHA-256 of `salt:pin`), `pin_salt`, `failed_attempts`, `locked_until`, `last_used_at` |
+| `public.pin_reset_otps` | forgot-PIN OTPs: `otp_hash`, `expires_at` (10 min), `attempts` (max 5), `verified` |
+| Edge function `user-pin` | all 5 routes, authenticated by the user's Supabase JWT (service-role used internally) |
+| OTP delivery | **SMS via 2Factor to `profiles.mobile` AND email via Brevo to `profiles.email` — both at once.** If either channel succeeds, the request returns 200 |
+| Lockout | 5 wrong PIN attempts → `locked_until = now + 15 min`, HTTP `423` |
+| Raw PIN | never stored, never returned, never logged — only the salted hash |
+
+The web app uses the exact same endpoints (`src/app/components/PinGate.tsx`), so RN and web stay in sync.
 
 ---
 
@@ -16,7 +29,7 @@ The PIN is stored **hashed with a per-user salt** in Supabase (`public.user_pins
 BASE = https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin
 ```
 
-Every request MUST send:
+Every request MUST send **both** headers:
 
 ```
 Authorization: Bearer <supabase access_token>
@@ -33,64 +46,74 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rbGdxZWx
 
 ## 2. Endpoints
 
-| Method | Path                | Body                                   | Purpose |
-|--------|---------------------|----------------------------------------|---------|
-| GET    | `/status`           | –                                      | Does the logged-in user have a PIN? Returns `{ hasPin, locked, lockedUntil }` |
-| POST   | `/set`              | `{ pin, confirmPin }`                  | First-time PIN create (or overwrite while logged in) |
-| POST   | `/verify`           | `{ pin }`                              | Verify PIN → unlock app. 5 wrong attempts = 15-min lock |
-| POST   | `/forgot`           | –                                      | Send 4-digit OTP to the user's registered `profiles.mobile` via 2Factor |
-| POST   | `/reset`            | `{ otp, pin, confirmPin }`             | Verify OTP + save new PIN. OTP valid 10 minutes, 5 attempts |
+| Method | Path      | Body                        | Purpose |
+|--------|-----------|-----------------------------|---------|
+| GET    | `/status` | –                           | `{ hasPin, locked, lockedUntil, mobile, email }` (masked contacts) |
+| POST   | `/set`    | `{ pin, confirmPin }`       | Create PIN (or overwrite while logged in) |
+| POST   | `/verify` | `{ pin }`                   | Unlock. 5 wrong = 15-min lock |
+| POST   | `/forgot` | –                           | Sends the **same 4-digit OTP by SMS *and* email** |
+| POST   | `/reset`  | `{ otp, pin, confirmPin }`  | Verify OTP + save new PIN |
 
-### Response shape
-Every response is JSON. Always inspect HTTP status AND `success`:
-```json
-{ "success": true,  "message": "PIN verified" }
+### Example responses
+
+```jsonc
+// GET /status
+{ "success": true, "hasPin": true, "locked": false, "lockedUntil": null,
+  "mobile": "98****3210", "email": "ra*****@gmail.com" }
+
+// POST /verify (wrong)
 { "success": false, "message": "Incorrect PIN", "attemptsLeft": 3, "lockedUntil": null }
+
+// POST /forgot (both channels ok)
+{ "success": true, "message": "OTP sent to your mobile and to your email",
+  "channels": { "sms": true, "email": true },
+  "mobile": "98****3210", "email": "ra*****@gmail.com" }
 ```
 
-Codes: `200` ok · `400` bad input · `401` unauth / wrong pin or otp · `404` no pin · `423` locked · `429` too many attempts · `502` OTP provider failed.
+Status codes: `200` ok · `400` bad input / no mobile+email · `401` unauth, wrong PIN or wrong OTP ·
+`404` no PIN set · `423` locked · `429` too many OTP attempts · `502` both OTP channels failed.
 
 ---
 
-## 3. Full login flow (post email/password)
+## 3. Full flow
 
 ```text
-[SplashScreen]
-   │  supabase.auth.getSession() → session?
-   │
-   ├─ no session → LoginScreen (email + password) → on success ↴
-   │
-   ▼
+[Splash] supabase.auth.getSession()
+   ├─ no session → LoginScreen (email + password)
+   ▼ (after sign-in)
 GET /user-pin/status
-   │
-   ├─ hasPin === false → CreatePinScreen (mandatory)
-   │       └── POST /user-pin/set  → HomeScreen
-   │
+   ├─ hasPin === false → CreatePinScreen  → POST /set  → Home
    └─ hasPin === true  → EnterPinScreen
-           ├── POST /user-pin/verify OK  → HomeScreen
-           ├── wrong pin → show attemptsLeft
-           ├── locked (423) → show lockedUntil timer
-           └── "Forgot PIN?" tap → ForgotPinScreen
-                    └── POST /user-pin/forgot → OtpScreen
-                           └── POST /user-pin/reset (otp+newPin) → HomeScreen
+          ├─ POST /verify 200 → Home
+          ├─ 401 → show attemptsLeft, clear boxes
+          ├─ 404 → jump to CreatePinScreen
+          ├─ 423 → disable input, countdown from lockedUntil
+          └─ "Forgot PIN?" → ForgotPinScreen
+                 └─ POST /forgot → ResetPinScreen (OTP + new PIN + confirm)
+                        └─ POST /reset → Home
 ```
 
-Also handle **app resume**: if the app has been in the background > 2 minutes and a PIN exists, force `EnterPinScreen` again.
+**App resume rule:** if the app was backgrounded > 2 minutes and a PIN exists, force `EnterPinScreen`
+again (store `lastActiveAt` in AsyncStorage, compare on `AppState` → `active`).
 
 ---
 
-## 4. API helper
+## 4. API helper (`src/lib/pinApi.ts`)
 
 ```ts
-// src/lib/pinApi.ts
 import { supabase } from "./supabase";
 
 const BASE = "https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin";
-const ANON = "<PASTE ANON KEY>";
+const ANON = "<PASTE ANON KEY ABOVE>";
 
 async function call(path: string, method: "GET" | "POST", body?: any) {
-  const { data: { session } } = await supabase.auth.getSession();
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    const r = await supabase.auth.refreshSession();
+    session = r.data.session;
+  }
   if (!session?.access_token) throw new Error("Not authenticated");
+
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
@@ -110,50 +133,53 @@ export const PinApi = {
   verify: (pin: string) => call("/verify", "POST", { pin }),
   forgot: () => call("/forgot", "POST"),
   reset:  (otp: string, pin: string, confirmPin: string) =>
-    call("/reset", "POST", { otp, pin, confirmPin }),
+            call("/reset", "POST", { otp, pin, confirmPin }),
 };
 ```
 
 ---
 
-## 5. Screens (minimal spec)
+## 5. Screens
 
 ### CreatePinScreen
-- Two 4-digit inputs (use `react-native-otp-entry` or 4 `TextInput` boxes, `keyboardType="number-pad"`, `secureTextEntry`).
-- Submit → `PinApi.set(pin, confirm)`. On success navigate to Home.
+- Two 4-box inputs (`keyboardType="number-pad"`, `secureTextEntry`, auto-advance on entry, backspace moves back).
+- Disable submit until both are 4 digits. Submit → `PinApi.set(pin, confirm)`.
+- On 200 → save `lastActiveAt` and navigate to Home. On 400 → show `message` ("PINs do not match").
 
 ### EnterPinScreen
-- One 4-digit input, autofocus.
-- Submit → `PinApi.verify(pin)`.
-- Show `attemptsLeft` on `401`. On `423`, show countdown from `lockedUntil` and disable input.
-- Bottom link **"Forgot PIN?"** → ForgotPinScreen.
-- Optional: "Use password instead" → `supabase.auth.signOut()` then back to email login.
+- One 4-box input, autofocus, auto-submit when the 4th digit is typed.
+- 401 → show `Incorrect PIN — N attempts left`, clear boxes, re-focus.
+- 423 → disable input and run a live countdown from `lockedUntil`.
+- 404 → `navigation.replace("CreatePin")`.
+- Footer links: **Forgot PIN?** and **Use another account** (`supabase.auth.signOut()`).
 
 ### ForgotPinScreen
-- Read `profiles.mobile` (masked) from `/status` flow or from profile cache.
-- Button **"Send OTP"** → `PinApi.forgot()`. On success go to OtpScreen with masked mobile from response.
+- Show masked `mobile` / `email` from `/status`.
+- **Send OTP** → `PinApi.forgot()`. On 200 navigate to ResetPinScreen and display
+  `response.message` (it already names the channels used).
+- On 400 ("No registered mobile or email") deep-link to the Profile screen.
 
-### OtpScreen (+ new PIN)
-- 4-digit OTP input + two 4-digit PIN inputs.
-- Resend OTP link after 30 s countdown → `PinApi.forgot()` again.
-- Submit → `PinApi.reset(otp, pin, confirm)`. On success go to Home.
+### ResetPinScreen
+- OTP 4 boxes (visible) + New PIN + Confirm PIN (masked).
+- Submit → `PinApi.reset(otp, pin, confirm)`; 200 → Home.
+- **Resend OTP** link enabled after a 30-second countdown → `PinApi.forgot()` again.
+- 400 "OTP expired" → prompt to resend. 429 → force a resend.
 
 ---
 
 ## 6. Edge cases
 
-- **No registered mobile** on `/forgot` → shows `"No registered mobile. Update profile first."` — deep-link user to Profile screen.
-- **OTP expired** (10 min) → prompt user to request again.
-- **Locked** — do NOT hide the timer; countdown from `lockedUntil`.
-- **Signing out** should NOT delete the PIN row — it stays for the next login on the same device / another device (PIN is per-user, not per-device).
-- **Changing PIN while logged in**: reuse `/set` (overwrites).
-- On backgrounding for > 2 minutes, re-lock and require PIN again (store `lastActiveAt` in AsyncStorage).
+- OTP is valid **10 minutes**, max **5 wrong attempts**, then a new one must be requested.
+- Sign-out must **not** delete the PIN row — the PIN is per-user, not per-device.
+- Change PIN while logged in → just call `/set` again (it overwrites and clears the lock).
+- Never cache `hasPin` — always call `/status` on cold start.
+- Never store the raw PIN in AsyncStorage / SecureStore / Keychain.
+- Never call any PIN route before `supabase.auth.getSession()` has resolved.
 
 ---
 
-## 7. Never do
+## 7. Email delivery (verified working)
 
-- Do NOT store the raw PIN in AsyncStorage / SecureStore.
-- Do NOT skip the `apikey` header — Supabase Edge Functions reject without it.
-- Do NOT call `/verify` before `session` is loaded — always await `supabase.auth.getSession()` first.
-- Do NOT trust `hasPin` from cache — always call `/status` on cold start.
+OTP emails go out through the `send-email` edge function → Brevo, template `otp`,
+sender `IndexPilot AI <noreply@indexpilotai.com>`. Verified live (Brevo message id returned).
+If the user has no mobile in `profiles.mobile`, the email channel alone is enough for reset.
