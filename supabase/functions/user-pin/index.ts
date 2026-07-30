@@ -102,9 +102,18 @@ Deno.serve(async (req) => {
     // GET status: does this user have a PIN?
     if (action === "status" && req.method === "GET") {
       const { data } = await admin.from("user_pins").select("user_id, locked_until").eq("user_id", user.id).maybeSingle();
+      const { data: prof } = await admin.from("profiles").select("mobile, email").eq("user_id", user.id).maybeSingle();
       const locked = data?.locked_until && new Date(data.locked_until) > new Date();
-      return json(200, { success: true, hasPin: !!data, locked: !!locked, lockedUntil: data?.locked_until || null });
+      return json(200, {
+        success: true,
+        hasPin: !!data,
+        locked: !!locked,
+        lockedUntil: data?.locked_until || null,
+        mobile: maskMobile(prof?.mobile || ""),
+        email: maskEmail(prof?.email || user.email || ""),
+      });
     }
+
 
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
 
