@@ -254,7 +254,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   if (screen === 'forgot') {
     return (
       <Shell icon={<KeyRound className="w-7 h-7 text-cyan-400" />} title="Forgot PIN"
-        subtitle="We'll send a 4-digit OTP to your registered mobile and email"
+        subtitle="We'll send a 6-digit OTP by SMS to your registered mobile number"
         onBack={() => { reset(); setScreen('enter'); }}>
         <Err />
         <button className={btn} disabled={busy} onClick={doForgot}>{busy ? 'Sending…' : 'Send OTP'}</button>
@@ -266,14 +266,14 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   return (
     <Shell icon={<KeyRound className="w-7 h-7 text-cyan-400" />} title="Reset PIN" subtitle={info || 'Enter the OTP and your new PIN'}
       onBack={() => { reset(); setScreen('enter'); }}>
-      <p className="text-xs text-slate-400 mb-2 text-center">OTP</p>
-      <DigitInput value={otp} onChange={setOtp} mask={false} autoFocus />
+      <p className="text-xs text-slate-400 mb-2 text-center">OTP (6 digits sent by SMS)</p>
+      <DigitInput length={6} value={otp} onChange={setOtp} mask={false} autoFocus />
       <p className="text-xs text-slate-400 mt-5 mb-2 text-center">New PIN</p>
       <DigitInput value={pin} onChange={setPin} />
       <p className="text-xs text-slate-400 mt-5 mb-2 text-center">Confirm new PIN</p>
       <DigitInput value={confirmPin} onChange={setConfirmPin} />
       <Err />
-      <button className={btn} disabled={busy || otp.length !== 4 || pin.length !== 4 || confirmPin.length !== 4} onClick={doReset}>
+      <button className={btn} disabled={busy || otp.length !== 6 || pin.length !== 4 || confirmPin.length !== 4} onClick={doReset}>
         {busy ? 'Saving…' : 'Reset PIN'}
       </button>
       <button onClick={doForgot} disabled={busy} className="mt-3 w-full text-xs text-cyan-400 hover:underline">Resend OTP</button>

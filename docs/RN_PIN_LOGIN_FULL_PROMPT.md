@@ -15,7 +15,7 @@ Backend is **already live and deployed** — do not create any Supabase function
 | `public.user_pins` | one row per user: `pin_hash` (SHA-256 of `salt:pin`), `pin_salt`, `failed_attempts`, `locked_until`, `last_used_at` |
 | `public.pin_reset_otps` | forgot-PIN OTPs: `otp_hash`, `expires_at` (10 min), `attempts` (max 5), `verified` |
 | Edge function `user-pin` | all 5 routes, authenticated by the user's Supabase JWT (service-role used internally) |
-| OTP delivery | **SMS via 2Factor to `profiles.mobile` AND email via Brevo to `profiles.email` — both at once.** If either channel succeeds, the request returns 200 |
+| OTP delivery | **SMS only, via 2Factor to `profiles.mobile`. The OTP is 6 digits.** No email OTP is sent. |
 | Lockout | 5 wrong PIN attempts → `locked_until = now + 15 min`, HTTP `423` |
 | Raw PIN | never stored, never returned, never logged — only the salted hash |
 
@@ -51,8 +51,8 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rbGdxZWx
 | GET    | `/status` | –                           | `{ hasPin, locked, lockedUntil, mobile, email }` (masked contacts) |
 | POST   | `/set`    | `{ pin, confirmPin }`       | Create PIN (or overwrite while logged in) |
 | POST   | `/verify` | `{ pin }`                   | Unlock. 5 wrong = 15-min lock |
-| POST   | `/forgot` | –                           | Sends the **same 4-digit OTP by SMS *and* email** |
-| POST   | `/reset`  | `{ otp, pin, confirmPin }`  | Verify OTP + save new PIN |
+| POST   | `/forgot` | –                           | Sends a **6-digit OTP by SMS** to the registered mobile |
+| POST   | `/reset`  | `{ otp, pin, confirmPin }`  | Verify 6-digit OTP + save new PIN |
 
 ### Example responses
 
@@ -65,13 +65,13 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rbGdxZWx
 { "success": false, "message": "Incorrect PIN", "attemptsLeft": 3, "lockedUntil": null }
 
 // POST /forgot (both channels ok)
-{ "success": true, "message": "OTP sent to your mobile and to your email",
-  "channels": { "sms": true, "email": true },
-  "mobile": "98****3210", "email": "ra*****@gmail.com" }
+{ "success": true, "message": "OTP sent to your registered mobile number",
+  "channels": { "sms": true, "email": false },
+  "mobile": "98****3210", "email": null }
 ```
 
-Status codes: `200` ok · `400` bad input / no mobile+email · `401` unauth, wrong PIN or wrong OTP ·
-`404` no PIN set · `423` locked · `429` too many OTP attempts · `502` both OTP channels failed.
+Status codes: `200` ok · `400` bad input / no registered mobile · `401` unauth, wrong PIN or wrong OTP ·
+`404` no PIN set · `423` locked · `429` too many OTP attempts · `502` SMS send failed.
 
 ---
 
@@ -154,13 +154,13 @@ export const PinApi = {
 - Footer links: **Forgot PIN?** and **Use another account** (`supabase.auth.signOut()`).
 
 ### ForgotPinScreen
-- Show masked `mobile` / `email` from `/status`.
+- Show masked `mobile` from `/status` (OTP goes to SMS only).
 - **Send OTP** → `PinApi.forgot()`. On 200 navigate to ResetPinScreen and display
   `response.message` (it already names the channels used).
-- On 400 ("No registered mobile or email") deep-link to the Profile screen.
+- On 400 ("No registered mobile number") deep-link to the Profile screen.
 
 ### ResetPinScreen
-- OTP 4 boxes (visible) + New PIN + Confirm PIN (masked).
+- OTP 6 boxes (visible, 6-digit) + New PIN + Confirm PIN (masked).
 - Submit → `PinApi.reset(otp, pin, confirm)`; 200 → Home.
 - **Resend OTP** link enabled after a 30-second countdown → `PinApi.forgot()` again.
 - 400 "OTP expired" → prompt to resend. 429 → force a resend.
@@ -178,8 +178,8 @@ export const PinApi = {
 
 ---
 
-## 7. Email delivery (verified working)
+## 7. OTP delivery (SMS only)
 
-OTP emails go out through the `send-email` edge function → Brevo, template `otp`,
-sender `IndexPilot AI <noreply@indexpilotai.com>`. Verified live (Brevo message id returned).
-If the user has no mobile in `profiles.mobile`, the email channel alone is enough for reset.
+Reset OTPs are **6 digits** and are delivered **only by SMS** through 2Factor to `profiles.mobile`.
+No OTP email is sent. If the user has no mobile number saved in `profiles.mobile`,
+`/forgot` returns `400` — send the user to the Profile screen to add their mobile.
