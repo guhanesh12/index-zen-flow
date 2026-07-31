@@ -812,15 +812,16 @@ function AutoNotificationTemplates({ accessToken }: { accessToken: string }) {
             <div key={row.event} className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-white">{LABEL[row.event] || row.event}</div>
-                <label className="flex items-center gap-2 text-xs text-zinc-400">
+                <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={!!row.enabled}
-                    onChange={(e) => updateField(row.event, 'enabled', e.target.checked)}
+                    onChange={(e) => toggle(row, e.target.checked)}
                   />
-                  Enabled
+                  {row.enabled ? 'On' : 'Off'}
                 </label>
               </div>
+
               <div className="space-y-2">
                 <Label className="text-xs">Title</Label>
                 <Input
