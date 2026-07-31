@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useEffect, useState } from 'react';
+import { useAdminSubTabSync } from '@/hooks/useAdminSubTabSync';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -24,6 +25,7 @@ const REFERRAL_SUB_TABS = ['settings', 'list', 'leaderboard'];
 export function AdminReferrals({ accessToken }: Props) {
   const tabPerms = useAllowedTabs();
   const [activeSubTab, setActiveSubTab] = useState('settings');
+  useAdminSubTabSync('referrals', setActiveSubTab);
   const serverUrl = getServerUrl(projectId);
   const [stats, setStats] = useState<any>({ total: 0, successful: 0, pending: 0, totalPayout: 0 });
   const [settings, setSettings] = useState<any>({

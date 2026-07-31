@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useEffect, useState, useMemo } from 'react';
+import { useAdminSubTabSync } from '@/hooks/useAdminSubTabSync';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
@@ -85,6 +86,7 @@ export function AdminUserManagement() {
   const [admins, setAdmins] = useState<AdminRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'list' | 'activity'>('list');
+  useAdminSubTabSync('adminManagement', (s) => setTab(s as any));
   const [search, setSearch] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [permOpen, setPermOpen] = useState(false);

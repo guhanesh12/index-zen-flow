@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
+import { useAdminSubTabSync } from '@/hooks/useAdminSubTabSync';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AdminSecurityPanel } from './AdminSecurityPanel';
 import { SecurityActivityMonitor } from './SecurityActivityMonitor';
@@ -72,6 +73,7 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
   });
   const showSub = (key: string) => tabPerms.loading ? false : tabPerms.allowSub('settings', key);
   const [activeSettingsSubTab, setActiveSettingsSubTab] = useState('api-keys');
+  useAdminSubTabSync('settings', setActiveSettingsSubTab);
   const [settings, setSettings] = useState<PlatformSettings>({
     twoFactorApiKey: '',
     razorpayKeyId: '',
