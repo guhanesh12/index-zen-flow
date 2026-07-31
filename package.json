@@ -79,7 +79,7 @@
     "react-popper": "^2.3.0",
     "react-resizable-panels": "^2.1.9",
     "react-responsive-masonry": "^2.7.1",
-    "react-router-dom": "^7.9.6",
+    "react-router-dom": "7.18.2",
     "react-slick": "^0.31.0",
     "recharts": "^3.9.2",
     "sonner": "^1.7.4",
