@@ -87,7 +87,18 @@ Deno.serve(async (req) => {
       return json({ success: true });
     }
 
+    if (action === "delete") {
+      if (!body?.event) return json({ success: false, message: "event required" }, 400);
+      const { error } = await admin
+        .from("auto_notification_templates")
+        .delete()
+        .eq("event", String(body.event));
+      if (error) throw new Error(error.message);
+      return json({ success: true });
+    }
+
     return json({ success: false, message: "unknown action" }, 400);
+
   } catch (e: any) {
     console.error("auto-notification-admin error", e);
     return json({ success: false, message: e?.message || "internal error" }, 500);
