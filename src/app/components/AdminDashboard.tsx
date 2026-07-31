@@ -54,6 +54,8 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   const [pendingSupportCount, setPendingSupportCount] = useState(0);
   const [realAccessToken, setRealAccessToken] = useState(accessToken);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
