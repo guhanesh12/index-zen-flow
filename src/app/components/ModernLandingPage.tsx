@@ -423,9 +423,9 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex items-center gap-3">
-              <img src={logoWhite} alt="IndexpilotAI Logo" className="h-10 w-auto" />
+              <img src={logoWhite} alt="IndexpilotAI - AI-powered NIFTY options trading platform" className="h-10 w-auto" />
               <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">IndexpilotAI</h1>
+                <span className="block text-xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">IndexpilotAI</span>
                 <p className="text-xs text-slate-400 hidden sm:block">Indian Options Trading</p>
               </div>
             </div>
@@ -459,6 +459,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
             <button 
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="md:hidden text-white"
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Toggle menu'}
+              aria-expanded={mobileMenuOpen}
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -1055,7 +1057,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   <ArrowRight className="ml-2 w-5 h-5" />
                 </Button>
               </motion.div>
-              <p className="text-xs text-slate-500 mt-4">
+              <p className="text-xs text-slate-400 mt-4">
                 ✓ Free account opening  •  ✓ Zero brokerage on delivery  •  ✓ Fast KYC process
               </p>
             </div>
@@ -1173,7 +1175,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       >
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-semibold text-slate-300">Profit: <span className="text-cyan-400">{step.profit}</span></span>
-                          <span className="text-xs text-slate-500">{step.description}</span>
+                          <span className="text-xs text-slate-400">{step.description}</span>
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div className="flex items-center gap-1">
@@ -1434,7 +1436,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                       <div className="text-sm font-semibold text-slate-400 mb-1">Daily Net Profit</div>
                       <div className="text-lg font-bold text-white mb-2">{plan.range}</div>
                       <div className="text-3xl font-bold text-cyan-400 mb-1">{plan.price}</div>
-                      <div className="text-xs text-slate-500">per day</div>
+                      <div className="text-xs text-slate-400">per day</div>
                       <p className="text-xs text-slate-400 mt-2">{plan.description}</p>
                     </div>
                     <ul className="space-y-2 mb-6">
@@ -1522,19 +1524,19 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     <div className="text-center">
                       <div className="text-3xl font-bold text-cyan-400 mb-1">₹800</div>
                       <div className="text-sm text-slate-400 mb-2">Daily Profit</div>
-                      <div className="text-xs text-slate-500">₹49/day × 22 days</div>
+                      <div className="text-xs text-slate-400">₹49/day × 22 days</div>
                       <div className="text-lg font-semibold text-white mt-2">= ₹1,078/month</div>
                     </div>
                     <div className="text-center">
                       <div className="text-3xl font-bold text-green-400 mb-1">₹17,600</div>
                       <div className="text-sm text-slate-400 mb-2">Total Monthly Profit</div>
-                      <div className="text-xs text-slate-500">₹800 × 22 trading days</div>
+                      <div className="text-xs text-slate-400">₹800 × 22 trading days</div>
                       <div className="text-lg font-semibold text-green-400 mt-2">You keep ₹16,522!</div>
                     </div>
                     <div className="text-center">
                       <div className="text-3xl font-bold text-purple-400 mb-1">6.1%</div>
                       <div className="text-sm text-slate-400 mb-2">Effective Rate</div>
-                      <div className="text-xs text-slate-500">Much lower than % models</div>
+                      <div className="text-xs text-slate-400">Much lower than % models</div>
                       <div className="text-lg font-semibold text-white mt-2">Best Value!</div>
                     </div>
                   </div>
@@ -2086,7 +2088,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
             {/* Brand */}
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <img src={logoWhite} alt="IndexpilotAI Logo" className="h-10 w-auto" />
+                <img src={logoWhite} alt="IndexpilotAI - AI-powered NIFTY options trading platform" className="h-10 w-auto" />
                 <div>
                   <h3 className="text-lg font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">IndexpilotAI</h3>
                   <p className="text-xs text-slate-400">AI-Powered Trading</p>
@@ -2159,12 +2161,12 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 © 2026 IndexpilotAI. All rights reserved.
               </p>
               <div className="flex flex-col md:flex-row items-center gap-4">
-                <p className="text-slate-500 text-xs">
+                <p className="text-slate-400 text-xs">
                   Disclaimer: Trading in options involves risk. Past performance does not guarantee future results.
                 </p>
                 <a 
                   href="/manual-index" 
-                  className="text-slate-500 hover:text-slate-400 text-xs transition-colors"
+                  className="text-slate-400 hover:text-slate-300 text-xs transition-colors"
                   title="Manual Google indexing helper"
                 >
                   🔍 SEO Tools
