@@ -49,13 +49,37 @@ export function AdminBroadcastMail() {
     return { emails };
   }, [segment, customEmails]);
 
+  // supabase.functions.invoke falls back to the anon key when the SDK session
+  // isn't hydrated (hotkey admin flow) → 401 Unauthorized. Always send the
+  // admin's verified access token explicitly.
+  const callBroadcast = async (payload: any) => {
+    const supabaseUrl = (supabase as any)?.supabaseUrl || (import.meta as any).env?.VITE_SUPABASE_URL;
+    const anonKey = (supabase as any)?.supabaseKey || (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY;
+    let token = sessionStorage.getItem('admin_access_token') || '';
+    if (!token) {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token || '';
+    }
+    if (!token) throw new Error('Admin session expired — please sign in again.');
+
+    const resp = await fetch(`${supabaseUrl}/functions/v1/admin-broadcast-mail`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: anonKey,
+      },
+      body: JSON.stringify(payload),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(json?.error || `Request failed (${resp.status})`);
+    return json;
+  };
+
   const doPreview = async () => {
     setPreviewing(true); setPreviewCount(null); setSample([]);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-broadcast-mail', {
-        body: { action: 'preview', segment, filter },
-      });
-      if (error) throw error;
+      const data = await callBroadcast({ action: 'preview', segment, filter });
       setPreviewCount(data.count); setSample(data.sample || []);
       toast.success(`${data.count} recipients matched`);
     } catch (e: any) {
@@ -68,20 +92,18 @@ export function AdminBroadcastMail() {
     if (test && !testTo.trim()) { toast.error('Enter a test recipient'); return; }
     setSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-broadcast-mail', {
-        body: {
-          action: 'send', segment, filter, subject, heading, body,
-          cta_label: ctaLabel || null, cta_url: ctaUrl || null, banner_url: bannerUrl || null,
-          test_mode: test, test_to: test ? testTo : undefined,
-        },
+      const data = await callBroadcast({
+        action: 'send', segment, filter, subject, heading, body,
+        cta_label: ctaLabel || null, cta_url: ctaUrl || null, banner_url: bannerUrl || null,
+        test_mode: test, test_to: test ? testTo : undefined,
       });
-      if (error) throw error;
       toast.success(`Sent ${data.sent}/${data.total} · ${data.failed} failed`);
       loadCampaigns();
     } catch (e: any) {
       toast.error(e.message || 'Send failed');
     } finally { setSending(false); }
   };
+
 
   const previewHtml = useMemo(() => {
     const bodyHtml = body.split(/\n{2,}/).map(p => `<p style="margin:0 0 12px">${p.replace(/\n/g, '<br/>')}</p>`).join('');
