@@ -242,6 +242,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return (
       <Shell icon={<Lock className="w-7 h-7 text-cyan-400" />} title="Enter your PIN"
         subtitle={isLocked ? 'PIN temporarily locked' : 'Unlock to continue to your dashboard'}>
+        {info && <p className="mb-4 text-center text-sm text-emerald-400">{info}</p>}
         <DigitInput value={pin} onChange={setPin} autoFocus disabled={isLocked} />
         {isLocked && (
           <p className="mt-3 text-center text-sm text-amber-400">
