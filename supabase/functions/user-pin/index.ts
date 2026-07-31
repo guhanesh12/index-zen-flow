@@ -38,27 +38,48 @@ async function getUserFromJwt(req: Request) {
 }
 
 async function sendOtpVia2Factor(mobile: string, otp: string) {
-  if (!TWOFACTOR) return { ok: false, error: "otp_provider_not_configured" };
+  if (!TWOFACTOR) {
+    console.error("[user-pin] TWOFACTOR_API_KEY missing");
+    return { ok: false, error: "otp_provider_not_configured" };
+  }
   const clean = mobile.replace(/\D/g, "").slice(-10);
   if (clean.length !== 10) return { ok: false, error: "invalid_mobile" };
-  // Try the named DLT template first, then fall back to the default template.
+  // Try the plain (default) template first, then the named DLT template.
   const urls = [
-    `https://2factor.in/API/V1/${TWOFACTOR}/SMS/${clean}/${otp}/${encodeURIComponent("PIN Reset OTP")}`,
     `https://2factor.in/API/V1/${TWOFACTOR}/SMS/${clean}/${otp}`,
+    `https://2factor.in/API/V1/${TWOFACTOR}/SMS/${clean}/${otp}/${encodeURIComponent("PIN Reset OTP")}`,
+    `https://2factor.in/API/V1/${TWOFACTOR}/SMS/+91${clean}/${otp}`,
   ];
   let lastErr = "otp_send_failed";
   for (const url of urls) {
     try {
       const r = await fetch(url);
-      const j = await r.json().catch(() => ({}));
-      if (j?.Status === "Success") return { ok: true };
-      lastErr = j?.Details || `otp_send_failed_${r.status}`;
+      const text = await r.text();
+      let j: any = {};
+      try { j = JSON.parse(text); } catch { /* non-json */ }
+      console.log(`[user-pin] 2factor attempt -> status=${r.status} body=${text.slice(0, 300)}`);
+      if (j?.Status === "Success") return { ok: true, sessionId: j?.Details };
+      lastErr = j?.Details || text.slice(0, 200) || `otp_send_failed_${r.status}`;
     } catch (e) {
       lastErr = String(e);
+      console.error("[user-pin] 2factor fetch error", lastErr);
     }
   }
   return { ok: false, error: lastErr };
 }
+
+// Diagnostic: check 2Factor account balance (proves key validity + credits)
+async function twoFactorBalance() {
+  if (!TWOFACTOR) return { ok: false, error: "otp_provider_not_configured" };
+  try {
+    const r = await fetch(`https://2factor.in/API/V1/${TWOFACTOR}/ADDON_SERVICES/BAL/SMS`);
+    const text = await r.text();
+    return { ok: r.ok, status: r.status, body: text.slice(0, 400) };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 
 // Send the same OTP by email through the shared Brevo-backed send-email function.
 async function sendOtpViaEmail(email: string, name: string, otp: string) {
@@ -104,8 +125,22 @@ Deno.serve(async (req) => {
   const action = url.pathname.split("/").pop(); // status | set | verify | forgot | reset
 
   try {
+    // Internal diagnostic (no user JWT): checks provider key + credits
+    if (action === "sms-diag") {
+      const key = req.headers.get("x-internal-key") || "";
+      if (!key || key !== (Deno.env.get("INTERNAL_SYNC_KEY") || "")) {
+        return json(401, { success: false, message: "Unauthorized" });
+      }
+      const bal = await twoFactorBalance();
+      const testTo = url.searchParams.get("to");
+      let send: unknown = null;
+      if (testTo) send = await sendOtpVia2Factor(testTo, "123456");
+      return json(200, { success: true, hasKey: !!TWOFACTOR, balance: bal, send });
+    }
+
     const user = await getUserFromJwt(req);
     if (!user) return json(401, { success: false, message: "Unauthorized" });
+
 
     // GET status: does this user have a PIN?
     if (action === "status" && req.method === "GET") {
