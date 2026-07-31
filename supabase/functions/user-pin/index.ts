@@ -41,15 +41,23 @@ async function sendOtpVia2Factor(mobile: string, otp: string) {
   if (!TWOFACTOR) return { ok: false, error: "otp_provider_not_configured" };
   const clean = mobile.replace(/\D/g, "").slice(-10);
   if (clean.length !== 10) return { ok: false, error: "invalid_mobile" };
-  const url = `https://2factor.in/API/V1/${TWOFACTOR}/SMS/${clean}/${otp}/PIN Reset OTP`;
-  try {
-    const r = await fetch(url);
-    const j = await r.json().catch(() => ({}));
-    if (j?.Status === "Success") return { ok: true };
-    return { ok: false, error: j?.Details || "otp_send_failed" };
-  } catch (e) {
-    return { ok: false, error: String(e) };
+  // Try the named DLT template first, then fall back to the default template.
+  const urls = [
+    `https://2factor.in/API/V1/${TWOFACTOR}/SMS/${clean}/${otp}/${encodeURIComponent("PIN Reset OTP")}`,
+    `https://2factor.in/API/V1/${TWOFACTOR}/SMS/${clean}/${otp}`,
+  ];
+  let lastErr = "otp_send_failed";
+  for (const url of urls) {
+    try {
+      const r = await fetch(url);
+      const j = await r.json().catch(() => ({}));
+      if (j?.Status === "Success") return { ok: true };
+      lastErr = j?.Details || `otp_send_failed_${r.status}`;
+    } catch (e) {
+      lastErr = String(e);
+    }
   }
+  return { ok: false, error: lastErr };
 }
 
 // Send the same OTP by email through the shared Brevo-backed send-email function.
