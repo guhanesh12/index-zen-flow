@@ -178,8 +178,8 @@ export const PinApi = {
 
 ---
 
-## 7. Email delivery (verified working)
+## 7. OTP delivery (SMS only)
 
-OTP emails go out through the `send-email` edge function → Brevo, template `otp`,
-sender `IndexPilot AI <noreply@indexpilotai.com>`. Verified live (Brevo message id returned).
-If the user has no mobile in `profiles.mobile`, the email channel alone is enough for reset.
+Reset OTPs are **6 digits** and are delivered **only by SMS** through 2Factor to `profiles.mobile`.
+No OTP email is sent. If the user has no mobile number saved in `profiles.mobile`,
+`/forgot` returns `400` — send the user to the Profile screen to add their mobile.
