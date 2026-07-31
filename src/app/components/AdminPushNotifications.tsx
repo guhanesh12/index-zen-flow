@@ -701,29 +701,43 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
         </CardContent>
       </Card>
 
-      <AutoNotificationTemplates />
+      <AutoNotificationTemplates accessToken={accessToken} />
     </div>
   );
 }
 
 
 // ═══════════════════════════════════════════════════════════════
-// Auto Notification Templates — editable market open / close
+// Auto Notification Templates — all automatic pushes, editable
 // ═══════════════════════════════════════════════════════════════
-function AutoNotificationTemplates() {
+function AutoNotificationTemplates({ accessToken }: { accessToken: string }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
+  const supabaseUrl = 'https://oklgqelcaujxntgjyuis.supabase.co';
+  const call = async (payload: any) => {
+    const resp = await fetch(`${supabaseUrl}/functions/v1/auto-notification-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || data?.success === false) throw new Error(data?.message || `HTTP ${resp.status}`);
+    return data;
+  };
+
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('auto_notification_templates')
-      .select('*')
-      .order('event');
-    if (!error) setRows(data || []);
-    setLoading(false);
+    try {
+      const d = await call({ action: 'list' });
+      setRows(d.templates || []);
+    } catch (e: any) {
+      setMsg('❌ ' + (e.message || 'Load failed'));
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -734,20 +748,46 @@ function AutoNotificationTemplates() {
   const save = async (row: any) => {
     setSavingKey(row.event);
     setMsg(null);
-    const { error } = await supabase
-      .from('auto_notification_templates')
-      .update({ title: row.title, body: row.body, image_url: row.image_url || null, enabled: !!row.enabled })
-      .eq('event', row.event);
-    setSavingKey(null);
-    if (error) setMsg('❌ ' + error.message);
-    else setMsg('✅ Saved ' + row.event);
+    try {
+      await call({ action: 'save', template: row });
+      setMsg('✅ Saved ' + row.event);
+    } catch (e: any) {
+      setMsg('❌ ' + (e.message || 'Save failed'));
+    } finally {
+      setSavingKey(null);
+      setTimeout(() => setMsg(null), 3000);
+    }
+  };
+
+  const toggle = async (row: any, enabled: boolean) => {
+    updateField(row.event, 'enabled', enabled);
+    try {
+      await call({ action: 'toggle', event: row.event, enabled });
+      setMsg(`${enabled ? '✅ Enabled' : '⛔ Disabled'} ${row.event}`);
+    } catch (e: any) {
+      updateField(row.event, 'enabled', !enabled);
+      setMsg('❌ ' + (e.message || 'Toggle failed'));
+    }
     setTimeout(() => setMsg(null), 3000);
   };
 
   const LABEL: Record<string, string> = {
-    market_open:  '🔔 Market Open (09:00 IST, trading days)',
-    market_close: '🔒 Market Close (15:30 IST, trading days)',
+    pre_market:          '⏰ Pre-Market (08:45 IST, trading days)',
+    market_open:         '🔔 Market Open (09:00 IST, trading days)',
+    market_close:        '🔒 Market Close (15:30 IST, trading days)',
+    engine_on:           '🚀 Engine Started',
+    engine_off:          '🛑 Engine Stopped',
+    vps_online:          '🟢 VPS Online',
+    vps_offline:         '🔴 VPS Offline',
+    signal_entry:        '📈 New Signal / Entry',
+    signal_exit:         '📉 Position Closed / Exit',
+    wallet_recharge:     '💰 Wallet Recharged',
+    low_balance:         '⚠️ Low Wallet Balance',
+    support_reply:       '💬 Support Ticket Reply',
+    referral_reward:     '🎁 Referral Reward',
+    subscription_expiry: '📅 Subscription Expiring',
   };
+
 
   return (
     <Card className="border-amber-500/20 bg-slate-900/50 mt-6">
