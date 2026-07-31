@@ -128,8 +128,9 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       if (r.status !== 200) { setScreen('ok'); return; } // never hard-block on API failure
       setLockedUntil(r.lockedUntil || null);
       if (!r.hasPin) { setScreen('create'); return; }
-      const unlockedAt = Number(sessionStorage.getItem(UNLOCK_KEY) || 0);
-      setScreen(Date.now() - unlockedAt < RELOCK_MS ? 'ok' : 'enter');
+      // Always ask for the PIN on a fresh app load / login — no silent grace period.
+      sessionStorage.removeItem(UNLOCK_KEY);
+      setScreen('enter');
     } catch {
       setScreen('ok');
     }
@@ -158,7 +159,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
-  const unlock = () => { sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); setScreen('ok'); reset(); };
+  const unlock = () => { sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); setScreen('ok'); setInfo(''); reset(); };
 
   const lockedRemaining = lockedUntil ? new Date(lockedUntil).getTime() - now : 0;
   const isLocked = lockedRemaining > 0;
@@ -197,9 +198,17 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     setError(''); setBusy(true);
     try {
       const r = await PinApi.reset(otp, pin, confirmPin);
-      if (r.status === 200) unlock(); else setError(r.message || 'Reset failed');
+      if (r.status === 200) {
+        // PIN changed — force the user to sign in with the NEW pin.
+        sessionStorage.removeItem(UNLOCK_KEY);
+        setPin(''); setConfirmPin(''); setOtp(''); setError('');
+        setLockedUntil(null);
+        setInfo('PIN reset successful. Please enter your new PIN to continue.');
+        setScreen('enter');
+      } else setError(r.message || 'Reset failed');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
+
 
   const Err = () => error ? <p className="mt-3 text-center text-sm text-red-400">{error}</p> : null;
 
@@ -233,6 +242,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return (
       <Shell icon={<Lock className="w-7 h-7 text-cyan-400" />} title="Enter your PIN"
         subtitle={isLocked ? 'PIN temporarily locked' : 'Unlock to continue to your dashboard'}>
+        {info && <p className="mb-4 text-center text-sm text-emerald-400">{info}</p>}
         <DigitInput value={pin} onChange={setPin} autoFocus disabled={isLocked} />
         {isLocked && (
           <p className="mt-3 text-center text-sm text-amber-400">
