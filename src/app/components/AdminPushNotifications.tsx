@@ -327,7 +327,16 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
         </Badge>
       </div>
 
+      <Tabs defaultValue="manual" className="w-full">
+        <TabsList className="bg-slate-900/60 border border-slate-700">
+          <TabsTrigger value="manual">📤 Manual Notification</TabsTrigger>
+          <TabsTrigger value="auto">⚙️ Auto Notification</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="manual" className="space-y-6 mt-4">
+
       {/* Info Banner */}
+
       <motion.div 
         initial={{ opacity: 0, y: -10 }} 
         animate={{ opacity: 1, y: 0 }}
