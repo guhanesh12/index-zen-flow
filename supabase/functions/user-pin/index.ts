@@ -125,8 +125,22 @@ Deno.serve(async (req) => {
   const action = url.pathname.split("/").pop(); // status | set | verify | forgot | reset
 
   try {
+    // Internal diagnostic (no user JWT): checks provider key + credits
+    if (action === "sms-diag") {
+      const key = req.headers.get("x-internal-key") || "";
+      if (!key || key !== (Deno.env.get("INTERNAL_SYNC_KEY") || "")) {
+        return json(401, { success: false, message: "Unauthorized" });
+      }
+      const bal = await twoFactorBalance();
+      const testTo = url.searchParams.get("to");
+      let send: unknown = null;
+      if (testTo) send = await sendOtpVia2Factor(testTo, "123456");
+      return json(200, { success: true, hasKey: !!TWOFACTOR, balance: bal, send });
+    }
+
     const user = await getUserFromJwt(req);
     if (!user) return json(401, { success: false, message: "Unauthorized" });
+
 
     // GET status: does this user have a PIN?
     if (action === "status" && req.method === "GET") {
