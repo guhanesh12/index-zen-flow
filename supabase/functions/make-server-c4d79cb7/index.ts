@@ -212,14 +212,14 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
 
 // 🔒 Internal-only guard: requires x-internal-key header matching INTERNAL_SYNC_KEY.
 // Used for cron/scheduler endpoints and server-to-server calls.
+// NOTE: no hardcoded fallback key — pg_cron reads the same secret from Vault.
 function requireInternalKey(c: any): boolean {
   const key = c.req.header('x-internal-key') || '';
   const expected = Deno.env.get('INTERNAL_SYNC_KEY') || '';
-  // pg_cron is configured from Postgres and cannot read Edge Function env vars.
-  // Older scheduler jobs send this DB-side fallback key; allow it so the
-  // persistent trading engine continues to tick even when every browser is closed.
-  const dbSchedulerFallback = 'internal-sync-fallback';
-  return (!!expected && key === expected) || key === dbSchedulerFallback;
+  if (!expected || !key || key.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= key.charCodeAt(i) ^ expected.charCodeAt(i);
+  return diff === 0;
 }
 
 // 🔒 Cron/internal OR admin auth — cron jobs use internal key, admins can trigger manually.
@@ -5356,6 +5356,23 @@ app.post("/make-server-c4d79cb7/wallet/verify-payment", async (c) => {
     const orderDetails = await kv.get(`razorpay_order:${razorpay_order_id}`);
     if (!orderDetails || orderDetails.userId !== user.id) {
       return c.json({ error: 'Order not found' }, 404);
+    }
+
+    // 🔒 Replay protection: claim the order BEFORE crediting anything.
+    if (orderDetails.status && orderDetails.status !== 'created') {
+      console.warn(`⚠️ Duplicate verify-payment for order ${razorpay_order_id} (status=${orderDetails.status})`);
+      return c.json({ error: 'This payment has already been processed' }, 409);
+    }
+    await kv.set(`razorpay_order:${razorpay_order_id}`, {
+      ...orderDetails,
+      status: 'processing',
+      paymentId: razorpay_payment_id,
+      claimedAt: Date.now(),
+    });
+    // Re-read to detect a concurrent claim that won the race.
+    const claimed = await kv.get(`razorpay_order:${razorpay_order_id}`);
+    if (!claimed || (claimed.paymentId && claimed.paymentId !== razorpay_payment_id)) {
+      return c.json({ error: 'This payment has already been processed' }, 409);
     }
 
     // Credit wallet
