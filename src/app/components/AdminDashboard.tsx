@@ -428,8 +428,10 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
         </Tabs>
+        </main>
       </div>
     </div>
+
   );
 }
 
