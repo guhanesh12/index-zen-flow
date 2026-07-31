@@ -85,7 +85,7 @@ export const WEBSITE_SCHEMA = {
 
 export const DEFAULT_SEO: SEOProps = {
   title: `${BRAND_NAME} - AI-Powered Options Trading Platform for India`,
-  description: 'AI-powered options trading platform for NSE & BSE with real-time market data, automated strategies, and intelligent risk management. Trade NIFTY & BANK NIFTY options with confidence.',
+  description: "India's AI-powered NIFTY & BANKNIFTY options trading platform. Real-time signals, automated Dhan execution and smart risk management for NSE traders.",
   canonical: BASE_URL,
   ogType: 'website',
   ogImage: BRAND_LOGO,
