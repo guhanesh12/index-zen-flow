@@ -709,9 +709,14 @@ export function AdminPushNotifications({ serverUrl, accessToken }: AdminPushNoti
           )}
         </CardContent>
       </Card>
+        </TabsContent>
 
-      <AutoNotificationTemplates accessToken={accessToken} />
+        <TabsContent value="auto" className="mt-4">
+          <AutoNotificationTemplates accessToken={accessToken} />
+        </TabsContent>
+      </Tabs>
     </div>
+
   );
 }
 
