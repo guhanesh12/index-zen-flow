@@ -787,42 +787,153 @@ function AutoNotificationTemplates({ accessToken }: { accessToken: string }) {
     setTimeout(() => setMsg(null), 3000);
   };
 
-  const LABEL: Record<string, string> = {
-    pre_market:          '⏰ Pre-Market (08:45 IST, trading days)',
-    market_open:         '🔔 Market Open (09:00 IST, trading days)',
-    market_close:        '🔒 Market Close (15:30 IST, trading days)',
-    engine_on:           '🚀 Engine Started',
-    engine_off:          '🛑 Engine Stopped',
-    vps_online:          '🟢 VPS Online',
-    vps_offline:         '🔴 VPS Offline',
-    signal_entry:        '📈 New Signal / Entry',
-    signal_exit:         '📉 Position Closed / Exit',
-    wallet_recharge:     '💰 Wallet Recharged',
-    low_balance:         '⚠️ Low Wallet Balance',
-    support_reply:       '💬 Support Ticket Reply',
-    referral_reward:     '🎁 Referral Reward',
-    subscription_expiry: '📅 Subscription Expiring',
+  // Every supported trigger condition. Selecting one creates an auto
+  // notification that fires whenever that condition is met.
+  const CONDITIONS: { event: string; label: string; when: string }[] = [
+    { event: 'pre_market',          label: '⏰ Pre-Market Alert',        when: 'Every trading day 08:45 IST (skips Sun & NSE holidays)' },
+    { event: 'market_open',         label: '🔔 Market Open',             when: 'Every trading day 09:00 IST' },
+    { event: 'market_close',        label: '🔒 Market Close',            when: 'Every trading day 15:30 IST' },
+    { event: 'engine_on',           label: '🚀 Engine Started',          when: 'When a user turns the trading engine ON' },
+    { event: 'engine_off',          label: '🛑 Engine Stopped',          when: 'When the engine stops (manual or auto)' },
+    { event: 'vps_online',          label: '🟢 VPS Online / Created',    when: 'When the dedicated VPS becomes active' },
+    { event: 'vps_offline',         label: '🔴 VPS Offline',             when: 'When the VPS heartbeat is lost' },
+    { event: 'signal_entry',        label: '📈 New Signal / Entry',      when: 'When a new AI signal or entry order is placed' },
+    { event: 'signal_exit',         label: '📉 Position Closed / Exit',  when: 'When a position closes (target, SL or manual)' },
+    { event: 'symbol_added',        label: '➕ Symbol Added',            when: 'When a user adds a symbol / auto slot' },
+    { event: 'slot_purchased',      label: '🧩 Extra Slot Purchased',    when: 'When a user buys an additional ₹49 slot' },
+    { event: 'broker_connected',    label: '🔗 Broker Connected',        when: 'When Dhan / broker login succeeds' },
+    { event: 'broker_disconnected', label: '🔌 Broker Disconnected',     when: 'When the broker token expires or is revoked' },
+    { event: 'wallet_recharge',     label: '💰 Wallet Recharged',        when: 'When a wallet credit is recorded' },
+    { event: 'wallet_debit',        label: '💸 Wallet Debited',          when: 'When a wallet debit / charge is recorded' },
+    { event: 'low_balance',         label: '⚠️ Low Wallet Balance',      when: 'When balance drops below the minimum threshold' },
+    { event: 'referral_joined',     label: '🤝 Referral Signed Up',      when: 'When someone registers with a referral code' },
+    { event: 'referral_reward',     label: '🎁 Referral Reward',         when: 'When a referral reward is credited' },
+    { event: 'support_ticket',      label: '🎫 Support Ticket Created',  when: 'When a user raises a new support ticket' },
+    { event: 'support_reply',       label: '💬 Support Ticket Reply',    when: 'When an admin replies to a ticket' },
+    { event: 'log_alert',           label: '🧾 System Log Alert',        when: 'When an error / critical log entry is written' },
+    { event: 'login_activity',      label: '🔐 Login Activity',          when: 'When a user logs in from a new device / IP' },
+    { event: 'pin_changed',         label: '🔢 PIN Created / Reset',     when: 'When a user sets or resets the login PIN' },
+    { event: 'profile_updated',     label: '👤 Profile Updated',         when: 'When a user updates profile or KYC details' },
+    { event: 'subscription_expiry', label: '📅 Subscription Expiring',   when: 'When a plan is close to expiry' },
+  ];
+  const LABEL: Record<string, string> = Object.fromEntries(CONDITIONS.map((c) => [c.event, c.label]));
+  const WHEN: Record<string, string> = Object.fromEntries(CONDITIONS.map((c) => [c.event, c.when]));
+
+  const [newEvent, setNewEvent] = useState('');
+  const [newTitle, setNewTitle] = useState('');
+  const [newBody, setNewBody] = useState('');
+  const [newImage, setNewImage] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const available = CONDITIONS.filter((c) => !rows.some((r) => r.event === c.event));
+
+  const createTemplate = async () => {
+    if (!newEvent || !newTitle.trim() || !newBody.trim()) {
+      setMsg('❌ Select a condition and fill title + body');
+      setTimeout(() => setMsg(null), 3000);
+      return;
+    }
+    setCreating(true);
+    try {
+      await call({
+        action: 'save',
+        template: { event: newEvent, title: newTitle, body: newBody, image_url: newImage || null, enabled: true },
+      });
+      setNewEvent(''); setNewTitle(''); setNewBody(''); setNewImage('');
+      setMsg('✅ Auto notification created');
+      await load();
+    } catch (e: any) {
+      setMsg('❌ ' + (e.message || 'Create failed'));
+    } finally {
+      setCreating(false);
+      setTimeout(() => setMsg(null), 3000);
+    }
   };
 
+  const removeTemplate = async (event: string) => {
+    if (!confirm(`Delete auto notification "${LABEL[event] || event}"?`)) return;
+    try {
+      await call({ action: 'delete', event });
+      setRows((prev) => prev.filter((r) => r.event !== event));
+      setMsg('🗑️ Deleted ' + event);
+    } catch (e: any) {
+      setMsg('❌ ' + (e.message || 'Delete failed'));
+    }
+    setTimeout(() => setMsg(null), 3000);
+  };
 
   return (
-    <Card className="border-amber-500/20 bg-slate-900/50 mt-6">
+    <Card className="border-amber-500/20 bg-slate-900/50">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bell className="size-5 text-amber-400" />
           Auto Notifications
         </CardTitle>
         <CardDescription>
-          Automatic pushes sent to all subscribers. Skipped on Sundays & NSE holidays.
-          Notifications auto-delete after 24 hours.
+          Condition-based pushes. Each notification fires automatically whenever its
+          condition is met. Market alerts skip Sundays &amp; NSE holidays; all notifications
+          auto-delete after 24 hours.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {msg && <div className="text-sm text-amber-300">{msg}</div>}
+
+        {/* Create new condition-based auto notification */}
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+          <div className="text-sm font-semibold text-amber-300">➕ Create Auto Notification</div>
+          <div className="space-y-2">
+            <Label className="text-xs">Trigger condition</Label>
+            <select
+              value={newEvent}
+              onChange={(e) => {
+                setNewEvent(e.target.value);
+                const c = CONDITIONS.find((x) => x.event === e.target.value);
+                if (c && !newTitle) setNewTitle(c.label);
+              }}
+              className="w-full rounded-md bg-slate-900 border border-slate-700 text-white text-sm p-2"
+            >
+              <option value="">— Select when this notification should send —</option>
+              {available.map((c) => (
+                <option key={c.event} value={c.event}>{c.label} — {c.when}</option>
+              ))}
+            </select>
+            {newEvent && (
+              <p className="text-xs text-zinc-400">Sends when: {WHEN[newEvent]}</p>
+            )}
+            {available.length === 0 && (
+              <p className="text-xs text-zinc-500">All available conditions already have a notification.</p>
+            )}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="text-xs">Title</Label>
+              <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} maxLength={120}
+                placeholder="e.g. 🔗 Broker Connected" className="bg-slate-900 border-slate-700" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Image URL (optional)</Label>
+              <Input value={newImage} onChange={(e) => setNewImage(e.target.value)}
+                placeholder="https://…" className="bg-slate-900 border-slate-700" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Body</Label>
+            <Textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} maxLength={500}
+              placeholder="Message shown to the user…" className="bg-slate-900 border-slate-700 min-h-[70px]" />
+          </div>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={createTemplate} disabled={creating || !newEvent}
+              className="bg-amber-600 hover:bg-amber-700">
+              {creating ? 'Creating…' : 'Create Notification'}
+            </Button>
+          </div>
+        </div>
+
         {loading ? (
           <div className="text-zinc-500 text-sm">Loading templates…</div>
         ) : rows.length === 0 ? (
           <div className="text-zinc-500 text-sm">No templates found.</div>
+
         ) : (
           rows.map((row) => (
             <div key={row.event} className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 space-y-3">
