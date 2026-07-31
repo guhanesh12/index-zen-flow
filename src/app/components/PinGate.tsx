@@ -254,7 +254,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   if (screen === 'forgot') {
     return (
       <Shell icon={<KeyRound className="w-7 h-7 text-cyan-400" />} title="Forgot PIN"
-        subtitle="We'll send a 4-digit OTP to your registered mobile and email"
+        subtitle="We'll send a 6-digit OTP by SMS to your registered mobile number"
         onBack={() => { reset(); setScreen('enter'); }}>
         <Err />
         <button className={btn} disabled={busy} onClick={doForgot}>{busy ? 'Sending…' : 'Send OTP'}</button>
