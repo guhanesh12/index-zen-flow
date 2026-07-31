@@ -198,9 +198,17 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     setError(''); setBusy(true);
     try {
       const r = await PinApi.reset(otp, pin, confirmPin);
-      if (r.status === 200) unlock(); else setError(r.message || 'Reset failed');
+      if (r.status === 200) {
+        // PIN changed — force the user to sign in with the NEW pin.
+        sessionStorage.removeItem(UNLOCK_KEY);
+        setPin(''); setConfirmPin(''); setOtp(''); setError('');
+        setLockedUntil(null);
+        setInfo('PIN reset successful. Please enter your new PIN to continue.');
+        setScreen('enter');
+      } else setError(r.message || 'Reset failed');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
+
 
   const Err = () => error ? <p className="mt-3 text-center text-sm text-red-400">{error}</p> : null;
 
