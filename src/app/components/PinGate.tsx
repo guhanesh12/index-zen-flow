@@ -128,8 +128,9 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       if (r.status !== 200) { setScreen('ok'); return; } // never hard-block on API failure
       setLockedUntil(r.lockedUntil || null);
       if (!r.hasPin) { setScreen('create'); return; }
-      const unlockedAt = Number(sessionStorage.getItem(UNLOCK_KEY) || 0);
-      setScreen(Date.now() - unlockedAt < RELOCK_MS ? 'ok' : 'enter');
+      // Always ask for the PIN on a fresh app load / login — no silent grace period.
+      sessionStorage.removeItem(UNLOCK_KEY);
+      setScreen('enter');
     } catch {
       setScreen('ok');
     }
