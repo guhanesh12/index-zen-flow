@@ -159,7 +159,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
-  const unlock = () => { sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); setScreen('ok'); reset(); };
+  const unlock = () => { sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); setScreen('ok'); setInfo(''); reset(); };
 
   const lockedRemaining = lockedUntil ? new Date(lockedUntil).getTime() - now : 0;
   const isLocked = lockedRemaining > 0;
