@@ -1,6 +1,8 @@
 // @ts-nocheck
-import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { AdminSideNav } from './AdminSideNav';
+
 import { AdminLogin } from './AdminLogin';
 import { AdvancedAdminDashboard } from './AdvancedAdminDashboard';
 import { AdminUsers } from './AdminUsers';
@@ -31,7 +33,10 @@ import {
   Gift,
   Mail,
   Smartphone,
-  ScrollText
+  ScrollText,
+  Menu,
+  X
+
 } from 'lucide-react';
 import type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
@@ -49,6 +54,8 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   const [pendingSupportCount, setPendingSupportCount] = useState(0);
   const [realAccessToken, setRealAccessToken] = useState(accessToken);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -138,10 +145,11 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     if (onClose) onClose();
   };
 
-  const canAccessTab = (tab: string) => {
+  const canAccessTab = useCallback((tab: string) => {
     if (tabs.loading) return false;
     return tabs.allowMain(tab);
-  };
+  }, [tabs.loading, tabs.permissionKey]);
+
 
   // Listen for pending support count updates
   useEffect(() => {
@@ -206,30 +214,48 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     );
   }
 
+  const adminName =
+    (currentAdmin as any).full_name || (currentAdmin as any).name ||
+    (currentAdmin.email || '').split('@')[0];
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  })();
+
   return (
-    <div className="fixed inset-0 z-[9999] min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-auto">
+    <div className="fixed inset-0 z-[9999] min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col">
       {/* Header */}
       <motion.div 
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="bg-slate-900/80 backdrop-blur-sm border-b border-blue-500/20 sticky top-0 z-50"
+        className="bg-slate-900/80 backdrop-blur-sm border-b border-blue-500/20 z-50 shrink-0"
       >
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Shield className="size-8 text-blue-400" />
-            <div>
-              <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
-              <p className="text-sm text-slate-400">IndexpilotAI Control Center</p>
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setMobileNavOpen(true)}
+              className="lg:hidden bg-slate-800/60 border-slate-700 text-slate-200"
+            >
+              <Menu className="size-4" />
+            </Button>
+            <Shield className="size-7 text-blue-400 shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl font-bold text-white truncate">Admin Dashboard</h1>
+              <p className="hidden sm:block text-sm text-slate-400">IndexpilotAI Control Center</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <Badge variant="outline" className="bg-green-500/10 text-green-400 border-green-500">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Badge variant="outline" className="hidden md:inline-flex bg-green-500/10 text-green-400 border-green-500">
               {currentAdmin.email}
             </Badge>
             <Button 
               onClick={handleClose}
               variant="outline"
-              className="bg-slate-500/10 text-slate-400 border-slate-500 hover:bg-slate-500/20"
+              className="hidden sm:inline-flex bg-slate-500/10 text-slate-400 border-slate-500 hover:bg-slate-500/20"
             >
               Close Admin
             </Button>
@@ -238,101 +264,96 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               variant="outline"
               className="bg-red-500/10 text-red-400 border-red-500 hover:bg-red-500/20"
             >
-              <LogOut className="size-4 mr-2" />
-              Logout
+              <LogOut className="size-4 sm:mr-2" />
+              <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </div>
       </motion.div>
 
-      {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="bg-slate-800/50 border border-blue-500/20 mb-6">
-            {canAccessTab('dashboard') && (
-              <TabsTrigger value="dashboard" className="data-[state=active]:bg-blue-600">
-                <TrendingUp className="size-4 mr-2" />
-                Dashboard
-              </TabsTrigger>
-            )}
-            {canAccessTab('users') && (
-              <TabsTrigger value="users" className="data-[state=active]:bg-blue-600">
-                <Users className="size-4 mr-2" />
-                Users
-              </TabsTrigger>
-            )}
-            {canAccessTab('transactions') && (
-              <TabsTrigger value="transactions" className="data-[state=active]:bg-blue-600">
-                <DollarSign className="size-4 mr-2" />
-                Transactions
-              </TabsTrigger>
-            )}
-            {canAccessTab('support') && (
-              <TabsTrigger value="support" className="data-[state=active]:bg-blue-600 relative">
-                <MessageSquare className="size-4 mr-2" />
-                Support
-                {pendingSupportCount > 0 && (
-                  <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                    {pendingSupportCount}
-                  </span>
-                )}
-              </TabsTrigger>
-            )}
-            {canAccessTab('landing') && (
-              <TabsTrigger value="landing" className="data-[state=active]:bg-blue-600">
-                <Globe className="size-4 mr-2" />
-                Landing Page
-              </TabsTrigger>
-            )}
-            {canAccessTab('adminUsers') && (
-              <TabsTrigger value="adminUsers" className="data-[state=active]:bg-blue-600">
-                <Activity className="size-4 mr-2" />
-                Admin Users
-              </TabsTrigger>
-            )}
-            {canAccessTab('adminManagement') && (
-              <TabsTrigger value="adminManagement" className="data-[state=active]:bg-blue-600">
-                <UsersRound className="size-4 mr-2" />
-                Admin Management
-              </TabsTrigger>
-            )}
-            {canAccessTab('settings') && (
-              <TabsTrigger value="settings" className="data-[state=active]:bg-blue-600">
-                <Settings className="size-4 mr-2" />
-                Settings
-              </TabsTrigger>
-            )}
-            {canAccessTab('referrals') && (
-              <TabsTrigger value="referrals" className="data-[state=active]:bg-blue-600">
-                <Gift className="size-4 mr-2" />
-                Referrals
-              </TabsTrigger>
-            )}
-            {canAccessTab('communication') && (
-              <TabsTrigger value="communication" className="data-[state=active]:bg-blue-600">
-                <Mail className="size-4 mr-2" />
-                Communication
-              </TabsTrigger>
-            )}
-            {canAccessTab('mobile') && (
-              <TabsTrigger value="mobile" className="data-[state=active]:bg-blue-600">
-                <Smartphone className="size-4 mr-2" />
-                Mobile App
-              </TabsTrigger>
-            )}
-            {canAccessTab('audit') && (
-              <TabsTrigger value="audit" className="data-[state=active]:bg-blue-600">
-                <ScrollText className="size-4 mr-2" />
-                Audit Log
-              </TabsTrigger>
-            )}
-          </TabsList>
+      {/* Body: vertical nav + content */}
+      <div className="flex-1 flex min-h-0">
+        {/* Desktop vertical nav */}
+        <motion.aside
+          initial={{ x: -24, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="hidden lg:flex w-64 xl:w-72 shrink-0 flex-col border-r border-blue-500/15 bg-slate-900/50 backdrop-blur-sm"
+        >
+          <AdminSideNav
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            allowMain={canAccessTab}
+            allowSub={tabs.allowSub}
+            pendingSupportCount={pendingSupportCount}
+          />
+        </motion.aside>
 
+        {/* Mobile drawer */}
+        <AnimatePresence>
+          {mobileNavOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                onClick={() => setMobileNavOpen(false)}
+                className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm lg:hidden"
+              />
+              <motion.aside
+                initial={{ x: -300 }} animate={{ x: 0 }} exit={{ x: -300 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+                className="fixed left-0 top-0 bottom-0 z-[61] w-72 max-w-[85vw] bg-slate-900 border-r border-blue-500/20 flex flex-col lg:hidden"
+              >
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+                  <span className="text-white font-semibold">Menu</span>
+                  <Button variant="ghost" size="icon" onClick={() => setMobileNavOpen(false)} className="text-slate-400">
+                    <X className="size-4" />
+                  </Button>
+                </div>
+                <div className="flex-1 min-h-0">
+                  <AdminSideNav
+                    activeTab={activeTab}
+                    onTabChange={setActiveTab}
+                    allowMain={canAccessTab}
+                    allowSub={tabs.allowSub}
+                    pendingSupportCount={pendingSupportCount}
+                    onNavigate={() => setMobileNavOpen(false)}
+                  />
+                </div>
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Main Content */}
+        <main className="flex-1 min-w-0 overflow-auto px-3 sm:px-6 py-5">
+          {/* Welcome banner */}
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="mb-5 rounded-2xl border border-blue-500/20 bg-gradient-to-r from-blue-600/15 via-slate-900/40 to-slate-900/10 px-4 sm:px-6 py-4 flex items-center gap-4"
+          >
+            <div className="size-11 rounded-full bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-200 font-bold text-lg shrink-0">
+              {String(adminName).charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-semibold text-white truncate">
+                {greeting}, {adminName} 👋
+              </h2>
+              <p className="text-sm text-slate-400 truncate">
+                Welcome back to the IndexpilotAI control center.
+              </p>
+            </div>
+          </motion.div>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           {!hasAllowedTabs && (
             <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-6 text-slate-300">
               No admin tabs are assigned to this account.
             </div>
           )}
+
 
           {canAccessTab('dashboard') && (
             <TabsContent value="dashboard">
@@ -415,8 +436,10 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
         </Tabs>
+        </main>
       </div>
     </div>
+
   );
 }
 

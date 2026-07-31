@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect, useCallback } from 'react';
+import { useAdminSubTabSync } from '@/hooks/useAdminSubTabSync';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { 
@@ -106,6 +107,7 @@ const DASHBOARD_SUB_TABS = ['overview', 'revenue', 'users', 'trading', 'system']
 export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboardProps) {
   const tabPerms = useAllowedTabs();
   const [activeSubTab, setActiveSubTab] = useState('overview');
+  useAdminSubTabSync('dashboard', setActiveSubTab);
   const [stats, setStats] = useState<AdvancedStats>({
     totalRevenue: 0,
     monthlyRevenue: 0,
