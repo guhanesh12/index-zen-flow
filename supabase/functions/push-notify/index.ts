@@ -143,6 +143,22 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
+    // 🔕 Respect the admin on/off switch for this auto-notification event
+    if (event) {
+      const { data: tpl } = await admin
+        .from("auto_notification_templates")
+        .select("enabled")
+        .eq("event", String(event))
+        .maybeSingle();
+      if (tpl && tpl.enabled === false) {
+        return new Response(
+          JSON.stringify({ success: true, skipped: true, reason: "event_disabled", event }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
+
     let query = admin.from("kv_store_c4d79cb7").select("key, value").like("key", "push_subscriber:%");
     const { data: rows, error } = await query;
     if (error) throw new Error(error.message);
