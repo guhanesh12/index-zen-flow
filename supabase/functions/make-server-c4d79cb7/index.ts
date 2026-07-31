@@ -5358,6 +5358,23 @@ app.post("/make-server-c4d79cb7/wallet/verify-payment", async (c) => {
       return c.json({ error: 'Order not found' }, 404);
     }
 
+    // 🔒 Replay protection: claim the order BEFORE crediting anything.
+    if (orderDetails.status && orderDetails.status !== 'created') {
+      console.warn(`⚠️ Duplicate verify-payment for order ${razorpay_order_id} (status=${orderDetails.status})`);
+      return c.json({ error: 'This payment has already been processed' }, 409);
+    }
+    await kv.set(`razorpay_order:${razorpay_order_id}`, {
+      ...orderDetails,
+      status: 'processing',
+      paymentId: razorpay_payment_id,
+      claimedAt: Date.now(),
+    });
+    // Re-read to detect a concurrent claim that won the race.
+    const claimed = await kv.get(`razorpay_order:${razorpay_order_id}`);
+    if (!claimed || (claimed.paymentId && claimed.paymentId !== razorpay_payment_id)) {
+      return c.json({ error: 'This payment has already been processed' }, 409);
+    }
+
     // Credit wallet
     const wallet = await kv.get(`wallet:${user.id}`) || { balance: 0, totalProfit: 0, totalDeducted: 0 };
     const newBalance = (wallet.balance || 0) + orderDetails.amount;
