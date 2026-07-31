@@ -937,17 +937,31 @@ function AutoNotificationTemplates({ accessToken }: { accessToken: string }) {
         ) : (
           rows.map((row) => (
             <div key={row.event} className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-white">{LABEL[row.event] || row.event}</div>
-                <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!row.enabled}
-                    onChange={(e) => toggle(row, e.target.checked)}
-                  />
-                  {row.enabled ? 'On' : 'Off'}
-                </label>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-white">{LABEL[row.event] || row.event}</div>
+                  <div className="text-xs text-zinc-500">{WHEN[row.event] || `Event key: ${row.event}`}</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!row.enabled}
+                      onChange={(e) => toggle(row, e.target.checked)}
+                    />
+                    {row.enabled ? 'On' : 'Off'}
+                  </label>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => removeTemplate(row.event)}
+                    className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               </div>
+
 
               <div className="space-y-2">
                 <Label className="text-xs">Title</Label>
