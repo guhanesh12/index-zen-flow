@@ -145,10 +145,11 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
     if (onClose) onClose();
   };
 
-  const canAccessTab = (tab: string) => {
+  const canAccessTab = useCallback((tab: string) => {
     if (tabs.loading) return false;
     return tabs.allowMain(tab);
-  };
+  }, [tabs.loading, tabs.permissionKey]);
+
 
   // Listen for pending support count updates
   useEffect(() => {
