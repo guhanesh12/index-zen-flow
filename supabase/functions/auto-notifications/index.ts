@@ -82,7 +82,61 @@ async function sendBroadcast(event: string) {
   return { ok: resp.ok, event, response: j };
 }
 
+// 💰 LOW WALLET BALANCE — notify users with balance < threshold, once per day
+async function sendLowBalanceAlerts(threshold = 100) {
+  const tpl = await loadTemplate("LOW_BALANCE");
+  if (!tpl || !tpl.enabled) return { skipped: true, reason: "template_disabled_or_missing", event: "LOW_BALANCE" };
+
+  const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); // IST date
+  const { data: rows, error } = await admin
+    .from("kv_store_c4d79cb7")
+    .select("key, value")
+    .like("key", "wallet:%");
+  if (error) throw new Error(error.message);
+
+  let sent = 0, skipped = 0;
+  for (const r of rows || []) {
+    const userId = String(r.key).slice("wallet:".length);
+    const balance = Number((r.value as any)?.balance ?? 0);
+    if (!userId || !isFinite(balance) || balance >= threshold) continue;
+
+    const markKey = `low_balance_sent:${userId}:${today}`;
+    const { data: already } = await admin
+      .from("kv_store_c4d79cb7")
+      .select("key")
+      .eq("key", markKey)
+      .maybeSingle();
+    if (already) { skipped++; continue; }
+
+    const title = String(tpl.title || "💰 Low Wallet Balance")
+      .replace(/\{balance\}/g, balance.toFixed(2));
+    const body = String(tpl.body || "Your balance is low. Recharge now and keep trading for profit!")
+      .replace(/\{balance\}/g, balance.toFixed(2));
+
+    await fetch(PUSH_NOTIFY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-internal-key": INTERNAL_KEY },
+      body: JSON.stringify({
+        event: "LOW_BALANCE",
+        userId,
+        title,
+        body,
+        imageUrl: tpl.image_url || undefined,
+        data: { source: "auto", event: "LOW_BALANCE", balance, url: "/wallet" },
+      }),
+    }).catch((e) => console.error("low_balance push failed", userId, e));
+
+    await admin.from("kv_store_c4d79cb7").upsert(
+      { key: markKey, value: { sentAt: Date.now(), balance } },
+      { onConflict: "key" },
+    );
+    sent++;
+  }
+  return { event: "LOW_BALANCE", threshold, scanned: rows?.length || 0, sent, skipped };
+}
+
 Deno.serve(async (req) => {
+
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const providedKey = req.headers.get("x-internal-key") || "";
