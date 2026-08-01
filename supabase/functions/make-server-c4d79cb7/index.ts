@@ -5008,7 +5008,11 @@ app.post('/make-server-c4d79cb7/get-journal-entries', async (c) => {
     // Sort by timestamp descending (newest first)
     entries.sort((a: any, b: any) => b.timestamp - a.timestamp);
 
+    // Collapse duplicates (same day + same contract synced from both tradebook and positions)
+    entries = dedupeJournalEntries(entries);
+
     console.log(`📊 Retrieved ${entries.length} journal entries for user`);
+
 
     return c.json({ success: true, entries });
   } catch (error: any) {
