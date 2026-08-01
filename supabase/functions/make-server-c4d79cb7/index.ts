@@ -4939,7 +4939,47 @@ app.post('/make-server-c4d79cb7/add-journal-entry', async (c) => {
   }
 });
 
+// Normalize a broker symbol so the SAME contract written in different formats
+// ("NIFTY-Jul2026-24150-PE" vs "NIFTY 21 JUL 24150 PUT") maps to one key.
+function normalizeJournalSymbol(sym: string): string {
+  const s = String(sym || '').toUpperCase();
+  if (!s) return '';
+  let optType = '';
+  if (/\bPE\b|PUT/.test(s)) optType = 'PE';
+  else if (/\bCE\b|CALL/.test(s)) optType = 'CE';
+  const underlying =
+    ['BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX', 'NIFTY'].find((u) => s.includes(u)) ||
+    (s.match(/[A-Z]+/)?.[0] ?? '');
+  const nums = (s.match(/\d+/g) || []).map(Number).filter((n) => n >= 100);
+  const strike = nums.length ? Math.max(...nums) : 0;
+  if (underlying && strike && optType) return `${underlying}|${strike}|${optType}`;
+  return s.replace(/[^A-Z0-9]/g, '');
+}
+
+// Remove duplicate journal rows for the same day + same contract (keeps the richest entry)
+function dedupeJournalEntries(entries: any[]): any[] {
+  const seen = new Map<string, any>();
+  const out: any[] = [];
+  for (const e of entries) {
+    const key = `${e?.date}|${normalizeJournalSymbol(e?.symbol)}`;
+    const prev = seen.get(key);
+    if (!prev) {
+      seen.set(key, e);
+      out.push(e);
+      continue;
+    }
+    // Prefer the entry with a non-zero P&L / more complete data
+    if (Math.abs(Number(e?.pnl) || 0) > Math.abs(Number(prev?.pnl) || 0)) {
+      const idx = out.indexOf(prev);
+      if (idx >= 0) out[idx] = e;
+      seen.set(key, e);
+    }
+  }
+  return out;
+}
+
 // Get journal entries for user
+
 app.post('/make-server-c4d79cb7/get-journal-entries', async (c) => {
   try {
     const { user, error: authError } = await validateAuth(c);
@@ -4968,7 +5008,11 @@ app.post('/make-server-c4d79cb7/get-journal-entries', async (c) => {
     // Sort by timestamp descending (newest first)
     entries.sort((a: any, b: any) => b.timestamp - a.timestamp);
 
+    // Collapse duplicates (same day + same contract synced from both tradebook and positions)
+    entries = dedupeJournalEntries(entries);
+
     console.log(`📊 Retrieved ${entries.length} journal entries for user`);
+
 
     return c.json({ success: true, entries });
   } catch (error: any) {
@@ -5042,11 +5086,16 @@ async function syncUserJournalTrades(userId: string): Promise<{ success: boolean
       groups.get(key)!.push(t);
     }
 
+    const addedKeys = new Set<string>();
+
     for (const [key, list] of groups.entries()) {
       const [date, symbol] = key.split('|');
+      const normKey = `${date}|${normalizeJournalSymbol(symbol)}`;
+      if (addedKeys.has(normKey)) { skippedCount++; continue; }
       const existingForDay = await kv.getByPrefix(`journal:${userId}:${date}`);
-      const dup = existingForDay.find((e: any) => e.value?.symbol === symbol);
+      const dup = existingForDay.find((e: any) => normalizeJournalSymbol(e.value?.symbol) === normalizeJournalSymbol(symbol));
       if (dup) { skippedCount++; continue; }
+
 
       let buyQty = 0, buyVal = 0, sellQty = 0, sellVal = 0;
       for (const t of list) {
@@ -5079,17 +5128,23 @@ async function syncUserJournalTrades(userId: string): Promise<{ success: boolean
         orderId: list[0]?.orderId || `TRD_${date}_${symbol}`,
         notes: `Dhan TradeBook | ${list.length} trades | Buy ₹${avgBuy.toFixed(2)} → Sell ₹${avgSell.toFixed(2)}`,
       });
+      addedKeys.add(normKey);
       addedCount++;
     }
 
     // Today's open/closed positions
     const today = new Date().toISOString().split('T')[0];
     const existingToday = await kv.getByPrefix(`journal:${userId}:${today}`);
-    const existingSymbolsToday = new Set(existingToday.map((e: any) => e.value?.symbol).filter(Boolean));
+    const existingSymbolsToday = new Set(
+      existingToday.map((e: any) => normalizeJournalSymbol(e.value?.symbol)).filter(Boolean)
+    );
 
     for (const pos of positions) {
       const symbol = pos.tradingSymbol || `Security ${pos.securityId}`;
-      if (existingSymbolsToday.has(symbol)) { skippedCount++; continue; }
+      const normToday = normalizeJournalSymbol(symbol);
+      if (existingSymbolsToday.has(normToday) || addedKeys.has(`${today}|${normToday}`)) { skippedCount++; continue; }
+      existingSymbolsToday.add(normToday);
+
 
       const realizedPnL = parseFloat(pos.realizedProfit || pos.realizedPnl || 0);
       const unrealizedPnL = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || 0);
