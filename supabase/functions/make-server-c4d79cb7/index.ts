@@ -5086,11 +5086,16 @@ async function syncUserJournalTrades(userId: string): Promise<{ success: boolean
       groups.get(key)!.push(t);
     }
 
+    const addedKeys = new Set<string>();
+
     for (const [key, list] of groups.entries()) {
       const [date, symbol] = key.split('|');
+      const normKey = `${date}|${normalizeJournalSymbol(symbol)}`;
+      if (addedKeys.has(normKey)) { skippedCount++; continue; }
       const existingForDay = await kv.getByPrefix(`journal:${userId}:${date}`);
-      const dup = existingForDay.find((e: any) => e.value?.symbol === symbol);
+      const dup = existingForDay.find((e: any) => normalizeJournalSymbol(e.value?.symbol) === normalizeJournalSymbol(symbol));
       if (dup) { skippedCount++; continue; }
+
 
       let buyQty = 0, buyVal = 0, sellQty = 0, sellVal = 0;
       for (const t of list) {
