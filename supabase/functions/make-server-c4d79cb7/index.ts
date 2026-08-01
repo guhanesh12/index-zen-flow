@@ -5128,17 +5128,23 @@ async function syncUserJournalTrades(userId: string): Promise<{ success: boolean
         orderId: list[0]?.orderId || `TRD_${date}_${symbol}`,
         notes: `Dhan TradeBook | ${list.length} trades | Buy ₹${avgBuy.toFixed(2)} → Sell ₹${avgSell.toFixed(2)}`,
       });
+      addedKeys.add(normKey);
       addedCount++;
     }
 
     // Today's open/closed positions
     const today = new Date().toISOString().split('T')[0];
     const existingToday = await kv.getByPrefix(`journal:${userId}:${today}`);
-    const existingSymbolsToday = new Set(existingToday.map((e: any) => e.value?.symbol).filter(Boolean));
+    const existingSymbolsToday = new Set(
+      existingToday.map((e: any) => normalizeJournalSymbol(e.value?.symbol)).filter(Boolean)
+    );
 
     for (const pos of positions) {
       const symbol = pos.tradingSymbol || `Security ${pos.securityId}`;
-      if (existingSymbolsToday.has(symbol)) { skippedCount++; continue; }
+      const normToday = normalizeJournalSymbol(symbol);
+      if (existingSymbolsToday.has(normToday) || addedKeys.has(`${today}|${normToday}`)) { skippedCount++; continue; }
+      existingSymbolsToday.add(normToday);
+
 
       const realizedPnL = parseFloat(pos.realizedProfit || pos.realizedPnl || 0);
       const unrealizedPnL = parseFloat(pos.unrealizedProfit || pos.unrealizedPnl || 0);
