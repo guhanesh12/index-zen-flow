@@ -156,6 +156,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (action === "low_balance") {
+      const threshold = Number(body?.threshold ?? 100);
+      const r = await sendLowBalanceAlerts(isFinite(threshold) ? threshold : 100);
+      return new Response(JSON.stringify({ success: true, action, ...r }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+
+
     if (action === "market_open" || action === "market_close") {
       const trading = await isTradingDay();
       if (!trading) {
