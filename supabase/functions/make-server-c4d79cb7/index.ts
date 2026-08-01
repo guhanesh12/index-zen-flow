@@ -6739,11 +6739,31 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
       return c.json({ error: 'Invalid order' }, 400);
     }
 
+    // 🔒 Replay protection: claim the order BEFORE any side effects.
+    if (pendingOrder.status !== 'created') {
+      console.warn(`⚠️ Replay blocked for ip order ${razorpay_order_id} (status=${pendingOrder.status})`);
+      return c.json({ error: 'This payment has already been processed', alreadyProcessed: true }, 409);
+    }
+    pendingOrder.status = 'processing';
+    pendingOrder.paymentId = razorpay_payment_id;
+    pendingOrder.claimedAt = new Date().toISOString();
+    await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
+
+    // Re-read to confirm we own the claim (guards against concurrent duplicates)
+    const claimed = await kv.get(`pending_ip_order:${razorpay_order_id}`) as any;
+    if (!claimed || claimed.status !== 'processing' || claimed.paymentId !== razorpay_payment_id) {
+      return c.json({ error: 'This payment has already been processed', alreadyProcessed: true }, 409);
+    }
+
     await VPSProvisioning.reconcileUserProvisioningJob(user.id);
     const existingAssignment = await IPPoolManager.getUserIPAssignment(user.id);
     if (existingAssignment) {
       const renewalResult = await IPPoolManager.renewUserIPAssignment(user.id, pendingOrder.amount, razorpay_payment_id);
       if (!renewalResult.success) {
+        // Release the claim so a legitimate retry can proceed
+        pendingOrder.status = 'created';
+        pendingOrder.lastError = renewalResult.error;
+        await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
         return c.json({ success: false, error: renewalResult.error, paymentId: razorpay_payment_id }, 500);
       }
 
@@ -6752,6 +6772,7 @@ app.post("/make-server-c4d79cb7/ip-pool/verify-payment-and-provision", async (c)
       pendingOrder.paidAt = new Date().toISOString();
       pendingOrder.isRenewal = true;
       await kv.set(`pending_ip_order:${razorpay_order_id}`, pendingOrder);
+
 
       await kv.set(`transaction:${Date.now()}_${user.id}`, {
         userId: user.id,
