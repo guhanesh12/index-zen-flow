@@ -4939,7 +4939,47 @@ app.post('/make-server-c4d79cb7/add-journal-entry', async (c) => {
   }
 });
 
+// Normalize a broker symbol so the SAME contract written in different formats
+// ("NIFTY-Jul2026-24150-PE" vs "NIFTY 21 JUL 24150 PUT") maps to one key.
+function normalizeJournalSymbol(sym: string): string {
+  const s = String(sym || '').toUpperCase();
+  if (!s) return '';
+  let optType = '';
+  if (/\bPE\b|PUT/.test(s)) optType = 'PE';
+  else if (/\bCE\b|CALL/.test(s)) optType = 'CE';
+  const underlying =
+    ['BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX', 'NIFTY'].find((u) => s.includes(u)) ||
+    (s.match(/[A-Z]+/)?.[0] ?? '');
+  const nums = (s.match(/\d+/g) || []).map(Number).filter((n) => n >= 100);
+  const strike = nums.length ? Math.max(...nums) : 0;
+  if (underlying && strike && optType) return `${underlying}|${strike}|${optType}`;
+  return s.replace(/[^A-Z0-9]/g, '');
+}
+
+// Remove duplicate journal rows for the same day + same contract (keeps the richest entry)
+function dedupeJournalEntries(entries: any[]): any[] {
+  const seen = new Map<string, any>();
+  const out: any[] = [];
+  for (const e of entries) {
+    const key = `${e?.date}|${normalizeJournalSymbol(e?.symbol)}`;
+    const prev = seen.get(key);
+    if (!prev) {
+      seen.set(key, e);
+      out.push(e);
+      continue;
+    }
+    // Prefer the entry with a non-zero P&L / more complete data
+    if (Math.abs(Number(e?.pnl) || 0) > Math.abs(Number(prev?.pnl) || 0)) {
+      const idx = out.indexOf(prev);
+      if (idx >= 0) out[idx] = e;
+      seen.set(key, e);
+    }
+  }
+  return out;
+}
+
 // Get journal entries for user
+
 app.post('/make-server-c4d79cb7/get-journal-entries', async (c) => {
   try {
     const { user, error: authError } = await validateAuth(c);
