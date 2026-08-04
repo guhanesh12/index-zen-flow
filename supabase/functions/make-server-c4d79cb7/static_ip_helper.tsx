@@ -344,9 +344,11 @@ export async function placeOrderViaStaticIP(
         errorData.remarks?.errorMessage ||
         (typeof errorData.error === "string" ? errorData.error : null) ||
         errorData.message ||
-        `VPS server error: ${response.status}`;
+        (errorText ? errorText.substring(0, 300) : `VPS server error: ${response.status}`);
       const finalMsg = errorCode ? `${errorCode}: ${msg}` : msg;
+      console.error(`❌ [IP ${userIP.ipAddress}] Dhan rejected order → ${finalMsg}`);
       throw new Error(finalMsg);
+
     }
 
     const rawResult = await response.json();
