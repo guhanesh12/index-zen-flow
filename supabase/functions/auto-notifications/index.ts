@@ -224,6 +224,14 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    if (action === "token_expiry") {
+      const within = Number(body?.withinMinutes ?? 60);
+      const r = await sendTokenExpiryAlerts(isFinite(within) ? within : 60);
+      return new Response(JSON.stringify({ success: true, action, ...r }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
 
 
