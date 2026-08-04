@@ -892,9 +892,10 @@ export function SymbolManager({ serverUrl, accessToken }: SymbolManagerProps) {
         // ── Build a short card message with the real Dhan output ─
         let cardMsg: string;
         if (data.errorCode === 'TOKEN_EXPIRED') {
-          cardMsg = 'Dhan Error: Invalid Token (DH-908)\nAction required: Update your access token in Broker Setup.';
+          cardMsg = 'Dhan Error: Invalid Token (DH-901)\nAction required: Update your access token in Broker Setup.';
         } else if (data.errorCode === 'IP_WHITELIST_PENDING') {
-          cardMsg = `Dhan Error: Invalid IP (DH-905)\nVPS IP ${data.vpsIP || ''} not yet whitelisted — wait 15–30 min.`;
+          cardMsg = `Dhan Error: IP not whitelisted\nVPS IP ${data.vpsIP || ''} not yet whitelisted — wait 15–30 min.`;
+
         } else {
           cardMsg = `Dhan Response: ${rawDhanMsg}`;
         }
