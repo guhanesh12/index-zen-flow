@@ -284,16 +284,21 @@ export async function placeOrderViaStaticIP(
         errorData.errorCode ||
         "";
 
-      // ── Detect Dhan Invalid Token (DH-908 / access token expired) ─
+      // ── Detect Dhan Invalid Token (DH-901 = Invalid_Authentication) ─
+      // NOTE: DH-908 is Dhan's *Internal Server Error* code, NOT a token error.
+      // Classifying it as a token error made users rotate a perfectly valid token.
+      const lowerMsg = rawMsg.toLowerCase();
       const isTokenError =
-        errorCode === "DH-908" ||
-        rawMsg.toLowerCase() === "invalid token" ||
-        rawMsg.toLowerCase().includes("invalid token") ||
-        rawMsg.toLowerCase().includes("token expired") ||
-        rawMsg.toLowerCase().includes("access token");
+        errorCode === "DH-901" ||
+        (errorData.error?.errorType || errorData.errorType) === "Invalid_Authentication" ||
+        lowerMsg === "invalid token" ||
+        lowerMsg.includes("invalid token") ||
+        lowerMsg.includes("token expired") ||
+        lowerMsg.includes("token is invalid") ||
+        lowerMsg.includes("access token is invalid");
 
       if (isTokenError) {
-        console.log(`⚠️ [IP ${userIP.ipAddress}] Dhan access token invalid or expired (DH-908).`);
+        console.log(`⚠️ [IP ${userIP.ipAddress}] Dhan access token invalid or expired (${errorCode || "DH-901"}).`);
         const tokenError = new Error(
           `TOKEN_EXPIRED:Your Dhan access token has expired or changed. ` +
           `Please go to Broker Setup → Dhan Credentials and update your access token with the latest one from your Dhan account.`
@@ -302,21 +307,25 @@ export async function placeOrderViaStaticIP(
         throw tokenError;
       }
 
-      // ✅ TIGHTENED: only trigger IP-whitelist error on DH-905 OR very specific phrases.
-      // Previously matched a bare `"ip address"` substring which produced false positives on many
-      // unrelated Dhan errors (margin, product, symbol errors that happen to mention "IP address").
-      const lowerMsg = rawMsg.toLowerCase();
+      // ✅ FIXED: DH-905 is Dhan's generic **Input Exception** code (bad/missing order
+      // fields) — it is NOT an IP-whitelist error. Treating it as one hid the real
+      // rejection reason and told users to "wait for IP propagation" forever, even
+      // though their VPS + whitelist were already active.
+      // Only explicit IP-whitelist wording (or DH-902 Invalid_Access mentioning IP)
+      // should raise IP_WHITELIST_PENDING.
+      const mentionsIp = lowerMsg.includes(" ip ") || lowerMsg.includes("ip address") || lowerMsg.startsWith("ip ");
       const isIPError =
-        errorCode === "DH-905" ||
         lowerMsg.includes("ip not whitelisted") ||
         lowerMsg.includes("ip is not whitelisted") ||
         lowerMsg.includes("ip address is not whitelisted") ||
+        lowerMsg.includes("not whitelisted") && mentionsIp ||
         lowerMsg.includes("static ip not") ||
         lowerMsg.includes("whitelist your ip") ||
-        lowerMsg.includes("invalid ip address");
+        lowerMsg.includes("invalid ip address") ||
+        ((errorCode === "DH-902" || (errorData.error?.errorType || errorData.errorType) === "Invalid_Access") && mentionsIp);
 
       if (isIPError) {
-        console.log(`⚠️ [IP ${userIP.ipAddress}] Dhan IP whitelist not yet active (DH-905). User must wait for propagation.`);
+        console.log(`⚠️ [IP ${userIP.ipAddress}] Dhan IP whitelist not yet active. User must wait for propagation.`);
         const ipError = new Error(
           `IP_WHITELIST_PENDING:Your VPS IP ${userIP.ipAddress} has not been activated by Dhan yet. ` +
           `After adding a new IP in Dhan's Static IP Settings, please wait 15–30 minutes before placing your first order. ` +
@@ -326,6 +335,7 @@ export async function placeOrderViaStaticIP(
         (ipError as any).vpsIP = userIP.ipAddress;
         throw ipError;
       }
+
 
       // Surface the REAL Dhan error to the user (with error code if present) so they know
       // what actually went wrong instead of being told to wait for IP propagation forever.
