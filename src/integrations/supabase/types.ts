@@ -1640,6 +1640,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      broker_token_expiries: {
+        Args: never
+        Returns: {
+          exp_epoch: number
+          user_id: string
+        }[]
+      }
       decrypt_broker_secret: { Args: { _ciphertext: string }; Returns: string }
       encrypt_broker_secret: { Args: { _plaintext: string }; Returns: string }
       execute_backend_engine: { Args: never; Returns: undefined }

@@ -135,6 +135,67 @@ async function sendLowBalanceAlerts(threshold = 100) {
   return { event: "LOW_BALANCE", threshold, scanned: rows?.length || 0, sent, skipped };
 }
 
+// 🔑 DHAN TOKEN EXPIRY — warn when token expires within `withinMinutes`, once per window
+async function sendTokenExpiryAlerts(withinMinutes = 60) {
+  const tplSoon = await loadTemplate("TOKEN_EXPIRING");
+  const tplGone = await loadTemplate("TOKEN_EXPIRED");
+
+  const { data: rows, error } = await admin.rpc("broker_token_expiries");
+  if (error) throw new Error(error.message);
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  let warned = 0, expired = 0, ok = 0, skipped = 0;
+
+  for (const r of (rows as any[]) || []) {
+    const userId = r.user_id as string;
+    const exp = Number(r.exp_epoch || 0);
+    if (!userId || !exp) continue;
+
+    const minsLeft = Math.round((exp - nowSec) / 60);
+    let tpl: any = null, event = "";
+
+    if (minsLeft <= 0) { tpl = tplGone; event = "TOKEN_EXPIRED"; }
+    else if (minsLeft <= withinMinutes) { tpl = tplSoon; event = "TOKEN_EXPIRING"; }
+    else { ok++; continue; }
+
+    if (!tpl || !tpl.enabled) { skipped++; continue; }
+
+    // dedupe: one alert per user per event per token-expiry timestamp
+    const markKey = `token_alert_sent:${userId}:${event}:${exp}`;
+    const { data: already } = await admin
+      .from("kv_store_c4d79cb7")
+      .select("key")
+      .eq("key", markKey)
+      .maybeSingle();
+    if (already) { skipped++; continue; }
+
+    const fill = (s: string) =>
+      String(s || "").replace(/\{minutes\}/g, String(Math.max(minsLeft, 0)));
+
+    await fetch(PUSH_NOTIFY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-internal-key": INTERNAL_KEY },
+      body: JSON.stringify({
+        event,
+        userId,
+        title: fill(tpl.title),
+        body: fill(tpl.body),
+        imageUrl: tpl.image_url || undefined,
+        data: { source: "auto", event, minutesLeft: minsLeft, url: "/broker" },
+      }),
+    }).catch((e) => console.error("token_expiry push failed", userId, e));
+
+    await admin.from("kv_store_c4d79cb7").upsert(
+      { key: markKey, value: { sentAt: Date.now(), exp, minsLeft } },
+      { onConflict: "key" },
+    );
+
+    if (event === "TOKEN_EXPIRED") expired++; else warned++;
+  }
+
+  return { event: "TOKEN_EXPIRY", withinMinutes, scanned: (rows as any[])?.length || 0, warned, expired, ok, skipped };
+}
+
 Deno.serve(async (req) => {
 
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -163,6 +224,14 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    if (action === "token_expiry") {
+      const within = Number(body?.withinMinutes ?? 60);
+      const r = await sendTokenExpiryAlerts(isFinite(within) ? within : 60);
+      return new Response(JSON.stringify({ success: true, action, ...r }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
 
 
