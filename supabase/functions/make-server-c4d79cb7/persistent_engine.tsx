@@ -293,7 +293,75 @@ function _inferIndexName(sym: string): string {
   if (s.includes("SENSEX")) return "SENSEX";
   return "NIFTY";
 }
-async function computeManualLotRisk(
+
+// 📦 Exchange-mandated lot sizes (NSE/BSE index options, current contract specs).
+// Used ONLY to make order quantity a valid multiple — nothing else in the engine changes.
+const EXCHANGE_LOT_SIZES: Record<string, number> = {
+  NIFTY: 75,
+  BANKNIFTY: 35,
+  FINNIFTY: 65,
+  MIDCPNIFTY: 140,
+  NIFTYNXT50: 25,
+  SENSEX: 20,
+  BANKEX: 30,
+  SENSEX50: 60,
+};
+
+function detectIndexKeyFromSymbol(symbolName: string, fallbackIndex?: string): string {
+  const s = String(symbolName || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const keys = ["MIDCPNIFTY", "NIFTYNXT50", "FINNIFTY", "BANKNIFTY", "BANKEX", "SENSEX50", "SENSEX", "NIFTY"];
+  for (const k of keys) if (s.startsWith(k)) return k;
+  return String(fallbackIndex || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+// ✅ Returns a Dhan-valid quantity: an exact positive multiple of the true lot size.
+// Prevents "DH-905: Invalid Quantity" caused by stale lot_size values in instrument_master.
+function normalizeOrderQuantity(
+  symbolName: string,
+  indexName: string | undefined,
+  requestedQty: number,
+  storedLotSize?: number,
+): { quantity: number; lotSize: number; lotCount: number; adjusted: boolean } {
+  const key = detectIndexKeyFromSymbol(symbolName, indexName);
+  const exchangeLot = EXCHANGE_LOT_SIZES[key] || 0;
+  const stored = Math.max(0, Math.floor(Number(storedLotSize) || 0));
+  const lotSize = exchangeLot || stored || 1;
+
+  const reqQty = Math.max(0, Math.floor(Number(requestedQty) || 0));
+  // Derive intended lot count from whichever lot size the quantity was built with.
+  const basis = stored > 0 ? stored : lotSize;
+  const lotCount = Math.max(1, Math.round(reqQty / basis) || 1);
+
+  const quantity = lotSize * lotCount;
+  return { quantity, lotSize, lotCount, adjusted: quantity !== reqQty };
+}
+
+// 🗓️ Detects expired option contracts (e.g. "NIFTY-Jun2026-24300-CE" traded in Aug 2026).
+// Expired contracts are rejected by Dhan with generic DH-905 errors and must never be retried.
+function isExpiredContractSymbol(symbolName: string, expiryDate?: string): boolean {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (expiryDate) {
+    const d = new Date(expiryDate);
+    if (!isNaN(d.getTime())) {
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()) < today;
+    }
+  }
+
+  const m = String(symbolName || "")
+    .toUpperCase()
+    .match(/-(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{4})-/);
+  if (!m) return false;
+  const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+  const mi = months.indexOf(m[1]);
+  const yr = Number(m[2]);
+  if (mi < 0 || !yr) return false;
+  // Contract month strictly before current month → definitely expired.
+  return yr < now.getFullYear() || (yr === now.getFullYear() && mi < now.getMonth());
+}
+
+
   userId: string,
   indexName: string,
   qty: number,
