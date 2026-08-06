@@ -2014,7 +2014,7 @@ class PersistentTradingEngine {
                   index: indexName,
                   entryPrice: orderResult.averagePrice || orderResult.price || 0,
                   currentPrice: orderResult.averagePrice || orderResult.price || 0,
-                  quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
+                  quantity: orderQuantity,
                   targetAmount: symbol.targetAmount || 0,
                   stopLossAmount: symbol.stopLossAmount || 0,
                   trailingEnabled: symbol.trailingEnabled || false,
