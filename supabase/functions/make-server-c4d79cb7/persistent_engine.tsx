@@ -361,7 +361,7 @@ function isExpiredContractSymbol(symbolName: string, expiryDate?: string): boole
   return yr < now.getFullYear() || (yr === now.getFullYear() && mi < now.getMonth());
 }
 
-
+async function computeManualLotRisk(
   userId: string,
   indexName: string,
   qty: number,
