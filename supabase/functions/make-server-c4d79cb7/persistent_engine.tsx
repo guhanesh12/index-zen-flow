@@ -1644,7 +1644,9 @@ class PersistentTradingEngine {
                     });
                     continue;
                   }
-                  const finalQuantity = r.lot_size * lotCount;
+                  // 🔢 Use exchange lot size so quantity is always Dhan-valid (DH-905 guard)
+                  const autoQty = normalizeOrderQuantity(r.symbol, indexName, r.lot_size * lotCount, r.lot_size);
+                  const finalQuantity = autoQty.quantity;
 
                   // 🧮 Dynamic risk: per-lot × lot_count, then moneyness multiplier.
                   // ITM = slower/safer (bigger SL, smaller target); OTM = faster (smaller SL, bigger target).
