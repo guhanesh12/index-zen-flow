@@ -1928,10 +1928,44 @@ class PersistentTradingEngine {
 
             // ⚡ EXECUTE ORDER!
             if (action === "BUY_CALL" || action === "BUY_PUT") {
+              // 🗓️ Guard: never send an expired contract to Dhan (it returns generic DH-905).
+              if (isExpiredContractSymbol(normalizedSymbolName, symbol.expiry || symbol.expiry_date)) {
+                await this.appendSharedLog(userId, {
+                  type: "ERROR",
+                  timestamp: Date.now(),
+                  message: `❌ EXPIRED CONTRACT SKIPPED: ${normalizedSymbolName} has already expired. Remove/replace this symbol (or use an auto slot) — no order was sent.`,
+                  data: { index: indexName, action, symbol: normalizedSymbolName },
+                });
+                console.warn(`⏭️ Skipping expired contract ${normalizedSymbolName}`);
+                return;
+              }
+
               actionableOrderAttempted = true;
               this.markRecentOrderKey(orderKey);
+
+              // 🔢 Quantity must be an exact multiple of the exchange lot size
+              const rawQty = Number(symbol.quantity || symbol.lotSize || symbol.lot_size || 0) || 0;
+              const qtyInfo = normalizeOrderQuantity(
+                normalizedSymbolName,
+                indexName,
+                rawQty,
+                Number(symbol.lotSize || symbol.lot_size || 0) || 0,
+              );
+              const orderQuantity = qtyInfo.quantity;
+              if (qtyInfo.adjusted) {
+                console.log(
+                  `🔢 QTY FIXED: ${normalizedSymbolName} ${rawQty} → ${orderQuantity} (lot ${qtyInfo.lotSize} × ${qtyInfo.lotCount})`,
+                );
+                await this.appendSharedLog(userId, {
+                  type: "INFO",
+                  timestamp: Date.now(),
+                  message: `🔢 Quantity auto-corrected for ${normalizedSymbolName}: ${rawQty} → ${orderQuantity} (lot size ${qtyInfo.lotSize} × ${qtyInfo.lotCount} lot${qtyInfo.lotCount > 1 ? "s" : ""}).`,
+                  data: { index: indexName, symbol: normalizedSymbolName, oldQty: rawQty, newQty: orderQuantity, lotSize: qtyInfo.lotSize },
+                });
+              }
+
               console.log(
-                `\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || "UNKNOWN"}) for ${action} on ${normalizedExchangeSegment}`,
+                `\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || "UNKNOWN"}) for ${action} on ${normalizedExchangeSegment} qty ${orderQuantity}`,
               );
 
               const orderParams = {
@@ -1941,7 +1975,7 @@ class PersistentTradingEngine {
                 productType: "INTRADAY",
                 orderType: "MARKET",
                 validity: symbol.validity || "DAY",
-                quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
+                quantity: orderQuantity,
                 disclosedQuantity: symbol.disclosedQuantity || symbol.disclosed_quantity || 0,
                 price: 0,
                 triggerPrice: 0,
