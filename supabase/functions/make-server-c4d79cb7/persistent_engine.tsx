@@ -1685,7 +1685,7 @@ class PersistentTradingEngine {
                     securityId: String(r.security_id),
                     symbolId: String(r.security_id),
                     quantity: finalQuantity,
-                    lotSize: r.lot_size,
+                    lotSize: autoQty.lotSize,
                     lotCount,
                     strikePrice: r.strike_price,
                     expiry: r.expiry_date,
