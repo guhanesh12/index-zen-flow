@@ -293,6 +293,74 @@ function _inferIndexName(sym: string): string {
   if (s.includes("SENSEX")) return "SENSEX";
   return "NIFTY";
 }
+
+// 📦 Exchange-mandated lot sizes (NSE/BSE index options, current contract specs).
+// Used ONLY to make order quantity a valid multiple — nothing else in the engine changes.
+const EXCHANGE_LOT_SIZES: Record<string, number> = {
+  NIFTY: 75,
+  BANKNIFTY: 35,
+  FINNIFTY: 65,
+  MIDCPNIFTY: 140,
+  NIFTYNXT50: 25,
+  SENSEX: 20,
+  BANKEX: 30,
+  SENSEX50: 60,
+};
+
+function detectIndexKeyFromSymbol(symbolName: string, fallbackIndex?: string): string {
+  const s = String(symbolName || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const keys = ["MIDCPNIFTY", "NIFTYNXT50", "FINNIFTY", "BANKNIFTY", "BANKEX", "SENSEX50", "SENSEX", "NIFTY"];
+  for (const k of keys) if (s.startsWith(k)) return k;
+  return String(fallbackIndex || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+// ✅ Returns a Dhan-valid quantity: an exact positive multiple of the true lot size.
+// Prevents "DH-905: Invalid Quantity" caused by stale lot_size values in instrument_master.
+function normalizeOrderQuantity(
+  symbolName: string,
+  indexName: string | undefined,
+  requestedQty: number,
+  storedLotSize?: number,
+): { quantity: number; lotSize: number; lotCount: number; adjusted: boolean } {
+  const key = detectIndexKeyFromSymbol(symbolName, indexName);
+  const exchangeLot = EXCHANGE_LOT_SIZES[key] || 0;
+  const stored = Math.max(0, Math.floor(Number(storedLotSize) || 0));
+  const lotSize = exchangeLot || stored || 1;
+
+  const reqQty = Math.max(0, Math.floor(Number(requestedQty) || 0));
+  // Derive intended lot count from whichever lot size the quantity was built with.
+  const basis = stored > 0 ? stored : lotSize;
+  const lotCount = Math.max(1, Math.round(reqQty / basis) || 1);
+
+  const quantity = lotSize * lotCount;
+  return { quantity, lotSize, lotCount, adjusted: quantity !== reqQty };
+}
+
+// 🗓️ Detects expired option contracts (e.g. "NIFTY-Jun2026-24300-CE" traded in Aug 2026).
+// Expired contracts are rejected by Dhan with generic DH-905 errors and must never be retried.
+function isExpiredContractSymbol(symbolName: string, expiryDate?: string): boolean {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  if (expiryDate) {
+    const d = new Date(expiryDate);
+    if (!isNaN(d.getTime())) {
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()) < today;
+    }
+  }
+
+  const m = String(symbolName || "")
+    .toUpperCase()
+    .match(/-(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{4})-/);
+  if (!m) return false;
+  const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+  const mi = months.indexOf(m[1]);
+  const yr = Number(m[2]);
+  if (mi < 0 || !yr) return false;
+  // Contract month strictly before current month → definitely expired.
+  return yr < now.getFullYear() || (yr === now.getFullYear() && mi < now.getMonth());
+}
+
 async function computeManualLotRisk(
   userId: string,
   indexName: string,
@@ -1576,7 +1644,9 @@ class PersistentTradingEngine {
                     });
                     continue;
                   }
-                  const finalQuantity = r.lot_size * lotCount;
+                  // 🔢 Use exchange lot size so quantity is always Dhan-valid (DH-905 guard)
+                  const autoQty = normalizeOrderQuantity(r.symbol, indexName, r.lot_size * lotCount, r.lot_size);
+                  const finalQuantity = autoQty.quantity;
 
                   // 🧮 Dynamic risk: per-lot × lot_count, then moneyness multiplier.
                   // ITM = slower/safer (bigger SL, smaller target); OTM = faster (smaller SL, bigger target).
@@ -1615,7 +1685,7 @@ class PersistentTradingEngine {
                     securityId: String(r.security_id),
                     symbolId: String(r.security_id),
                     quantity: finalQuantity,
-                    lotSize: r.lot_size,
+                    lotSize: autoQty.lotSize,
                     lotCount,
                     strikePrice: r.strike_price,
                     expiry: r.expiry_date,
@@ -1860,10 +1930,44 @@ class PersistentTradingEngine {
 
             // ⚡ EXECUTE ORDER!
             if (action === "BUY_CALL" || action === "BUY_PUT") {
+              // 🗓️ Guard: never send an expired contract to Dhan (it returns generic DH-905).
+              if (isExpiredContractSymbol(normalizedSymbolName, symbol.expiry || symbol.expiry_date)) {
+                await this.appendSharedLog(userId, {
+                  type: "ERROR",
+                  timestamp: Date.now(),
+                  message: `❌ EXPIRED CONTRACT SKIPPED: ${normalizedSymbolName} has already expired. Remove/replace this symbol (or use an auto slot) — no order was sent.`,
+                  data: { index: indexName, action, symbol: normalizedSymbolName },
+                });
+                console.warn(`⏭️ Skipping expired contract ${normalizedSymbolName}`);
+                return;
+              }
+
               actionableOrderAttempted = true;
               this.markRecentOrderKey(orderKey);
+
+              // 🔢 Quantity must be an exact multiple of the exchange lot size
+              const rawQty = Number(symbol.quantity || symbol.lotSize || symbol.lot_size || 0) || 0;
+              const qtyInfo = normalizeOrderQuantity(
+                normalizedSymbolName,
+                indexName,
+                rawQty,
+                Number(symbol.lotSize || symbol.lot_size || 0) || 0,
+              );
+              const orderQuantity = qtyInfo.quantity;
+              if (qtyInfo.adjusted) {
+                console.log(
+                  `🔢 QTY FIXED: ${normalizedSymbolName} ${rawQty} → ${orderQuantity} (lot ${qtyInfo.lotSize} × ${qtyInfo.lotCount})`,
+                );
+                await this.appendSharedLog(userId, {
+                  type: "INFO",
+                  timestamp: Date.now(),
+                  message: `🔢 Quantity auto-corrected for ${normalizedSymbolName}: ${rawQty} → ${orderQuantity} (lot size ${qtyInfo.lotSize} × ${qtyInfo.lotCount} lot${qtyInfo.lotCount > 1 ? "s" : ""}).`,
+                  data: { index: indexName, symbol: normalizedSymbolName, oldQty: rawQty, newQty: orderQuantity, lotSize: qtyInfo.lotSize },
+                });
+              }
+
               console.log(
-                `\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || "UNKNOWN"}) for ${action} on ${normalizedExchangeSegment}`,
+                `\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || "UNKNOWN"}) for ${action} on ${normalizedExchangeSegment} qty ${orderQuantity}`,
               );
 
               const orderParams = {
@@ -1873,7 +1977,7 @@ class PersistentTradingEngine {
                 productType: "INTRADAY",
                 orderType: "MARKET",
                 validity: symbol.validity || "DAY",
-                quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
+                quantity: orderQuantity,
                 disclosedQuantity: symbol.disclosedQuantity || symbol.disclosed_quantity || 0,
                 price: 0,
                 triggerPrice: 0,
@@ -1912,7 +2016,7 @@ class PersistentTradingEngine {
                   index: indexName,
                   entryPrice: orderResult.averagePrice || orderResult.price || 0,
                   currentPrice: orderResult.averagePrice || orderResult.price || 0,
-                  quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
+                  quantity: orderQuantity,
                   targetAmount: symbol.targetAmount || 0,
                   stopLossAmount: symbol.stopLossAmount || 0,
                   trailingEnabled: symbol.trailingEnabled || false,
