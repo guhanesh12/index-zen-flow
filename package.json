@@ -76,6 +76,7 @@
     "react-hook-form": "^7.61.1",
     "react-hotkeys-hook": "^5.2.4",
     "react-joyride": "^3.1.0",
+    "react-markdown": "^10.1.0",
     "react-popper": "^2.3.0",
     "react-resizable-panels": "^2.1.9",
     "react-responsive-masonry": "^2.7.1",
