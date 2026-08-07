@@ -13,7 +13,8 @@ const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
 async function apiGet(path: string) {
   const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token || localStorage.getItem('admin_access_token') || '';
+  const token = localStorage.getItem('admin_access_token') || session?.access_token || '';
+
   const res = await fetch(`${FN_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
