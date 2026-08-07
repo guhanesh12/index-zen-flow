@@ -171,13 +171,22 @@ Both admin endpoints return `403 Forbidden` for non-admins.
 > 2. `summary` as markdown (`react-native-markdown-display`) — bold must render bold.
 > 3. Each `sections[]` item as its own soft panel: uppercase primary-coloured `heading` + bulleted `points` (markdown).
 > 4. `risk` in an amber warning strip with a shield icon.
-> 5. Action button from `answer.action` (green Place order / red Exit position), with spinner, disabled after success, and caption "no wallet charge".
+> 5. Action UI from `answer.action`:
+>    - `place_order` → green button → `?action=place-order`
+>    - `exit_position` → red button → `?action=exit-position`
+>    - `start_engine` → green **Start trading engine** → `?action=engine-start`
+>    - `stop_engine` → grey **Stop trading engine** → `?action=engine-stop`
+>    - `edit_slot` → inline form INSIDE the chat card, prefilled from `action.current`: Index picker (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY/SENSEX), Moneyness picker (ITM2/ITM1/ATM/OTM1/OTM2), numeric fields Lots, Target/lot, SL/lot, Trail activate, Trail step, and switches Slot enabled + Trailing SL. Save button → `?action=update-slot` with `{ slot, ...fields }`.
+>    - `connect_broker` → button that closes the sheet and navigates to the existing Broker screen (no API call).
+>    Each shows a spinner, disables after success, and captions "no wallet charge".
 > 6. Footer line: `₹X debited from wallet` or `Free — {freeReason}`.
 >
 > User messages: right-aligned primary bubble. Loading: "Analysing chart, signals & your position…" shimmer.
-> Quick chips on first open: next signal, why no trade today, hold or exit my position, last order status, why wallet debited.
+> Quick chips on first open: next signal, why no trade today, hold or exit my position, slot 1 details, start my trading engine, broker token expiry status.
 >
-> **Behaviour:** send last 8 turns as `history` (`{role, content}` where assistant content = `answer.summary`).
+> **Behaviour:** on sheet open call `GET ?action=history` and hydrate the transcript, then `GET ?action=config` for price + balance.
+> Send last 8 turns as `history` (`{role, content}` where assistant content = `answer.summary`).
 > On `402 INSUFFICIENT_BALANCE` open the existing recharge screen.
-> Action buttons call `?action=place-order` / `?action=exit-position` with the same access token; on success append a confirmation card and refresh positions/orders lists.
-> Never invent buttons — only render what `answer.action.type` returns.
+> After a successful engine/slot/order action, append the returned confirmation card and refresh the engine status / slot list / positions screens.
+> Never invent buttons — only render what `answer.action.type` returns. Every conversation is logged server-side and visible to admins, so do not add any local-only chat storage that diverges from `?action=history`.
+
