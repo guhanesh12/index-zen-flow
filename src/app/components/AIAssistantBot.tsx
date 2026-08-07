@@ -40,7 +40,103 @@ const MD = ({ children }: { children: string }) => (
   </ReactMarkdown>
 );
 
+const NUM_FIELDS = [
+  { key: "lotCount", label: "Lots", from: "lot_count" },
+  { key: "targetPerLot", label: "Target / lot ₹", from: "target_per_lot" },
+  { key: "stopLossPerLot", label: "Stop loss / lot ₹", from: "stop_loss_per_lot" },
+  { key: "trailingActivationPerLot", label: "Trail activate ₹", from: "trailing_activation_per_lot" },
+  { key: "trailingStepPerLot", label: "Trail step ₹", from: "trailing_step_per_lot" },
+];
+
+function SlotEditor({ action, onAction, actionState }) {
+  const cur = action.current || {};
+  const [form, setForm] = useState(() => {
+    const f: any = {
+      indexName: cur.index_name || "NIFTY",
+      moneyness: cur.moneyness || "ATM",
+      enabled: cur.enabled !== false,
+      trailingEnabled: cur.trailing_enabled !== false,
+    };
+    NUM_FIELDS.forEach((n) => { f[n.key] = String(cur[n.from] ?? ""); });
+    return f;
+  });
+
+  const set = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
+
+  return (
+    <div className="p-3 pt-0 space-y-2">
+      <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-primary flex items-center gap-1">
+          <SlidersHorizontal className="size-3" /> Edit Slot {action.slot}
+        </p>
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-[11px] text-muted-foreground">
+            Index
+            <select
+              value={form.indexName}
+              onChange={(e) => set("indexName", e.target.value)}
+              className="mt-0.5 w-full h-8 rounded-lg bg-background border border-border px-2 text-xs text-foreground"
+            >
+              {["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"].map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-[11px] text-muted-foreground">
+            Moneyness
+            <select
+              value={form.moneyness}
+              onChange={(e) => set("moneyness", e.target.value)}
+              className="mt-0.5 w-full h-8 rounded-lg bg-background border border-border px-2 text-xs text-foreground"
+            >
+              {["ITM2", "ITM1", "ATM", "OTM1", "OTM2"].map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </label>
+
+          {NUM_FIELDS.map((n) => (
+            <label key={n.key} className="text-[11px] text-muted-foreground">
+              {n.label}
+              <input
+                type="number"
+                inputMode="numeric"
+                value={form[n.key]}
+                onChange={(e) => set(n.key, e.target.value)}
+                className="mt-0.5 w-full h-8 rounded-lg bg-background border border-border px-2 text-xs text-foreground"
+              />
+            </label>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-4 pt-1">
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <input type="checkbox" checked={form.enabled} onChange={(e) => set("enabled", e.target.checked)} />
+            Slot enabled
+          </label>
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <input type="checkbox" checked={form.trailingEnabled} onChange={(e) => set("trailingEnabled", e.target.checked)} />
+            Trailing SL
+          </label>
+        </div>
+      </div>
+
+      <button
+        onClick={() => onAction("update-slot", { slot: action.slot, ...form })}
+        disabled={!!actionState.busy || actionState.done}
+        className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <SlidersHorizontal className="size-4" />}
+        {actionState.done ? "Slot updated ✓" : `Save Slot ${action.slot}`}
+      </button>
+      <p className="text-[10px] text-center text-muted-foreground">Saved instantly to your account · no wallet charge</p>
+    </div>
+  );
+}
+
 function AnswerCard({ answer, onAction, actionState }) {
+
   const meta = VERDICT_META[answer.verdict] || VERDICT_META.INFO;
   const VIcon = meta.icon;
   return (
