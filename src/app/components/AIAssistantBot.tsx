@@ -210,6 +210,53 @@ function AnswerCard({ answer, onAction, actionState }) {
         </div>
       )}
 
+      {answer.action?.type === "start_engine" && (
+        <div className="p-3 pt-0">
+          <button
+            onClick={() => onAction("engine-start", {})}
+            disabled={!!actionState.busy || actionState.done}
+            className="w-full h-10 rounded-xl bg-emerald-600 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-emerald-500 transition-colors"
+          >
+            {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <Power className="size-4" />}
+            {actionState.done ? "Engine started ✓" : answer.action.label || "Start trading engine"}
+          </button>
+          <p className="text-[10px] text-center text-muted-foreground mt-1">Starts VPS + signal engine · no wallet charge</p>
+        </div>
+      )}
+
+      {answer.action?.type === "stop_engine" && (
+        <div className="p-3 pt-0">
+          <button
+            onClick={() => onAction("engine-stop", {})}
+            disabled={!!actionState.busy || actionState.done}
+            className="w-full h-10 rounded-xl bg-slate-700 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-slate-600 transition-colors"
+          >
+            {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <PowerOff className="size-4" />}
+            {actionState.done ? "Engine stopped ✓" : answer.action.label || "Stop trading engine"}
+          </button>
+          <p className="text-[10px] text-center text-muted-foreground mt-1">Stops signal engine · no wallet charge</p>
+        </div>
+      )}
+
+      {answer.action?.type === "edit_slot" && (
+        <SlotEditor action={answer.action} onAction={onAction} actionState={actionState} />
+      )}
+
+      {answer.action?.type === "connect_broker" && (
+        <div className="p-3 pt-0">
+          <button
+            onClick={() => onAction("open-broker", {})}
+            className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            <Link2 className="size-4" />
+            {answer.action.label || "Open broker settings"}
+          </button>
+          <p className="text-[10px] text-center text-muted-foreground mt-1">Opens the Broker tab to add/refresh your Dhan access token</p>
+        </div>
+      )}
+
+
+
       {actionState.error && (
         <p className="px-3 pb-3 text-[11px] text-red-500">{actionState.error}</p>
       )}
