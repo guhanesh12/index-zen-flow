@@ -48,7 +48,7 @@ export type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
 const ADMIN_MAIN_TAB_KEYS = [
   'dashboard', 'users', 'transactions', 'support', 'landing', 'adminUsers',
-  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'audit',
+  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'aiChats', 'audit',
 ];
 
 export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedHotkey }: AdminDashboardProps) {
