@@ -4,6 +4,13 @@
 //   (greetings, balance lookups, how-it-works questions are FREE)
 // - Can place an order for an actionable signal, or exit a running position
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
+import {
+  analyseIndices,
+  analysePositionOption,
+  INDEX_META,
+  type DhanCreds,
+} from "./market_analysis.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
