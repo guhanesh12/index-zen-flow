@@ -97,10 +97,53 @@ Errors: `SIGNAL_NOT_FOUND` 404, `SIGNAL_EXPIRED` 400, `NO_SECURITY_ID` 400, `ORD
 Errors: `POSITION_NOT_ACTIVE` 400, `NO_SECURITY_ID` 400, `EXIT_FAILED` 502.
 On success the position is marked closed (`exit_reason: manual_ai_chat_exit`) and the journal/P&L flow continues as usual.
 
-## 5. Admin only — `POST /ai-chat?action=set-config`
+## 5. System-control endpoints (all free, all `Authorization: Bearer <supabase access token>`)
+
+### `POST /ai-chat?action=engine-start` `{}`
+Starts the VPS + signal engine using the user's saved symbols / slots and candle interval.
+→ `200 { "success": true, "message": "Trading engine started with 3 symbol(s) on 15M candles.", "charged": 0 }`
+Errors: `NO_SYMBOLS` 400 (add a slot/symbol first), `ENGINE_START_FAILED` 502.
+
+### `POST /ai-chat?action=engine-stop` `{}`
+→ `200 { "success": true, "message": "Trading engine stopped. VPS is powering off.", "charged": 0 }`
+Errors: `ENGINE_STOP_FAILED` 502.
+
+### `POST /ai-chat?action=slot-details` `{ "slot": 1 }`
+→ `200 { "success": true, "slot": { ...user_symbol_config row... } }` (`slot: null` if not configured).
+
+### `POST /ai-chat?action=update-slot`
 ```json
-{ "pricePerQuery": 0.75, "enabled": true, "freeQueriesPerDay": 2 }
+{
+  "slot": 1,
+  "indexName": "NIFTY",
+  "moneyness": "ATM",
+  "lotCount": 2,
+  "enabled": true,
+  "targetPerLot": 6000,
+  "stopLossPerLot": 3000,
+  "trailingEnabled": true,
+  "trailingActivationPerLot": 2000,
+  "trailingStepPerLot": 1000
+}
 ```
+Every field except `slot` is optional — omitted fields keep their current value.
+→ `200 { "success": true, "message": "Slot 1 updated — NIFTY ATM, 2 lot(s), Target ₹6000/lot, SL ₹3000/lot.", "slot": {...}, "charged": 0 }`
+Errors: `Invalid slot` 400, `SLOT_UPDATE_FAILED` 502.
+
+### `POST /ai-chat?action=broker-status` `{}`
+→ `200 { "success": true, "connected": true, "broker": "dhan", "dhanClientId": "...", "dhanClientName": "...", "lastStatus": "...", "lastError": null, "accessTokenExpiresAt": "2026-08-09T05:00:00.000Z", "accessTokenExpired": false, "charged": 0 }`
+
+## 6. Chat history
+
+### `GET /ai-chat?action=history`
+→ `200 { "success": true, "messages": [ { "id", "role": "user"|"assistant", "content", "answer", "charged", "created_at" } ] }` (oldest first, max 100). Load this when the chat sheet opens so the conversation survives app restarts.
+
+## 7. Admin only
+- `POST /ai-chat?action=set-config` `{ "pricePerQuery": 0.75, "enabled": true, "freeQueriesPerDay": 2 }`
+- `GET /ai-chat?action=admin-chat-users` → `{ users: [{ user_id, messages, charged, last_message, last_at, profile }] }`
+- `GET /ai-chat?action=admin-chat-history&userId=<uuid>` → `{ profile, messages: [{ role, content, answer, verdict, action_type, charged, created_at }] }`
+
+Both admin endpoints return `403 Forbidden` for non-admins.
 
 ## Chat error table
 | Status | body.error | UI action |
@@ -108,6 +151,7 @@ On success the position is marked closed (`exit_reason: manual_ai_chat_exit`) an
 | 401 | Unauthorized | re-login |
 | 400 | message is required / too long | max 1000 chars |
 | 402 | INSUFFICIENT_BALANCE | open recharge sheet (`balance`, `pricePerQuery`) |
+
 | 429 | RATE_LIMIT | retry toast |
 | 503 | – | assistant disabled by admin |
 | 502 | AI_ERROR | service down — charge is **auto-refunded** |
