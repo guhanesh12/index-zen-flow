@@ -86,8 +86,15 @@ function isBillable(msg: string) {
 }
 
 // ---------------- context builder ----------------
+function tokenExpiry(row: any): { expires_at: string | null; expired: boolean | null } {
+  const raw = row?.access_token_expiry;
+  if (!raw) return { expires_at: null, expired: null };
+  const t = new Date(raw).getTime();
+  return { expires_at: new Date(t).toISOString(), expired: t < Date.now() };
+}
+
 async function buildContext(userId: string) {
-  const [signals, orders, positions, slots, wallet, txns] = await Promise.all([
+  const [signals, orders, positions, slots, wallet, txns, engine, broker] = await Promise.all([
     admin.from("trading_signals").select("id,symbol,signal_type,index_name,price,strike_price,option_type,confidence,status,created_at,raw_data")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(8),
     admin.from("trading_orders").select("symbol,index_name,order_type,transaction_type,quantity,price,status,error_message,dhan_order_id,created_at")
@@ -99,6 +106,10 @@ async function buildContext(userId: string) {
     kvGet(`wallet:${userId}`),
     admin.from("wallet_transactions").select("type,amount,description,created_at")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
+    admin.from("trading_engine_state").select("is_running,started_at,stopped_at,last_heartbeat,stopped_reason,auto_resume,selected_symbols,strategy_settings")
+      .eq("user_id", userId).maybeSingle(),
+    admin.from("broker_credentials").select("broker,auth_method,dhan_client_id,dhan_client_name,last_status,last_error,access_token_expiry,updated_at")
+      .eq("user_id", userId).maybeSingle(),
   ]);
 
   const sigs = (signals.data || []).map((s: any) => ({ ...s, raw_data: undefined }));
@@ -107,10 +118,32 @@ async function buildContext(userId: string) {
   const nowIst = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   const istHm = new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour12: false }).slice(0, 5);
   const marketOpen = istHm >= "09:15" && istHm <= "15:30";
+  const b: any = broker.data || null;
+  const exp = tokenExpiry(b);
 
   return {
     now_ist: nowIst,
     market_open: marketOpen,
+    engine: {
+      is_running: !!engine.data?.is_running,
+      started_at: engine.data?.started_at || null,
+      stopped_at: engine.data?.stopped_at || null,
+      last_heartbeat: engine.data?.last_heartbeat || null,
+      stopped_reason: engine.data?.stopped_reason || null,
+      auto_resume: !!engine.data?.auto_resume,
+      selected_symbol_count: Array.isArray(engine.data?.selected_symbols) ? engine.data.selected_symbols.length : 0,
+    },
+    broker: {
+      connected: !!b?.dhan_client_id,
+      broker: b?.broker || null,
+      auth_method: b?.auth_method || null,
+      dhan_client_id: b?.dhan_client_id || null,
+      dhan_client_name: b?.dhan_client_name || null,
+      last_status: b?.last_status || null,
+      last_error: b?.last_error || null,
+      access_token_expires_at: exp.expires_at,
+      access_token_expired: exp.expired,
+    },
     recent_signals: sigs,
     latest_signal: (signals.data || [])[0] || null,
     recent_orders: orders.data || [],
@@ -126,6 +159,7 @@ async function buildContext(userId: string) {
     recent_wallet_transactions: txns.data || [],
   };
 }
+
 
 const SYSTEM_PROMPT = `You are "IndexPilot AI" — a national-level, institutional-grade Indian index-options trading brain (NIFTY / BANKNIFTY / SENSEX / FINNIFTY, Dhan broker auto-execution).
 
