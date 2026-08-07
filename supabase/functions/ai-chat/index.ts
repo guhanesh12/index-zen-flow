@@ -268,6 +268,25 @@ function pick(obj: any, ...keys: string[]) {
   return undefined;
 }
 
+// ---------------- system-control helpers ----------------
+const SERVER_BASE = `${SUPABASE_URL}/functions/v1/make-server-c4d79cb7`;
+
+async function callServer(path: string, method: string, authHeader: string, body?: unknown) {
+  const res = await fetch(`${SERVER_BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: authHeader },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function logChat(row: Record<string, unknown>) {
+  const { error } = await admin.from("ai_chat_logs").insert(row);
+  if (error) console.error("ai_chat_logs insert failed", error.message);
+}
+
+
 // ---------------- handler ----------------
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
