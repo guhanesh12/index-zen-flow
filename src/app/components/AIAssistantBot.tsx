@@ -1,6 +1,10 @@
 // @ts-nocheck
 import { useEffect, useRef, useState } from "react";
-import { Bot, X, Send, Loader2, Wallet, Sparkles } from "lucide-react";
+import {
+  Bot, X, Send, Loader2, Wallet, Sparkles, TrendingUp, ShieldAlert,
+  Clock, CheckCircle2, LogOut, Gauge, Info,
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { projectId } from "@/utils-ext/supabase/info";
 
 const FN_URL = `https://${projectId}.supabase.co/functions/v1/ai-chat`;
@@ -8,10 +12,112 @@ const FN_URL = `https://${projectId}.supabase.co/functions/v1/ai-chat`;
 const QUICK = [
   "Next signal எப்போ வரும்?",
   "Why no trade taken today?",
-  "My running position direction correct-ah?",
+  "My running position hold or exit?",
   "Explain my last order status",
   "Why was my wallet debited?",
 ];
+
+const VERDICT_META = {
+  WAIT: { label: "WAIT", icon: Clock, cls: "bg-amber-500/15 text-amber-500 border-amber-500/30" },
+  PLACE: { label: "ENTRY READY", icon: TrendingUp, cls: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" },
+  HOLD: { label: "HOLD", icon: CheckCircle2, cls: "bg-sky-500/15 text-sky-500 border-sky-500/30" },
+  EXIT: { label: "EXIT NOW", icon: LogOut, cls: "bg-red-500/15 text-red-500 border-red-500/30" },
+  INFO: { label: "INFO", icon: Info, cls: "bg-muted text-muted-foreground border-border" },
+};
+
+const MD = ({ children }: { children: string }) => (
+  <ReactMarkdown
+    components={{
+      p: ({ children }) => <span>{children}</span>,
+      strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+      ul: ({ children }) => <ul className="list-disc pl-4 space-y-0.5">{children}</ul>,
+      code: ({ children }) => <code className="px-1 rounded bg-muted text-[11px]">{children}</code>,
+    }}
+  >
+    {children}
+  </ReactMarkdown>
+);
+
+function AnswerCard({ answer, onAction, actionState }) {
+  const meta = VERDICT_META[answer.verdict] || VERDICT_META.INFO;
+  const VIcon = meta.icon;
+  return (
+    <div className="rounded-2xl border border-border bg-background/60 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+        <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${meta.cls}`}>
+          <VIcon className="size-3" /> {meta.label}
+        </span>
+        <p className="text-xs font-semibold truncate flex-1">{answer.title}</p>
+        {answer.confidence > 0 && (
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Gauge className="size-3" />{answer.confidence}%
+          </span>
+        )}
+      </div>
+
+      <div className="px-3 py-2 text-sm leading-relaxed text-foreground">
+        <MD>{answer.summary}</MD>
+      </div>
+
+      {answer.sections?.length > 0 && (
+        <div className="px-3 pb-2 space-y-2">
+          {answer.sections.map((s, i) => (
+            <div key={i} className="rounded-xl bg-muted/40 border border-border/60 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-primary mb-1">{s.heading}</p>
+              <ul className="space-y-1">
+                {s.points.map((p, j) => (
+                  <li key={j} className="text-[12.5px] text-muted-foreground flex gap-1.5 leading-snug">
+                    <span className="text-primary mt-[3px]">•</span>
+                    <span className="flex-1"><MD>{p}</MD></span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {answer.risk && (
+        <div className="mx-3 mb-2 flex items-start gap-1.5 text-[11px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1.5">
+          <ShieldAlert className="size-3.5 shrink-0 mt-[1px]" />
+          <span>{answer.risk}</span>
+        </div>
+      )}
+
+      {answer.action?.type === "place_order" && (
+        <div className="p-3 pt-0">
+          <button
+            onClick={() => onAction("place-order", { signalId: answer.action.signalId })}
+            disabled={!!actionState.busy || actionState.done}
+            className="w-full h-10 rounded-xl bg-emerald-600 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-emerald-500 transition-colors"
+          >
+            {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <TrendingUp className="size-4" />}
+            {actionState.done ? "Order placed ✓" : answer.action.label || "Place order"}
+          </button>
+          <p className="text-[10px] text-center text-muted-foreground mt-1">Market order · uses your enabled slot · no wallet charge</p>
+        </div>
+      )}
+
+      {answer.action?.type === "exit_position" && (
+        <div className="p-3 pt-0">
+          <button
+            onClick={() => onAction("exit-position", { orderId: answer.action.orderId })}
+            disabled={!!actionState.busy || actionState.done}
+            className="w-full h-10 rounded-xl bg-red-600 text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-red-500 transition-colors"
+          >
+            {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
+            {actionState.done ? "Exit order sent ✓" : answer.action.label || "Exit position"}
+          </button>
+          <p className="text-[10px] text-center text-muted-foreground mt-1">Instant MARKET exit · no wallet charge</p>
+        </div>
+      )}
+
+      {actionState.error && (
+        <p className="px-3 pb-3 text-[11px] text-red-500">{actionState.error}</p>
+      )}
+    </div>
+  );
+}
 
 export function AIAssistantBot({ accessToken }: { accessToken: string }) {
   const [open, setOpen] = useState(false);
@@ -19,17 +125,36 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
   const [busy, setBusy] = useState(false);
   const [price, setPrice] = useState(0.5);
   const [balance, setBalance] = useState<number | null>(null);
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([
+  const [actionStates, setActionStates] = useState<Record<number, any>>({});
+  const [messages, setMessages] = useState<any[]>([
     {
       role: "assistant",
-      content:
-        "Hi 👋 I'm **IndexPilot AI**. Ask me about your signals, orders, running positions, chart direction or wallet debits.",
+      answer: {
+        title: "IndexPilot AI ready",
+        verdict: "INFO",
+        summary:
+          "Hi 👋 Ask me about **next signal**, your **running position** (hold or exit), **order status**, **chart direction** or **wallet debits**.",
+        sections: [
+          {
+            heading: "Billing",
+            points: [
+              "Signal / position / chart **analysis** questions are charged from wallet.",
+              "General, help & wallet questions are **free** — no debit.",
+            ],
+          },
+        ],
+        confidence: 0,
+        risk: "",
+        action: { type: "none" },
+      },
     },
   ]);
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!open || !accessToken) return;
+    inputRef.current?.focus();
     fetch(`${FN_URL}?action=config`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
@@ -45,20 +170,54 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
+  const runAction = async (idx: number, act: string, payload: any) => {
+    setActionStates((s) => ({ ...s, [idx]: { busy: true } }));
+    try {
+      const res = await fetch(`${FN_URL}?action=${act}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.success === false) {
+        setActionStates((s) => ({ ...s, [idx]: { error: data?.message || "Action failed." } }));
+      } else {
+        setActionStates((s) => ({ ...s, [idx]: { done: true } }));
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            answer: {
+              title: act === "exit-position" ? "Exit order sent" : "Order placed",
+              verdict: act === "exit-position" ? "EXIT" : "PLACE",
+              summary: `${data.message}${data.orderId ? ` (Order ID: ${data.orderId})` : ""}`,
+              sections: [],
+              confidence: 0,
+              risk: "",
+              action: { type: "none" },
+            },
+          },
+        ]);
+      }
+    } catch {
+      setActionStates((s) => ({ ...s, [idx]: { error: "Network error." } }));
+    }
+  };
+
   const send = async (text?: string) => {
     const q = (text ?? input).trim();
     if (!q || busy) return;
     setInput("");
-    const history = messages.filter((m) => m.role !== "system").slice(-8);
+    const history = messages
+      .filter((m) => m.role === "user" || m.answer)
+      .slice(-8)
+      .map((m) => ({ role: m.role, content: m.content ?? m.answer?.summary ?? "" }));
     setMessages((m) => [...m, { role: "user", content: q }]);
     setBusy(true);
     try {
       const res = await fetch(`${FN_URL}?action=chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ message: q, history }),
       });
       const data = await res.json();
@@ -67,7 +226,7 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
           ...m,
           {
             role: "assistant",
-            content:
+            error:
               data?.error === "INSUFFICIENT_BALANCE"
                 ? `⚠️ ${data.message} (Balance ₹${Number(data.balance || 0).toFixed(2)})`
                 : `⚠️ ${data?.message || "Something went wrong. Please try again."}`,
@@ -75,21 +234,26 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
         ]);
       } else {
         setBalance(Number(data.balance ?? balance ?? 0));
-        setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            answer: data.answer,
+            charged: Number(data.charged || 0),
+            freeReason: data.freeReason,
+          },
+        ]);
       }
     } catch {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: "⚠️ Network error. Please retry." },
-      ]);
+      setMessages((m) => [...m, { role: "assistant", error: "⚠️ Network error. Please retry." }]);
     } finally {
       setBusy(false);
+      inputRef.current?.focus();
     }
   };
 
   return (
     <>
-      {/* Floating button */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
@@ -101,18 +265,15 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
         </button>
       )}
 
-      {/* Panel */}
       {open && (
-        <div className="fixed inset-x-2 bottom-2 top-16 md:inset-auto md:bottom-6 md:right-6 md:w-[400px] md:h-[560px] z-[60] flex flex-col rounded-2xl border border-border bg-card/95 backdrop-blur-xl shadow-2xl overflow-hidden">
+        <div className="fixed inset-x-2 bottom-2 top-16 md:inset-auto md:bottom-6 md:right-6 md:w-[420px] md:h-[600px] z-[60] flex flex-col rounded-2xl border border-border bg-card/95 backdrop-blur-xl shadow-2xl overflow-hidden">
           <header className="flex items-center gap-3 px-4 py-3 border-b border-border bg-gradient-to-r from-primary/15 to-transparent">
             <div className="size-9 rounded-full bg-primary/20 flex items-center justify-center">
               <Sparkles className="size-5 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm leading-tight">IndexPilot AI</p>
-              <p className="text-[11px] text-muted-foreground">
-                Signals · Orders · Positions · Wallet
-              </p>
+              <p className="text-[11px] text-muted-foreground">Signals · Orders · Positions · Wallet</p>
             </div>
             <button onClick={() => setOpen(false)} aria-label="Close assistant">
               <X className="size-5 text-muted-foreground hover:text-foreground" />
@@ -120,35 +281,44 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
           </header>
 
           <div className="flex items-center justify-between px-4 py-1.5 text-[11px] border-b border-border bg-muted/30">
-            <span className="text-muted-foreground">
-              ₹{price.toFixed(2)} per question
-            </span>
+            <span className="text-muted-foreground">₹{price.toFixed(2)} per analysis · general Q free</span>
             <span className="flex items-center gap-1 text-muted-foreground">
-              <Wallet className="size-3" />
-              ₹{balance === null ? "--" : balance.toFixed(2)}
+              <Wallet className="size-3" />₹{balance === null ? "--" : balance.toFixed(2)}
             </span>
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
-              >
-                <div
-                  className={
-                    m.role === "user"
-                      ? "max-w-[85%] rounded-2xl rounded-br-sm bg-primary text-primary-foreground px-3 py-2 text-sm whitespace-pre-wrap"
-                      : "max-w-[92%] text-sm text-foreground whitespace-pre-wrap leading-relaxed"
-                  }
-                >
-                  {m.content}
+            {messages.map((m, i) =>
+              m.role === "user" ? (
+                <div key={i} className="flex justify-end">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary text-primary-foreground px-3 py-2 text-sm whitespace-pre-wrap">
+                    {m.content}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ) : m.error ? (
+                <div key={i} className="text-sm text-red-500 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                  {m.error}
+                </div>
+              ) : (
+                <div key={i} className="space-y-1">
+                  <AnswerCard
+                    answer={m.answer}
+                    actionState={actionStates[i] || {}}
+                    onAction={(act, payload) => runAction(i, act, payload)}
+                  />
+                  {m.charged !== undefined && (
+                    <p className="text-[10px] text-muted-foreground pl-1">
+                      {m.charged > 0
+                        ? `₹${m.charged.toFixed(2)} debited from wallet`
+                        : `Free — ${m.freeReason || "no wallet debit"}`}
+                    </p>
+                  )}
+                </div>
+              )
+            )}
             {busy && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Analysing your account…
+                <Loader2 className="size-4 animate-spin" /> Analysing chart, signals & your position…
               </div>
             )}
             <div ref={endRef} />
@@ -169,20 +339,15 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
           )}
 
           <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              send();
-            }}
+            onSubmit={(e) => { e.preventDefault(); send(); }}
             className="flex items-end gap-2 p-3 border-t border-border"
           >
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
               }}
               rows={1}
               placeholder="Ask about signal, order, position…"
