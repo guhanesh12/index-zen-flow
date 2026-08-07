@@ -781,6 +781,38 @@ Deno.serve(async (req) => {
       } else {
         answer.verdict = "INFO";
       }
+    } else if (a?.type === "start_engine") {
+      if (context.engine.is_running) {
+        answer.action = { type: "stop_engine", label: "Stop trading engine", signalId: "", orderId: "", reason: "Engine is already running" };
+      } else {
+        answer.action = { type: "start_engine", label: "Start trading engine", signalId: "", orderId: "", reason: String(a.reason || "Engine is off") };
+      }
+    } else if (a?.type === "stop_engine") {
+      if (context.engine.is_running) {
+        answer.action = { type: "stop_engine", label: "Stop trading engine", signalId: "", orderId: "", reason: String(a.reason || "User requested stop") };
+      }
+    } else if (a?.type === "edit_slot") {
+      const slotNo = parseInt(String(a.slot ?? ""));
+      const slotRow = (context.auto_slots || []).find((s: any) => s.slot === slotNo) || (context.auto_slots || [])[0];
+      if (slotRow) {
+        answer.action = {
+          type: "edit_slot",
+          label: `Edit Slot ${slotRow.slot} — ${slotRow.index_name} ${slotRow.moneyness}`,
+          signalId: "",
+          orderId: "",
+          slot: slotRow.slot,
+          current: slotRow,
+          reason: String(a.reason || "Slot settings"),
+        } as any;
+      }
+    } else if (a?.type === "connect_broker") {
+      answer.action = {
+        type: "connect_broker",
+        label: context.broker.connected ? "Update Dhan access token" : "Connect Dhan broker",
+        signalId: "",
+        orderId: "",
+        reason: String(a.reason || "Broker connection"),
+      } as any;
     }
 
     // plain-text fallback for older clients (RN v1)
@@ -789,6 +821,18 @@ Deno.serve(async (req) => {
       ...answer.sections.map((s: any) => `\n**${s.heading}**\n` + s.points.map((p: string) => `• ${p}`).join("\n")),
       answer.risk ? `\n⚠️ ${answer.risk}` : "",
     ].join("\n").trim();
+
+    // persist the conversation (visible to the user & to admins)
+    await logChat({ user_id: user.id, role: "user", content: message, charged: price });
+    await logChat({
+      user_id: user.id,
+      role: "assistant",
+      content: replyText,
+      answer,
+      verdict: answer.verdict,
+      action_type: answer.action?.type || "none",
+      charged: 0,
+    });
 
     return json({
       success: true,
@@ -801,6 +845,7 @@ Deno.serve(async (req) => {
       pricePerQuery: cfg.pricePerQuery,
       freeQueriesLeft: billable ? Math.max(0, freeLeft - 1) : freeLeft,
     });
+
   } catch (e: any) {
     console.error("ai-chat error", e);
     return json({ error: "SERVER_ERROR", message: e?.message || "Unexpected error" }, 500);
