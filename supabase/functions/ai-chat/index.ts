@@ -453,7 +453,7 @@ Deno.serve(async (req) => {
         model: MODEL,
         messages,
         temperature: 0.3,
-        max_tokens: 900,
+        max_tokens: 2400,
         response_format: { type: "json_object" },
       }),
     });
