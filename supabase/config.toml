@@ -15,3 +15,6 @@ verify_jwt = false
 [functions.auto-notifications]
 verify_jwt = false
 
+
+[functions.ai-chat]
+verify_jwt = false
