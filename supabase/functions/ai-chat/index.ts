@@ -153,8 +153,64 @@ VERDICT / ACTION RULES:
 - Position running and analysis says keep it (even if temporarily in loss but market is favourable) → verdict "HOLD", action.type "none". Explain WHY holding is right (trend, VWAP/EMA, time decay, target distance).
 - Position running and analysis says cut it → verdict "EXIT", action.type "exit_position" with that position's order_id.
 - Use ONLY the USER CONTEXT JSON for facts. Never invent order ids, prices, P&L. Missing data → say so.
-- 3-6 crisp bullets per section, INR ₹, IST times, no SEBI-style guarantees.
+- Max 4 sections and max 4 SHORT bullets per section (each bullet under 140 characters). Keep the whole JSON under 300 words so it is never truncated.
 - Mirror the user's language (English / Tamil / Hindi transliteration).`;
+
+// ---------------- JSON salvage (model output may be truncated) ----------------
+function stripFences(s: string) {
+  return s.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/, "").trim();
+}
+
+// Repairs a truncated JSON object: closes open strings/arrays/objects.
+function repairJson(src: string): string {
+  let s = src.trim();
+  const start = s.indexOf("{");
+  if (start > 0) s = s.slice(start);
+  const stack: string[] = [];
+  let inStr = false;
+  let esc = false;
+  let lastSafe = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (esc) { esc = false; continue; }
+    if (c === "\\") { esc = true; continue; }
+    if (inStr) { if (c === '"') inStr = false; continue; }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "{" || c === "[") stack.push(c === "{" ? "}" : "]");
+    else if (c === "}" || c === "]") { stack.pop(); lastSafe = i; }
+    else if (c === "," && stack.length <= 2) lastSafe = i - 1;
+  }
+  let out = s;
+  if (inStr) out += '"';
+  // drop a dangling ", partial" tail
+  if (!inStr && lastSafe > 0 && /[,\s]$/.test(out.slice(-1))) out = out.slice(0, lastSafe + 1);
+  out = out.replace(/,\s*$/, "");
+  while (stack.length) out += stack.pop();
+  return out;
+}
+
+function parseAiJson(raw: string): any {
+  const cleaned = stripFences(raw);
+  try { return JSON.parse(cleaned); } catch { /* continue */ }
+  try { return JSON.parse(repairJson(cleaned)); } catch { /* continue */ }
+  return null;
+}
+
+// Last resort: turn any leftover text into readable prose (never show raw JSON).
+function humanizeRaw(raw: string): string {
+  let t = stripFences(raw);
+  if (!/[{[]/.test(t)) return t.trim();
+  const lines: string[] = [];
+  const summary = t.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (summary) lines.push(summary[1].replace(/\\"/g, '"'));
+  const points = [...t.matchAll(/"points"\s*:\s*\[([^\]]*)/g)];
+  for (const p of points) {
+    for (const m of p[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)) lines.push("• " + m[1].replace(/\\"/g, '"'));
+  }
+  if (lines.length) return lines.join("\n");
+  // strip all json punctuation as a final fallback
+  return t.replace(/[{}\[\]"]/g, " ").replace(/\s*,\s*/g, ", ").replace(/\s{2,}/g, " ").trim();
+}
 
 // ---------------- order helpers ----------------
 async function forwardOrder(authHeader: string, payload: Record<string, unknown>) {
