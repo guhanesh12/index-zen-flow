@@ -46,7 +46,9 @@ export const TAB_TREE: TabDef[] = [
     { key: 'broadcast', label: 'Broadcast Mail' },
   ]},
   { key: 'mobile',        label: 'Mobile App',   subs: [] },
+  { key: 'aiChats',       label: 'AI Assistant Chats', subs: [] },
   { key: 'audit',         label: 'Audit Log',    subs: [] },
+
 ];
 
 /** Module id used in the admin_permissions table for a main tab. */
