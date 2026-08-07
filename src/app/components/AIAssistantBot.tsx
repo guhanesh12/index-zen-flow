@@ -315,7 +315,20 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
+  const ACTION_TITLE = {
+    "exit-position": { title: "Exit order sent", verdict: "EXIT" },
+    "place-order": { title: "Order placed", verdict: "PLACE" },
+    "engine-start": { title: "Trading engine started", verdict: "INFO" },
+    "engine-stop": { title: "Trading engine stopped", verdict: "INFO" },
+    "update-slot": { title: "Slot updated", verdict: "INFO" },
+  };
+
   const runAction = async (idx: number, act: string, payload: any) => {
+    if (act === "open-broker") {
+      window.dispatchEvent(new CustomEvent("indexpilot:navigate", { detail: { tab: "broker" } }));
+      setOpen(false);
+      return;
+    }
     setActionStates((s) => ({ ...s, [idx]: { busy: true } }));
     try {
       const res = await fetch(`${FN_URL}?action=${act}`, {
@@ -328,13 +341,14 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
         setActionStates((s) => ({ ...s, [idx]: { error: data?.message || "Action failed." } }));
       } else {
         setActionStates((s) => ({ ...s, [idx]: { done: true } }));
+        const meta = ACTION_TITLE[act] || { title: "Done", verdict: "INFO" };
         setMessages((m) => [
           ...m,
           {
             role: "assistant",
             answer: {
-              title: act === "exit-position" ? "Exit order sent" : "Order placed",
-              verdict: act === "exit-position" ? "EXIT" : "PLACE",
+              title: meta.title,
+              verdict: meta.verdict,
               summary: `${data.message}${data.orderId ? ` (Order ID: ${data.orderId})` : ""}`,
               sections: [],
               confidence: 0,
@@ -346,6 +360,7 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
       }
     } catch {
       setActionStates((s) => ({ ...s, [idx]: { error: "Network error." } }));
+
     }
   };
 
