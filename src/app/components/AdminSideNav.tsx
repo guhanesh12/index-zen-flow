@@ -20,6 +20,7 @@ const ICONS: Record<string, any> = {
   referrals: Gift,
   communication: Mail,
   mobile: Smartphone,
+  aiChats: Bot,
   audit: ScrollText,
 };
 
