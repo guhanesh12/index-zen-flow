@@ -660,7 +660,13 @@ Deno.serve(async (req) => {
     }
 
     // build context + history
-    const context = await buildContext(user.id);
+    const context: any = await buildContext(user.id);
+
+    // ---- LIVE MARKET ANALYSIS (separate module, strategy files untouched) ----
+    if (needsMarketRead(message)) {
+      context.live_market = await buildLiveMarket(user.id, context, message);
+    }
+
     const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
 
     const messages = [
