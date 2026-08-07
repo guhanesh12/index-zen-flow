@@ -1400,6 +1400,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       
       {/* 🔔 Notification Toast Container - Shows all notifications */}
       <NotificationContainer />
+
+      {/* 🤖 AI Trading Assistant floating bot */}
+      <AIAssistantBot accessToken={accessToken} />
     </div>
   );
 }
