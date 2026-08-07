@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bot, X, Send, Loader2, Wallet, Sparkles, TrendingUp, ShieldAlert,
-  Clock, CheckCircle2, LogOut, Gauge, Info,
+  Clock, CheckCircle2, LogOut, Gauge, Info, Power, PowerOff, SlidersHorizontal, Link2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { projectId } from "@/utils-ext/supabase/info";
@@ -13,9 +13,11 @@ const QUICK = [
   "Next signal எப்போ வரும்?",
   "Why no trade taken today?",
   "My running position hold or exit?",
-  "Explain my last order status",
-  "Why was my wallet debited?",
+  "Slot 1 details show pannu",
+  "Start my trading engine",
+  "Broker token expiry status?",
 ];
+
 
 const VERDICT_META = {
   WAIT: { label: "WAIT", icon: Clock, cls: "bg-amber-500/15 text-amber-500 border-amber-500/30" },
