@@ -64,14 +64,23 @@ async function getUser(req: Request) {
 }
 
 async function isAdmin(userId: string) {
-  const { data } = await admin
+  const { data: roleRow } = await admin
     .from("user_roles")
     .select("role")
     .eq("user_id", userId)
     .eq("role", "admin")
     .maybeSingle();
-  return !!data;
+  if (roleRow) return true;
+  // admin panel logins live in admin_profiles (hotkey based), not user_roles
+  const { data: adminRow } = await admin
+    .from("admin_profiles")
+    .select("user_id,status")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+  return !!adminRow;
 }
+
 
 // ---------------- billing classifier ----------------
 // Charge ONLY when the user asks for real analysis of signals / positions / chart
