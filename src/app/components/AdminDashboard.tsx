@@ -430,6 +430,13 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
+          {canAccessTab('aiChats') && (
+            <TabsContent value="aiChats">
+              <AdminAIChatLogs />
+            </TabsContent>
+          )}
+
+
           {canAccessTab('audit') && (
             <TabsContent value="audit">
               <AdminAuditLogViewer />
