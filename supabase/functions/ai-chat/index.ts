@@ -486,25 +486,37 @@ Deno.serve(async (req) => {
     const data = await aiRes.json();
     const rawReply = data?.choices?.[0]?.message?.content?.trim() || "";
 
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(rawReply.replace(/^```(json)?/i, "").replace(/```$/, "").trim());
-    } catch { parsed = null; }
+    const parsed: any = parseAiJson(rawReply);
+    if (!parsed) console.warn("ai-chat: could not parse model JSON", rawReply.slice(0, 400));
+
+    const fallbackText = parsed ? "" : humanizeRaw(rawReply);
+    const fallbackLines = fallbackText.split("\n").map((l) => l.replace(/^•\s*/, "").trim()).filter(Boolean);
 
     const answer = {
       title: String(parsed?.title || "IndexPilot AI"),
       verdict: ["WAIT", "PLACE", "HOLD", "EXIT", "INFO"].includes(parsed?.verdict) ? parsed.verdict : "INFO",
-      summary: String(parsed?.summary || rawReply || "Sorry, I could not generate an answer."),
+      summary: String(
+        parsed?.summary ||
+          fallbackLines[0] ||
+          "I couldn't format a full answer this time. Please ask again in a shorter question.",
+      ).slice(0, 900),
       sections: Array.isArray(parsed?.sections)
         ? parsed.sections
             .filter((s: any) => s && s.heading && Array.isArray(s.points))
             .slice(0, 6)
-            .map((s: any) => ({ heading: String(s.heading).slice(0, 60), points: s.points.map((p: any) => String(p).slice(0, 300)).slice(0, 8) }))
+            .map((s: any) => ({
+              heading: String(s.heading).slice(0, 60),
+              points: s.points.map((p: any) => String(p).slice(0, 300)).filter(Boolean).slice(0, 8),
+            }))
+            .filter((s: any) => s.points.length > 0)
+        : fallbackLines.length > 1
+        ? [{ heading: "Details", points: fallbackLines.slice(1, 9) }]
         : [],
       confidence: Math.max(0, Math.min(100, Number(parsed?.confidence ?? 0))),
       risk: String(parsed?.risk || ""),
       action: { type: "none", label: "", signalId: "", orderId: "", reason: "" } as any,
     };
+
 
     // ---- validate the suggested action against real data ----
     const a = parsed?.action || {};
