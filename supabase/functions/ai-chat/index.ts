@@ -299,6 +299,61 @@ Deno.serve(async (req) => {
     const user = await getUser(req);
     if (!user) return json({ error: "Unauthorized" }, 401);
 
+    // ---- user's own chat history ----
+    if (action === "history") {
+      const { data } = await admin
+        .from("ai_chat_logs")
+        .select("id,role,content,answer,charged,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(100);
+      return json({ success: true, messages: data || [] });
+    }
+
+    // ---- admin: list users who used the AI chat ----
+    if (action === "admin-chat-users") {
+      if (!(await isAdmin(user.id))) return json({ error: "Forbidden" }, 403);
+      const { data } = await admin
+        .from("ai_chat_logs")
+        .select("user_id,role,content,charged,created_at")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      const byUser = new Map<string, any>();
+      for (const r of data || []) {
+        const cur = byUser.get(r.user_id) || { user_id: r.user_id, messages: 0, charged: 0, last_message: "", last_at: r.created_at };
+        cur.messages += 1;
+        cur.charged = Number((cur.charged + Number(r.charged || 0)).toFixed(2));
+        if (!cur.last_message && r.role === "user") cur.last_message = r.content;
+        byUser.set(r.user_id, cur);
+      }
+      const ids = [...byUser.keys()];
+      const { data: profs } = ids.length
+        ? await admin.from("profiles").select("user_id,full_name,email,mobile,photo_url,client_id").in("user_id", ids)
+        : { data: [] as any[] };
+      const pmap = new Map((profs || []).map((p: any) => [p.user_id, p]));
+      const users = [...byUser.values()]
+        .map((u) => ({ ...u, profile: pmap.get(u.user_id) || null }))
+        .sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
+      return json({ success: true, users });
+    }
+
+    // ---- admin: one user's full chat ----
+    if (action === "admin-chat-history") {
+      if (!(await isAdmin(user.id))) return json({ error: "Forbidden" }, 403);
+      const targetId = url.searchParams.get("userId") || "";
+      if (!targetId) return json({ error: "userId is required" }, 400);
+      const { data } = await admin
+        .from("ai_chat_logs")
+        .select("id,role,content,answer,verdict,action_type,charged,created_at")
+        .eq("user_id", targetId)
+        .order("created_at", { ascending: true })
+        .limit(500);
+      const { data: prof } = await admin
+        .from("profiles").select("user_id,full_name,email,mobile,photo_url,client_id")
+        .eq("user_id", targetId).maybeSingle();
+      return json({ success: true, profile: prof || null, messages: data || [] });
+    }
+
     // ---- GET pricing/config (any logged-in user) ----
     if (req.method === "GET" || action === "config") {
       const cfg = await getConfig();
@@ -311,6 +366,7 @@ Deno.serve(async (req) => {
         billingNote: "Only signal / position / chart analysis questions are charged. General & wallet questions are free.",
       });
     }
+
 
     const body = await req.json().catch(() => ({}));
 
