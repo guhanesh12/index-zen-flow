@@ -1,12 +1,12 @@
-# IndexPilot AI Chatbot — API for React Native app
+# IndexPilot AI Chatbot v2 — React Native prompt & API spec
 
-Same backend as the website. Nothing else in the system was changed.
+Advanced structured (card-based) AI answers, action buttons (Place order / Exit position), and **wallet is charged only for analysis questions**. Same backend as the website. Nothing else in the system changed.
 
 Base URL:
 ```
 https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/ai-chat
 ```
-Auth: the logged-in user's Supabase access token.
+Auth on every call:
 ```
 Authorization: Bearer <supabase_access_token>
 Content-Type: application/json
@@ -14,97 +14,119 @@ Content-Type: application/json
 
 ---
 
-## 1. Get pricing + wallet balance (call when chat opens)
-
-`GET  /ai-chat?action=config`
-
-Response:
-```json
-{ "success": true, "enabled": true, "pricePerQuery": 0.5, "balance": 128.75 }
-```
-
-## 2. Ask a question (this debits the wallet)
-
-`POST /ai-chat?action=chat`
+## 1. `GET /ai-chat?action=config`
 ```json
 {
-  "message": "Why my running NIFTY CE position is in loss?",
-  "history": [
-    { "role": "user", "content": "next signal when?" },
-    { "role": "assistant", "content": "..." }
-  ]
+  "success": true,
+  "enabled": true,
+  "pricePerQuery": 0.5,
+  "balance": 128.75,
+  "billingNote": "Only signal / position / chart analysis questions are charged. General & wallet questions are free."
 }
 ```
-`history` = last few turns (max 8 are used). Optional.
+
+## 2. `POST /ai-chat?action=chat`
+```json
+{ "message": "now call option run but loss — hold or exit?", "history": [{"role":"user","content":"..."},{"role":"assistant","content":"..."}] }
+```
 
 Success `200`:
 ```json
 {
   "success": true,
-  "reply": "Your NIFTY 24650 CE ...",
+  "reply": "plain-text fallback",
+  "answer": {
+    "title": "Hold — trend still favourable",
+    "verdict": "HOLD",              // WAIT | PLACE | HOLD | EXIT | INFO
+    "summary": "Your NIFTY 24650 CE is -₹420 ...",
+    "sections": [
+      { "heading": "Market Read", "points": ["EMA9 > EMA21 ...", "VWAP support ..."] },
+      { "heading": "Your Position", "points": ["Entry ₹128.5 · LTP ₹121.2 ..."] },
+      { "heading": "Levels", "points": ["Target ₹6,000/lot", "SL ₹3,000/lot", "Trail after ₹2,000"] },
+      { "heading": "What Happens Next", "points": ["..."] }
+    ],
+    "confidence": 72,
+    "risk": "Reversal below VWAP invalidates this view.",
+    "action": { "type": "none", "label": "", "signalId": "", "orderId": "", "reason": "" }
+  },
   "charged": 0.5,
+  "billable": true,
+  "freeReason": "",
   "balance": 128.25,
-  "pricePerQuery": 0.5,
-  "freeQueriesLeft": 0
+  "pricePerQuery": 0.5
 }
 ```
 
-Errors:
-| Status | body.error | Meaning / UI action |
+### Billing rule (server-side, cannot be bypassed)
+| Question type | Charge |
+|---|---|
+| Next signal / why no trade / chart direction / hold-or-exit / order analysis | **₹pricePerQuery** (from ₹0.50, admin variable) |
+| Greetings, thanks, wallet balance, "why debited", pricing, help | **₹0.00** — response has `charged: 0`, `billable: false`, `freeReason` |
+| Place order / exit action calls | **₹0.00 always** |
+
+Show under each answer: `charged > 0 ? "₹X debited" : "Free — " + freeReason`.
+
+### Action buttons (render from `answer.action`)
+| `action.type` | Button | Call |
 |---|---|---|
-| 401 | Unauthorized | token missing/expired → re-login |
-| 400 | message is required / message too long | validate input (max 1000 chars) |
-| 402 | INSUFFICIENT_BALANCE | show "Recharge wallet" sheet (`balance`, `pricePerQuery` returned) |
-| 429 | RATE_LIMIT | show retry toast |
-| 503 | – | assistant disabled by admin |
-| 502 | AI_ERROR | service down — **the charge is auto-refunded** |
+| `none` | none (verdict WAIT / HOLD / INFO — text only) | – |
+| `place_order` | green **Place order** | `POST ?action=place-order` `{ "signalId": action.signalId }` |
+| `exit_position` | red **Exit position** | `POST ?action=exit-position` `{ "orderId": action.orderId }` |
 
-## 3. Admin only — change price / enable-disable
+The server re-validates before showing a button: `place_order` only when market is open, the signal is < 15 min old and an enabled free slot exists; `exit_position` only when that position is actually running. So never render your own buttons — only what `action` says.
 
-`POST /ai-chat?action=set-config` (admin JWT)
+## 3. `POST /ai-chat?action=place-order`
+```json
+{ "signalId": "uuid" }
+```
+→ `200 { "success": true, "message": "Order placed at market price.", "orderId": "1123...", "charged": 0 }`
+Errors: `SIGNAL_NOT_FOUND` 404, `SIGNAL_EXPIRED` 400, `NO_SECURITY_ID` 400, `ORDER_FAILED` 502 (`message` = raw Dhan reason).
+
+## 4. `POST /ai-chat?action=exit-position`
+```json
+{ "orderId": "1123456789" }
+```
+→ `200 { "success": true, "message": "Exit order placed at market price.", "orderId": "...", "charged": 0 }`
+Errors: `POSITION_NOT_ACTIVE` 400, `NO_SECURITY_ID` 400, `EXIT_FAILED` 502.
+On success the position is marked closed (`exit_reason: manual_ai_chat_exit`) and the journal/P&L flow continues as usual.
+
+## 5. Admin only — `POST /ai-chat?action=set-config`
 ```json
 { "pricePerQuery": 0.75, "enabled": true, "freeQueriesPerDay": 2 }
 ```
-Price is fully variable and starts from ₹0.50 (default). `freeQueriesPerDay` gives free questions before charging.
+
+## Chat error table
+| Status | body.error | UI action |
+|---|---|---|
+| 401 | Unauthorized | re-login |
+| 400 | message is required / too long | max 1000 chars |
+| 402 | INSUFFICIENT_BALANCE | open recharge sheet (`balance`, `pricePerQuery`) |
+| 429 | RATE_LIMIT | retry toast |
+| 503 | – | assistant disabled by admin |
+| 502 | AI_ERROR | service down — charge is **auto-refunded** |
 
 ---
 
-## Billing behaviour
-- Wallet is debited **before** the model call; a `wallet_transactions` row of type `debit`, description `AI Assistant query` is inserted.
-- If the AI service fails, an automatic `credit` refund row is written and the balance restored.
-- Free daily quota (if configured) is consumed first (charge = ₹0.00).
+## RN implementation prompt (paste into your RN app agent)
 
-## What the bot can answer (scope-locked server-side)
-- Signals: why a signal fired / didn't fire, next-signal conditions, confidence, strategy confirmations
-- Orders: status, Dhan rejection reasons, quantity/lots, what happens after placement
-- Positions: live P&L, target/SL, trailing SL, exit reason, whether the position direction matches current market movement
-- Chart/market movement for the traded index & option contract
-- Wallet: balance, why an amount was debited, recharge need
-
-Anything else is politely refused.
-
-## Minimal RN client
-
-```ts
-const AI_CHAT_URL = "https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/ai-chat";
-
-export async function askAI(token: string, message: string, history: any[] = []) {
-  const res = await fetch(`${AI_CHAT_URL}?action=chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ message, history: history.slice(-8) }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(data.message || "AI error"), { code: data.error, data });
-  return data; // { reply, charged, balance }
-}
-
-export async function aiConfig(token: string) {
-  const res = await fetch(`${AI_CHAT_URL}?action=config`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.json(); // { pricePerQuery, balance, enabled }
-}
-```
-
-UI in RN: a floating `<Pressable>` bot button on the dashboard (bottom-right, above tab bar) opening a bottom-sheet chat — show `₹{pricePerQuery} per question` and the live wallet balance in the header, quick-question chips, and on `INSUFFICIENT_BALANCE` open the existing recharge screen.
+> Upgrade the existing IndexPilot AI bot screen. Keep everything else untouched.
+>
+> **UI:** floating bot FAB on Dashboard (bottom-right above tab bar) → bottom sheet chat (90% height).
+> Header: bot avatar, "IndexPilot AI", subtitle "Signals · Orders · Positions · Wallet", close.
+> Strip below header: `₹{pricePerQuery} per analysis · general Q free` on the left, live wallet balance with wallet icon on the right.
+>
+> **Assistant messages are NOT raw text** — render `answer` as a card:
+> 1. Header row: verdict pill (WAIT amber / ENTRY READY green / HOLD blue / EXIT NOW red / INFO grey) + `title` + `confidence`%.
+> 2. `summary` as markdown (`react-native-markdown-display`) — bold must render bold.
+> 3. Each `sections[]` item as its own soft panel: uppercase primary-coloured `heading` + bulleted `points` (markdown).
+> 4. `risk` in an amber warning strip with a shield icon.
+> 5. Action button from `answer.action` (green Place order / red Exit position), with spinner, disabled after success, and caption "no wallet charge".
+> 6. Footer line: `₹X debited from wallet` or `Free — {freeReason}`.
+>
+> User messages: right-aligned primary bubble. Loading: "Analysing chart, signals & your position…" shimmer.
+> Quick chips on first open: next signal, why no trade today, hold or exit my position, last order status, why wallet debited.
+>
+> **Behaviour:** send last 8 turns as `history` (`{role, content}` where assistant content = `answer.summary`).
+> On `402 INSUFFICIENT_BALANCE` open the existing recharge screen.
+> Action buttons call `?action=place-order` / `?action=exit-position` with the same access token; on success append a confirmation card and refresh positions/orders lists.
+> Never invent buttons — only render what `answer.action.type` returns.
