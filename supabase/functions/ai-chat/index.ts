@@ -388,6 +388,123 @@ Deno.serve(async (req) => {
       return json({ success: true, config: next });
     }
 
+    // ---- ENGINE start / stop from chat (free) ----
+    if (action === "engine-start" || action === "engine-stop") {
+      if (action === "engine-stop") {
+        const out = await callServer("/engine/stop", "POST", authHeader, {});
+        if (!out.ok || out.data?.success === false) {
+          return json({ error: "ENGINE_STOP_FAILED", message: out.data?.error || out.data?.message || "Could not stop the engine." }, 502);
+        }
+        await logChat({ user_id: user.id, role: "assistant", content: "Engine stopped from AI chat", action_type: "stop_engine", charged: 0 });
+        return json({ success: true, message: "Trading engine stopped. VPS is powering off." , charged: 0 });
+      }
+
+      const { data: state } = await admin
+        .from("trading_engine_state")
+        .select("selected_symbols,strategy_settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      let symbols: any[] = Array.isArray(state?.selected_symbols) ? state!.selected_symbols as any[] : [];
+      if (!symbols.length) {
+        const { data: us } = await admin
+          .from("user_symbols")
+          .select("symbol_name,symbol_id,exchange_segment,lot_size,index_name,option_type,strike_price,expiry")
+          .eq("user_id", user.id);
+        symbols = (us || []).map((s: any) => ({
+          symbol: s.symbol_name,
+          symbolId: s.symbol_id,
+          exchangeSegment: s.exchange_segment || "NSE_FNO",
+          lotSize: s.lot_size,
+          indexName: s.index_name,
+          optionType: s.option_type,
+          strikePrice: s.strike_price,
+          expiry: s.expiry,
+          active: true,
+        }));
+      }
+      if (!symbols.length) {
+        return json({ error: "NO_SYMBOLS", message: "No symbols configured. Add an auto slot or symbol first, then start the engine." }, 400);
+      }
+
+      const interval = (state?.strategy_settings as any)?.candleInterval || body.candleInterval || "15";
+      const out = await callServer("/engine/start", "POST", authHeader, { candleInterval: String(interval), symbols });
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "ENGINE_START_FAILED", message: out.data?.error || out.data?.message || "Could not start the engine." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: "Engine started from AI chat", action_type: "start_engine", charged: 0 });
+      return json({ success: true, message: `Trading engine started with ${symbols.length} symbol(s) on ${interval}M candles.`, charged: 0 });
+    }
+
+    // ---- SLOT details / update from chat (free) ----
+    if (action === "slot-details") {
+      const slot = Number(body.slot);
+      if (!Number.isInteger(slot) || slot < 1) return json({ error: "Invalid slot" }, 400);
+      const { data } = await admin
+        .from("user_symbol_config").select("*")
+        .eq("user_id", user.id).eq("slot", slot).maybeSingle();
+      return json({ success: true, slot: data || null });
+    }
+
+    if (action === "update-slot") {
+      const slot = Number(body.slot);
+      if (!Number.isInteger(slot) || slot < 1) return json({ error: "Invalid slot" }, 400);
+      const { data: cur } = await admin
+        .from("user_symbol_config").select("*")
+        .eq("user_id", user.id).eq("slot", slot).maybeSingle();
+
+      const num = (v: any, fallback: number, min = 0) =>
+        v === undefined || v === null || v === "" ? fallback : Math.max(min, Number(v));
+
+      const payload = {
+        slot,
+        indexName: body.indexName ?? cur?.index_name ?? "NIFTY",
+        moneyness: body.moneyness ?? cur?.moneyness ?? "ATM",
+        lotCount: Math.max(1, parseInt(String(body.lotCount ?? cur?.lot_count ?? 1))),
+        enabled: typeof body.enabled === "boolean" ? body.enabled : (cur?.enabled ?? true),
+        targetPerLot: num(body.targetPerLot, Number(cur?.target_per_lot ?? 6000), 0),
+        stopLossPerLot: num(body.stopLossPerLot, Number(cur?.stop_loss_per_lot ?? 3000), 0),
+        trailingEnabled: typeof body.trailingEnabled === "boolean" ? body.trailingEnabled : (cur?.trailing_enabled ?? true),
+        trailingActivationPerLot: num(body.trailingActivationPerLot, Number(cur?.trailing_activation_per_lot ?? 2000), 0),
+        trailingStepPerLot: num(body.trailingStepPerLot, Number(cur?.trailing_step_per_lot ?? 1000), 0),
+      };
+
+      const out = await callServer("/auto-symbol/config", "POST", authHeader, payload);
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "SLOT_UPDATE_FAILED", message: out.data?.error || "Could not update the slot." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: `Slot ${slot} updated from AI chat`, action_type: "edit_slot", charged: 0 });
+      return json({
+        success: true,
+        message: `Slot ${slot} updated — ${payload.indexName} ${payload.moneyness}, ${payload.lotCount} lot(s), Target ₹${payload.targetPerLot}/lot, SL ₹${payload.stopLossPerLot}/lot.`,
+        slot: out.data?.slot ?? null,
+        charged: 0,
+      });
+    }
+
+    // ---- BROKER connection status from chat (free) ----
+    if (action === "broker-status") {
+      const { data: b } = await admin
+        .from("broker_credentials")
+        .select("broker,auth_method,dhan_client_id,dhan_client_name,last_status,last_error,access_token_expiry,updated_at")
+        .eq("user_id", user.id).maybeSingle();
+      const exp = tokenExpiry(b);
+      return json({
+        success: true,
+        connected: !!b?.dhan_client_id,
+        broker: b?.broker || "dhan",
+        authMethod: b?.auth_method || null,
+        dhanClientId: b?.dhan_client_id || null,
+        dhanClientName: b?.dhan_client_name || null,
+        lastStatus: b?.last_status || null,
+        lastError: b?.last_error || null,
+        accessTokenExpiresAt: exp.expires_at,
+        accessTokenExpired: exp.expired,
+        charged: 0,
+      });
+    }
+
+
     // ---- EXIT a running position (free, no wallet charge) ----
     if (action === "exit-position") {
       const orderId = String(body.orderId || "").trim();
