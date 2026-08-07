@@ -15,6 +15,7 @@ import { AdminSettings } from './AdminSettings';
 import { AdminReferrals } from './AdminReferrals';
 import { AdminCommunication } from './AdminCommunication';
 import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
+import { AdminAIChatLogs } from './AdminAIChatLogs';
 import { AdminAuditLogViewer } from './AdminAuditLogViewer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
