@@ -31,6 +31,7 @@ import { SEO, SEO_CONFIGS } from "../utils/seo";
 import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 import { WelcomeOnboarding } from "./WelcomeOnboarding";
+import { AIAssistantBot } from "./AIAssistantBot";
 
 interface TradingDashboardProps {
   accessToken: string;
@@ -1400,6 +1401,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       
       {/* 🔔 Notification Toast Container - Shows all notifications */}
       <NotificationContainer />
+
+      {/* 🤖 AI Trading Assistant floating bot */}
+      <AIAssistantBot accessToken={accessToken} />
     </div>
   );
 }
