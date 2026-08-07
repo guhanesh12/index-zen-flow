@@ -1,6 +1,8 @@
-// 🤖 AI TRADING ASSISTANT (IndexPilot Brain)
-// Answers ONLY signal / order / position / chart-direction / wallet-billing questions
-// Charges the user's wallet per question (default ₹0.50, admin configurable)
+// 🤖 AI TRADING ASSISTANT (IndexPilot Brain v2)
+// - Structured JSON answers (sections, verdict, action buttons)
+// - Wallet is charged ONLY for signal / position / chart ANALYSIS questions
+//   (greetings, balance lookups, how-it-works questions are FREE)
+// - Can place an order for an actionable signal, or exit a running position
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -17,6 +19,7 @@ const KV = "kv_store_c4d79cb7";
 const CONFIG_KEY = "ai_chat_config";
 const DEFAULT_PRICE = 0.5;
 const MODEL = "google/gemini-3.6-flash";
+const ORDER_FN = `${SUPABASE_URL}/functions/v1/make-server-c4d79cb7/execute-dhan-order`;
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -63,14 +66,33 @@ async function isAdmin(userId: string) {
   return !!data;
 }
 
+// ---------------- billing classifier ----------------
+// Charge ONLY when the user asks for real analysis of signals / positions / chart
+// direction / order decisions. Everything else (greetings, balance, help, thanks,
+// how-does-it-work, plan/pricing) stays FREE.
+const ANALYSIS_RE =
+  /(signal|sinal|சிக்னல்|position|posit|holding|running|trade|entry|exit|எக்ஸிட்|square\s*off|squareoff|target|stop\s*loss|stoploss|\bsl\b|trail|call\b|\bce\b|\bpe\b|put\b|buy\b|sell\b|chart|trend|market\s*(move|direction|condition)|breakout|reversal|profit|loss|\bp&?l\b|nifty|banknifty|bank\s*nifty|sensex|finnifty|strike|premium|order\s*(status|reject|place)|லாபம்|நஷ்டம்|மார்க்கெட்)/i;
+const FREE_RE =
+  /^(hi|hii|hello|hey|thanks|thank you|ok|okay|bye|vanakkam|வணக்கம்|நன்றி)\b/i;
+const BALANCE_ONLY_RE =
+  /^(?!.*(signal|position|trade|chart)).*(balance|wallet|recharge|debit|debited|charge|refund|credit|price\s*per|how\s*much\s*cost)/i;
+
+function isBillable(msg: string) {
+  const m = msg.trim();
+  if (m.length < 6) return false;
+  if (FREE_RE.test(m)) return false;
+  if (BALANCE_ONLY_RE.test(m)) return false;
+  return ANALYSIS_RE.test(m);
+}
+
 // ---------------- context builder ----------------
 async function buildContext(userId: string) {
   const [signals, orders, positions, slots, wallet, txns] = await Promise.all([
-    admin.from("trading_signals").select("symbol,signal_type,index_name,price,strike_price,option_type,confidence,status,created_at")
+    admin.from("trading_signals").select("id,symbol,signal_type,index_name,price,strike_price,option_type,confidence,status,created_at,raw_data")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(8),
     admin.from("trading_orders").select("symbol,index_name,order_type,transaction_type,quantity,price,status,error_message,dhan_order_id,created_at")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(8),
-    admin.from("position_monitor_state").select("symbol,index_name,entry_price,current_price,quantity,pnl,target_amount,stop_loss_amount,trailing_enabled,highest_pnl,is_active,exit_reason,updated_at")
+    admin.from("position_monitor_state").select("order_id,symbol,index_name,entry_price,current_price,quantity,pnl,target_amount,stop_loss_amount,trailing_enabled,highest_pnl,is_active,exit_reason,updated_at")
       .eq("user_id", userId).order("updated_at", { ascending: false }).limit(10),
     admin.from("user_symbol_config").select("slot,index_name,moneyness,lot_count,enabled,target_per_lot,stop_loss_per_lot,trailing_enabled,trailing_activation_per_lot,trailing_step_per_lot")
       .eq("user_id", userId).order("slot"),
@@ -79,12 +101,23 @@ async function buildContext(userId: string) {
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
   ]);
 
+  const sigs = (signals.data || []).map((s: any) => ({ ...s, raw_data: undefined }));
+  const openPositions = (positions.data || []).filter((p: any) => p.is_active);
+
+  const nowIst = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  const istHm = new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour12: false }).slice(0, 5);
+  const marketOpen = istHm >= "09:15" && istHm <= "15:30";
+
   return {
-    now_ist: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
-    recent_signals: signals.data || [],
+    now_ist: nowIst,
+    market_open: marketOpen,
+    recent_signals: sigs,
+    latest_signal: (signals.data || [])[0] || null,
     recent_orders: orders.data || [],
     positions: positions.data || [],
+    open_positions: openPositions,
     auto_slots: slots.data || [],
+    free_slots: (slots.data || []).filter((s: any) => s.enabled).length,
     wallet: {
       balance: Number(wallet?.balance ?? 0),
       totalDeducted: Number(wallet?.totalDeducted ?? 0),
@@ -94,23 +127,50 @@ async function buildContext(userId: string) {
   };
 }
 
-const SYSTEM_PROMPT = `You are "IndexPilot AI", the in-app trading assistant of an Indian NIFTY/BANKNIFTY options auto-trading platform (Dhan broker execution).
+const SYSTEM_PROMPT = `You are "IndexPilot AI" — a national-level, institutional-grade Indian index-options trading brain (NIFTY / BANKNIFTY / SENSEX / FINNIFTY, Dhan broker auto-execution).
 
-SCOPE — you may ONLY answer questions about:
-- Trading SIGNALS (why a signal fired / did not fire, what the next signal depends on, signal confidence, strategy logic: EMA/VWAP/ADX confirmations, market regime)
-- ORDERS (status, rejection reasons, Dhan errors, quantity/lots, what happens after an order is placed)
-- Running POSITIONS (P&L, target, stop-loss, trailing SL, exit reasons, whether the position direction matches the current market/chart move)
-- CHART / MARKET MOVEMENT analysis for the user's traded index & option contracts
-- The user's WALLET: balance, debits, why an amount was charged, recharge need
+SCOPE — answer ONLY: trading signals (why fired / not fired, what the next signal needs), orders (status, Dhan rejections, lots), running positions (P&L, target, SL, trailing, hold vs exit), chart/market direction for the traded index & option contract, and wallet/billing. Politely refuse anything else in ONE line.
 
-If a question is outside this scope (general chit-chat, other markets, coding, personal advice, etc.), politely refuse in one line and remind the user you only cover signals, orders, positions, charts and wallet billing.
+You MUST reply with STRICT JSON ONLY (no markdown fences), in this schema:
+{
+  "title": "short headline (max 8 words)",
+  "verdict": "WAIT" | "PLACE" | "HOLD" | "EXIT" | "INFO",
+  "summary": "2-3 line plain answer in the user's language style",
+  "sections": [
+    { "heading": "Market Read", "points": ["...", "..."] },
+    { "heading": "Your Position / Signal", "points": ["..."] },
+    { "heading": "Levels", "points": ["Target ₹...", "SL ₹...", "Trail ..."] },
+    { "heading": "What Happens Next", "points": ["..."] }
+  ],
+  "confidence": 0-100,
+  "risk": "one-line risk note",
+  "action": { "type": "none" | "place_order" | "exit_position", "label": "...", "signalId": "...", "orderId": "...", "reason": "..." }
+}
 
-RULES:
-- Use ONLY the USER CONTEXT JSON given below for facts about their account. Never invent order ids, prices or P&L.
-- If data is missing, say so plainly and tell them where to look in the app.
-- Be concise (max ~150 words), use bullet points, INR ₹ formatting, IST times.
-- Never give SEBI-style guarantees. Add a short risk note when suggesting direction.
-- Reply in the user's language style (English or Tamil/Hindi transliteration) if they write that way.`;
+VERDICT / ACTION RULES:
+- No live actionable signal or market closed → verdict "WAIT", action.type "none" (do NOT show a place button).
+- A fresh CALL/PUT signal exists and a free enabled slot is available → verdict "PLACE", action.type "place_order" with that signal's id.
+- Position running and analysis says keep it (even if temporarily in loss but market is favourable) → verdict "HOLD", action.type "none". Explain WHY holding is right (trend, VWAP/EMA, time decay, target distance).
+- Position running and analysis says cut it → verdict "EXIT", action.type "exit_position" with that position's order_id.
+- Use ONLY the USER CONTEXT JSON for facts. Never invent order ids, prices, P&L. Missing data → say so.
+- 3-6 crisp bullets per section, INR ₹, IST times, no SEBI-style guarantees.
+- Mirror the user's language (English / Tamil / Hindi transliteration).`;
+
+// ---------------- order helpers ----------------
+async function forwardOrder(authHeader: string, payload: Record<string, unknown>) {
+  const res = await fetch(ORDER_FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: authHeader },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+function pick(obj: any, ...keys: string[]) {
+  for (const k of keys) if (obj && obj[k] !== undefined && obj[k] !== null) return obj[k];
+  return undefined;
+}
 
 // ---------------- handler ----------------
 Deno.serve(async (req) => {
@@ -119,6 +179,7 @@ Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
     const action = url.searchParams.get("action") || url.pathname.split("/").pop();
+    const authHeader = req.headers.get("Authorization") || "";
 
     const user = await getUser(req);
     if (!user) return json({ error: "Unauthorized" }, 401);
@@ -132,6 +193,7 @@ Deno.serve(async (req) => {
         enabled: cfg.enabled,
         pricePerQuery: cfg.pricePerQuery,
         balance: Number(wallet?.balance ?? 0),
+        billingNote: "Only signal / position / chart analysis questions are charged. General & wallet questions are free.",
       });
     }
 
@@ -155,6 +217,101 @@ Deno.serve(async (req) => {
       return json({ success: true, config: next });
     }
 
+    // ---- EXIT a running position (free, no wallet charge) ----
+    if (action === "exit-position") {
+      const orderId = String(body.orderId || "").trim();
+      if (!orderId) return json({ error: "orderId is required" }, 400);
+      const { data: pos } = await admin
+        .from("position_monitor_state")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("order_id", orderId)
+        .maybeSingle();
+      if (!pos || pos.is_active === false) return json({ error: "POSITION_NOT_ACTIVE", message: "This position is not running anymore." }, 400);
+
+      const raw: any = pos.raw_position || {};
+      const securityId = pick(raw, "securityId", "security_id", "securityid");
+      const dhanClientId = pick(raw, "dhanClientId", "dhan_client_id");
+      if (!securityId) return json({ error: "NO_SECURITY_ID", message: "Exit not possible from chat for this position. Use the Exit button on the positions screen." }, 400);
+
+      const out = await forwardOrder(authHeader, {
+        dhanClientId,
+        correlationId: `AIEXIT_${Date.now()}`,
+        transactionType: "SELL",
+        exchangeSegment: pos.exchange_segment || "NSE_FNO",
+        productType: pick(raw, "productType") || "INTRADAY",
+        orderType: "MARKET",
+        validity: "DAY",
+        securityId,
+        quantity: pos.quantity,
+        disclosedQuantity: 0,
+        price: 0,
+        triggerPrice: 0,
+        afterMarketOrder: false,
+        amoTime: "",
+        boProfitValue: 0,
+        boStopLossValue: 0,
+      });
+
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "EXIT_FAILED", message: out.data?.error || out.data?.message || "Broker rejected the exit order." }, 502);
+      }
+      await admin.from("position_monitor_state").update({
+        is_active: false,
+        exit_reason: "manual_ai_chat_exit",
+        exited_at: new Date().toISOString(),
+      }).eq("user_id", user.id).eq("order_id", orderId);
+
+      return json({ success: true, message: "Exit order placed at market price.", orderId: out.data?.orderId ?? null, charged: 0 });
+    }
+
+    // ---- PLACE order for an actionable signal (free, no wallet charge) ----
+    if (action === "place-order") {
+      const signalId = String(body.signalId || "").trim();
+      if (!signalId) return json({ error: "signalId is required" }, 400);
+      const { data: sig } = await admin
+        .from("trading_signals")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("id", signalId)
+        .maybeSingle();
+      if (!sig) return json({ error: "SIGNAL_NOT_FOUND" }, 404);
+
+      const ageMin = (Date.now() - new Date(sig.created_at).getTime()) / 60000;
+      if (ageMin > 15) return json({ error: "SIGNAL_EXPIRED", message: "This signal is older than 15 minutes — wait for the next one." }, 400);
+
+      const raw: any = sig.raw_data || {};
+      const securityId = pick(raw, "securityId", "security_id");
+      const quantity = Number(pick(raw, "quantity", "qty") || 0);
+      if (!securityId || !quantity) {
+        return json({ error: "NO_SECURITY_ID", message: "Order can't be placed from chat for this signal. Use the Symbols screen." }, 400);
+      }
+
+      const out = await forwardOrder(authHeader, {
+        dhanClientId: pick(raw, "dhanClientId", "dhan_client_id"),
+        correlationId: `AIBUY_${Date.now()}`,
+        transactionType: "BUY",
+        exchangeSegment: pick(raw, "exchangeSegment") || "NSE_FNO",
+        productType: pick(raw, "productType") || "INTRADAY",
+        orderType: "MARKET",
+        validity: "DAY",
+        securityId,
+        quantity,
+        disclosedQuantity: 0,
+        price: 0,
+        triggerPrice: 0,
+        afterMarketOrder: false,
+        amoTime: "",
+        boProfitValue: 0,
+        boStopLossValue: 0,
+      });
+
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "ORDER_FAILED", message: out.data?.error || out.data?.message || "Broker rejected the order." }, 502);
+      }
+      return json({ success: true, message: "Order placed at market price.", orderId: out.data?.orderId ?? null, charged: 0 });
+    }
+
     // ---- chat ----
     const message = String(body.message || "").trim();
     if (!message) return json({ error: "message is required" }, 400);
@@ -168,7 +325,14 @@ Deno.serve(async (req) => {
     const usageKey = `ai_chat_usage:${user.id}:${today}`;
     const usage = (await kvGet(usageKey)) || { count: 0, charged: 0 };
     const freeLeft = Math.max(0, cfg.freeQueriesPerDay - usage.count);
-    const price = freeLeft > 0 ? 0 : cfg.pricePerQuery;
+
+    const billable = isBillable(message);
+    const price = !billable || freeLeft > 0 ? 0 : cfg.pricePerQuery;
+    const freeReason = !billable
+      ? "General question — no wallet charge"
+      : freeLeft > 0
+      ? "Free daily quota used"
+      : "";
 
     // wallet check + debit BEFORE calling the model
     const walletKey = `wallet:${user.id}`;
@@ -179,7 +343,7 @@ Deno.serve(async (req) => {
       if (balance < price) {
         return json({
           error: "INSUFFICIENT_BALANCE",
-          message: `Low wallet balance. Each question costs ₹${price.toFixed(2)}. Please recharge.`,
+          message: `Low wallet balance. Analysis questions cost ₹${price.toFixed(2)}. Please recharge.`,
           balance,
           pricePerQuery: price,
         }, 402);
@@ -196,14 +360,16 @@ Deno.serve(async (req) => {
         type: "debit",
         amount: price,
         reference_id: `aichat_${Date.now()}`,
-        description: "AI Assistant query",
+        description: "AI Assistant analysis",
       });
     }
 
-    await kvSet(usageKey, {
-      count: (usage.count || 0) + 1,
-      charged: Number(((usage.charged || 0) + price).toFixed(2)),
-    });
+    if (billable) {
+      await kvSet(usageKey, {
+        count: (usage.count || 0) + 1,
+        charged: Number(((usage.charged || 0) + price).toFixed(2)),
+      });
+    }
 
     // build context + history
     const context = await buildContext(user.id);
@@ -227,7 +393,13 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
       },
-      body: JSON.stringify({ model: MODEL, messages, temperature: 0.3, max_tokens: 700 }),
+      body: JSON.stringify({
+        model: MODEL,
+        messages,
+        temperature: 0.3,
+        max_tokens: 900,
+        response_format: { type: "json_object" },
+      }),
     });
 
     if (!aiRes.ok) {
@@ -248,6 +420,7 @@ Deno.serve(async (req) => {
           reference_id: `aichat_refund_${Date.now()}`,
           description: "AI Assistant refund (service error)",
         });
+        balance = Number((balance + price).toFixed(2));
       }
       if (aiRes.status === 429) return json({ error: "RATE_LIMIT", message: "Too many questions right now. Please retry in a moment." }, 429);
       if (aiRes.status === 402) return json({ error: "AI_CREDITS", message: "AI service temporarily unavailable." }, 402);
@@ -255,15 +428,78 @@ Deno.serve(async (req) => {
     }
 
     const data = await aiRes.json();
-    const reply = data?.choices?.[0]?.message?.content?.trim() || "Sorry, I could not generate an answer.";
+    const rawReply = data?.choices?.[0]?.message?.content?.trim() || "";
+
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(rawReply.replace(/^```(json)?/i, "").replace(/```$/, "").trim());
+    } catch { parsed = null; }
+
+    const answer = {
+      title: String(parsed?.title || "IndexPilot AI"),
+      verdict: ["WAIT", "PLACE", "HOLD", "EXIT", "INFO"].includes(parsed?.verdict) ? parsed.verdict : "INFO",
+      summary: String(parsed?.summary || rawReply || "Sorry, I could not generate an answer."),
+      sections: Array.isArray(parsed?.sections)
+        ? parsed.sections
+            .filter((s: any) => s && s.heading && Array.isArray(s.points))
+            .slice(0, 6)
+            .map((s: any) => ({ heading: String(s.heading).slice(0, 60), points: s.points.map((p: any) => String(p).slice(0, 300)).slice(0, 8) }))
+        : [],
+      confidence: Math.max(0, Math.min(100, Number(parsed?.confidence ?? 0))),
+      risk: String(parsed?.risk || ""),
+      action: { type: "none", label: "", signalId: "", orderId: "", reason: "" } as any,
+    };
+
+    // ---- validate the suggested action against real data ----
+    const a = parsed?.action || {};
+    if (a?.type === "place_order") {
+      const sig: any = context.latest_signal;
+      const fresh = sig && (Date.now() - new Date(sig.created_at).getTime()) / 60000 <= 15;
+      const hasFreeSlot = (context.auto_slots || []).some((s: any) => s.enabled);
+      if (context.market_open && fresh && hasFreeSlot && context.open_positions.length < (context.auto_slots || []).filter((s: any) => s.enabled).length) {
+        answer.action = {
+          type: "place_order",
+          label: `Place ${sig.option_type || ""} order — ${sig.symbol}`,
+          signalId: String(a.signalId || sig.id),
+          orderId: "",
+          reason: String(a.reason || "Fresh actionable signal"),
+        };
+      } else {
+        answer.verdict = "WAIT";
+      }
+    } else if (a?.type === "exit_position") {
+      const oid = String(a.orderId || "");
+      const pos = (context.open_positions || []).find((p: any) => p.order_id === oid) || context.open_positions[0];
+      if (pos) {
+        answer.action = {
+          type: "exit_position",
+          label: `Exit ${pos.symbol} now`,
+          signalId: "",
+          orderId: String(pos.order_id),
+          reason: String(a.reason || "Exit recommended"),
+        };
+      } else {
+        answer.verdict = "INFO";
+      }
+    }
+
+    // plain-text fallback for older clients (RN v1)
+    const replyText = [
+      answer.summary,
+      ...answer.sections.map((s: any) => `\n**${s.heading}**\n` + s.points.map((p: string) => `• ${p}`).join("\n")),
+      answer.risk ? `\n⚠️ ${answer.risk}` : "",
+    ].join("\n").trim();
 
     return json({
       success: true,
-      reply,
+      reply: replyText,
+      answer,
       charged: price,
+      billable,
+      freeReason,
       balance,
       pricePerQuery: cfg.pricePerQuery,
-      freeQueriesLeft: Math.max(0, freeLeft - 1),
+      freeQueriesLeft: billable ? Math.max(0, freeLeft - 1) : freeLeft,
     });
   } catch (e: any) {
     console.error("ai-chat error", e);
