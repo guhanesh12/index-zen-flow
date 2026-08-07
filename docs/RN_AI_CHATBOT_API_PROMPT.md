@@ -72,8 +72,15 @@ Show under each answer: `charged > 0 ? "₹X debited" : "Free — " + freeReason
 | `none` | none (verdict WAIT / HOLD / INFO — text only) | – |
 | `place_order` | green **Place order** | `POST ?action=place-order` `{ "signalId": action.signalId }` |
 | `exit_position` | red **Exit position** | `POST ?action=exit-position` `{ "orderId": action.orderId }` |
+| `start_engine` | green **Start trading engine** | `POST ?action=engine-start` `{}` |
+| `stop_engine` | grey **Stop trading engine** | `POST ?action=engine-stop` `{}` |
+| `edit_slot` | inline **slot edit form** (prefilled from `action.current`, slot no = `action.slot`) | `POST ?action=update-slot` |
+| `connect_broker` | **Open broker settings** (navigate to your Broker tab — no API call) | – |
 
-The server re-validates before showing a button: `place_order` only when market is open, the signal is < 15 min old and an enabled free slot exists; `exit_position` only when that position is actually running. So never render your own buttons — only what `action` says.
+The server re-validates before showing a button: `place_order` only when market is open, the signal is < 15 min old and an enabled free slot exists; `exit_position` only when that position is actually running; `start_engine` flips to `stop_engine` if the engine is already running. So never render your own buttons — only what `action` says.
+
+`action.current` (for `edit_slot`) is the live `user_symbol_config` row: `{ slot, index_name, moneyness, lot_count, enabled, target_per_lot, stop_loss_per_lot, trailing_enabled, trailing_activation_per_lot, trailing_step_per_lot }`.
+
 
 ## 3. `POST /ai-chat?action=place-order`
 ```json
@@ -90,10 +97,53 @@ Errors: `SIGNAL_NOT_FOUND` 404, `SIGNAL_EXPIRED` 400, `NO_SECURITY_ID` 400, `ORD
 Errors: `POSITION_NOT_ACTIVE` 400, `NO_SECURITY_ID` 400, `EXIT_FAILED` 502.
 On success the position is marked closed (`exit_reason: manual_ai_chat_exit`) and the journal/P&L flow continues as usual.
 
-## 5. Admin only — `POST /ai-chat?action=set-config`
+## 5. System-control endpoints (all free, all `Authorization: Bearer <supabase access token>`)
+
+### `POST /ai-chat?action=engine-start` `{}`
+Starts the VPS + signal engine using the user's saved symbols / slots and candle interval.
+→ `200 { "success": true, "message": "Trading engine started with 3 symbol(s) on 15M candles.", "charged": 0 }`
+Errors: `NO_SYMBOLS` 400 (add a slot/symbol first), `ENGINE_START_FAILED` 502.
+
+### `POST /ai-chat?action=engine-stop` `{}`
+→ `200 { "success": true, "message": "Trading engine stopped. VPS is powering off.", "charged": 0 }`
+Errors: `ENGINE_STOP_FAILED` 502.
+
+### `POST /ai-chat?action=slot-details` `{ "slot": 1 }`
+→ `200 { "success": true, "slot": { ...user_symbol_config row... } }` (`slot: null` if not configured).
+
+### `POST /ai-chat?action=update-slot`
 ```json
-{ "pricePerQuery": 0.75, "enabled": true, "freeQueriesPerDay": 2 }
+{
+  "slot": 1,
+  "indexName": "NIFTY",
+  "moneyness": "ATM",
+  "lotCount": 2,
+  "enabled": true,
+  "targetPerLot": 6000,
+  "stopLossPerLot": 3000,
+  "trailingEnabled": true,
+  "trailingActivationPerLot": 2000,
+  "trailingStepPerLot": 1000
+}
 ```
+Every field except `slot` is optional — omitted fields keep their current value.
+→ `200 { "success": true, "message": "Slot 1 updated — NIFTY ATM, 2 lot(s), Target ₹6000/lot, SL ₹3000/lot.", "slot": {...}, "charged": 0 }`
+Errors: `Invalid slot` 400, `SLOT_UPDATE_FAILED` 502.
+
+### `POST /ai-chat?action=broker-status` `{}`
+→ `200 { "success": true, "connected": true, "broker": "dhan", "dhanClientId": "...", "dhanClientName": "...", "lastStatus": "...", "lastError": null, "accessTokenExpiresAt": "2026-08-09T05:00:00.000Z", "accessTokenExpired": false, "charged": 0 }`
+
+## 6. Chat history
+
+### `GET /ai-chat?action=history`
+→ `200 { "success": true, "messages": [ { "id", "role": "user"|"assistant", "content", "answer", "charged", "created_at" } ] }` (oldest first, max 100). Load this when the chat sheet opens so the conversation survives app restarts.
+
+## 7. Admin only
+- `POST /ai-chat?action=set-config` `{ "pricePerQuery": 0.75, "enabled": true, "freeQueriesPerDay": 2 }`
+- `GET /ai-chat?action=admin-chat-users` → `{ users: [{ user_id, messages, charged, last_message, last_at, profile }] }`
+- `GET /ai-chat?action=admin-chat-history&userId=<uuid>` → `{ profile, messages: [{ role, content, answer, verdict, action_type, charged, created_at }] }`
+
+Both admin endpoints return `403 Forbidden` for non-admins.
 
 ## Chat error table
 | Status | body.error | UI action |
@@ -101,6 +151,7 @@ On success the position is marked closed (`exit_reason: manual_ai_chat_exit`) an
 | 401 | Unauthorized | re-login |
 | 400 | message is required / too long | max 1000 chars |
 | 402 | INSUFFICIENT_BALANCE | open recharge sheet (`balance`, `pricePerQuery`) |
+
 | 429 | RATE_LIMIT | retry toast |
 | 503 | – | assistant disabled by admin |
 | 502 | AI_ERROR | service down — charge is **auto-refunded** |
@@ -120,13 +171,22 @@ On success the position is marked closed (`exit_reason: manual_ai_chat_exit`) an
 > 2. `summary` as markdown (`react-native-markdown-display`) — bold must render bold.
 > 3. Each `sections[]` item as its own soft panel: uppercase primary-coloured `heading` + bulleted `points` (markdown).
 > 4. `risk` in an amber warning strip with a shield icon.
-> 5. Action button from `answer.action` (green Place order / red Exit position), with spinner, disabled after success, and caption "no wallet charge".
+> 5. Action UI from `answer.action`:
+>    - `place_order` → green button → `?action=place-order`
+>    - `exit_position` → red button → `?action=exit-position`
+>    - `start_engine` → green **Start trading engine** → `?action=engine-start`
+>    - `stop_engine` → grey **Stop trading engine** → `?action=engine-stop`
+>    - `edit_slot` → inline form INSIDE the chat card, prefilled from `action.current`: Index picker (NIFTY/BANKNIFTY/FINNIFTY/MIDCPNIFTY/SENSEX), Moneyness picker (ITM2/ITM1/ATM/OTM1/OTM2), numeric fields Lots, Target/lot, SL/lot, Trail activate, Trail step, and switches Slot enabled + Trailing SL. Save button → `?action=update-slot` with `{ slot, ...fields }`.
+>    - `connect_broker` → button that closes the sheet and navigates to the existing Broker screen (no API call).
+>    Each shows a spinner, disables after success, and captions "no wallet charge".
 > 6. Footer line: `₹X debited from wallet` or `Free — {freeReason}`.
 >
 > User messages: right-aligned primary bubble. Loading: "Analysing chart, signals & your position…" shimmer.
-> Quick chips on first open: next signal, why no trade today, hold or exit my position, last order status, why wallet debited.
+> Quick chips on first open: next signal, why no trade today, hold or exit my position, slot 1 details, start my trading engine, broker token expiry status.
 >
-> **Behaviour:** send last 8 turns as `history` (`{role, content}` where assistant content = `answer.summary`).
+> **Behaviour:** on sheet open call `GET ?action=history` and hydrate the transcript, then `GET ?action=config` for price + balance.
+> Send last 8 turns as `history` (`{role, content}` where assistant content = `answer.summary`).
 > On `402 INSUFFICIENT_BALANCE` open the existing recharge screen.
-> Action buttons call `?action=place-order` / `?action=exit-position` with the same access token; on success append a confirmation card and refresh positions/orders lists.
-> Never invent buttons — only render what `answer.action.type` returns.
+> After a successful engine/slot/order action, append the returned confirmation card and refresh the engine status / slot list / positions screens.
+> Never invent buttons — only render what `answer.action.type` returns. Every conversation is logged server-side and visible to admins, so do not add any local-only chat storage that diverges from `?action=history`.
+

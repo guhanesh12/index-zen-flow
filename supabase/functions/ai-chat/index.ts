@@ -86,8 +86,15 @@ function isBillable(msg: string) {
 }
 
 // ---------------- context builder ----------------
+function tokenExpiry(row: any): { expires_at: string | null; expired: boolean | null } {
+  const raw = row?.access_token_expiry;
+  if (!raw) return { expires_at: null, expired: null };
+  const t = new Date(raw).getTime();
+  return { expires_at: new Date(t).toISOString(), expired: t < Date.now() };
+}
+
 async function buildContext(userId: string) {
-  const [signals, orders, positions, slots, wallet, txns] = await Promise.all([
+  const [signals, orders, positions, slots, wallet, txns, engine, broker] = await Promise.all([
     admin.from("trading_signals").select("id,symbol,signal_type,index_name,price,strike_price,option_type,confidence,status,created_at,raw_data")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(8),
     admin.from("trading_orders").select("symbol,index_name,order_type,transaction_type,quantity,price,status,error_message,dhan_order_id,created_at")
@@ -99,6 +106,10 @@ async function buildContext(userId: string) {
     kvGet(`wallet:${userId}`),
     admin.from("wallet_transactions").select("type,amount,description,created_at")
       .eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
+    admin.from("trading_engine_state").select("is_running,started_at,stopped_at,last_heartbeat,stopped_reason,auto_resume,selected_symbols,strategy_settings")
+      .eq("user_id", userId).maybeSingle(),
+    admin.from("broker_credentials").select("broker,auth_method,dhan_client_id,dhan_client_name,last_status,last_error,access_token_expiry,updated_at")
+      .eq("user_id", userId).maybeSingle(),
   ]);
 
   const sigs = (signals.data || []).map((s: any) => ({ ...s, raw_data: undefined }));
@@ -107,10 +118,32 @@ async function buildContext(userId: string) {
   const nowIst = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   const istHm = new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour12: false }).slice(0, 5);
   const marketOpen = istHm >= "09:15" && istHm <= "15:30";
+  const b: any = broker.data || null;
+  const exp = tokenExpiry(b);
 
   return {
     now_ist: nowIst,
     market_open: marketOpen,
+    engine: {
+      is_running: !!engine.data?.is_running,
+      started_at: engine.data?.started_at || null,
+      stopped_at: engine.data?.stopped_at || null,
+      last_heartbeat: engine.data?.last_heartbeat || null,
+      stopped_reason: engine.data?.stopped_reason || null,
+      auto_resume: !!engine.data?.auto_resume,
+      selected_symbol_count: Array.isArray(engine.data?.selected_symbols) ? engine.data.selected_symbols.length : 0,
+    },
+    broker: {
+      connected: !!b?.dhan_client_id,
+      broker: b?.broker || null,
+      auth_method: b?.auth_method || null,
+      dhan_client_id: b?.dhan_client_id || null,
+      dhan_client_name: b?.dhan_client_name || null,
+      last_status: b?.last_status || null,
+      last_error: b?.last_error || null,
+      access_token_expires_at: exp.expires_at,
+      access_token_expired: exp.expired,
+    },
     recent_signals: sigs,
     latest_signal: (signals.data || [])[0] || null,
     recent_orders: orders.data || [],
@@ -127,9 +160,10 @@ async function buildContext(userId: string) {
   };
 }
 
+
 const SYSTEM_PROMPT = `You are "IndexPilot AI" — a national-level, institutional-grade Indian index-options trading brain (NIFTY / BANKNIFTY / SENSEX / FINNIFTY, Dhan broker auto-execution).
 
-SCOPE — answer ONLY: trading signals (why fired / not fired, what the next signal needs), orders (status, Dhan rejections, lots), running positions (P&L, target, SL, trailing, hold vs exit), chart/market direction for the traded index & option contract, and wallet/billing. Politely refuse anything else in ONE line.
+SCOPE — answer ONLY about this trading system: signals (why fired / not fired, next signal), orders (status, Dhan rejections, lots), running positions (P&L, target, SL, trailing, hold vs exit), chart/market direction, auto slots (slot 1..N: index, moneyness, lots, target, SL, trailing) and slot changes, engine start/stop & VPS status, broker (Dhan) connection & access-token expiry, and wallet/billing. Politely refuse anything else in ONE line.
 
 You MUST reply with STRICT JSON ONLY (no markdown fences), in this schema:
 {
@@ -144,7 +178,10 @@ You MUST reply with STRICT JSON ONLY (no markdown fences), in this schema:
   ],
   "confidence": 0-100,
   "risk": "one-line risk note",
-  "action": { "type": "none" | "place_order" | "exit_position", "label": "...", "signalId": "...", "orderId": "...", "reason": "..." }
+  "action": {
+    "type": "none" | "place_order" | "exit_position" | "start_engine" | "stop_engine" | "edit_slot" | "connect_broker",
+    "label": "...", "signalId": "...", "orderId": "...", "slot": 1, "reason": "..."
+  }
 }
 
 VERDICT / ACTION RULES:
@@ -152,7 +189,10 @@ VERDICT / ACTION RULES:
 - A fresh CALL/PUT signal exists and a free enabled slot is available → verdict "PLACE", action.type "place_order" with that signal's id.
 - Position running and analysis says keep it (even if temporarily in loss but market is favourable) → verdict "HOLD", action.type "none". Explain WHY holding is right (trend, VWAP/EMA, time decay, target distance).
 - Position running and analysis says cut it → verdict "EXIT", action.type "exit_position" with that position's order_id.
-- Use ONLY the USER CONTEXT JSON for facts. Never invent order ids, prices, P&L. Missing data → say so.
+- User asks to start / switch on the engine, or engine.is_running is false while they want trading → verdict "INFO", action.type "start_engine". If they ask to stop it → action.type "stop_engine".
+- User asks about a specific slot ("slot 1 details", "change slot 2 lots / target / SL") → verdict "INFO", action.type "edit_slot" with "slot" set to that slot number, and list the CURRENT values of that slot (index, moneyness, lots, target/lot, SL/lot, trailing) in a section. The app shows an inline edit form; do not claim you changed anything yourself.
+- User asks about broker connection / access token / token expired / "how to add token" → verdict "INFO", action.type "connect_broker", and state the real connection status and token expiry from context.
+- Use ONLY the USER CONTEXT JSON for facts. Never invent order ids, prices, P&L, slot values. Missing data → say so.
 - Max 4 sections and max 4 SHORT bullets per section (each bullet under 140 characters). Keep the whole JSON under 300 words so it is never truncated.
 - Mirror the user's language (English / Tamil / Hindi transliteration).`;
 
@@ -228,6 +268,25 @@ function pick(obj: any, ...keys: string[]) {
   return undefined;
 }
 
+// ---------------- system-control helpers ----------------
+const SERVER_BASE = `${SUPABASE_URL}/functions/v1/make-server-c4d79cb7`;
+
+async function callServer(path: string, method: string, authHeader: string, body?: unknown) {
+  const res = await fetch(`${SERVER_BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: authHeader },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function logChat(row: Record<string, unknown>) {
+  const { error } = await admin.from("ai_chat_logs").insert(row);
+  if (error) console.error("ai_chat_logs insert failed", error.message);
+}
+
+
 // ---------------- handler ----------------
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -239,6 +298,61 @@ Deno.serve(async (req) => {
 
     const user = await getUser(req);
     if (!user) return json({ error: "Unauthorized" }, 401);
+
+    // ---- user's own chat history ----
+    if (action === "history") {
+      const { data } = await admin
+        .from("ai_chat_logs")
+        .select("id,role,content,answer,charged,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(100);
+      return json({ success: true, messages: data || [] });
+    }
+
+    // ---- admin: list users who used the AI chat ----
+    if (action === "admin-chat-users") {
+      if (!(await isAdmin(user.id))) return json({ error: "Forbidden" }, 403);
+      const { data } = await admin
+        .from("ai_chat_logs")
+        .select("user_id,role,content,charged,created_at")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      const byUser = new Map<string, any>();
+      for (const r of data || []) {
+        const cur = byUser.get(r.user_id) || { user_id: r.user_id, messages: 0, charged: 0, last_message: "", last_at: r.created_at };
+        cur.messages += 1;
+        cur.charged = Number((cur.charged + Number(r.charged || 0)).toFixed(2));
+        if (!cur.last_message && r.role === "user") cur.last_message = r.content;
+        byUser.set(r.user_id, cur);
+      }
+      const ids = [...byUser.keys()];
+      const { data: profs } = ids.length
+        ? await admin.from("profiles").select("user_id,full_name,email,mobile,photo_url,client_id").in("user_id", ids)
+        : { data: [] as any[] };
+      const pmap = new Map((profs || []).map((p: any) => [p.user_id, p]));
+      const users = [...byUser.values()]
+        .map((u) => ({ ...u, profile: pmap.get(u.user_id) || null }))
+        .sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
+      return json({ success: true, users });
+    }
+
+    // ---- admin: one user's full chat ----
+    if (action === "admin-chat-history") {
+      if (!(await isAdmin(user.id))) return json({ error: "Forbidden" }, 403);
+      const targetId = url.searchParams.get("userId") || "";
+      if (!targetId) return json({ error: "userId is required" }, 400);
+      const { data } = await admin
+        .from("ai_chat_logs")
+        .select("id,role,content,answer,verdict,action_type,charged,created_at")
+        .eq("user_id", targetId)
+        .order("created_at", { ascending: true })
+        .limit(500);
+      const { data: prof } = await admin
+        .from("profiles").select("user_id,full_name,email,mobile,photo_url,client_id")
+        .eq("user_id", targetId).maybeSingle();
+      return json({ success: true, profile: prof || null, messages: data || [] });
+    }
 
     // ---- GET pricing/config (any logged-in user) ----
     if (req.method === "GET" || action === "config") {
@@ -252,6 +366,7 @@ Deno.serve(async (req) => {
         billingNote: "Only signal / position / chart analysis questions are charged. General & wallet questions are free.",
       });
     }
+
 
     const body = await req.json().catch(() => ({}));
 
@@ -272,6 +387,123 @@ Deno.serve(async (req) => {
       await kvSet(CONFIG_KEY, next);
       return json({ success: true, config: next });
     }
+
+    // ---- ENGINE start / stop from chat (free) ----
+    if (action === "engine-start" || action === "engine-stop") {
+      if (action === "engine-stop") {
+        const out = await callServer("/engine/stop", "POST", authHeader, {});
+        if (!out.ok || out.data?.success === false) {
+          return json({ error: "ENGINE_STOP_FAILED", message: out.data?.error || out.data?.message || "Could not stop the engine." }, 502);
+        }
+        await logChat({ user_id: user.id, role: "assistant", content: "Engine stopped from AI chat", action_type: "stop_engine", charged: 0 });
+        return json({ success: true, message: "Trading engine stopped. VPS is powering off." , charged: 0 });
+      }
+
+      const { data: state } = await admin
+        .from("trading_engine_state")
+        .select("selected_symbols,strategy_settings")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      let symbols: any[] = Array.isArray(state?.selected_symbols) ? state!.selected_symbols as any[] : [];
+      if (!symbols.length) {
+        const { data: us } = await admin
+          .from("user_symbols")
+          .select("symbol_name,symbol_id,exchange_segment,lot_size,index_name,option_type,strike_price,expiry")
+          .eq("user_id", user.id);
+        symbols = (us || []).map((s: any) => ({
+          symbol: s.symbol_name,
+          symbolId: s.symbol_id,
+          exchangeSegment: s.exchange_segment || "NSE_FNO",
+          lotSize: s.lot_size,
+          indexName: s.index_name,
+          optionType: s.option_type,
+          strikePrice: s.strike_price,
+          expiry: s.expiry,
+          active: true,
+        }));
+      }
+      if (!symbols.length) {
+        return json({ error: "NO_SYMBOLS", message: "No symbols configured. Add an auto slot or symbol first, then start the engine." }, 400);
+      }
+
+      const interval = (state?.strategy_settings as any)?.candleInterval || body.candleInterval || "15";
+      const out = await callServer("/engine/start", "POST", authHeader, { candleInterval: String(interval), symbols });
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "ENGINE_START_FAILED", message: out.data?.error || out.data?.message || "Could not start the engine." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: "Engine started from AI chat", action_type: "start_engine", charged: 0 });
+      return json({ success: true, message: `Trading engine started with ${symbols.length} symbol(s) on ${interval}M candles.`, charged: 0 });
+    }
+
+    // ---- SLOT details / update from chat (free) ----
+    if (action === "slot-details") {
+      const slot = Number(body.slot);
+      if (!Number.isInteger(slot) || slot < 1) return json({ error: "Invalid slot" }, 400);
+      const { data } = await admin
+        .from("user_symbol_config").select("*")
+        .eq("user_id", user.id).eq("slot", slot).maybeSingle();
+      return json({ success: true, slot: data || null });
+    }
+
+    if (action === "update-slot") {
+      const slot = Number(body.slot);
+      if (!Number.isInteger(slot) || slot < 1) return json({ error: "Invalid slot" }, 400);
+      const { data: cur } = await admin
+        .from("user_symbol_config").select("*")
+        .eq("user_id", user.id).eq("slot", slot).maybeSingle();
+
+      const num = (v: any, fallback: number, min = 0) =>
+        v === undefined || v === null || v === "" ? fallback : Math.max(min, Number(v));
+
+      const payload = {
+        slot,
+        indexName: body.indexName ?? cur?.index_name ?? "NIFTY",
+        moneyness: body.moneyness ?? cur?.moneyness ?? "ATM",
+        lotCount: Math.max(1, parseInt(String(body.lotCount ?? cur?.lot_count ?? 1))),
+        enabled: typeof body.enabled === "boolean" ? body.enabled : (cur?.enabled ?? true),
+        targetPerLot: num(body.targetPerLot, Number(cur?.target_per_lot ?? 6000), 0),
+        stopLossPerLot: num(body.stopLossPerLot, Number(cur?.stop_loss_per_lot ?? 3000), 0),
+        trailingEnabled: typeof body.trailingEnabled === "boolean" ? body.trailingEnabled : (cur?.trailing_enabled ?? true),
+        trailingActivationPerLot: num(body.trailingActivationPerLot, Number(cur?.trailing_activation_per_lot ?? 2000), 0),
+        trailingStepPerLot: num(body.trailingStepPerLot, Number(cur?.trailing_step_per_lot ?? 1000), 0),
+      };
+
+      const out = await callServer("/auto-symbol/config", "POST", authHeader, payload);
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "SLOT_UPDATE_FAILED", message: out.data?.error || "Could not update the slot." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: `Slot ${slot} updated from AI chat`, action_type: "edit_slot", charged: 0 });
+      return json({
+        success: true,
+        message: `Slot ${slot} updated — ${payload.indexName} ${payload.moneyness}, ${payload.lotCount} lot(s), Target ₹${payload.targetPerLot}/lot, SL ₹${payload.stopLossPerLot}/lot.`,
+        slot: out.data?.slot ?? null,
+        charged: 0,
+      });
+    }
+
+    // ---- BROKER connection status from chat (free) ----
+    if (action === "broker-status") {
+      const { data: b } = await admin
+        .from("broker_credentials")
+        .select("broker,auth_method,dhan_client_id,dhan_client_name,last_status,last_error,access_token_expiry,updated_at")
+        .eq("user_id", user.id).maybeSingle();
+      const exp = tokenExpiry(b);
+      return json({
+        success: true,
+        connected: !!b?.dhan_client_id,
+        broker: b?.broker || "dhan",
+        authMethod: b?.auth_method || null,
+        dhanClientId: b?.dhan_client_id || null,
+        dhanClientName: b?.dhan_client_name || null,
+        lastStatus: b?.last_status || null,
+        lastError: b?.last_error || null,
+        accessTokenExpiresAt: exp.expires_at,
+        accessTokenExpired: exp.expired,
+        charged: 0,
+      });
+    }
+
 
     // ---- EXIT a running position (free, no wallet charge) ----
     if (action === "exit-position") {
@@ -549,6 +781,38 @@ Deno.serve(async (req) => {
       } else {
         answer.verdict = "INFO";
       }
+    } else if (a?.type === "start_engine") {
+      if (context.engine.is_running) {
+        answer.action = { type: "stop_engine", label: "Stop trading engine", signalId: "", orderId: "", reason: "Engine is already running" };
+      } else {
+        answer.action = { type: "start_engine", label: "Start trading engine", signalId: "", orderId: "", reason: String(a.reason || "Engine is off") };
+      }
+    } else if (a?.type === "stop_engine") {
+      if (context.engine.is_running) {
+        answer.action = { type: "stop_engine", label: "Stop trading engine", signalId: "", orderId: "", reason: String(a.reason || "User requested stop") };
+      }
+    } else if (a?.type === "edit_slot") {
+      const slotNo = parseInt(String(a.slot ?? ""));
+      const slotRow = (context.auto_slots || []).find((s: any) => s.slot === slotNo) || (context.auto_slots || [])[0];
+      if (slotRow) {
+        answer.action = {
+          type: "edit_slot",
+          label: `Edit Slot ${slotRow.slot} — ${slotRow.index_name} ${slotRow.moneyness}`,
+          signalId: "",
+          orderId: "",
+          slot: slotRow.slot,
+          current: slotRow,
+          reason: String(a.reason || "Slot settings"),
+        } as any;
+      }
+    } else if (a?.type === "connect_broker") {
+      answer.action = {
+        type: "connect_broker",
+        label: context.broker.connected ? "Update Dhan access token" : "Connect Dhan broker",
+        signalId: "",
+        orderId: "",
+        reason: String(a.reason || "Broker connection"),
+      } as any;
     }
 
     // plain-text fallback for older clients (RN v1)
@@ -557,6 +821,18 @@ Deno.serve(async (req) => {
       ...answer.sections.map((s: any) => `\n**${s.heading}**\n` + s.points.map((p: string) => `• ${p}`).join("\n")),
       answer.risk ? `\n⚠️ ${answer.risk}` : "",
     ].join("\n").trim();
+
+    // persist the conversation (visible to the user & to admins)
+    await logChat({ user_id: user.id, role: "user", content: message, charged: price });
+    await logChat({
+      user_id: user.id,
+      role: "assistant",
+      content: replyText,
+      answer,
+      verdict: answer.verdict,
+      action_type: answer.action?.type || "none",
+      charged: 0,
+    });
 
     return json({
       success: true,
@@ -569,6 +845,7 @@ Deno.serve(async (req) => {
       pricePerQuery: cfg.pricePerQuery,
       freeQueriesLeft: billable ? Math.max(0, freeLeft - 1) : freeLeft,
     });
+
   } catch (e: any) {
     console.error("ai-chat error", e);
     return json({ error: "SERVER_ERROR", message: e?.message || "Unexpected error" }, 500);

@@ -326,6 +326,42 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_chat_logs: {
+        Row: {
+          action_type: string | null
+          answer: Json | null
+          charged: number
+          content: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+          verdict: string | null
+        }
+        Insert: {
+          action_type?: string | null
+          answer?: Json | null
+          charged?: number
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          user_id: string
+          verdict?: string | null
+        }
+        Update: {
+          action_type?: string | null
+          answer?: Json | null
+          charged?: number
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+          verdict?: string | null
+        }
+        Relationships: []
+      }
       auto_notification_templates: {
         Row: {
           body: string

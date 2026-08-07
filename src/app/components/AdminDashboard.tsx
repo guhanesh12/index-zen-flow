@@ -15,6 +15,7 @@ import { AdminSettings } from './AdminSettings';
 import { AdminReferrals } from './AdminReferrals';
 import { AdminCommunication } from './AdminCommunication';
 import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
+import { AdminAIChatLogs } from './AdminAIChatLogs';
 import { AdminAuditLogViewer } from './AdminAuditLogViewer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
@@ -47,7 +48,7 @@ export type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
 const ADMIN_MAIN_TAB_KEYS = [
   'dashboard', 'users', 'transactions', 'support', 'landing', 'adminUsers',
-  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'audit',
+  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'aiChats', 'audit',
 ];
 
 export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedHotkey }: AdminDashboardProps) {
@@ -429,6 +430,13 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               <AdminMobileAppUpdate />
             </TabsContent>
           )}
+
+          {canAccessTab('aiChats') && (
+            <TabsContent value="aiChats">
+              <AdminAIChatLogs />
+            </TabsContent>
+          )}
+
 
           {canAccessTab('audit') && (
             <TabsContent value="audit">

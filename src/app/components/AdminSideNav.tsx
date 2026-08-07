@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Shield, TrendingUp, Users, DollarSign, MessageSquare, Globe, Activity,
-  UsersRound, Settings, Gift, Mail, Smartphone, ScrollText, ChevronRight,
+  UsersRound, Settings, Gift, Mail, Smartphone, ScrollText, ChevronRight, Bot,
 } from 'lucide-react';
 import { TAB_TREE } from '@/app/adminTabs';
 import { selectAdminSubTab } from '@/hooks/useAdminSubTabSync';
@@ -20,6 +20,7 @@ const ICONS: Record<string, any> = {
   referrals: Gift,
   communication: Mail,
   mobile: Smartphone,
+  aiChats: Bot,
   audit: ScrollText,
 };
 
