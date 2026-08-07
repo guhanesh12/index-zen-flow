@@ -72,8 +72,15 @@ Show under each answer: `charged > 0 ? "₹X debited" : "Free — " + freeReason
 | `none` | none (verdict WAIT / HOLD / INFO — text only) | – |
 | `place_order` | green **Place order** | `POST ?action=place-order` `{ "signalId": action.signalId }` |
 | `exit_position` | red **Exit position** | `POST ?action=exit-position` `{ "orderId": action.orderId }` |
+| `start_engine` | green **Start trading engine** | `POST ?action=engine-start` `{}` |
+| `stop_engine` | grey **Stop trading engine** | `POST ?action=engine-stop` `{}` |
+| `edit_slot` | inline **slot edit form** (prefilled from `action.current`, slot no = `action.slot`) | `POST ?action=update-slot` |
+| `connect_broker` | **Open broker settings** (navigate to your Broker tab — no API call) | – |
 
-The server re-validates before showing a button: `place_order` only when market is open, the signal is < 15 min old and an enabled free slot exists; `exit_position` only when that position is actually running. So never render your own buttons — only what `action` says.
+The server re-validates before showing a button: `place_order` only when market is open, the signal is < 15 min old and an enabled free slot exists; `exit_position` only when that position is actually running; `start_engine` flips to `stop_engine` if the engine is already running. So never render your own buttons — only what `action` says.
+
+`action.current` (for `edit_slot`) is the live `user_symbol_config` row: `{ slot, index_name, moneyness, lot_count, enabled, target_per_lot, stop_loss_per_lot, trailing_enabled, trailing_activation_per_lot, trailing_step_per_lot }`.
+
 
 ## 3. `POST /ai-chat?action=place-order`
 ```json
