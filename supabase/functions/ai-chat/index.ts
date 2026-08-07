@@ -287,7 +287,83 @@ async function logChat(row: Record<string, unknown>) {
 }
 
 
+// ---------------- live market analysis (new, isolated module) ----------------
+const MARKET_RE =
+  /(signal|சிக்னல்|position|holding|running|hold|exit|எக்ஸிட்|entry|buy|sell|call\b|\bce\b|put\b|\bpe\b|chart|trend|market|direction|breakout|reversal|nifty|banknifty|bank\s*nifty|sensex|finnifty|midcp|target|stop\s*loss|stoploss|\bsl\b|trail|profit|loss|மார்க்கெட்)/i;
+
+function needsMarketRead(msg: string) {
+  return MARKET_RE.test(String(msg || ""));
+}
+
+async function loadDhanCreds(userId: string): Promise<DhanCreds | null> {
+  const { data } = await admin
+    .from("broker_credentials")
+    .select("dhan_client_id, access_token")
+    .eq("user_id", userId)
+    .eq("broker", "dhan")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (data?.dhan_client_id && data?.access_token) {
+    return { dhanClientId: data.dhan_client_id, dhanAccessToken: data.access_token };
+  }
+  const legacy = await kvGet(`api_credentials:${userId}`);
+  return legacy?.dhanClientId && legacy?.dhanAccessToken
+    ? { dhanClientId: legacy.dhanClientId, dhanAccessToken: legacy.dhanAccessToken }
+    : null;
+}
+
+function indicesToScan(context: any, message: string): string[] {
+  const wanted = new Set<string>();
+  const m = String(message || "").toUpperCase().replace(/\s+/g, "");
+  for (const n of Object.keys(INDEX_META)) if (m.includes(n)) wanted.add(n);
+  for (const p of context.open_positions || []) if (p.index_name) wanted.add(String(p.index_name).toUpperCase());
+  for (const s of context.auto_slots || []) if (s.enabled && s.index_name) wanted.add(String(s.index_name).toUpperCase());
+  if (context.latest_signal?.index_name) wanted.add(String(context.latest_signal.index_name).toUpperCase());
+  if (!wanted.size) wanted.add("NIFTY");
+  return [...wanted];
+}
+
+async function buildLiveMarket(userId: string, context: any, message: string) {
+  const creds = await loadDhanCreds(userId);
+  if (!creds) {
+    return { available: false, reason: "Dhan broker not connected — live chart analysis unavailable." };
+  }
+  try {
+    const names = indicesToScan(context, message);
+    const { reads, errors } = await analyseIndices(creds, names);
+
+    // premium behaviour of the running option contract (if any)
+    let optionRead: any = null;
+    const openPos = (context.open_positions || [])[0];
+    if (openPos?.order_id) {
+      const { data: row } = await admin
+        .from("position_monitor_state")
+        .select("symbol_id,exchange_segment,raw_position")
+        .eq("user_id", userId)
+        .eq("order_id", openPos.order_id)
+        .maybeSingle();
+      const secId = row?.symbol_id || (row?.raw_position as any)?.securityId;
+      if (secId) {
+        optionRead = await analysePositionOption(creds, String(secId), row?.exchange_segment || "NSE_FNO");
+      }
+    }
+
+    return {
+      available: reads.length > 0,
+      fetched_at_ist: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+      interval: "5m candles (live Dhan data)",
+      indices: reads,
+      running_option_chart: optionRead,
+      errors: errors.length ? errors : undefined,
+    };
+  } catch (e: any) {
+    return { available: false, reason: `Live market fetch failed: ${e?.message || "unknown"}` };
+  }
+}
+
 // ---------------- handler ----------------
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
