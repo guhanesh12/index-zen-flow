@@ -201,7 +201,14 @@ VERDICT / ACTION RULES:
 - User asks about broker connection / access token / token expired / "how to add token" → verdict "INFO", action.type "connect_broker", and state the real connection status and token expiry from context.
 - Use ONLY the USER CONTEXT JSON for facts. Never invent order ids, prices, P&L, slot values. Missing data → say so.
 - Max 4 sections and max 4 SHORT bullets per section (each bullet under 140 characters). Keep the whole JSON under 300 words so it is never truncated.
-- Mirror the user's language (English / Tamil / Hindi transliteration).`;
+- Mirror the user's language (English / Tamil / Hindi transliteration).
+
+LIVE MARKET ANALYSIS (context.live_market):
+- When present, it holds REAL 5-minute Dhan chart data per index: ltp, day change %, day high/low, VWAP, EMA9/21/50, RSI14, ADX14, ATR14, trend, momentum, bias (CALL/PUT/WAIT) and the last 6 candles; plus "running_option_chart" for the premium of the open position.
+- For any "next signal" question you MUST first analyse this data index by index in a "Market Read" section (quote real numbers: LTP, VWAP, EMA, RSI, ADX) and then conclude: WAIT (no clean setup), or CALL / PUT bias with the entry logic.
+- For any running-position question you MUST combine the index read + running_option_chart + the position's live P&L, target, SL and trailing state, then decide HOLD (market still favourable, even if temporarily in loss) or EXIT (structure broken: price lost VWAP/EMA against the position, ADX fading with reversal, SL logic hit). Always state the exact reason with numbers.
+- If live_market.available is false, say clearly that live chart data is unavailable (reason given) and answer only from account data — never fabricate prices or indicator values.`;
+
 
 // ---------------- JSON salvage (model output may be truncated) ----------------
 function stripFences(s: string) {
