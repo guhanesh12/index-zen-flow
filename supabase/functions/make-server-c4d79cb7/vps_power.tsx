@@ -503,13 +503,16 @@ export async function getStatusSnapshot() {
   for (const v of list) {
     const power = await getPowerState(v.userId);
     let email: string | undefined;
+    let name: string | undefined;
     try {
       const profile = await kv.get(`user_profile:${v.userId}`) as any;
       email = profile?.email;
+      name = profile?.name || profile?.full_name;
     } catch {}
     const engine = engineMap.get(v.userId);
     out.push({
       userId: v.userId,
+      name,
       email,
       ipAddress: v.ipAddress,
       dropletId: v.dropletId,

@@ -14,6 +14,7 @@ interface Props {
 
 interface VpsRow {
   userId: string;
+  name?: string;
   email?: string;
   ipAddress?: string;
   dropletId?: string;
@@ -168,7 +169,10 @@ export function AdminVPSPower({ serverUrl, accessToken }: Props) {
               <tbody>
                 {(snap?.vps || []).map(r => (
                   <tr key={r.userId} className="border-b border-slate-800/60 text-slate-200">
-                    <td className="py-2 pr-3">{r.email || r.userId.slice(0, 8)}</td>
+                    <td className="py-2 pr-3">
+                      <div className="font-medium text-white">{r.name || r.email || r.userId.slice(0, 8)}</div>
+                      {r.name && r.email && <div className="text-[10px] text-slate-400">{r.email}</div>}
+                    </td>
                     <td className="py-2 pr-3 font-mono text-emerald-400">{r.ipAddress || '—'}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{r.dropletId || '—'}</td>
                     <td className="py-2 pr-3">

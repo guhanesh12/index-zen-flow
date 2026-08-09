@@ -8,6 +8,7 @@ import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
@@ -23,14 +24,21 @@ async function apiGet(path: string) {
   const tokens = [...new Set([stored, session?.access_token || ''])].filter(Boolean);
 
   let last: any = {};
+  let lastStatus = 401;
   for (const token of tokens) {
     const res = await fetch(`${FN_URL}${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      cache: 'no-store',
     });
     last = await res.json().catch(() => ({}));
-    if (res.status !== 401) return last;
+    lastStatus = res.status;
+    if (res.ok) return last;
+    if (res.status !== 401 && res.status !== 403) break;
   }
-  return last;
+  throw new Error(last?.message || last?.error || `Unable to load AI chats (${lastStatus})`);
 }
 
 const verdictColor = (v: string) => ({
@@ -47,12 +55,21 @@ export function AdminAIChatLogs() {
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<{ profile: any; messages: any[] } | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const loadUsers = async () => {
     setLoading(true);
-    const res = await apiGet('?action=admin-chat-users');
-    setUsers(res?.users || []);
-    setLoading(false);
+    setLoadError('');
+    try {
+      const res = await apiGet('?action=admin-chat-users');
+      setUsers(res?.users || []);
+    } catch (error: any) {
+      const message = error?.message || 'Unable to load AI chats';
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { loadUsers(); }, []);
@@ -60,9 +77,15 @@ export function AdminAIChatLogs() {
   const openThread = async (userId: string) => {
     setSelected(userId);
     setThreadLoading(true);
-    const res = await apiGet(`?action=admin-chat-history&userId=${encodeURIComponent(userId)}`);
-    setThread({ profile: res?.profile || null, messages: res?.messages || [] });
-    setThreadLoading(false);
+    try {
+      const res = await apiGet(`?action=admin-chat-history&userId=${encodeURIComponent(userId)}`);
+      setThread({ profile: res?.profile || null, messages: res?.messages || [] });
+    } catch (error: any) {
+      toast.error(error?.message || 'Unable to load conversation');
+      setThread({ profile: null, messages: [] });
+    } finally {
+      setThreadLoading(false);
+    }
   };
 
   const filtered = useMemo(() => {
@@ -106,7 +129,13 @@ export function AdminAIChatLogs() {
           </div>
           <ScrollArea className="h-[520px] pr-2">
             <div className="space-y-1">
-              {!loading && filtered.length === 0 && (
+              {!loading && loadError && (
+                <div className="px-2 py-6 text-center">
+                  <p className="text-sm text-red-400">{loadError}</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={loadUsers}>Try again</Button>
+                </div>
+              )}
+              {!loading && !loadError && filtered.length === 0 && (
                 <p className="text-sm text-slate-500 px-2 py-6 text-center">No AI chats yet.</p>
               )}
               {filtered.map((u) => {
