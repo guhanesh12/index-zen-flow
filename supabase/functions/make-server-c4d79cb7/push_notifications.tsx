@@ -256,7 +256,14 @@ export async function sendPushToUser(
           targetUrl: payload.targetUrl, data: payload.data,
         });
         if (r.ok) delivered++;
-        else { failed++; await _removeTokenIfInvalid(s.deviceToken, r.errorCode); }
+        else {
+          failed++;
+          console.error(
+            `❌ FCM delivery failed for user ${userId} [${r.errorCode || "UNKNOWN"}]`,
+            JSON.stringify(r.raw || {}),
+          );
+          await _removeTokenIfInvalid(s.deviceToken, r.errorCode);
+        }
       }),
     );
     await _saveToUserNotificationCenter(userId, payload);
