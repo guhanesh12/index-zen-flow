@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Bot, X, Send, Loader2, Wallet, Sparkles, TrendingUp, ShieldAlert,
   Clock, CheckCircle2, LogOut, Gauge, Info, Power, PowerOff, SlidersHorizontal, Link2,
+  LifeBuoy, UserCog, BookOpen, ScrollText,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { projectId } from "@/utils-ext/supabase/info";
