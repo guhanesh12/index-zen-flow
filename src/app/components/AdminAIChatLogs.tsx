@@ -12,13 +12,21 @@ import { supabase } from '@/integrations/supabase/client';
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
 async function apiGet(path: string) {
+  // Prefer the live Supabase session (auto-refreshed); fall back to the stored
+  // admin token, and retry with the other one if the first is expired.
   const { data: { session } } = await supabase.auth.getSession();
-  const token = localStorage.getItem('admin_access_token') || session?.access_token || '';
+  const stored = localStorage.getItem('admin_access_token') || '';
+  const tokens = [session?.access_token || '', stored].filter(Boolean);
 
-  const res = await fetch(`${FN_URL}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.json().catch(() => ({}));
+  let last: any = {};
+  for (const token of tokens) {
+    const res = await fetch(`${FN_URL}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    last = await res.json().catch(() => ({}));
+    if (res.status !== 401) return last;
+  }
+  return last;
 }
 
 const verdictColor = (v: string) => ({
