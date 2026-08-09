@@ -445,11 +445,15 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
     "engine-start": { title: "Trading engine started", verdict: "INFO" },
     "engine-stop": { title: "Trading engine stopped", verdict: "INFO" },
     "update-slot": { title: "Slot updated", verdict: "INFO" },
+    "create-ticket": { title: "Support ticket created", verdict: "INFO" },
+    "update-profile": { title: "Profile updated", verdict: "INFO" },
   };
 
+  const NAV_ACTIONS = { "open-broker": "broker", "open-journal": "journal", "open-logs": "logs" };
+
   const runAction = async (idx: number, act: string, payload: any) => {
-    if (act === "open-broker") {
-      window.dispatchEvent(new CustomEvent("indexpilot:navigate", { detail: { tab: "broker" } }));
+    if (NAV_ACTIONS[act]) {
+      window.dispatchEvent(new CustomEvent("indexpilot:navigate", { detail: { tab: NAV_ACTIONS[act] } }));
       setOpen(false);
       return;
     }
