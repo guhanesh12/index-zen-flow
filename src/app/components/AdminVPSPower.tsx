@@ -13,12 +13,9 @@ interface Props {
 }
 
 interface VpsRow {
-  name?: string;
   userId: string;
   name?: string;
   email?: string;
-  clientId?: string;
-  photoUrl?: string;
   ipAddress?: string;
   dropletId?: string;
   powerState: 'on' | 'off' | 'unknown';
@@ -173,19 +170,8 @@ export function AdminVPSPower({ serverUrl, accessToken }: Props) {
                 {(snap?.vps || []).map(r => (
                   <tr key={r.userId} className="border-b border-slate-800/60 text-slate-200">
                     <td className="py-2 pr-3">
-                      <div className="flex items-center gap-2">
-                        {r.photoUrl ? (
-                          <img src={r.photoUrl} alt={r.name || 'User avatar'} className="size-8 rounded-full object-cover" />
-                        ) : (
-                          <span className="size-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold">
-                            {(r.name || r.email || 'U').slice(0, 1).toUpperCase()}
-                          </span>
-                        )}
-                        <div className="min-w-0">
-                          <div className="font-medium text-white truncate">{r.name || r.email || r.userId.slice(0, 8)}</div>
-                          <div className="text-xs text-slate-400 truncate">{r.clientId || r.email || r.userId}</div>
-                        </div>
-                      </div>
+                      <div className="font-medium text-white">{r.name || r.email || r.userId.slice(0, 8)}</div>
+                      {r.name && r.email && <div className="text-[10px] text-slate-400">{r.email}</div>}
                     </td>
                     <td className="py-2 pr-3 font-mono text-emerald-400">{r.ipAddress || '—'}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{r.dropletId || '—'}</td>
