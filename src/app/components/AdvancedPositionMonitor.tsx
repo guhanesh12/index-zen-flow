@@ -225,6 +225,62 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                     </div>
                   </div>
 
+                  {/* 🔥 Trailing Stop-Loss details */}
+                  {(raw.trailingEnabled ?? r.trailing_enabled) && (
+                    <div
+                      className={`rounded-lg border p-3 mb-3 ${
+                        trailingActive
+                          ? "border-orange-500/40 bg-orange-950/20"
+                          : "border-zinc-700 bg-zinc-900/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-orange-300">
+                          <Zap className="w-3.5 h-3.5" />
+                          Trailing Stop-Loss
+                        </div>
+                        <Badge
+                          className={`text-[10px] border ${
+                            trailingActive
+                              ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
+                              : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                          }`}
+                        >
+                          {trailingActive
+                            ? `ACTIVE · STEP ${Number(raw.trailingStepCount || 0)}`
+                            : `Waiting · activates at ${fmt(raw.trailingActivationAmount || 0)}`}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                        <Stat icon={<Zap className="w-3 h-3" />} label="Activation" value={fmt(raw.trailingActivationAmount || 0)} color="text-orange-300" />
+                        <Stat icon={<TrendingUp className="w-3 h-3" />} label="Trail Step" value={fmt(raw.stopLossJumpAmount || r.trailing_step || 0)} color="text-orange-300" />
+                        <Stat icon={<Target className="w-3 h-3" />} label="Target Step" value={fmt(raw.targetJumpAmount || 0)} color="text-emerald-300" />
+                        <Stat icon={<Activity className="w-3 h-3" />} label="Steps Done" value={`${Number(raw.trailingStepCount || 0)}`} color="text-zinc-200" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+                        <div className="bg-zinc-900/60 rounded-lg p-2 border border-zinc-800">
+                          <div className="text-[9px] uppercase text-zinc-500 tracking-wide">Target</div>
+                          <div className="text-zinc-400 line-through">{fmt(raw.baseTargetAmount ?? r.target_amount ?? 0)}</div>
+                          <div className="text-emerald-400 font-bold">{fmt(curTgt)}</div>
+                        </div>
+                        <div className="bg-zinc-900/60 rounded-lg p-2 border border-zinc-800">
+                          <div className="text-[9px] uppercase text-zinc-500 tracking-wide">Stop-Loss</div>
+                          <div className="text-zinc-400 line-through">{fmt(raw.baseStopLossAmount ?? r.stop_loss_amount ?? 0)}</div>
+                          <div className={curSL <= 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
+                            {curSL <= 0 ? `Locked +${fmt(Math.abs(curSL))}` : fmt(curSL)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-[10px] text-zinc-500 mt-2">
+                        {trailingActive
+                          ? `Every ${fmt(raw.targetJumpAmount || 0)} of extra profit moves Target up by ${fmt(raw.targetJumpAmount || 0)} and SL up by ${fmt(raw.stopLossJumpAmount || r.trailing_step || 0)}.`
+                          : `Trailing starts once peak profit reaches ${fmt(raw.trailingActivationAmount || 0)} (peak now ${fmt(peak)}).`}
+                      </div>
+                    </div>
+                  )}
+
+
+
                   {/* Intelligence row */}
                   <div className="grid grid-cols-4 gap-2 text-center">
                     <Stat
