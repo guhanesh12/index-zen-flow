@@ -502,12 +502,15 @@ export async function getStatusSnapshot() {
     const userIds = [...new Set(list.map((v) => v.userId).filter(Boolean))];
     if (userIds.length) {
       try {
-        const encodedIds = userIds.map((id) => `"${id.replaceAll('"', '')}"`).join(',');
-        const r = await fetch(
-          `${supabaseUrl}/rest/v1/profiles?select=user_id,full_name,email,client_id,photo_url&user_id=in.(${encodeURIComponent(encodedIds)})`,
-          { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
-        );
+    let email: string | undefined;
+    let name: string | undefined;
+    try {
+      const profile = await kv.get(`user_profile:${v.userId}`) as any;
+      email = profile?.email;
+      name = profile?.name || profile?.full_name;
+    } catch {}
         if (r.ok) {
+      name,
           const rows = await r.json();
           for (const row of rows) profileMap.set(row.user_id, row);
         } else {

@@ -13,6 +13,7 @@ interface Props {
 }
 
 interface VpsRow {
+  name?: string;
   userId: string;
   name?: string;
   email?: string;
