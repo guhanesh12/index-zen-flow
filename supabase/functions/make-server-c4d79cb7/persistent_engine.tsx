@@ -2631,7 +2631,13 @@ class PersistentTradingEngine {
               currentTargetAmount: _curTgt,
               currentStopLossAmount: _curSL,
               trailingActive: _trailingActive,
+              trailingEnabled: !!position.trailingEnabled,
+              trailingStepCount: Number(position.trailingStepCount || 0),
+              trailingActivatedAt: position.trailingActivatedAt || null,
+              baseTargetAmount: _baseTarget,
+              baseStopLossAmount: _baseSL,
               profitLocked: position.trailingEnabled && _curSL <= 0,
+
               lastMonitorAt: Date.now(),
               momentumScore: (position as any).momentumScore,
               giveBackPct: (position as any).giveBackPct,
