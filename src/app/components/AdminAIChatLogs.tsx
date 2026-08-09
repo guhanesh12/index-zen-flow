@@ -15,8 +15,12 @@ async function apiGet(path: string) {
   // Prefer the live Supabase session (auto-refreshed); fall back to the stored
   // admin token, and retry with the other one if the first is expired.
   const { data: { session } } = await supabase.auth.getSession();
-  const stored = localStorage.getItem('admin_access_token') || '';
-  const tokens = [session?.access_token || '', stored].filter(Boolean);
+  const stored =
+    sessionStorage.getItem('admin_access_token') ||
+    localStorage.getItem('admin_access_token') ||
+    '';
+  // Admin panel (hotkey login) token first, then the live user session.
+  const tokens = [...new Set([stored, session?.access_token || ''])].filter(Boolean);
 
   let last: any = {};
   for (const token of tokens) {
