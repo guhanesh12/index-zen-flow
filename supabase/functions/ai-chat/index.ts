@@ -287,7 +287,8 @@ You MUST reply with STRICT JSON ONLY (no markdown fences), in this schema:
   "confidence": 0-100,
   "risk": "one-line risk note",
   "action": {
-    "type": "none" | "place_order" | "exit_position" | "start_engine" | "stop_engine" | "edit_slot" | "connect_broker",
+    "type": "none" | "place_order" | "exit_position" | "start_engine" | "stop_engine" | "edit_slot" | "connect_broker" | "create_ticket" | "edit_profile" | "view_journal" | "view_logs",
+    "ticket": { "subject": "...", "message": "...", "urgency": "URGENT|NORMAL|LOW", "category": "TECHNICAL|REFUND|WEBSITE|OTHER" },
     "label": "...", "signalId": "...", "orderId": "...", "slot": 1, "reason": "..."
   }
 }
