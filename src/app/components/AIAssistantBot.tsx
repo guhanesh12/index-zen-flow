@@ -255,6 +255,60 @@ function AnswerCard({ answer, onAction, actionState }) {
         </div>
       )}
 
+      {answer.action?.type === "create_ticket" && (
+        <TicketComposer action={answer.action} onAction={onAction} actionState={actionState} />
+      )}
+
+      {answer.action?.type === "edit_profile" && (
+        <ProfileEditor action={answer.action} onAction={onAction} actionState={actionState} />
+      )}
+
+      {answer.action?.type === "view_journal" && (
+        <div className="p-3 pt-0 space-y-1">
+          {(answer.action.stats) && (
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[["Trades", answer.action.stats.total_trades], ["P&L", `₹${Number(answer.action.stats.total_pnl || 0).toFixed(0)}`], ["Win %", `${answer.action.stats.win_rate ?? 0}%`]].map(([k, v]) => (
+                <div key={k} className="rounded-lg border border-border bg-muted/40 py-1.5">
+                  <p className="text-[9px] uppercase text-muted-foreground">{k}</p>
+                  <p className="text-xs font-semibold text-foreground">{v}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {(answer.action.entries || []).slice(0, 6).map((e: any, i: number) => (
+            <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg bg-muted/30">
+              <span className="truncate text-muted-foreground">{e.date} · {e.symbol}</span>
+              <span className={Number(e.pnl || 0) >= 0 ? "text-emerald-500 font-semibold" : "text-red-500 font-semibold"}>
+                ₹{Number(e.pnl || 0).toFixed(2)}
+              </span>
+            </div>
+          ))}
+          <button
+            onClick={() => onAction("open-journal", {})}
+            className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center gap-2"
+          >
+            <BookOpen className="size-3.5" /> Open full journal
+          </button>
+        </div>
+      )}
+
+      {answer.action?.type === "view_logs" && (
+        <div className="p-3 pt-0 space-y-1">
+          {(answer.action.logs || []).slice(0, 6).map((l: any, i: number) => (
+            <div key={i} className="text-[11px] px-2 py-1 rounded-lg bg-muted/30 text-muted-foreground truncate">
+              {l?.timestamp ? `${new Date(l.timestamp).toLocaleTimeString()} · ` : ""}{l?.message || l?.text || JSON.stringify(l).slice(0, 90)}
+            </div>
+          ))}
+          <button
+            onClick={() => onAction("open-logs", {})}
+            className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center gap-2"
+          >
+            <ScrollText className="size-3.5" /> Open logs
+          </button>
+        </div>
+      )}
+
+
 
 
       {actionState.error && (
