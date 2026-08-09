@@ -19,7 +19,8 @@ async function apiGet(path: string) {
     sessionStorage.getItem('admin_access_token') ||
     localStorage.getItem('admin_access_token') ||
     '';
-  const tokens = [session?.access_token || '', stored].filter(Boolean);
+  // Admin panel (hotkey login) token first, then the live user session.
+  const tokens = [...new Set([stored, session?.access_token || ''])].filter(Boolean);
 
   let last: any = {};
   for (const token of tokens) {
