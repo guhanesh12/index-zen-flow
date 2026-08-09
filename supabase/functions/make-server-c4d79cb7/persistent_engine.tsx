@@ -2382,6 +2382,42 @@ class PersistentTradingEngine {
           position.trailingEnabled === true && _activation > 0 && _targetJump > 0 && _slJump > 0;
 
         if (_trailingConfigured && position.highestPnl >= _activation) {
+          // 🔔 One-time ACTIVATION notification
+          if (!position.trailingActivatedAt) {
+            position.trailingActivatedAt = Date.now();
+            position.trailingStepCount = 0;
+            const actBody =
+              `Profit hit ₹${position.highestPnl.toFixed(2)} (activation ₹${_activation}). ` +
+              `Trailing is now ON for ${position.symbolName}. ` +
+              `Base Target ₹${_baseTarget} / Base SL ₹${_baseSL}. ` +
+              `Each step moves Target +₹${_targetJump} and SL +₹${_slJump} in your favour.`;
+            sendPushToUser(userId, {
+              title: `🔥 Trailing Activated — ${position.symbolName}`,
+              body: actBody,
+              targetUrl: "/dashboard",
+              data: {
+                type: "TRAILING_ACTIVATED",
+                symbol: String(position.symbolName || ""),
+                orderId: String(position.orderId || ""),
+                pnl: String(pnl.toFixed(2)),
+                peak: String(position.highestPnl.toFixed(2)),
+                activation: String(_activation),
+                targetJump: String(_targetJump),
+                slJump: String(_slJump),
+                baseTarget: String(_baseTarget),
+                baseStopLoss: String(_baseSL),
+              },
+            }).catch((e) => console.error("FCM push (trailing activated) failed:", e));
+            await this.appendSharedLog(userId, {
+              type: "TRAILING_ACTIVATED",
+              timestamp: Date.now(),
+              symbol: position.symbolName,
+              message: `🔥 Trailing ACTIVATED for ${position.symbolName} — ${actBody}`,
+              pnl,
+              data: { activation: _activation, targetJump: _targetJump, slJump: _slJump, baseTarget: _baseTarget, baseStopLoss: _baseSL },
+            });
+          }
+
           const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
           const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
           if (numberOfJumps >= 0) {
@@ -2395,19 +2431,47 @@ class PersistentTradingEngine {
               const oldS = position.currentStopLossAmount;
               position.currentTargetAmount = newTarget;
               position.currentStopLossAmount = newSL;
+              position.trailingStepCount = appliedJumps;
               const lockMsg = newSL <= 0 ? ` 🟢 PROFIT LOCKED at ₹${Math.abs(newSL).toFixed(2)}` : "";
               console.log(
                 `⚡ TRAILING RATCHET ${position.symbolName}: Tgt ₹${oldT}→₹${newTarget} | SL ₹${oldS}→₹${newSL}${lockMsg}`,
               );
+              // 🔔 STEP notification — clear before/after explanation
+              const slLine =
+                newSL <= 0
+                  ? `SL ₹${oldS} → PROFIT LOCK ₹${Math.abs(newSL).toFixed(2)} (no loss possible now)`
+                  : `SL ₹${oldS} → ₹${newSL}`;
+              const stepBody =
+                `Step ${appliedJumps} • Current profit ₹${pnl.toFixed(2)} (peak ₹${position.highestPnl.toFixed(2)}). ` +
+                `Target ₹${oldT} → ₹${newTarget}. ${slLine}.`;
+              sendPushToUser(userId, {
+                title: `⚡ Trailing Step ${appliedJumps} — ${position.symbolName}`,
+                body: stepBody,
+                targetUrl: "/dashboard",
+                data: {
+                  type: "TRAILING_STEP",
+                  symbol: String(position.symbolName || ""),
+                  orderId: String(position.orderId || ""),
+                  step: String(appliedJumps),
+                  pnl: String(pnl.toFixed(2)),
+                  peak: String(position.highestPnl.toFixed(2)),
+                  oldTarget: String(oldT),
+                  newTarget: String(newTarget),
+                  oldStopLoss: String(oldS),
+                  newStopLoss: String(newSL),
+                  profitLocked: String(newSL <= 0),
+                },
+              }).catch((e) => console.error("FCM push (trailing step) failed:", e));
               await this.appendSharedLog(userId, {
                 type: "TRAILING_UPDATE",
                 timestamp: Date.now(),
                 symbol: position.symbolName,
-                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Jumps: ${appliedJumps})`,
+                message: `⚡ Trailing ${position.symbolName}: Tgt ₹${newTarget}, SL ₹${newSL}${lockMsg} (Peak ₹${position.highestPnl.toFixed(2)}, Step ${appliedJumps})`,
                 pnl,
                 data: {
                   peak: position.highestPnl,
                   jumps: appliedJumps,
+                  step: appliedJumps,
                   oldTarget: oldT,
                   newTarget,
                   oldStopLoss: oldS,
@@ -2421,6 +2485,7 @@ class PersistentTradingEngine {
             }
           }
         }
+
 
         console.log(
           `📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)} | CurTgt ₹${position.currentTargetAmount} | CurSL ₹${position.currentStopLossAmount}`,
@@ -2566,7 +2631,13 @@ class PersistentTradingEngine {
               currentTargetAmount: _curTgt,
               currentStopLossAmount: _curSL,
               trailingActive: _trailingActive,
+              trailingEnabled: !!position.trailingEnabled,
+              trailingStepCount: Number(position.trailingStepCount || 0),
+              trailingActivatedAt: position.trailingActivatedAt || null,
+              baseTargetAmount: _baseTarget,
+              baseStopLossAmount: _baseSL,
               profitLocked: position.trailingEnabled && _curSL <= 0,
+
               lastMonitorAt: Date.now(),
               momentumScore: (position as any).momentumScore,
               giveBackPct: (position as any).giveBackPct,
