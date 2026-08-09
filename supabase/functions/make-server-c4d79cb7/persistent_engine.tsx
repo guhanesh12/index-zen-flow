@@ -2391,7 +2391,7 @@ class PersistentTradingEngine {
               `Trailing is now ON for ${position.symbolName}. ` +
               `Base Target ₹${_baseTarget} / Base SL ₹${_baseSL}. ` +
               `Each step moves Target +₹${_targetJump} and SL +₹${_slJump} in your favour.`;
-            sendPushToUser(userId, {
+            const activationPush = await sendPushToUser(userId, {
               title: `🔥 Trailing Activated — ${position.symbolName}`,
               body: actBody,
               targetUrl: "/dashboard",
@@ -2407,7 +2407,12 @@ class PersistentTradingEngine {
                 baseTarget: String(_baseTarget),
                 baseStopLoss: String(_baseSL),
               },
-            }).catch((e) => console.error("FCM push (trailing activated) failed:", e));
+            });
+            if (!activationPush.success || activationPush.failed > 0) {
+              console.error("FCM push (trailing activated) incomplete:", activationPush);
+            } else {
+              console.log(`✅ Trailing activation push delivered to ${activationPush.delivered} device(s)`);
+            }
             await this.appendSharedLog(userId, {
               type: "TRAILING_ACTIVATED",
               timestamp: Date.now(),
@@ -2444,7 +2449,7 @@ class PersistentTradingEngine {
               const stepBody =
                 `Step ${appliedJumps} • Current profit ₹${pnl.toFixed(2)} (peak ₹${position.highestPnl.toFixed(2)}). ` +
                 `Target ₹${oldT} → ₹${newTarget}. ${slLine}.`;
-              sendPushToUser(userId, {
+              const stepPush = await sendPushToUser(userId, {
                 title: `⚡ Trailing Step ${appliedJumps} — ${position.symbolName}`,
                 body: stepBody,
                 targetUrl: "/dashboard",
@@ -2461,7 +2466,12 @@ class PersistentTradingEngine {
                   newStopLoss: String(newSL),
                   profitLocked: String(newSL <= 0),
                 },
-              }).catch((e) => console.error("FCM push (trailing step) failed:", e));
+              });
+              if (!stepPush.success || stepPush.failed > 0) {
+                console.error("FCM push (trailing step) incomplete:", stepPush);
+              } else {
+                console.log(`✅ Trailing step ${appliedJumps} push delivered to ${stepPush.delivered} device(s)`);
+              }
               await this.appendSharedLog(userId, {
                 type: "TRAILING_UPDATE",
                 timestamp: Date.now(),
