@@ -176,6 +176,98 @@ async function buildContext(userId: string) {
   };
 }
 
+// ---------------- extras: profile / journal / logs / support ----------------
+async function kvPrefix(prefix: string, limit = 400) {
+  const { data } = await admin
+    .from(KV).select("key,value").like("key", `${prefix}%`).limit(limit);
+  return data || [];
+}
+
+async function getJournal(userId: string, limit = 30) {
+  const rows = await kvPrefix(`journal:${userId}:`);
+  const entries = rows
+    .map((r: any) => ({ id: r.key, ...(r.value || {}) }))
+    .sort((a: any, b: any) => String(b.date || "").localeCompare(String(a.date || "")));
+  const totalPnl = entries.reduce((s: number, e: any) => s + Number(e.pnl || 0), 0);
+  const wins = entries.filter((e: any) => Number(e.pnl || 0) > 0).length;
+  return {
+    entries: entries.slice(0, limit),
+    stats: {
+      total_trades: entries.length,
+      total_pnl: Number(totalPnl.toFixed(2)),
+      wins,
+      losses: entries.length - wins,
+      win_rate: entries.length ? Number(((wins / entries.length) * 100).toFixed(1)) : 0,
+    },
+  };
+}
+
+async function getLogs(userId: string, limit = 30) {
+  const raw = (await kvGet(`logs:${userId}`)) || [];
+  return Array.isArray(raw) ? raw.slice(0, limit) : [];
+}
+
+async function getSupportTickets(userId: string, limit = 10) {
+  const ids: string[] = (await kvGet(`support:user:${userId}`)) || [];
+  const wanted = Array.isArray(ids) ? ids.slice(0, limit) : [];
+  if (!wanted.length) return [];
+  const { data } = await admin
+    .from(KV).select("key,value").in("key", wanted.map((id) => `support:ticket:${id}`));
+  return (data || []).map((r: any) => ({
+    id: r.value?.id,
+    subject: r.value?.subject,
+    status: r.value?.status,
+    urgency: r.value?.urgency,
+    category: r.value?.category,
+    createdAt: r.value?.createdAt,
+    hasReply: !!r.value?.adminReply,
+  }));
+}
+
+async function getProfileBundle(userId: string) {
+  const [{ data: profile }, { data: code }, { data: earn }] = await Promise.all([
+    admin.from("profiles").select("*").eq("user_id", userId).maybeSingle(),
+    admin.from("referral_codes").select("code").eq("user_id", userId).maybeSingle(),
+    admin.from("referral_earnings").select("*").eq("user_id", userId).maybeSingle(),
+  ]);
+  return { profile: profile || null, referralCode: code?.code || profile?.client_id || null, earnings: earn || null };
+}
+
+const EXTRA_RE =
+  /(journal|jornal|ஜர்னல்|p&?l|pnl|profit\s*loss|history|report|statement|profile|account\s*detail|name|mobile|photo|kyc|client\s*id|referral|log|logs|activity|support|ticket|complaint|issue|help\s*desk|புகார்)/i;
+
+async function buildExtras(userId: string) {
+  const [journal, logs, tickets, profile] = await Promise.all([
+    getJournal(userId, 15),
+    getLogs(userId, 15),
+    getSupportTickets(userId, 5),
+    getProfileBundle(userId),
+  ]);
+  return {
+    journal_stats: journal.stats,
+    recent_journal: journal.entries.slice(0, 10),
+    recent_logs: logs,
+    support_tickets: tickets,
+    profile: profile.profile
+      ? {
+          full_name: profile.profile.full_name,
+          email: profile.profile.email,
+          mobile: profile.profile.mobile,
+          client_id: profile.profile.client_id,
+          photo_url: profile.profile.photo_url,
+          kyc_status: profile.profile.kyc_status,
+          account_status: profile.profile.account_status,
+          subscription_plan: profile.profile.subscription_plan,
+          broker_connected: profile.profile.broker_connected,
+          profile_completion: profile.profile.profile_completion,
+          joined_at: profile.profile.joined_at,
+        }
+      : null,
+    referral: { code: profile.referralCode, earnings: profile.earnings },
+  };
+}
+
+
 
 const SYSTEM_PROMPT = `You are "IndexPilot AI" — a national-level, institutional-grade Indian index-options trading brain (NIFTY / BANKNIFTY / SENSEX / FINNIFTY, Dhan broker auto-execution).
 
