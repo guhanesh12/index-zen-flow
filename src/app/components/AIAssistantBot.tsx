@@ -136,6 +136,75 @@ function SlotEditor({ action, onAction, actionState }) {
   );
 }
 
+function TicketComposer({ action, onAction, actionState }) {
+  const t = action.ticket || {};
+  const [subject, setSubject] = useState(t.subject || "");
+  const [msg, setMsg] = useState(t.message || "");
+  const [urgency, setUrgency] = useState(t.urgency || "NORMAL");
+  const [category, setCategory] = useState(t.category || "TECHNICAL");
+  return (
+    <div className="p-3 pt-0 space-y-2">
+      <input
+        value={subject}
+        onChange={(e) => setSubject(e.target.value)}
+        placeholder="Subject"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs"
+      />
+      <textarea
+        value={msg}
+        onChange={(e) => setMsg(e.target.value)}
+        placeholder="Describe the issue"
+        className="w-full min-h-20 p-2 rounded-lg bg-muted/40 border border-border text-xs"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <select value={urgency} onChange={(e) => setUrgency(e.target.value)} className="h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs">
+          {["URGENT", "NORMAL", "LOW"].map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs">
+          {["TECHNICAL", "REFUND", "WEBSITE", "OTHER"].map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </div>
+      <button
+        onClick={() => onAction("create-ticket", { subject, message: msg, urgency, category })}
+        disabled={!!actionState.busy || actionState.done || !subject.trim() || !msg.trim()}
+        className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <LifeBuoy className="size-4" />}
+        {actionState.done ? "Ticket created ✓" : "Create support ticket"}
+      </button>
+      <p className="text-[10px] text-center text-muted-foreground">Goes straight to the admin support desk · no wallet charge</p>
+    </div>
+  );
+}
+
+function ProfileEditor({ action, onAction, actionState }) {
+  const c = action.current || {};
+  const [fullName, setFullName] = useState(c.full_name || "");
+  const [mobile, setMobile] = useState(c.mobile || "");
+  const [photo, setPhoto] = useState(c.photo_url || "");
+  return (
+    <div className="p-3 pt-0 space-y-2">
+      <div className="text-[10px] text-muted-foreground">
+        Client ID: <span className="text-foreground font-medium">{c.client_id || "—"}</span> · {c.email || "—"}
+      </div>
+      <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs" />
+      <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Mobile"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs" />
+      <input value={photo} onChange={(e) => setPhoto(e.target.value)} placeholder="Photo URL"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs" />
+      <button
+        onClick={() => onAction("update-profile", { full_name: fullName, mobile, photo_url: photo })}
+        disabled={!!actionState.busy || actionState.done}
+        className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <UserCog className="size-4" />}
+        {actionState.done ? "Profile updated ✓" : "Save profile"}
+      </button>
+    </div>
+  );
+}
+
 function AnswerCard({ answer, onAction, actionState }) {
 
   const meta = VERDICT_META[answer.verdict] || VERDICT_META.INFO;
