@@ -176,6 +176,98 @@ async function buildContext(userId: string) {
   };
 }
 
+// ---------------- extras: profile / journal / logs / support ----------------
+async function kvPrefix(prefix: string, limit = 400) {
+  const { data } = await admin
+    .from(KV).select("key,value").like("key", `${prefix}%`).limit(limit);
+  return data || [];
+}
+
+async function getJournal(userId: string, limit = 30) {
+  const rows = await kvPrefix(`journal:${userId}:`);
+  const entries = rows
+    .map((r: any) => ({ id: r.key, ...(r.value || {}) }))
+    .sort((a: any, b: any) => String(b.date || "").localeCompare(String(a.date || "")));
+  const totalPnl = entries.reduce((s: number, e: any) => s + Number(e.pnl || 0), 0);
+  const wins = entries.filter((e: any) => Number(e.pnl || 0) > 0).length;
+  return {
+    entries: entries.slice(0, limit),
+    stats: {
+      total_trades: entries.length,
+      total_pnl: Number(totalPnl.toFixed(2)),
+      wins,
+      losses: entries.length - wins,
+      win_rate: entries.length ? Number(((wins / entries.length) * 100).toFixed(1)) : 0,
+    },
+  };
+}
+
+async function getLogs(userId: string, limit = 30) {
+  const raw = (await kvGet(`logs:${userId}`)) || [];
+  return Array.isArray(raw) ? raw.slice(0, limit) : [];
+}
+
+async function getSupportTickets(userId: string, limit = 10) {
+  const ids: string[] = (await kvGet(`support:user:${userId}`)) || [];
+  const wanted = Array.isArray(ids) ? ids.slice(0, limit) : [];
+  if (!wanted.length) return [];
+  const { data } = await admin
+    .from(KV).select("key,value").in("key", wanted.map((id) => `support:ticket:${id}`));
+  return (data || []).map((r: any) => ({
+    id: r.value?.id,
+    subject: r.value?.subject,
+    status: r.value?.status,
+    urgency: r.value?.urgency,
+    category: r.value?.category,
+    createdAt: r.value?.createdAt,
+    hasReply: !!r.value?.adminReply,
+  }));
+}
+
+async function getProfileBundle(userId: string) {
+  const [{ data: profile }, { data: code }, { data: earn }] = await Promise.all([
+    admin.from("profiles").select("*").eq("user_id", userId).maybeSingle(),
+    admin.from("referral_codes").select("code").eq("user_id", userId).maybeSingle(),
+    admin.from("referral_earnings").select("*").eq("user_id", userId).maybeSingle(),
+  ]);
+  return { profile: profile || null, referralCode: code?.code || profile?.client_id || null, earnings: earn || null };
+}
+
+const EXTRA_RE =
+  /(journal|jornal|ஜர்னல்|p&?l|pnl|profit\s*loss|history|report|statement|profile|account\s*detail|name|mobile|photo|kyc|client\s*id|referral|log|logs|activity|support|ticket|complaint|issue|help\s*desk|புகார்)/i;
+
+async function buildExtras(userId: string) {
+  const [journal, logs, tickets, profile] = await Promise.all([
+    getJournal(userId, 15),
+    getLogs(userId, 15),
+    getSupportTickets(userId, 5),
+    getProfileBundle(userId),
+  ]);
+  return {
+    journal_stats: journal.stats,
+    recent_journal: journal.entries.slice(0, 10),
+    recent_logs: logs,
+    support_tickets: tickets,
+    profile: profile.profile
+      ? {
+          full_name: profile.profile.full_name,
+          email: profile.profile.email,
+          mobile: profile.profile.mobile,
+          client_id: profile.profile.client_id,
+          photo_url: profile.profile.photo_url,
+          kyc_status: profile.profile.kyc_status,
+          account_status: profile.profile.account_status,
+          subscription_plan: profile.profile.subscription_plan,
+          broker_connected: profile.profile.broker_connected,
+          profile_completion: profile.profile.profile_completion,
+          joined_at: profile.profile.joined_at,
+        }
+      : null,
+    referral: { code: profile.referralCode, earnings: profile.earnings },
+  };
+}
+
+
 
 const SYSTEM_PROMPT = `You are "IndexPilot AI" — a national-level, institutional-grade Indian index-options trading brain (NIFTY / BANKNIFTY / SENSEX / FINNIFTY, Dhan broker auto-execution).
 
@@ -195,7 +287,8 @@ You MUST reply with STRICT JSON ONLY (no markdown fences), in this schema:
   "confidence": 0-100,
   "risk": "one-line risk note",
   "action": {
-    "type": "none" | "place_order" | "exit_position" | "start_engine" | "stop_engine" | "edit_slot" | "connect_broker",
+    "type": "none" | "place_order" | "exit_position" | "start_engine" | "stop_engine" | "edit_slot" | "connect_broker" | "create_ticket" | "edit_profile" | "view_journal" | "view_logs",
+    "ticket": { "subject": "...", "message": "...", "urgency": "URGENT|NORMAL|LOW", "category": "TECHNICAL|REFUND|WEBSITE|OTHER" },
     "label": "...", "signalId": "...", "orderId": "...", "slot": 1, "reason": "..."
   }
 }
@@ -208,6 +301,10 @@ VERDICT / ACTION RULES:
 - User asks to start / switch on the engine, or engine.is_running is false while they want trading → verdict "INFO", action.type "start_engine". If they ask to stop it → action.type "stop_engine".
 - User asks about a specific slot ("slot 1 details", "change slot 2 lots / target / SL") → verdict "INFO", action.type "edit_slot" with "slot" set to that slot number, and list the CURRENT values of that slot (index, moneyness, lots, target/lot, SL/lot, trailing) in a section. The app shows an inline edit form; do not claim you changed anything yourself.
 - User asks about broker connection / access token / token expired / "how to add token" → verdict "INFO", action.type "connect_broker", and state the real connection status and token expiry from context.
+- User reports a problem / complaint / refund / "raise ticket" / needs human help → verdict "INFO", action.type "create_ticket" and FILL action.ticket with a clear subject (max 80 chars), a detailed message written from their words plus relevant account facts, correct urgency and category. Tell them to confirm with the button; do NOT claim the ticket is already created.
+- User asks about journal / daily P&L / trade history / report → verdict "INFO", action.type "view_journal", and quote real numbers from context.journal_stats and context.recent_journal (date, symbol, P&L). Never invent trades.
+- User asks about profile / account details / name / mobile / photo / KYC / client id / referral code → verdict "INFO", action.type "edit_profile", list the CURRENT values from context.profile, and say the inline form can update name, mobile and photo URL only.
+- User asks about logs / system activity / what happened / errors → verdict "INFO", action.type "view_logs" and summarise context.recent_logs (latest first, with time and message).
 - Use ONLY the USER CONTEXT JSON for facts. Never invent order ids, prices, P&L, slot values. Missing data → say so.
 - Max 4 sections and max 4 SHORT bullets per section (each bullet under 140 characters). Keep the whole JSON under 300 words so it is never truncated.
 - Mirror the user's language (English / Tamil / Hindi transliteration).
@@ -535,6 +632,65 @@ Deno.serve(async (req) => {
       return json({ success: true, message: `Trading engine started with ${symbols.length} symbol(s) on ${interval}M candles.`, charged: 0 });
     }
 
+    // ---- JOURNAL / PROFILE / LOGS / SUPPORT (all free, no wallet charge) ----
+    if (action === "journal") {
+      const limit = Math.min(200, Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? 50)));
+      const j = await getJournal(user.id, limit);
+      return json({ success: true, ...j, charged: 0 });
+    }
+
+    if (action === "profile") {
+      const bundle = await getProfileBundle(user.id);
+      return json({ success: true, ...bundle, charged: 0 });
+    }
+
+    if (action === "update-profile") {
+      const allowed: Record<string, unknown> = {};
+      for (const k of ["full_name", "mobile", "photo_url"]) {
+        if (body[k] !== undefined && body[k] !== null) allowed[k] = String(body[k]).slice(0, 255).trim();
+      }
+      if (!Object.keys(allowed).length) return json({ error: "Nothing to update" }, 400);
+      if (allowed.mobile && !/^[0-9+\-\s]{6,15}$/.test(String(allowed.mobile))) {
+        return json({ error: "Invalid mobile number" }, 400);
+      }
+      const out = await callServer("/profile/me", "PATCH", authHeader, allowed);
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "PROFILE_UPDATE_FAILED", message: out.data?.error || "Could not update your profile." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: `Profile updated from AI chat: ${Object.keys(allowed).join(", ")}`, action_type: "edit_profile", charged: 0 });
+      return json({ success: true, profile: out.data?.profile || null, message: "Profile updated.", charged: 0 });
+    }
+
+    if (action === "logs") {
+      const limit = Math.min(200, Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? 50)));
+      const logs = await getLogs(user.id, limit);
+      return json({ success: true, logs, charged: 0 });
+    }
+
+    if (action === "support-tickets") {
+      const tickets = await getSupportTickets(user.id, 25);
+      return json({ success: true, tickets, charged: 0 });
+    }
+
+    if (action === "create-ticket") {
+      const subject = String(body.subject || "").trim().slice(0, 120);
+      const message = String(body.message || "").trim().slice(0, 4000);
+      if (!subject || !message) return json({ error: "subject and message are required" }, 400);
+      const urgency = ["URGENT", "NORMAL", "LOW"].includes(String(body.urgency)) ? String(body.urgency) : "NORMAL";
+      const category = ["TECHNICAL", "REFUND", "WEBSITE", "OTHER"].includes(String(body.category)) ? String(body.category) : "TECHNICAL";
+      const out = await callServer("/support/create", "POST", authHeader, { subject, message, urgency, category });
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "TICKET_FAILED", message: out.data?.message || "Could not create the support ticket." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: `Support ticket created from AI chat: ${subject}`, action_type: "create_ticket", charged: 0 });
+      return json({
+        success: true,
+        ticketId: out.data?.ticketId || out.data?.ticket?.id || null,
+        message: "Support ticket created. Our team will reply soon.",
+        charged: 0,
+      });
+    }
+
     // ---- SLOT details / update from chat (free) ----
     if (action === "slot-details") {
       const slot = Number(body.slot);
@@ -761,6 +917,11 @@ Deno.serve(async (req) => {
     // build context + history
     const context: any = await buildContext(user.id);
 
+    // journal / profile / logs / support context (only when the question needs it)
+    if (EXTRA_RE.test(message)) {
+      Object.assign(context, await buildExtras(user.id));
+    }
+
     // ---- LIVE MARKET ANALYSIS (separate module, strategy files untouched) ----
     if (needsMarketRead(message)) {
       context.live_market = await buildLiveMarket(user.id, context, message);
@@ -917,6 +1078,49 @@ Deno.serve(async (req) => {
         signalId: "",
         orderId: "",
         reason: String(a.reason || "Broker connection"),
+      } as any;
+    } else if (a?.type === "create_ticket") {
+      const t = a.ticket || {};
+      answer.action = {
+        type: "create_ticket",
+        label: "Create support ticket",
+        signalId: "",
+        orderId: "",
+        ticket: {
+          subject: String(t.subject || message).slice(0, 120),
+          message: String(t.message || message).slice(0, 4000),
+          urgency: ["URGENT", "NORMAL", "LOW"].includes(String(t.urgency)) ? String(t.urgency) : "NORMAL",
+          category: ["TECHNICAL", "REFUND", "WEBSITE", "OTHER"].includes(String(t.category)) ? String(t.category) : "TECHNICAL",
+        },
+        reason: String(a.reason || "Needs human support"),
+      } as any;
+    } else if (a?.type === "edit_profile") {
+      answer.action = {
+        type: "edit_profile",
+        label: "Edit my profile",
+        signalId: "",
+        orderId: "",
+        current: context.profile || null,
+        reason: String(a.reason || "Profile details"),
+      } as any;
+    } else if (a?.type === "view_journal") {
+      answer.action = {
+        type: "view_journal",
+        label: "Open trade journal",
+        signalId: "",
+        orderId: "",
+        stats: context.journal_stats || null,
+        entries: (context.recent_journal || []).slice(0, 10),
+        reason: String(a.reason || "Journal summary"),
+      } as any;
+    } else if (a?.type === "view_logs") {
+      answer.action = {
+        type: "view_logs",
+        label: "Open system logs",
+        signalId: "",
+        orderId: "",
+        logs: (context.recent_logs || []).slice(0, 10),
+        reason: String(a.reason || "Recent activity"),
       } as any;
     }
 

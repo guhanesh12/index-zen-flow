@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Bot, X, Send, Loader2, Wallet, Sparkles, TrendingUp, ShieldAlert,
   Clock, CheckCircle2, LogOut, Gauge, Info, Power, PowerOff, SlidersHorizontal, Link2,
+  LifeBuoy, UserCog, BookOpen, ScrollText,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { projectId } from "@/utils-ext/supabase/info";
@@ -135,6 +136,75 @@ function SlotEditor({ action, onAction, actionState }) {
   );
 }
 
+function TicketComposer({ action, onAction, actionState }) {
+  const t = action.ticket || {};
+  const [subject, setSubject] = useState(t.subject || "");
+  const [msg, setMsg] = useState(t.message || "");
+  const [urgency, setUrgency] = useState(t.urgency || "NORMAL");
+  const [category, setCategory] = useState(t.category || "TECHNICAL");
+  return (
+    <div className="p-3 pt-0 space-y-2">
+      <input
+        value={subject}
+        onChange={(e) => setSubject(e.target.value)}
+        placeholder="Subject"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs"
+      />
+      <textarea
+        value={msg}
+        onChange={(e) => setMsg(e.target.value)}
+        placeholder="Describe the issue"
+        className="w-full min-h-20 p-2 rounded-lg bg-muted/40 border border-border text-xs"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <select value={urgency} onChange={(e) => setUrgency(e.target.value)} className="h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs">
+          {["URGENT", "NORMAL", "LOW"].map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs">
+          {["TECHNICAL", "REFUND", "WEBSITE", "OTHER"].map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </div>
+      <button
+        onClick={() => onAction("create-ticket", { subject, message: msg, urgency, category })}
+        disabled={!!actionState.busy || actionState.done || !subject.trim() || !msg.trim()}
+        className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <LifeBuoy className="size-4" />}
+        {actionState.done ? "Ticket created ✓" : "Create support ticket"}
+      </button>
+      <p className="text-[10px] text-center text-muted-foreground">Goes straight to the admin support desk · no wallet charge</p>
+    </div>
+  );
+}
+
+function ProfileEditor({ action, onAction, actionState }) {
+  const c = action.current || {};
+  const [fullName, setFullName] = useState(c.full_name || "");
+  const [mobile, setMobile] = useState(c.mobile || "");
+  const [photo, setPhoto] = useState(c.photo_url || "");
+  return (
+    <div className="p-3 pt-0 space-y-2">
+      <div className="text-[10px] text-muted-foreground">
+        Client ID: <span className="text-foreground font-medium">{c.client_id || "—"}</span> · {c.email || "—"}
+      </div>
+      <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full name"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs" />
+      <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Mobile"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs" />
+      <input value={photo} onChange={(e) => setPhoto(e.target.value)} placeholder="Photo URL"
+        className="w-full h-9 px-2 rounded-lg bg-muted/40 border border-border text-xs" />
+      <button
+        onClick={() => onAction("update-profile", { full_name: fullName, mobile, photo_url: photo })}
+        disabled={!!actionState.busy || actionState.done}
+        className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {actionState.busy ? <Loader2 className="size-4 animate-spin" /> : <UserCog className="size-4" />}
+        {actionState.done ? "Profile updated ✓" : "Save profile"}
+      </button>
+    </div>
+  );
+}
+
 function AnswerCard({ answer, onAction, actionState }) {
 
   const meta = VERDICT_META[answer.verdict] || VERDICT_META.INFO;
@@ -255,6 +325,60 @@ function AnswerCard({ answer, onAction, actionState }) {
         </div>
       )}
 
+      {answer.action?.type === "create_ticket" && (
+        <TicketComposer action={answer.action} onAction={onAction} actionState={actionState} />
+      )}
+
+      {answer.action?.type === "edit_profile" && (
+        <ProfileEditor action={answer.action} onAction={onAction} actionState={actionState} />
+      )}
+
+      {answer.action?.type === "view_journal" && (
+        <div className="p-3 pt-0 space-y-1">
+          {(answer.action.stats) && (
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[["Trades", answer.action.stats.total_trades], ["P&L", `₹${Number(answer.action.stats.total_pnl || 0).toFixed(0)}`], ["Win %", `${answer.action.stats.win_rate ?? 0}%`]].map(([k, v]) => (
+                <div key={k} className="rounded-lg border border-border bg-muted/40 py-1.5">
+                  <p className="text-[9px] uppercase text-muted-foreground">{k}</p>
+                  <p className="text-xs font-semibold text-foreground">{v}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {(answer.action.entries || []).slice(0, 6).map((e: any, i: number) => (
+            <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1 rounded-lg bg-muted/30">
+              <span className="truncate text-muted-foreground">{e.date} · {e.symbol}</span>
+              <span className={Number(e.pnl || 0) >= 0 ? "text-emerald-500 font-semibold" : "text-red-500 font-semibold"}>
+                ₹{Number(e.pnl || 0).toFixed(2)}
+              </span>
+            </div>
+          ))}
+          <button
+            onClick={() => onAction("open-journal", {})}
+            className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center gap-2"
+          >
+            <BookOpen className="size-3.5" /> Open full journal
+          </button>
+        </div>
+      )}
+
+      {answer.action?.type === "view_logs" && (
+        <div className="p-3 pt-0 space-y-1">
+          {(answer.action.logs || []).slice(0, 6).map((l: any, i: number) => (
+            <div key={i} className="text-[11px] px-2 py-1 rounded-lg bg-muted/30 text-muted-foreground truncate">
+              {l?.timestamp ? `${new Date(l.timestamp).toLocaleTimeString()} · ` : ""}{l?.message || l?.text || JSON.stringify(l).slice(0, 90)}
+            </div>
+          ))}
+          <button
+            onClick={() => onAction("open-logs", {})}
+            className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center gap-2"
+          >
+            <ScrollText className="size-3.5" /> Open logs
+          </button>
+        </div>
+      )}
+
+
 
 
       {actionState.error && (
@@ -321,11 +445,15 @@ export function AIAssistantBot({ accessToken }: { accessToken: string }) {
     "engine-start": { title: "Trading engine started", verdict: "INFO" },
     "engine-stop": { title: "Trading engine stopped", verdict: "INFO" },
     "update-slot": { title: "Slot updated", verdict: "INFO" },
+    "create-ticket": { title: "Support ticket created", verdict: "INFO" },
+    "update-profile": { title: "Profile updated", verdict: "INFO" },
   };
 
+  const NAV_ACTIONS = { "open-broker": "broker", "open-journal": "journal", "open-logs": "logs" };
+
   const runAction = async (idx: number, act: string, payload: any) => {
-    if (act === "open-broker") {
-      window.dispatchEvent(new CustomEvent("indexpilot:navigate", { detail: { tab: "broker" } }));
+    if (NAV_ACTIONS[act]) {
+      window.dispatchEvent(new CustomEvent("indexpilot:navigate", { detail: { tab: NAV_ACTIONS[act] } }));
       setOpen(false);
       return;
     }
