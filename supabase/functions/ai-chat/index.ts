@@ -632,6 +632,65 @@ Deno.serve(async (req) => {
       return json({ success: true, message: `Trading engine started with ${symbols.length} symbol(s) on ${interval}M candles.`, charged: 0 });
     }
 
+    // ---- JOURNAL / PROFILE / LOGS / SUPPORT (all free, no wallet charge) ----
+    if (action === "journal") {
+      const limit = Math.min(200, Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? 50)));
+      const j = await getJournal(user.id, limit);
+      return json({ success: true, ...j, charged: 0 });
+    }
+
+    if (action === "profile") {
+      const bundle = await getProfileBundle(user.id);
+      return json({ success: true, ...bundle, charged: 0 });
+    }
+
+    if (action === "update-profile") {
+      const allowed: Record<string, unknown> = {};
+      for (const k of ["full_name", "mobile", "photo_url"]) {
+        if (body[k] !== undefined && body[k] !== null) allowed[k] = String(body[k]).slice(0, 255).trim();
+      }
+      if (!Object.keys(allowed).length) return json({ error: "Nothing to update" }, 400);
+      if (allowed.mobile && !/^[0-9+\-\s]{6,15}$/.test(String(allowed.mobile))) {
+        return json({ error: "Invalid mobile number" }, 400);
+      }
+      const out = await callServer("/profile/me", "PATCH", authHeader, allowed);
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "PROFILE_UPDATE_FAILED", message: out.data?.error || "Could not update your profile." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: `Profile updated from AI chat: ${Object.keys(allowed).join(", ")}`, action_type: "edit_profile", charged: 0 });
+      return json({ success: true, profile: out.data?.profile || null, message: "Profile updated.", charged: 0 });
+    }
+
+    if (action === "logs") {
+      const limit = Math.min(200, Math.max(1, Number(body.limit ?? url.searchParams.get("limit") ?? 50)));
+      const logs = await getLogs(user.id, limit);
+      return json({ success: true, logs, charged: 0 });
+    }
+
+    if (action === "support-tickets") {
+      const tickets = await getSupportTickets(user.id, 25);
+      return json({ success: true, tickets, charged: 0 });
+    }
+
+    if (action === "create-ticket") {
+      const subject = String(body.subject || "").trim().slice(0, 120);
+      const message = String(body.message || "").trim().slice(0, 4000);
+      if (!subject || !message) return json({ error: "subject and message are required" }, 400);
+      const urgency = ["URGENT", "NORMAL", "LOW"].includes(String(body.urgency)) ? String(body.urgency) : "NORMAL";
+      const category = ["TECHNICAL", "REFUND", "WEBSITE", "OTHER"].includes(String(body.category)) ? String(body.category) : "TECHNICAL";
+      const out = await callServer("/support/create", "POST", authHeader, { subject, message, urgency, category });
+      if (!out.ok || out.data?.success === false) {
+        return json({ error: "TICKET_FAILED", message: out.data?.message || "Could not create the support ticket." }, 502);
+      }
+      await logChat({ user_id: user.id, role: "assistant", content: `Support ticket created from AI chat: ${subject}`, action_type: "create_ticket", charged: 0 });
+      return json({
+        success: true,
+        ticketId: out.data?.ticketId || out.data?.ticket?.id || null,
+        message: "Support ticket created. Our team will reply soon.",
+        charged: 0,
+      });
+    }
+
     // ---- SLOT details / update from chat (free) ----
     if (action === "slot-details") {
       const slot = Number(body.slot);
