@@ -1074,6 +1074,49 @@ Deno.serve(async (req) => {
         orderId: "",
         reason: String(a.reason || "Broker connection"),
       } as any;
+    } else if (a?.type === "create_ticket") {
+      const t = a.ticket || {};
+      answer.action = {
+        type: "create_ticket",
+        label: "Create support ticket",
+        signalId: "",
+        orderId: "",
+        ticket: {
+          subject: String(t.subject || message).slice(0, 120),
+          message: String(t.message || message).slice(0, 4000),
+          urgency: ["URGENT", "NORMAL", "LOW"].includes(String(t.urgency)) ? String(t.urgency) : "NORMAL",
+          category: ["TECHNICAL", "REFUND", "WEBSITE", "OTHER"].includes(String(t.category)) ? String(t.category) : "TECHNICAL",
+        },
+        reason: String(a.reason || "Needs human support"),
+      } as any;
+    } else if (a?.type === "edit_profile") {
+      answer.action = {
+        type: "edit_profile",
+        label: "Edit my profile",
+        signalId: "",
+        orderId: "",
+        current: context.profile || null,
+        reason: String(a.reason || "Profile details"),
+      } as any;
+    } else if (a?.type === "view_journal") {
+      answer.action = {
+        type: "view_journal",
+        label: "Open trade journal",
+        signalId: "",
+        orderId: "",
+        stats: context.journal_stats || null,
+        entries: (context.recent_journal || []).slice(0, 10),
+        reason: String(a.reason || "Journal summary"),
+      } as any;
+    } else if (a?.type === "view_logs") {
+      answer.action = {
+        type: "view_logs",
+        label: "Open system logs",
+        signalId: "",
+        orderId: "",
+        logs: (context.recent_logs || []).slice(0, 10),
+        reason: String(a.reason || "Recent activity"),
+      } as any;
     }
 
     // plain-text fallback for older clients (RN v1)
