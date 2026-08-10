@@ -9154,6 +9154,10 @@ app.post("/make-server-c4d79cb7/engine/state", async (c) => {
       .upsert({
         user_id: user.id,
         is_running: isRunning || false,
+        // A saved client snapshot must never opt the engine into cron restart.
+        auto_resume: false,
+        stopped_reason: isRunning ? null : 'user',
+        stopped_at: isRunning ? null : new Date().toISOString(),
         strategy_settings: {
           candleInterval: candleInterval || '15',
           lastUpdated: timestamp || Date.now()
