@@ -485,8 +485,9 @@ export async function getStatusSnapshot() {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-  // Bulk fetch engine states
+  // Bulk fetch engine states and authoritative user profiles.
   const engineMap = new Map<string, any>();
+  const profileMap = new Map<string, any>();
   if (supabaseUrl && serviceKey) {
     try {
       const r = await fetch(`${supabaseUrl}/rest/v1/trading_engine_state?select=user_id,is_running,last_heartbeat,started_at,stopped_at`, {
@@ -497,23 +498,38 @@ export async function getStatusSnapshot() {
         for (const row of rows) engineMap.set(row.user_id, row);
       }
     } catch {}
+
+    const userIds = [...new Set(list.map((v) => v.userId).filter(Boolean))];
+    if (userIds.length > 0) {
+      try {
+        const ids = userIds.map((id) => `"${id.replaceAll('"', '')}"`).join(',');
+        const r = await fetch(
+          `${supabaseUrl}/rest/v1/profiles?select=user_id,client_id,full_name,email,photo_url&user_id=in.(${encodeURIComponent(ids)})`,
+          { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
+        );
+        if (r.ok) {
+          const rows = await r.json();
+          for (const row of rows) profileMap.set(row.user_id, row);
+        } else {
+          console.warn('[vps status] profile fetch failed', r.status, await r.text());
+        }
+      } catch (e) {
+        console.warn('[vps status] profile fetch error', (e as any)?.message);
+      }
+    }
   }
 
   const out = [];
   for (const v of list) {
     const power = await getPowerState(v.userId);
-    let email: string | undefined;
-    let name: string | undefined;
-    try {
-      const profile = await kv.get(`user_profile:${v.userId}`) as any;
-      email = profile?.email;
-      name = profile?.name || profile?.full_name;
-    } catch {}
+    const profile = profileMap.get(v.userId);
     const engine = engineMap.get(v.userId);
     out.push({
       userId: v.userId,
-      name,
-      email,
+      name: profile?.full_name || profile?.email || profile?.client_id,
+      email: profile?.email,
+      clientId: profile?.client_id,
+      photoUrl: profile?.photo_url,
       ipAddress: v.ipAddress,
       dropletId: v.dropletId,
       powerState: power?.state || 'unknown',
