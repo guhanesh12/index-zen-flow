@@ -2423,8 +2423,11 @@ class PersistentTradingEngine {
 
           const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
           const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
-          if (numberOfJumps >= 0) {
-            const appliedJumps = numberOfJumps + 1;
+          const previousStepCount = Number(position.trailingStepCount || 0);
+          // Activation is its own event. Step 1 is reached only after profit moves
+          // one complete jump above the activation amount.
+          if (numberOfJumps > previousStepCount) {
+            const appliedJumps = numberOfJumps;
             const newTarget = _baseTarget + appliedJumps * _targetJump;
             // SL ratchets UP (in profit direction): baseSL is the loss limit (positive number),
             // each jump reduces it by _slJump. When it crosses 0 it becomes a guaranteed profit lock.
