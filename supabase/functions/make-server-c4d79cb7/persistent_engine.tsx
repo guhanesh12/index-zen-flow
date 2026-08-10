@@ -618,14 +618,6 @@ class PersistentTradingEngine {
 
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
 
-    // ⚡ BUG FIX 2 & 3: auto-resume engines that were stopped non-explicitly (pre-market + disconnect recovery)
-    try {
-      const ar = await this.autoResumeEngines();
-      if (ar.resumed > 0) console.log(`🔄 [CRON] Auto-resumed ${ar.resumed} engine(s), skipped ${ar.skipped}`);
-    } catch (_e) {
-      /* non-fatal */
-    }
-
     try {
       // ⚡ Load active engines from Supabase DB table (more reliable than KV)
       const { data: activeEngines, error: dbError } = await supabaseAdmin
@@ -1435,6 +1427,8 @@ class PersistentTradingEngine {
                   stopLossAmount: dbPos.stop_loss_amount,
                   currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
                   currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
+              trailingActivatedAt: dbPos.raw_position?.trailingActivatedAt ?? null,
+              trailingStepCount: Number(dbPos.raw_position?.trailingStepCount || 0),
               pnl: dbPos.pnl,
               status: "ACTIVE",
             }));
@@ -1748,6 +1742,8 @@ class PersistentTradingEngine {
                   stopLossAmount: dbPos.stop_loss_amount,
                   currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? dbPos.target_amount,
                   currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? dbPos.stop_loss_amount,
+                  trailingActivatedAt: dbPos.raw_position?.trailingActivatedAt ?? null,
+                  trailingStepCount: Number(dbPos.raw_position?.trailingStepCount || 0),
                   pnl: dbPos.pnl,
                   status: "ACTIVE",
                 }));
@@ -2170,6 +2166,8 @@ class PersistentTradingEngine {
           stopLossJumpAmount,
           currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? targetAmount,
           currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? stopLossAmount,
+          trailingActivatedAt: rawPosition.trailingActivatedAt ?? null,
+          trailingStepCount: Number(rawPosition.trailingStepCount || 0),
           entryTime: new Date(dbPos.created_at).getTime(),
           status: "ACTIVE",
         };
@@ -2425,8 +2423,11 @@ class PersistentTradingEngine {
 
           const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
           const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
-          if (numberOfJumps >= 0) {
-            const appliedJumps = numberOfJumps + 1;
+          const previousStepCount = Number(position.trailingStepCount || 0);
+          // Activation is its own event. Step 1 is reached only after profit moves
+          // one complete jump above the activation amount.
+          if (numberOfJumps > previousStepCount) {
+            const appliedJumps = numberOfJumps;
             const newTarget = _baseTarget + appliedJumps * _targetJump;
             // SL ratchets UP (in profit direction): baseSL is the loss limit (positive number),
             // each jump reduces it by _slJump. When it crosses 0 it becomes a guaranteed profit lock.
@@ -2922,8 +2923,8 @@ class PersistentTradingEngine {
           },
           started_at: state.isRunning ? new Date(state.startTime).toISOString() : null,
           last_heartbeat: new Date().toISOString(),
-          // ⚡ BUG FIX 2/3: mark auto_resume on every start so pre-market cron can re-arm the engine
-          auto_resume: state.isRunning ? true : undefined,
+          // Restart is manual-only; cron must never re-arm a stopped engine.
+          auto_resume: false,
           stopped_reason: state.isRunning ? null : undefined,
         },
         { onConflict: "user_id" },
@@ -2949,6 +2950,7 @@ class PersistentTradingEngine {
           stopped_at: new Date().toISOString(),
           last_heartbeat: new Date().toISOString(),
           stopped_reason: reason,
+          auto_resume: false,
         })
         .eq("user_id", userId);
     } catch (err) {
@@ -2966,71 +2968,8 @@ class PersistentTradingEngine {
    * This catches: pre-market start (Bug 2) + intraday disconnect recovery (Bug 3).
    */
   static async autoResumeEngines(): Promise<{ resumed: number; skipped: number }> {
-    let resumed = 0;
-    let skipped = 0;
-    try {
-      // Only auto-resume during market hours (or just before open)
-      const now = new Date();
-      const istTime = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
-      const dow = istTime.getUTCDay();
-      if (dow === 0 || dow === 6) return { resumed: 0, skipped: 0 };
-      const mins = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
-      if (mins < 9 * 60 + 10 || mins > 15 * 60 + 30) return { resumed: 0, skipped: 0 };
-
-      const { data: candidates } = await supabaseAdmin
-        .from("trading_engine_state")
-        .select("user_id, auto_resume, stopped_reason, selected_symbols, strategy_settings")
-        .eq("is_running", false)
-        .eq("auto_resume", true);
-
-      for (const row of candidates || []) {
-        // Never auto-resume engines the user explicitly stopped
-        if (row.stopped_reason === "user") {
-          skipped++;
-          continue;
-        }
-        const hasManualSymbols = Array.isArray(row.selected_symbols) && (row.selected_symbols as any[]).length > 0;
-        let hasAutoSymbolSlots = false;
-        if (!hasManualSymbols) {
-          const { data: autoSlots } = await supabaseAdmin
-            .from("user_symbol_config")
-            .select("slot")
-            .eq("user_id", row.user_id)
-            .eq("enabled", true)
-            .limit(1);
-          hasAutoSymbolSlots = Array.isArray(autoSlots) && autoSlots.length > 0;
-        }
-        if (!hasManualSymbols && !hasAutoSymbolSlots) {
-          skipped++;
-          continue;
-        }
-        try {
-          await supabaseAdmin
-            .from("trading_engine_state")
-            .update({
-              is_running: true,
-              started_at: new Date().toISOString(),
-              last_heartbeat: new Date().toISOString(),
-              stopped_at: null,
-              stopped_reason: null,
-            })
-            .eq("user_id", row.user_id);
-          await this.appendSharedLog(row.user_id, {
-            id: `engine_auto_resume_${Date.now()}`,
-            timestamp: Date.now(),
-            type: "ENGINE_START",
-            message: `🔄 AI Trading Engine AUTO-RESUMED (pre-market / disconnect recovery)`,
-          });
-          resumed++;
-          console.log(`🔄 [AUTO-RESUME] User ${row.user_id} engine re-armed`);
-        } catch (e) {
-          console.error(`❌ [AUTO-RESUME] Failed for ${row.user_id}:`, e);
-        }
-      }
-    } catch (e) {
-      console.error("❌ [AUTO-RESUME] Scan failed:", e);
-    }
-    return { resumed, skipped };
+    console.log("⏸️ [AUTO-RESUME] Disabled — engine requires an explicit user start");
+    return { resumed: 0, skipped: 0 };
   }
 
   private static async saveUserNotification(userId: string, notification: any): Promise<void> {

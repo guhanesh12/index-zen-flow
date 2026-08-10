@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
       is_running: false,
       stopped_at: new Date().toISOString(),
       stopped_reason: stoppedReason,
+      auto_resume: false,
       updated_at: new Date().toISOString(),
     }).eq("user_id", user_id);
 
