@@ -1,15 +1,17 @@
-// 🤖 AI TRADING ASSISTANT (IndexPilot Brain v2)
+// 🤖 AI TRADING ASSISTANT (IndexPilot OWN BRAIN v4 — self-hosted)
+// - Answers are produced by OUR OWN engine (./brain.ts). No external AI provider.
 // - Structured JSON answers (sections, verdict, action buttons)
 // - Wallet is charged ONLY for signal / position / chart ANALYSIS questions
-//   (greetings, balance lookups, how-it-works questions are FREE)
 // - Can place an order for an actionable signal, or exit a running position
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
+import { ownBrain } from "./brain.ts";
 import {
   analyseIndices,
   analysePositionOption,
   INDEX_META,
   type DhanCreds,
 } from "./market_analysis.ts";
+
 
 
 const corsHeaders = {
@@ -941,121 +943,12 @@ Deno.serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    const callGateway = () =>
-      fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          messages,
-          temperature: 0.3,
-          max_tokens: 2400,
-          response_format: { type: "json_object" },
-        }),
-      });
+    // ================= OWN AI BRAIN (self-hosted, no external AI) =================
+    // 100% our own rules + our own live data. No LLM provider, no credits, no 402.
+    void messages; // context assembled above is what the brain reads (via `context`)
+    const parsed: any = ownBrain(message, context);
+    const fallbackLines: string[] = [];
 
-    const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
-    const callOpenAI = () =>
-      fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages,
-          temperature: 0.3,
-          max_tokens: 2400,
-          response_format: { type: "json_object" },
-        }),
-      });
-
-    // Direct Google Generative Language fallback (uses GOOGLE_API_KEY secret)
-    const GOOGLE_KEY = Deno.env.get("GOOGLE_API_KEY");
-    const callGoogle = async () => {
-      const sys = messages.filter((m: any) => m.role === "system").map((m: any) => m.content).join("\n\n");
-      const contents = messages
-        .filter((m: any) => m.role !== "system")
-        .map((m: any) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content) }] }));
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: sys ? { parts: [{ text: sys }] } : undefined,
-            contents,
-            generationConfig: { temperature: 0.3, maxOutputTokens: 2400, responseMimeType: "application/json" },
-          }),
-        },
-      );
-      if (!r.ok) return r;
-      const g = await r.json();
-      const text = g?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text || "").join("") || "";
-      // normalize to OpenAI-style shape expected below
-      return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    };
-
-    let aiRes = await callGateway();
-    // Lovable AI credits exhausted / rate limited -> fall back to another provider
-    if (aiRes.status === 402 || aiRes.status === 429) {
-      console.warn("ai-chat: gateway", aiRes.status, "- trying fallback provider");
-      if (OPENAI_KEY) {
-        const fb = await callOpenAI();
-        if (fb.ok) aiRes = fb;
-      }
-      if (!aiRes.ok && GOOGLE_KEY) {
-        try {
-          const fb2 = await callGoogle();
-          if (fb2.ok) aiRes = fb2;
-        } catch (e) {
-          console.error("ai-chat: google fallback failed", e);
-        }
-      }
-    }
-
-
-
-    if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      console.error("AI gateway error", aiRes.status, errText);
-      // refund on failure
-      if (price > 0) {
-        const w = (await kvGet(walletKey)) || {};
-        await kvSet(walletKey, {
-          ...w,
-          balance: Number((Number(w.balance || 0) + price).toFixed(2)),
-          totalDeducted: Number(Math.max(0, Number(w.totalDeducted || 0) - price).toFixed(2)),
-        });
-        await admin.from("wallet_transactions").insert({
-          user_id: user.id,
-          type: "credit",
-          amount: price,
-          reference_id: `aichat_refund_${Date.now()}`,
-          description: "AI Assistant refund (service error)",
-        });
-        balance = Number((balance + price).toFixed(2));
-      }
-      if (aiRes.status === 429) return json({ error: "RATE_LIMIT", message: "Too many questions right now. Please retry in a moment." }, 429);
-      if (aiRes.status === 402) return json({ error: "AI_CREDITS", message: "AI credits are exhausted. Please top up Lovable AI credits (Settings → Plans & credits) and try again." }, 402);
-      return json({ error: "AI_ERROR", message: "AI assistant is unavailable right now." }, 502);
-    }
-
-    const data = await aiRes.json();
-    const rawReply = data?.choices?.[0]?.message?.content?.trim() || "";
-
-    const parsed: any = parseAiJson(rawReply);
-    if (!parsed) console.warn("ai-chat: could not parse model JSON", rawReply.slice(0, 400));
-
-    const fallbackText = parsed ? "" : humanizeRaw(rawReply);
-    const fallbackLines = fallbackText.split("\n").map((l) => l.replace(/^•\s*/, "").trim()).filter(Boolean);
 
     const answer = {
       title: String(parsed?.title || "IndexPilot AI"),
