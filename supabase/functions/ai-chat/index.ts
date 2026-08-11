@@ -1004,7 +1004,7 @@ Deno.serve(async (req) => {
         balance = Number((balance + price).toFixed(2));
       }
       if (aiRes.status === 429) return json({ error: "RATE_LIMIT", message: "Too many questions right now. Please retry in a moment." }, 429);
-      if (aiRes.status === 402) return json({ error: "AI_CREDITS", message: "AI service temporarily unavailable." }, 402);
+      if (aiRes.status === 402) return json({ error: "AI_CREDITS", message: "AI credits are exhausted. Please top up Lovable AI credits (Settings → Plans & credits) and try again." }, 402);
       return json({ error: "AI_ERROR", message: "AI assistant is unavailable right now." }, 502);
     }
 
