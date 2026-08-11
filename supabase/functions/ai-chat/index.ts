@@ -974,13 +974,53 @@ Deno.serve(async (req) => {
         }),
       });
 
+    // Direct Google Generative Language fallback (uses GOOGLE_API_KEY secret)
+    const GOOGLE_KEY = Deno.env.get("GOOGLE_API_KEY");
+    const callGoogle = async () => {
+      const sys = messages.filter((m: any) => m.role === "system").map((m: any) => m.content).join("\n\n");
+      const contents = messages
+        .filter((m: any) => m.role !== "system")
+        .map((m: any) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content) }] }));
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: sys ? { parts: [{ text: sys }] } : undefined,
+            contents,
+            generationConfig: { temperature: 0.3, maxOutputTokens: 2400, responseMimeType: "application/json" },
+          }),
+        },
+      );
+      if (!r.ok) return r;
+      const g = await r.json();
+      const text = g?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text || "").join("") || "";
+      // normalize to OpenAI-style shape expected below
+      return new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+
     let aiRes = await callGateway();
-    // Lovable AI credits exhausted / rate limited -> fall back to OpenAI if configured
-    if ((aiRes.status === 402 || aiRes.status === 429) && OPENAI_KEY) {
-      console.warn("ai-chat: gateway", aiRes.status, "- falling back to OpenAI");
-      const fb = await callOpenAI();
-      if (fb.ok) aiRes = fb;
+    // Lovable AI credits exhausted / rate limited -> fall back to another provider
+    if (aiRes.status === 402 || aiRes.status === 429) {
+      console.warn("ai-chat: gateway", aiRes.status, "- trying fallback provider");
+      if (OPENAI_KEY) {
+        const fb = await callOpenAI();
+        if (fb.ok) aiRes = fb;
+      }
+      if (!aiRes.ok && GOOGLE_KEY) {
+        try {
+          const fb2 = await callGoogle();
+          if (fb2.ok) aiRes = fb2;
+        } catch (e) {
+          console.error("ai-chat: google fallback failed", e);
+        }
+      }
     }
+
 
 
     if (!aiRes.ok) {
