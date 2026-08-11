@@ -1,15 +1,17 @@
-// 🤖 AI TRADING ASSISTANT (IndexPilot Brain v2)
+// 🤖 AI TRADING ASSISTANT (IndexPilot OWN BRAIN v4 — self-hosted)
+// - Answers are produced by OUR OWN engine (./brain.ts). No external AI provider.
 // - Structured JSON answers (sections, verdict, action buttons)
 // - Wallet is charged ONLY for signal / position / chart ANALYSIS questions
-//   (greetings, balance lookups, how-it-works questions are FREE)
 // - Can place an order for an actionable signal, or exit a running position
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
+import { ownBrain } from "./brain.ts";
 import {
   analyseIndices,
   analysePositionOption,
   INDEX_META,
   type DhanCreds,
 } from "./market_analysis.ts";
+
 
 
 const corsHeaders = {
