@@ -941,20 +941,47 @@ Deno.serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages,
-        temperature: 0.3,
-        max_tokens: 2400,
-        response_format: { type: "json_object" },
-      }),
-    });
+    const callGateway = () =>
+      fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages,
+          temperature: 0.3,
+          max_tokens: 2400,
+          response_format: { type: "json_object" },
+        }),
+      });
+
+    const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+    const callOpenAI = () =>
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages,
+          temperature: 0.3,
+          max_tokens: 2400,
+          response_format: { type: "json_object" },
+        }),
+      });
+
+    let aiRes = await callGateway();
+    // Lovable AI credits exhausted / rate limited -> fall back to OpenAI if configured
+    if ((aiRes.status === 402 || aiRes.status === 429) && OPENAI_KEY) {
+      console.warn("ai-chat: gateway", aiRes.status, "- falling back to OpenAI");
+      const fb = await callOpenAI();
+      if (fb.ok) aiRes = fb;
+    }
+
 
     if (!aiRes.ok) {
       const errText = await aiRes.text();
