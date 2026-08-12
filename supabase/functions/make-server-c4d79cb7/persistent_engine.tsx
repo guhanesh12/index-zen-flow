@@ -2130,19 +2130,46 @@ class PersistentTradingEngine {
         const stopLossAmount = manualRiskEdit
           ? numeric(rawPosition.stopLossAmount, numeric(dbPos.stop_loss_amount))
           : numeric(symbolCfg?.stopLossAmount, numeric(dbPos.stop_loss_amount));
-        const trailingActivationAmount = numeric(
+        // 🛠️ FIX: never let a 0 from one source wipe a real value from another.
+        // Pick the first STRICTLY POSITIVE value across cfg → raw_position → db column.
+        const firstPositive = (...vals: any[]) => {
+          for (const v of vals) {
+            const n = Number(v);
+            if (Number.isFinite(n) && n > 0) return n;
+          }
+          return 0;
+        };
+        let trailingActivationAmount = firstPositive(
           symbolCfg?.trailingActivationAmount,
-          numeric(rawPosition.trailingActivationAmount ?? rawPosition.trailing_activation_amount),
+          rawPosition.trailingActivationAmount,
+          rawPosition.trailing_activation_amount,
         );
-        const targetJumpAmount = numeric(
-          symbolCfg?.targetJumpAmount,
-          numeric(rawPosition.targetJumpAmount ?? rawPosition.target_jump_amount),
-        );
-        const stopLossJumpAmount = numeric(
+        let stopLossJumpAmount = firstPositive(
           symbolCfg?.stopLossJumpAmount,
-          numeric(rawPosition.stopLossJumpAmount ?? rawPosition.stop_loss_jump_amount ?? dbPos.trailing_step),
+          rawPosition.stopLossJumpAmount,
+          rawPosition.stop_loss_jump_amount,
+          dbPos.trailing_step,
         );
-        const trailingEnabled = symbolCfg ? !!symbolCfg.trailingEnabled : !!dbPos.trailing_enabled;
+        let targetJumpAmount = firstPositive(
+          symbolCfg?.targetJumpAmount,
+          rawPosition.targetJumpAmount,
+          rawPosition.target_jump_amount,
+          stopLossJumpAmount, // same ladder step for target when not configured separately
+        );
+        const trailingEnabled =
+          symbolCfg && symbolCfg.trailingEnabled !== undefined
+            ? !!symbolCfg.trailingEnabled
+            : rawPosition.trailingEnabled !== undefined
+              ? !!rawPosition.trailingEnabled
+              : !!dbPos.trailing_enabled;
+
+        // 🛠️ FIX: trailing switched ON but ladder numbers missing → derive sane defaults
+        // so trailing can never silently stay dormant.
+        if (trailingEnabled) {
+          if (stopLossJumpAmount <= 0) stopLossJumpAmount = Math.max(1, Math.round(stopLossAmount * 0.33));
+          if (targetJumpAmount <= 0) targetJumpAmount = stopLossJumpAmount;
+          if (trailingActivationAmount <= 0) trailingActivationAmount = Math.max(1, Math.round(targetAmount * 0.5));
+        }
         const dbState = {
           orderId: dbPos.order_id,
           symbolName: dbPos.symbol,
@@ -2372,9 +2399,19 @@ class PersistentTradingEngine {
           }
         }
 
-        const _activation = Number(position.trailingActivationAmount ?? 0);
-        const _targetJump = Number(position.targetJumpAmount ?? 0);
-        const _slJump = Number(position.stopLossJumpAmount ?? 0);
+        let _activation = Number(position.trailingActivationAmount ?? 0);
+        let _slJump = Number(position.stopLossJumpAmount ?? 0);
+        let _targetJump = Number(position.targetJumpAmount ?? 0);
+
+        // 🛠️ Self-heal missing ladder numbers when trailing is ON (never stay dormant)
+        if (position.trailingEnabled === true) {
+          if (_slJump <= 0) _slJump = Math.max(1, Math.round(_baseSL * 0.33));
+          if (_targetJump <= 0) _targetJump = _slJump;
+          if (_activation <= 0) _activation = Math.max(1, Math.round(_baseTarget * 0.5));
+          position.trailingActivationAmount = _activation;
+          position.targetJumpAmount = _targetJump;
+          position.stopLossJumpAmount = _slJump;
+        }
 
         const _trailingConfigured =
           position.trailingEnabled === true && _activation > 0 && _targetJump > 0 && _slJump > 0;
@@ -2422,10 +2459,10 @@ class PersistentTradingEngine {
           }
 
           const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
-          const numberOfJumps = Math.floor(profitAboveActivation / _targetJump);
+          // Step 1 applies IMMEDIATELY at activation (Target +step, SL -step),
+          // then one more step for every full jump of extra profit.
+          const numberOfJumps = 1 + Math.floor(profitAboveActivation / _targetJump);
           const previousStepCount = Number(position.trailingStepCount || 0);
-          // Activation is its own event. Step 1 is reached only after profit moves
-          // one complete jump above the activation amount.
           if (numberOfJumps > previousStepCount) {
             const appliedJumps = numberOfJumps;
             const newTarget = _baseTarget + appliedJumps * _targetJump;
@@ -2706,7 +2743,8 @@ class PersistentTradingEngine {
           }
         }
 
-        if (!shouldExit && effectiveSL <= 0 && position.trailingEnabled) {
+        // Profit-lock stop: only valid AFTER trailing actually activated (never on a fresh 0 SL).
+        if (!shouldExit && effectiveSL <= 0 && position.trailingEnabled && position.trailingActivatedAt) {
           const lockedProfit = Math.abs(effectiveSL);
           if (pnl <= lockedProfit) {
             shouldExit = true;
