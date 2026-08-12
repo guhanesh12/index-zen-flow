@@ -4,7 +4,7 @@
 // - Wallet is charged ONLY for signal / position / chart ANALYSIS questions
 // - Can place an order for an actionable signal, or exit a running position
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
-import { ownBrain } from "./brain.ts";
+import { ownBrain, brainIsBillable } from "./brain.ts";
 import {
   analyseIndices,
   analysePositionOption,
@@ -871,7 +871,7 @@ Deno.serve(async (req) => {
     const usage = (await kvGet(usageKey)) || { count: 0, charged: 0 };
     const freeLeft = Math.max(0, cfg.freeQueriesPerDay - usage.count);
 
-    const billable = isBillable(message);
+    const billable = isBillable(message) && brainIsBillable(message);
     const price = !billable || freeLeft > 0 ? 0 : cfg.pricePerQuery;
     const freeReason = !billable
       ? "General question — no wallet charge"
