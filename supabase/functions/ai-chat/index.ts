@@ -961,10 +961,10 @@ Deno.serve(async (req) => {
       sections: Array.isArray(parsed?.sections)
         ? parsed.sections
             .filter((s: any) => s && s.heading && Array.isArray(s.points))
-            .slice(0, 6)
+            .slice(0, 10)
             .map((s: any) => ({
-              heading: String(s.heading).slice(0, 60),
-              points: s.points.map((p: any) => String(p).slice(0, 300)).filter(Boolean).slice(0, 8),
+              heading: String(s.heading).slice(0, 80),
+              points: s.points.map((p: any) => String(p).slice(0, 400)).filter(Boolean).slice(0, 14),
             }))
             .filter((s: any) => s.points.length > 0)
         : fallbackLines.length > 1
