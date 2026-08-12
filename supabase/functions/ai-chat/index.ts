@@ -4,7 +4,7 @@
 // - Wallet is charged ONLY for signal / position / chart ANALYSIS questions
 // - Can place an order for an actionable signal, or exit a running position
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
-import { ownBrain } from "./brain.ts";
+import { ownBrain, brainIsBillable } from "./brain.ts";
 import {
   analyseIndices,
   analysePositionOption,
@@ -871,7 +871,7 @@ Deno.serve(async (req) => {
     const usage = (await kvGet(usageKey)) || { count: 0, charged: 0 };
     const freeLeft = Math.max(0, cfg.freeQueriesPerDay - usage.count);
 
-    const billable = isBillable(message);
+    const billable = isBillable(message) && brainIsBillable(message);
     const price = !billable || freeLeft > 0 ? 0 : cfg.pricePerQuery;
     const freeReason = !billable
       ? "General question — no wallet charge"
@@ -919,10 +919,10 @@ Deno.serve(async (req) => {
     // build context + history
     const context: any = await buildContext(user.id);
 
-    // journal / profile / logs / support context (only when the question needs it)
-    if (EXTRA_RE.test(message)) {
-      Object.assign(context, await buildExtras(user.id));
-    }
+    // journal / profile / logs / support context — the own brain composes richer
+    // answers (P&L, overview, risk) so always hydrate these.
+    void EXTRA_RE;
+    Object.assign(context, await buildExtras(user.id));
 
     // ---- LIVE MARKET ANALYSIS (separate module, strategy files untouched) ----
     if (needsMarketRead(message)) {
@@ -961,10 +961,10 @@ Deno.serve(async (req) => {
       sections: Array.isArray(parsed?.sections)
         ? parsed.sections
             .filter((s: any) => s && s.heading && Array.isArray(s.points))
-            .slice(0, 6)
+            .slice(0, 10)
             .map((s: any) => ({
-              heading: String(s.heading).slice(0, 60),
-              points: s.points.map((p: any) => String(p).slice(0, 300)).filter(Boolean).slice(0, 8),
+              heading: String(s.heading).slice(0, 80),
+              points: s.points.map((p: any) => String(p).slice(0, 400)).filter(Boolean).slice(0, 14),
             }))
             .filter((s: any) => s.points.length > 0)
         : fallbackLines.length > 1
