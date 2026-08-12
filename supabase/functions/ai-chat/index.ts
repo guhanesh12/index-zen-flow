@@ -919,10 +919,10 @@ Deno.serve(async (req) => {
     // build context + history
     const context: any = await buildContext(user.id);
 
-    // journal / profile / logs / support context (only when the question needs it)
-    if (EXTRA_RE.test(message)) {
-      Object.assign(context, await buildExtras(user.id));
-    }
+    // journal / profile / logs / support context — the own brain composes richer
+    // answers (P&L, overview, risk) so always hydrate these.
+    void EXTRA_RE;
+    Object.assign(context, await buildExtras(user.id));
 
     // ---- LIVE MARKET ANALYSIS (separate module, strategy files untouched) ----
     if (needsMarketRead(message)) {
