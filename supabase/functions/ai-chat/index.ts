@@ -417,6 +417,48 @@ function needsMarketRead(msg: string) {
   return MARKET_RE.test(String(msg || ""));
 }
 
+// ---------------- instrument resolver (fallback when a signal has no securityId) ----
+function normSym(s: any) {
+  return String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+async function resolveInstrument(sig: any): Promise<any | null> {
+  const store = await kvGet("admin_instruments:data");
+  const list: any[] = store?.instruments || [];
+  if (!list.length) return null;
+
+  const target = normSym(sig.symbol);
+  // 1) exact symbol / trading symbol match
+  let hit = list.find(
+    (i) => normSym(i.symbol) === target || normSym(i.tradingSymbol) === target,
+  );
+  if (hit) return hit;
+
+  // 2) structured match: underlying + strike + option type (nearest expiry)
+  const underlying = normSym(sig.index_name || sig.symbol).replace(/BANK NIFTY/g, "BANKNIFTY");
+  const strike = Number(sig.strike_price || 0);
+  const ot = String(sig.option_type || "").toUpperCase();
+  const wantCall = /^(CALL|CE)$/.test(ot);
+  const wantPut = /^(PUT|PE)$/.test(ot);
+  if (!strike || (!wantCall && !wantPut)) return null;
+
+  const candidates = list.filter((i) => {
+    if (!normSym(i.underlyingSymbol) || !underlying.startsWith(normSym(i.underlyingSymbol))) {
+      if (normSym(i.underlyingSymbol) !== underlying) return false;
+    }
+    if (Number(i.strike) !== strike) return false;
+    const iot = String(i.optionType || "").toUpperCase();
+    return wantCall ? /^(CALL|CE)$/.test(iot) : /^(PUT|PE)$/.test(iot);
+  });
+  if (!candidates.length) return null;
+
+  candidates.sort(
+    (a, b) => new Date(a.expiry || 0).getTime() - new Date(b.expiry || 0).getTime(),
+  );
+  const now = Date.now();
+  return candidates.find((c) => new Date(c.expiry || 0).getTime() >= now - 864e5) || candidates[0];
+}
+
+
 async function loadDhanCreds(userId: string): Promise<DhanCreds | null> {
   const { data } = await admin
     .from("broker_credentials")
@@ -826,18 +868,46 @@ Deno.serve(async (req) => {
       if (ageMin > 15) return json({ error: "SIGNAL_EXPIRED", message: "This signal is older than 15 minutes — wait for the next one." }, 400);
 
       const raw: any = sig.raw_data || {};
-      const securityId = pick(raw, "securityId", "security_id");
-      const quantity = Number(pick(raw, "quantity", "qty") || 0);
+      let securityId = pick(raw, "securityId", "security_id");
+      let quantity = Number(pick(raw, "quantity", "qty") || 0);
+      let exchangeSegment = pick(raw, "exchangeSegment") || "";
+
+      // Fallback: resolve from the admin instrument master + user's slot lot count
       if (!securityId || !quantity) {
-        return json({ error: "NO_SECURITY_ID", message: "Order can't be placed from chat for this signal. Use the Symbols screen." }, 400);
+        const inst = await resolveInstrument(sig);
+        if (inst) {
+          securityId = securityId || inst.securityId;
+          exchangeSegment = exchangeSegment || inst.exchangeSegment || "";
+          if (!quantity) {
+            const lotSize = Number(inst.lotSize || 0);
+            const { data: slotRow } = await admin
+              .from("user_symbol_config")
+              .select("lot_count")
+              .eq("user_id", user.id)
+              .eq("index_name", sig.index_name || "")
+              .eq("enabled", true)
+              .maybeSingle();
+            const lots = Math.max(1, Number(slotRow?.lot_count || 1));
+            if (lotSize > 0) quantity = lotSize * lots;
+          }
+        }
+      }
+
+      if (!securityId || !quantity) {
+        return json({
+          error: "NO_SECURITY_ID",
+          message:
+            "This signal has no broker instrument mapped yet (security ID / quantity missing). Place it from the Symbols screen, or ask the admin to upload the latest instrument master.",
+        }, 400);
       }
 
       const out = await forwardOrder(authHeader, {
         dhanClientId: pick(raw, "dhanClientId", "dhan_client_id"),
         correlationId: `AIBUY_${Date.now()}`,
         transactionType: "BUY",
-        exchangeSegment: pick(raw, "exchangeSegment") || "NSE_FNO",
+        exchangeSegment: exchangeSegment || "NSE_FNO",
         productType: pick(raw, "productType") || "INTRADAY",
+
         orderType: "MARKET",
         validity: "DAY",
         securityId,
