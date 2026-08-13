@@ -2458,10 +2458,11 @@ class PersistentTradingEngine {
             });
           }
 
-          const profitAboveActivation = Math.max(0, position.highestPnl - _activation);
-          // Step 1 applies IMMEDIATELY at activation (Target +step, SL -step),
-          // then one more step for every full jump of extra profit.
-          const numberOfJumps = 1 + Math.floor(profitAboveActivation / _targetJump);
+          // Ladder is driven by the ACTIVATION amount: every multiple of the
+          // activation profit (600, 1200, 1800 ...) triggers the next step,
+          // and each step moves Target +stepAmount and SL +stepAmount in favour.
+          const numberOfJumps = Math.floor(position.highestPnl / _activation);
+
           const previousStepCount = Number(position.trailingStepCount || 0);
           if (numberOfJumps > previousStepCount) {
             const appliedJumps = numberOfJumps;
