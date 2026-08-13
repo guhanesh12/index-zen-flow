@@ -868,18 +868,46 @@ Deno.serve(async (req) => {
       if (ageMin > 15) return json({ error: "SIGNAL_EXPIRED", message: "This signal is older than 15 minutes — wait for the next one." }, 400);
 
       const raw: any = sig.raw_data || {};
-      const securityId = pick(raw, "securityId", "security_id");
-      const quantity = Number(pick(raw, "quantity", "qty") || 0);
+      let securityId = pick(raw, "securityId", "security_id");
+      let quantity = Number(pick(raw, "quantity", "qty") || 0);
+      let exchangeSegment = pick(raw, "exchangeSegment") || "";
+
+      // Fallback: resolve from the admin instrument master + user's slot lot count
       if (!securityId || !quantity) {
-        return json({ error: "NO_SECURITY_ID", message: "Order can't be placed from chat for this signal. Use the Symbols screen." }, 400);
+        const inst = await resolveInstrument(sig);
+        if (inst) {
+          securityId = securityId || inst.securityId;
+          exchangeSegment = exchangeSegment || inst.exchangeSegment || "";
+          if (!quantity) {
+            const lotSize = Number(inst.lotSize || 0);
+            const { data: slotRow } = await admin
+              .from("user_symbol_config")
+              .select("lot_count")
+              .eq("user_id", user.id)
+              .eq("index_name", sig.index_name || "")
+              .eq("enabled", true)
+              .maybeSingle();
+            const lots = Math.max(1, Number(slotRow?.lot_count || 1));
+            if (lotSize > 0) quantity = lotSize * lots;
+          }
+        }
+      }
+
+      if (!securityId || !quantity) {
+        return json({
+          error: "NO_SECURITY_ID",
+          message:
+            "This signal has no broker instrument mapped yet (security ID / quantity missing). Place it from the Symbols screen, or ask the admin to upload the latest instrument master.",
+        }, 400);
       }
 
       const out = await forwardOrder(authHeader, {
         dhanClientId: pick(raw, "dhanClientId", "dhan_client_id"),
         correlationId: `AIBUY_${Date.now()}`,
         transactionType: "BUY",
-        exchangeSegment: pick(raw, "exchangeSegment") || "NSE_FNO",
+        exchangeSegment: exchangeSegment || "NSE_FNO",
         productType: pick(raw, "productType") || "INTRADAY",
+
         orderType: "MARKET",
         validity: "DAY",
         securityId,
