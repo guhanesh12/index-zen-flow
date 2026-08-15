@@ -607,14 +607,15 @@ class PersistentTradingEngine {
    */
   private static cronLockUntil = 0;
 
-  static async runCronTick(): Promise<any> {
+  static async runCronTick(force = false): Promise<any> {
     // ⚡ LOCK: Prevent concurrent cron ticks (duplicate signal prevention)
     const now = Date.now();
-    if (now < this.cronLockUntil) {
+    if (!force && now < this.cronLockUntil) {
       console.log(`⏸️ [CRON] Skipping - already processing (lock until ${new Date(this.cronLockUntil).toISOString()})`);
       return { success: true, skipped: true, message: "Concurrent tick blocked by lock" };
     }
     this.cronLockUntil = now + 4_500; // Short lock: position monitor now runs every 1 second
+
 
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
 
@@ -989,6 +990,81 @@ class PersistentTradingEngine {
       if (!targetUserId) this.positionMonitorLoopUntil = 0;
     }
   }
+
+  // ============================================================
+  // ⚡⚡⚡ ULTRA-FAST CANDLE-CLOSE WATCHER (millisecond precision)
+  // pg_cron only fires once per minute, so a 15M candle closing at
+  // 09:30:00 was analysed up to ~60s late. This watcher polls the
+  // clock every 150ms and triggers the engine tick within ~2s of the
+  // candle close (e.g. 09:30:02) so orders go out on time.
+  // ============================================================
+  private static readonly CANDLE_WATCH_POLL_MS = 150;
+  private static readonly CANDLE_SETTLE_MS = 1_800; // let broker publish the closed candle
+  private static candleWatchUntil = 0;
+  private static lastCandleFireKey = "";
+
+  static async runCandleWatchLoop(durationMs = 58_000): Promise<any> {
+    const now = Date.now();
+    if (now < this.candleWatchUntil) {
+      return { success: true, skipped: true, message: "Candle watcher already running" };
+    }
+
+    const maxRunMs = Math.max(2_000, Math.min(durationMs, 58_000));
+    this.candleWatchUntil = now + maxRunMs - 1_000;
+
+    const startedAt = Date.now();
+    let fires = 0;
+    let polls = 0;
+    let lastLatencyMs = -1;
+    const inflight: Promise<any>[] = [];
+
+    try {
+      while (Date.now() - startedAt < maxRunMs) {
+        polls++;
+        const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        const h = istNow.getUTCHours();
+        const m = istNow.getUTCMinutes();
+        const msIntoMinute = istNow.getUTCSeconds() * 1000 + istNow.getUTCMilliseconds();
+        const minuteOfDay = h * 60 + m;
+
+        // Only during market hours (9:15 – 15:30 IST)
+        const inMarket = minuteOfDay >= 9 * 60 + 15 && minuteOfDay <= 15 * 60 + 30;
+        const key = `${istNow.getUTCFullYear()}-${istNow.getUTCMonth()}-${istNow.getUTCDate()}-${minuteOfDay}`;
+
+        if (inMarket && msIntoMinute >= this.CANDLE_SETTLE_MS && key !== this.lastCandleFireKey) {
+          this.lastCandleFireKey = key;
+          lastLatencyMs = msIntoMinute;
+          fires++;
+          console.log(
+            `⚡ [CANDLE-WATCH] Minute boundary ${h}:${String(m).padStart(2, "0")} → firing engine tick at +${msIntoMinute}ms`,
+          );
+          // Fire immediately (forced: bypass the 1-minute cron lock) and keep polling.
+          inflight.push(
+            this.runCronTick(true).catch((e: any) =>
+              console.error(`❌ [CANDLE-WATCH] Tick failed: ${e?.message || e}`)
+            ),
+          );
+        }
+
+        await new Promise((r) => setTimeout(r, this.CANDLE_WATCH_POLL_MS));
+      }
+
+      await Promise.allSettled(inflight);
+
+      return {
+        success: true,
+        fires,
+        polls,
+        lastLatencyMs,
+        pollMs: this.CANDLE_WATCH_POLL_MS,
+        settleMs: this.CANDLE_SETTLE_MS,
+        durationMs: Date.now() - startedAt,
+      };
+    } finally {
+      this.candleWatchUntil = 0;
+    }
+  }
+
 
   /**
    * Fallback: run cron from KV store (legacy)
