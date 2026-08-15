@@ -607,14 +607,15 @@ class PersistentTradingEngine {
    */
   private static cronLockUntil = 0;
 
-  static async runCronTick(): Promise<any> {
+  static async runCronTick(force = false): Promise<any> {
     // ⚡ LOCK: Prevent concurrent cron ticks (duplicate signal prevention)
     const now = Date.now();
-    if (now < this.cronLockUntil) {
+    if (!force && now < this.cronLockUntil) {
       console.log(`⏸️ [CRON] Skipping - already processing (lock until ${new Date(this.cronLockUntil).toISOString()})`);
       return { success: true, skipped: true, message: "Concurrent tick blocked by lock" };
     }
     this.cronLockUntil = now + 4_500; // Short lock: position monitor now runs every 1 second
+
 
     console.log(`⏱️ [CRON] Starting 24/7 Engine Tick...`);
 
