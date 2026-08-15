@@ -11302,6 +11302,20 @@ app.all("/make-server-c4d79cb7/cron/engine-tick", async (c) => {
   }
 });
 
+// ⚡ ULTRA-FAST candle-close watcher: polls the clock every 150ms for ~1 minute and
+// fires the engine tick ~1.8s after each minute boundary (e.g. 09:30:02 for a 15M close).
+app.all("/make-server-c4d79cb7/cron/candle-watch", async (c) => {
+  try {
+    const durationMs = Math.min(Number(c.req.query('durationMs') || 58_000) || 58_000, 58_000);
+    const result = await PersistentTradingEngine.runCandleWatchLoop(durationMs);
+    return c.json(result);
+  } catch (error: any) {
+    console.error("❌ [CANDLE-WATCH] Loop failed:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+
 // Manual VPS reconcile (admin/debug)
 app.all("/make-server-c4d79cb7/cron/vps-reconcile", async (c) => {
   const gate = await requireCronOrAdmin(c);
