@@ -101,6 +101,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   
   // Core states
   const [credentialsConfigured, setCredentialsConfigured] = useState(false);
+  // 🔀 Active broker (common for all brokers — Dhan is the default)
+  const [activeBroker, setActiveBroker] = useState<string>('dhan');
+  const [activeBrokerName, setActiveBrokerName] = useState<string>('Dhan');
 
   // 🔴 REAL DATA — Dhan account fund limits & positions
   const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken);
@@ -403,6 +406,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
     }
     
     checkCredentials();
+    fetchActiveBroker();
     fetchWalletBalance();
     
     // Refresh wallet balance every 30 seconds
@@ -432,6 +436,28 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       console.error("Failed to fetch wallet balance:", error);
     } finally {
       setWalletLoading(false);
+    }
+  };
+
+  // 🔀 Which broker is this user on, and is it connected?
+  const fetchActiveBroker = async () => {
+    if (!accessToken) return;
+    try {
+      const response = await fetch(`${serverUrl}/broker/active`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const data = await response.json();
+      if (data?.success) {
+        setActiveBroker(data.activeBroker || 'dhan');
+        setActiveBrokerName(data.activeBrokerName || 'Dhan');
+        // For non-Dhan brokers the /api-credentials check does not apply —
+        // trust the broker status returned by the router.
+        if ((data.activeBroker || 'dhan') !== 'dhan') {
+          setCredentialsConfigured(data.connected === true);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch active broker:', error);
     }
   };
 
@@ -744,12 +770,12 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             <div className="flex items-start gap-3">
               <div className="text-amber-500 text-2xl">⚠️</div>
               <div className="flex-1">
-                <h3 className="text-amber-500 font-semibold mb-1">Dhan Credentials Not Configured</h3>
+                <h3 className="text-amber-500 font-semibold mb-1">{activeBrokerName} Not Connected</h3>
                 <p className="text-zinc-300 text-sm mb-2">
-                  Please configure your Dhan credentials in the <strong>Broker Setup</strong> tab to enable real trading.
+                  Please connect your <strong>{activeBrokerName}</strong> account in the <strong>Broker Setup</strong> tab to enable real trading.
                 </p>
                 <p className="text-zinc-400 text-xs">
-                  Without valid credentials, all API calls will fail with "Invalid Token" error.
+                  Without a connected broker session, all API calls will fail with an "Invalid Token" error.
                 </p>
               </div>
             </div>
@@ -757,7 +783,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
         )}
 
         {/* 🔑 DHAN ACCESS TOKEN EXPIRED BANNER */}
-        {dhanAuthError && (
+        {dhanAuthError && activeBroker === 'dhan' && (
           <div className="mb-6 p-5 bg-red-500/10 border-2 border-red-500/50 rounded-lg animate-pulse">
             <div className="flex items-start gap-4">
               <div className="text-red-400 text-3xl">🔐</div>
@@ -1154,6 +1180,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                     accessToken={accessToken}
                     onSettingsSaved={() => {
                       checkCredentials();
+                      fetchActiveBroker();
                     }}
                     onGoToStaticIp={() => setBrokerTab('static-ip')}
                   />

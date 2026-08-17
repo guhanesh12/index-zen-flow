@@ -28,6 +28,7 @@ import * as CentralMarketData from "./central_market_data.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
 import { KiteService, buildKiteLoginUrl, exchangeKiteRequestToken, kiteTokenExpiryIso } from "./kite_service.tsx";
 import { syncKiteInstruments, ensureKiteInstruments, getKiteInstrumentStatus } from "./kite_instruments.tsx";
+import * as BrokerRegistry from "./broker_registry.tsx";
 
 
 const app = new Hono();
@@ -7697,7 +7698,7 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
         
         // ✅ Batch fetch all KV data with safe retry logic
         // ✅ Batch fetch all KV data with safe retry logic
-        const [wallet, dailyProfit, dailyPnl, pnlDetails, credentials, engineStatus, brokerFundsData, cumulativePnl, userProfile, profileRow] = await Promise.all([
+        const [wallet, dailyProfit, dailyPnl, pnlDetails, credentials, engineStatus, brokerFundsData, cumulativePnl, userProfile, profileRow, kiteCreds] = await Promise.all([
           safeKVGet(`wallet:${userId}`, { balance: 0 }),
           safeKVGet(`daily_profit:${userId}:${today}`, null),
           safeKVGet(`daily_pnl:${userId}:${today}`, null),
@@ -7707,19 +7708,27 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
           safeKVGet(`broker_funds:${userId}`, null),
           safeKVGet(`total_pnl:${userId}`, 0),
           safeKVGet(`user_profile:${userId}`, {}),
-          supabase.from('profiles').select('avatar_url, full_name, mobile').eq('user_id', userId).maybeSingle().then((r: any) => r?.data || null).catch(() => null)
+          supabase.from('profiles').select('avatar_url, full_name, mobile, active_broker').eq('user_id', userId).maybeSingle().then((r: any) => r?.data || null).catch(() => null),
+          safeKVGet(`kite_credentials:${userId}`, null)
         ]);
         
         // ✅ Extract broker funds from KV data
-        const brokerFunds = brokerFundsData?.availableBalance !== undefined 
+        let brokerFunds = brokerFundsData?.availableBalance !== undefined 
           ? brokerFundsData.availableBalance 
           : 0;
 
-        // ✅ Today's Profit: use REAL Dhan positions P&L, not wallet/system estimates.
-        // The old daily_profit/daily_pnl keys can include repeated system-calculated values
-        // from failed/closed loops, so admin should show broker truth only.
+        // 🔀 Which broker is this user actually trading with?
+        const activeBroker = String(profileRow?.active_broker || 'dhan').toLowerCase() === 'zerodha' ? 'zerodha' : 'dhan';
+        const dhanConnected = !!(credentials?.dhanClientId && credentials?.dhanAccessToken);
+        const zerodhaConnected = !!(kiteCreds?.apiKey && kiteCreds?.accessToken);
+        const brokerConnected = activeBroker === 'zerodha' ? zerodhaConnected : dhanConnected;
+        const brokerClientId = activeBroker === 'zerodha'
+          ? (kiteCreds?.kiteUserId || '')
+          : (credentials?.dhanClientId || '');
+
+        // ✅ Today's Profit: use REAL broker positions P&L, not wallet/system estimates.
         let realDhanTodayProfit = 0;
-        if (credentials?.dhanClientId && credentials?.dhanAccessToken) {
+        if (activeBroker === 'dhan' && dhanConnected) {
           try {
             const dhanService = new DhanService({
               clientId: credentials.dhanClientId,
@@ -7734,6 +7743,20 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
             console.warn(`⚠️ Could not fetch real Dhan P&L for ${userId}:`, dhanPnlError?.message || dhanPnlError);
             realDhanTodayProfit = 0;
           }
+        } else if (activeBroker === 'zerodha' && zerodhaConnected) {
+          try {
+            const svc = new KiteService({ apiKey: kiteCreds.apiKey, accessToken: kiteCreds.accessToken });
+            const kitePositions = await svc.getPositions();
+            realDhanTodayProfit = (kitePositions || []).reduce((sum: number, p: any) => {
+              const pnl = Number(p?.pnl ?? 0);
+              return sum + (Number.isFinite(pnl) ? pnl : 0);
+            }, 0);
+            const margins = await svc.getFundLimits().catch(() => null);
+            const avail = Number(margins?.availableBalance ?? NaN);
+            if (Number.isFinite(avail)) brokerFunds = avail;
+          } catch (kiteErr: any) {
+            console.warn(`⚠️ Could not fetch Kite data for ${userId}:`, kiteErr?.message || kiteErr);
+          }
         }
         
         // ✅ Total/Cumulative P&L from lifetime tracking
@@ -7741,9 +7764,6 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
         
         // ✅ Check if user is active (not suspended)
         const isActive = userProfile?.isActive !== undefined ? userProfile.isActive : true;
-        
-        // ✅ Check if Dhan is connected
-        const dhanConnected = !!(credentials?.dhanClientId && credentials?.dhanAccessToken);
         
         return {
           id: userId,
@@ -7762,6 +7782,14 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
           isActive: isActive,
           dhanClientId: credentials?.dhanClientId || '',
           dhanConnected: dhanConnected,
+          // 🔀 broker details for the admin broker column + filter
+          activeBroker,
+          brokerName: BrokerRegistry.brokerLabel(activeBroker),
+          brokerConnected,
+          brokerClientId,
+          brokerUserName: activeBroker === 'zerodha' ? (kiteCreds?.kiteUserName || '') : '',
+          brokerTokenExpiry: activeBroker === 'zerodha' ? (kiteCreds?.tokenExpiry || null) : null,
+          zerodhaConnected,
           createdAt: authUser.created_at || new Date().toISOString(),
           lastActive: authUser.last_sign_in_at || null
         };
@@ -13465,6 +13493,41 @@ function sanitizeKite(creds: any) {
 }
 
 // --- GET which broker is active -------------------------------------------
+// --- PUBLIC: broker catalog (landing page + user chooser) ------------------
+app.get("/make-server-c4d79cb7/brokers", async (c) => {
+  try {
+    const brokers = await BrokerRegistry.listEnabledBrokers();
+    return c.json({ success: true, brokers });
+  } catch (err: any) {
+    return c.json({ success: false, brokers: [], error: err?.message || String(err) }, 200);
+  }
+});
+
+// --- ADMIN: broker ON/OFF control ------------------------------------------
+app.get("/make-server-c4d79cb7/admin/brokers", async (c) => {
+  try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || "Unauthorized" }, authErr?.code || 401);
+    return c.json({ success: true, brokers: await BrokerRegistry.listBrokers() });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/brokers", async (c) => {
+  try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || "Unauthorized" }, authErr?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const id = String(body?.broker || body?.id || "").toLowerCase();
+    const enabled = body?.enabled === true;
+    await BrokerRegistry.setBrokerEnabled(id, enabled);
+    return c.json({ success: true, brokers: await BrokerRegistry.listBrokers() });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
 app.get("/make-server-c4d79cb7/broker/active", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
@@ -13473,14 +13536,19 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const kite = await BrokerRouter.getKiteCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
+    const catalog = await BrokerRegistry.listEnabledBrokers();
+    const available: Record<string, boolean> = {
+      dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
+      zerodha: !!(kite?.apiKey && kite?.accessToken),
+    };
     return c.json({
       success: true,
       activeBroker,
+      activeBrokerName: BrokerRegistry.brokerLabel(activeBroker),
       chosen: !!choice?.broker,   // did the user explicitly pick a broker yet?
-      available: {
-        dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
-        zerodha: !!(kite?.apiKey && kite?.accessToken),
-      },
+      connected: available[activeBroker] === true,
+      available,
+      brokers: catalog,           // only brokers the admin has switched ON
     });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
@@ -13496,6 +13564,12 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     const broker = String(body?.broker || "").toLowerCase();
     if (broker !== "dhan" && broker !== "zerodha") {
       return c.json({ error: "broker must be 'dhan' or 'zerodha'" }, 400);
+    }
+    // Admin can switch a broker OFF for everyone.
+    try {
+      await BrokerRegistry.assertBrokerEnabled(broker);
+    } catch (e: any) {
+      return c.json({ error: e?.message || "Broker disabled" }, 403);
     }
     // ONE USER = ONE BROKER: switching wipes the other broker's session.
     const current = await BrokerRouter.getActiveBroker(user.id);
