@@ -13,6 +13,7 @@ import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
 import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
+import { ZerodhaConnect } from "./ZerodhaConnect";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
@@ -471,9 +472,10 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
 
   return (
     <Tabs defaultValue="oauth" className="space-y-4">
-      <TabsList className="grid grid-cols-2 bg-zinc-900 border border-zinc-800">
-        <TabsTrigger value="oauth">API Key &amp; Secret (12 months)</TabsTrigger>
-        <TabsTrigger value="token">Daily Access Token</TabsTrigger>
+      <TabsList className="grid grid-cols-3 bg-zinc-900 border border-zinc-800">
+        <TabsTrigger value="oauth">Dhan · API Key &amp; Secret</TabsTrigger>
+        <TabsTrigger value="token">Dhan · Daily Token</TabsTrigger>
+        <TabsTrigger value="zerodha">Zerodha Kite</TabsTrigger>
       </TabsList>
 
       <TabsContent value="oauth">
@@ -953,6 +955,17 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         </DialogContent>
       </Dialog>
     </Card>
+      </TabsContent>
+
+      <TabsContent value="zerodha">
+        <ZerodhaConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+          }}
+        />
       </TabsContent>
     </Tabs>
   );
