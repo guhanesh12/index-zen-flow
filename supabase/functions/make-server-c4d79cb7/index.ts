@@ -13467,9 +13467,11 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const activeBroker = await BrokerRouter.getActiveBroker(user.id);
     const kite = await BrokerRouter.getKiteCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
+    const choice = await kv.get(`broker_choice:${user.id}`);
     return c.json({
       success: true,
       activeBroker,
+      chosen: !!choice?.broker,   // did the user explicitly pick a broker yet?
       available: {
         dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
         zerodha: !!(kite?.apiKey && kite?.accessToken),
@@ -13497,6 +13499,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     } else {
       await BrokerRouter.setActiveBroker(user.id, broker as any);
     }
+    await kv.set(`broker_choice:${user.id}`, { broker, at: new Date().toISOString() });
     return c.json({ success: true, activeBroker: broker, switchedFrom: current });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
