@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
 import { getBaseUrl } from '../utils/apiService';
+import { SupportedBrokers } from './SupportedBrokers';
 import { motion, useScroll, useTransform, useSpring } from 'motion/react';
 import { Link } from 'react-router-dom';
 import { 
@@ -945,6 +946,9 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
       {/* How It Works Section */}
       <HowItWorksSection />
 
+
+      {/* Supported Brokers (auto-updates from the broker registry) */}
+      <SupportedBrokers />
 
       {/* Dhan Integration Section */}
       <section className="relative py-20 px-4 sm:px-6 lg:px-8 bg-slate-950">
