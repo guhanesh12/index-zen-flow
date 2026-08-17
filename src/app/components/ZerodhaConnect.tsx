@@ -205,6 +205,7 @@ export function ZerodhaConnect({ serverUrl, accessToken, onConnected }: Props) {
       if (!res.ok || !data.success) throw new Error(data.error || "Could not switch broker");
       setActiveBroker("zerodha");
       toast.success("Orders will now be placed through Zerodha");
+      loadInstruments();
       onConnected?.();
     } catch (e: any) {
       toast.error(e.message || "Switch failed");
