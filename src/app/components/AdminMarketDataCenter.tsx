@@ -53,11 +53,28 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
     }
   }, [serverUrl, accessToken]);
 
+  const loadFeed = useCallback(async () => {
+    try {
+      setFeedLoading(true);
+      const r = await fetch(`${serverUrl}/admin/market-data/candles`, { headers });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d?.error) throw new Error(d?.error || `HTTP ${r.status}`);
+      setFeed(d);
+    } catch (e: any) {
+      setFeed(null);
+      toast.error(e.message || 'Live candle fetch failed');
+    } finally {
+      setFeedLoading(false);
+    }
+  }, [serverUrl, accessToken]);
+
   useEffect(() => {
     load();
-    const id = setInterval(load, 60000);
+    loadFeed();
+    const id = setInterval(() => { load(); loadFeed(); }, 60000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, loadFeed]);
+
 
   const save = async () => {
     if (!clientId.trim()) return toast.error('Dhan Client ID is required');
