@@ -14,6 +14,31 @@ interface Props {
   accessToken: string;
 }
 
+const num = (v: any, d = 2) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(d));
+
+const fmtStamp = (v?: string | null) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime())
+    ? String(v)
+    : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
+const actionTone = (action?: string) => {
+  if (action === 'BUY_CALL')
+    return { card: 'border-emerald-500/50 bg-emerald-500/5', badge: 'bg-emerald-600 text-primary-foreground', bar: 'bg-emerald-500' };
+  if (action === 'BUY_PUT')
+    return { card: 'border-rose-500/50 bg-rose-500/5', badge: 'bg-rose-600 text-primary-foreground', bar: 'bg-rose-500' };
+  if (action === 'EXIT')
+    return { card: 'border-orange-500/50 bg-orange-500/5', badge: 'bg-orange-600 text-primary-foreground', bar: 'bg-orange-500' };
+  if (action === 'HOLD')
+    return { card: 'border-sky-500/50 bg-sky-500/5', badge: 'bg-sky-600 text-primary-foreground', bar: 'bg-sky-500' };
+  if (action === 'WAIT')
+    return { card: 'border-amber-500/40 bg-amber-500/5', badge: 'bg-amber-500 text-background', bar: 'bg-amber-500' };
+  return { card: '', badge: 'bg-muted text-muted-foreground', bar: 'bg-muted-foreground' };
+};
+
+
 export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
   const [status, setStatus] = useState<any>(null);
   const [signals, setSignals] = useState<any>(null);
@@ -36,7 +61,7 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
       setLoading(true);
       const [sRes, sigRes] = await Promise.all([
         fetch(`${serverUrl}/admin/market-data/status`, { headers }),
-        fetch(`${serverUrl}/admin/market-data/signals?tf=15`, { headers }),
+        fetch(`${serverUrl}/admin/market-data/signals?tf=5,15`, { headers }),
       ]);
       const s = await sRes.json().catch(() => null);
       const sig = await sigRes.json().catch(() => null);
@@ -278,31 +303,105 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Shared Signal Snapshot (15M)</CardTitle>
-          <CardDescription>The signal every user receives for the latest closed candle.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          {['NIFTY', 'BANKNIFTY', 'SENSEX'].map((idx) => {
-            const s = signals?.[idx];
-            return (
-              <div key={idx} className="rounded-lg border p-3 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">{idx}</span>
-                  <Badge variant={s?.action && s.action !== 'WAIT' ? 'default' : 'secondary'}>
-                    {s?.action || 'No data'}
-                  </Badge>
+      {['5m', '15m'].map((tfKey) => (
+        <Card key={tfKey}>
+          <CardHeader>
+            <CardTitle>Shared Signal Snapshot — {tfKey.toUpperCase()}</CardTitle>
+            <CardDescription>
+              Exact signal every user receives on the {tfKey} candle, with the full reason it traded or skipped.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 lg:grid-cols-3">
+            {['NIFTY', 'BANKNIFTY', 'SENSEX'].map((idx) => {
+              const s = signals?.[idx]?.[tfKey];
+              const tone = actionTone(s?.action);
+              return (
+                <div key={idx} className={`rounded-lg border p-3 space-y-2 ${tone.card}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">{idx}</span>
+                    <Badge className={tone.badge}>{s?.action || (s?.error ? 'Error' : 'No data')}</Badge>
+                  </div>
+
+                  {!s || s.error ? (
+                    <p className="text-xs text-muted-foreground">{s?.error || 'Waiting for first shared candle'}</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{s.confidence ?? 0}% confidence</span>
+                        <span>· candle {fmtStamp(s.candleStamp)}</span>
+                        {s.live && <Badge variant="outline" className="text-[10px]">live calc</Badge>}
+                        {s.bias && <span>· {s.bias}</span>}
+                        {s.marketState && <span>· {s.marketState}</span>}
+                      </div>
+
+                      <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                        <div className={`h-full ${tone.bar}`} style={{ width: `${Math.min(100, Math.max(0, s.confidence ?? 0))}%` }} />
+                      </div>
+
+                      {s.reason && <p className="text-xs">{s.reason}</p>}
+
+                      <div className="grid grid-cols-2 gap-1 text-[11px] text-muted-foreground">
+                        <span>RSI {num(s.indicators?.rsi)}</span>
+                        <span>ADX {num(s.indicators?.adx)}</span>
+                        <span>VWAP {num(s.indicators?.vwap)}</span>
+                        <span>EMA9 {num(s.indicators?.ema9)}</span>
+                        <span>Vol ×{num(s.volume?.ratio)}</span>
+                        <span>Body {num(s.volume?.bodyPercent)}%</span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="secondary" className="text-[10px]">
+                          Confirmations {s.confirmations?.total ?? 0}/{s.confirmations?.required ?? 0}
+                        </Badge>
+                        {s.regime?.type && <Badge variant="outline" className="text-[10px]">{s.regime.type}</Badge>}
+                        {s.quality?.tier && <Badge variant="outline" className="text-[10px]">{s.quality.tier}</Badge>}
+                        {s.volume?.orderFlow && <Badge variant="outline" className="text-[10px]">Flow {s.volume.orderFlow}</Badge>}
+                      </div>
+
+                      {!!s.confirmations?.passed?.length && (
+                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                          ✅ {s.confirmations.passed.join(', ')}
+                        </p>
+                      )}
+                      {!!s.confirmations?.failed?.length && (
+                        <p className="text-[11px] text-muted-foreground">✖ {s.confirmations.failed.join(', ')}</p>
+                      )}
+
+                      {s.tradeTaken ? (
+                        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 space-y-1">
+                          <p className="text-[11px] font-medium">Why this trade was taken</p>
+                          <ul className="list-disc pl-4 text-[11px] space-y-0.5">
+                            {(s.whyTrade || []).map((r: string, i: number) => <li key={i}>{r}</li>)}
+                          </ul>
+                          {s.risk?.entry != null && (
+                            <p className="text-[11px] text-muted-foreground">
+                              Entry {num(s.risk.entry)} · Target {num(s.risk.target)} · SL {num(s.risk.stopLoss)} · RR {num(s.risk.rr)}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 space-y-1">
+                          <p className="text-[11px] font-medium">Why no trade was taken</p>
+                          <ul className="list-disc pl-4 text-[11px] space-y-0.5">
+                            {(s.whyNoTrade || []).length
+                              ? s.whyNoTrade.map((r: string, i: number) => <li key={i}>{r}</li>)
+                              : <li>Conditions not met on this candle</li>}
+                          </ul>
+                        </div>
+                      )}
+
+                      {!!s.patterns?.length && (
+                        <p className="text-[11px] text-muted-foreground">Patterns: {s.patterns.join(', ')}</p>
+                      )}
+                    </>
+                  )}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {s ? `${s.confidence ?? 0}% • candle ${s.candleStamp || '—'}` : 'Waiting for first shared candle'}
-                </p>
-                {s?.reason && <p className="text-xs line-clamp-3">{s.reason}</p>}
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ))}
+
 
     </div>
   );
