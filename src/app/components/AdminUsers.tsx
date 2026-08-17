@@ -344,7 +344,7 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
     console.log('📥 [ADMIN USERS] Exporting users to CSV...');
     try {
       const csv = [
-        ['Name', 'Email', 'Phone', 'City', 'State', 'Community ID', 'User ID', 'Wallet', 'Broker Balance', 'Daily P&L', 'Total P&L', 'Engine', 'Status', 'Dhan Client ID'],
+        ['Name', 'Email', 'Phone', 'City', 'State', 'Community ID', 'User ID', 'Wallet', 'Broker Balance', 'Daily P&L', 'Total P&L', 'Engine', 'Status', 'Broker', 'Broker Status', 'Broker Client ID'],
         ...filteredUsers.map(u => [
           u.name, u.email, u.phone, u.city || '', u.state || '', u.communityId, u.id, u.wallet, u.brokerBalance, 
           u.dailyPnL, u.totalPnL, u.engineRunning ? 'Running' : 'Stopped', 
