@@ -28,6 +28,7 @@ import * as CentralMarketData from "./central_market_data.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
 import { KiteService, buildKiteLoginUrl, exchangeKiteRequestToken, kiteTokenExpiryIso } from "./kite_service.tsx";
 import { syncKiteInstruments, ensureKiteInstruments, getKiteInstrumentStatus } from "./kite_instruments.tsx";
+import * as BrokerRegistry from "./broker_registry.tsx";
 
 
 const app = new Hono();
