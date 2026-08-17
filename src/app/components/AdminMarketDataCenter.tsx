@@ -17,6 +17,8 @@ interface Props {
 export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
   const [status, setStatus] = useState<any>(null);
   const [signals, setSignals] = useState<any>(null);
+  const [feed, setFeed] = useState<any>(null);
+  const [feedLoading, setFeedLoading] = useState(false);
   const [clientId, setClientId] = useState('');
   const [token, setToken] = useState('');
   const [enabled, setEnabled] = useState(true);
