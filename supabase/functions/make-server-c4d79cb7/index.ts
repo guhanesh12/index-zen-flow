@@ -2045,17 +2045,27 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     }
 
-    const credentials = await kv.get(`api_credentials:${user.id}`);
-    if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
-      return c.json({ error: "Dhan credentials not configured" }, 400);
+    // 🔀 Broker-aware: Zerodha users read margins from Kite, Dhan users unchanged.
+    const activeBroker = await BrokerRouter.getActiveBroker(user.id);
+    let funds: any = null;
+
+    if (activeBroker === 'zerodha') {
+      const kite = await BrokerRouter.getKiteService(user.id);
+      if (!kite) return c.json({ error: "Zerodha (Kite) not connected" }, 400);
+      funds = await kite.getFundLimits();
+    } else {
+      const credentials = await kv.get(`api_credentials:${user.id}`);
+      if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
+        return c.json({ error: "Dhan credentials not configured" }, 400);
+      }
+
+      const dhanService = new DhanService({
+        clientId: credentials.dhanClientId,
+        accessToken: credentials.dhanAccessToken
+      });
+
+      funds = await dhanService.getFundLimits();
     }
-
-    const dhanService = new DhanService({
-      clientId: credentials.dhanClientId,
-      accessToken: credentials.dhanAccessToken
-    });
-
-    const funds = await dhanService.getFundLimits();
     
     // ✅ FIX: Save broker funds to KV store for admin panel display
     if (funds && funds.availableBalance !== undefined) {
@@ -2212,23 +2222,39 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
     const effectiveUserId = user.id;
 
 
-    const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
-    if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
-      console.log('⚠️ Dhan credentials not configured - returning empty positions');
-      return c.json({ 
-        success: true, 
-        positions: [],
-        warning: 'Dhan credentials not configured. Please configure in Settings tab.'
-      });
-    }
-
-    const dhanService = new DhanService({
-      clientId: credentials.dhanClientId,
-      accessToken: credentials.dhanAccessToken
-    });
-
+    // 🔀 Broker-aware positions (Zerodha → Kite portfolio, Dhan → unchanged)
+    const activeBrokerPos = await BrokerRouter.getActiveBroker(effectiveUserId);
     const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
-    const positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
+    let positions: any[] = [];
+
+    if (activeBrokerPos === 'zerodha') {
+      const kite = await BrokerRouter.getKiteService(effectiveUserId);
+      if (!kite) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Zerodha (Kite) session not found. Login again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(kite.getPositions(), 4500, cachedPositions || []);
+    } else {
+      const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
+      if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
+        console.log('⚠️ Dhan credentials not configured - returning empty positions');
+        return c.json({ 
+          success: true, 
+          positions: [],
+          warning: 'Dhan credentials not configured. Please configure in Settings tab.'
+        });
+      }
+
+      const dhanService = new DhanService({
+        clientId: credentials.dhanClientId,
+        accessToken: credentials.dhanAccessToken
+      });
+
+      positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
+    }
     if (positions && positions !== cachedPositions) {
       runBackgroundTask(kv.set(`last_positions:${effectiveUserId}`, positions));
     }
