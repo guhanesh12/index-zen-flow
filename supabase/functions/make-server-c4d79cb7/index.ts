@@ -6770,31 +6770,136 @@ app.post("/make-server-c4d79cb7/admin/market-data/test", async (c) => {
   }
 });
 
-// Latest shared signal per index (what EVERY user sees for the current candle)
+// Latest shared signal per index + timeframe (what EVERY user sees for the current candle)
+// Returns FULL elaborated detail: confirmations, indicators, risk plan, and why-no-trade diagnostics.
+const CENTRAL_INDEX_IDS: Record<string, string> = { NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' };
+
+function shapeCentralSignal(sig: any, candleStamp: string | null, generatedAt: number | null, live: boolean) {
+  if (!sig) return null;
+  const ind = sig.indicators || {};
+  const conf = sig.confirmations || {};
+  const dbg = sig.debugInfo || {};
+  const vol = sig.volumeAnalysis || {};
+  const risk = sig.riskManagement || {};
+  const tradeTaken = sig.action === 'BUY_CALL' || sig.action === 'BUY_PUT';
+  const passed = Object.entries({
+    VWAP: conf.vwap, EMA: conf.ema, RSI: conf.rsi, MACD: conf.macd, Bollinger: conf.bollinger,
+    Volume: conf.volume, ADX: conf.adx, Stochastic: conf.stochastic, Pattern: conf.pattern,
+    'Price Action': conf.priceAction,
+  });
+  return {
+    action: sig.action,
+    confidence: sig.confidence ?? 0,
+    bias: sig.bias,
+    marketState: sig.market_state,
+    reason: sig.reason || sig.reasoning || '',
+    candleStamp,
+    generatedAt,
+    live,
+    tradeTaken,
+    whyTrade: tradeTaken
+      ? [
+          `${conf.total ?? 0}/${conf.required ?? 0} confirmations aligned`,
+          ...(conf.details || []).slice(0, 8),
+        ]
+      : [],
+    whyNoTrade: tradeTaken
+      ? []
+      : [
+          dbg.blockedReason ? `Blocked: ${dbg.blockedReason}` : null,
+          conf.total !== undefined ? `Confirmations ${conf.total}/${conf.required ?? 0} (not enough)` : null,
+          ...(dbg.failedConfirmations || []).slice(0, 8),
+          ...(dbg.confidenceDecayReasons || []).slice(0, 5),
+          ...(dbg.marketWarnings || []).slice(0, 5),
+          ...(dbg.liquidityWarnings || []).slice(0, 3),
+        ].filter(Boolean),
+    confirmations: {
+      total: conf.total ?? 0,
+      required: conf.required ?? dbg.requiredConfirmations ?? 0,
+      passed: passed.filter(([, v]) => v).map(([k]) => k),
+      failed: passed.filter(([, v]) => !v).map(([k]) => k),
+      details: conf.details || [],
+    },
+    indicators: {
+      rsi: ind.rsi, adx: ind.adx, vwap: ind.vwap, ema9: ind.ema9, ema21: ind.ema21, ema50: ind.ema50,
+      macd: ind.macd?.histogram ?? ind.macdHistogram, atr: ind.atr,
+      supertrend: ind.supertrend?.direction ?? ind.supertrendDirection,
+    },
+    volume: {
+      ratio: vol.ratio, isHigh: vol.is_high ?? vol.isHigh, isSpike: vol.is_spike ?? vol.isSpike,
+      bodyPercent: vol.body_percent ?? vol.bodyPercent, candleStrength: vol.candle_strength ?? vol.candleStrength,
+      orderFlow: vol.orderFlow, smartMoney: vol.smart_money_detected ?? vol.smartMoney,
+    },
+    regime: sig.marketRegime || null,
+    structure: sig.marketStructure || null,
+    patterns: (sig.patterns || []).map((p: any) => p?.name || p?.type || String(p)).slice(0, 5),
+    risk: {
+      entry: risk.suggestedEntry, target: risk.suggestedTarget, stopLoss: risk.suggestedStopLoss,
+      rr: risk.riskRewardRatio,
+    },
+    quality: { score: dbg.entryQualityScore, tier: dbg.entryQualityTier, regime: dbg.regime, trendStrength: dbg.trendStrength, breakout: dbg.breakoutQuality },
+  };
+}
+
 app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
   try {
     const auth = await validateAdminAuth(c);
     if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
-    const tf = Number(c.req.query('tf') || 15);
-    const indices = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
-    const signals: Record<string, any> = {};
-    for (const idx of indices) {
-      const latest = await CentralMarketData.getLatestCentralSignal(idx, tf);
-      signals[idx] = latest
-        ? {
-            action: latest.signal?.action,
-            confidence: latest.signal?.confidence,
-            reason: latest.signal?.reason || latest.signal?.reasoning || '',
-            candleStamp: latest.candleStamp,
-            generatedAt: latest.at,
-          }
-        : null;
-    }
-    return c.json({ success: true, timeframe: tf, signals });
+    const tfs = String(c.req.query('tf') || '5,15')
+      .split(',')
+      .map((t) => Number(t.trim()))
+      .filter((t) => t > 0);
+    const indices = Object.keys(CENTRAL_INDEX_IDS);
+    const out: Record<string, Record<string, any>> = {};
+
+    await Promise.all(
+      indices.map(async (idx) => {
+        out[idx] = {};
+        await Promise.all(
+          tfs.map(async (tf) => {
+            try {
+              const latest = await CentralMarketData.getLatestCentralSignal(idx, tf);
+              if (latest?.signal) {
+                out[idx][`${tf}m`] = shapeCentralSignal(latest.signal, latest.candleStamp || null, latest.at || null, false);
+                return;
+              }
+              // no cached signal for this timeframe yet — compute live from the central feed (read-only)
+              const sec = CENTRAL_INDEX_IDS[idx];
+              const primary = await CentralMarketData.getCentralOHLC(sec, String(tf), 150, null);
+              const candles = primary.candles || [];
+              if (candles.length < 30) {
+                out[idx][`${tf}m`] = null;
+                return;
+              }
+              const htf = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles : candles;
+              const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
+                higherTimeframeData: htf,
+                timeframeMinutes: tf,
+              });
+              const lastTs = candles[candles.length - 1]?.timestamp;
+              const ms = Number(lastTs) < 1e12 ? Number(lastTs) * 1000 : Number(lastTs);
+              out[idx][`${tf}m`] = shapeCentralSignal(sig, new Date(ms).toISOString(), Date.now(), true);
+            } catch (e: any) {
+              out[idx][`${tf}m`] = { error: e?.message || String(e) };
+            }
+          })
+        );
+      })
+    );
+
+    return c.json({
+      success: true,
+      timeframes: tfs,
+      fetchedAt: Date.now(),
+      signals: out,
+      // legacy shape (15m only) for older clients
+      legacy: Object.fromEntries(indices.map((i) => [i, out[i]?.['15m'] || null])),
+    });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
 });
+
 
 // 📊 Live proof that the central feed works: latest 5m + 15m candles per index,
 // fetched with the ADMIN data subscription (the exact bars users/engines consume).
