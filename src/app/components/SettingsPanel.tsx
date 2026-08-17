@@ -50,6 +50,8 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [switchingBroker, setSwitchingBroker] = useState(false);
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
   const [brokerAvailability, setBrokerAvailability] = useState<{ dhan: boolean; zerodha: boolean }>({ dhan: false, zerodha: false });
+  // 🔀 Brokers the admin has switched ON (common registry — new brokers appear automatically)
+  const [enabledBrokers, setEnabledBrokers] = useState<any[]>([]);
 
   const getFreshToken = async (): Promise<string | null> => {
     try {
@@ -72,6 +74,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       const data = await res.json();
       if (res.ok && data?.success) {
         setBrokerAvailability(data.available || { dhan: false, zerodha: false });
+        setEnabledBrokers(Array.isArray(data.brokers) ? data.brokers : []);
         // Only treat a broker as "chosen" once the user actually picked/connected one.
         const anyConnected = !!(data.available?.dhan || data.available?.zerodha);
         const explicit = !!data.chosen || anyConnected;
@@ -552,29 +555,26 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
-            <button
-              type="button"
-              disabled={switchingBroker}
-              onClick={() => chooseBroker('dhan')}
-              className="text-left rounded-xl border border-zinc-800 hover:border-emerald-600 bg-zinc-950 p-4 transition-colors disabled:opacity-60"
-            >
-              <div className="font-semibold text-zinc-100">Dhan</div>
-              <p className="text-xs text-zinc-400 mt-1">
-                API Key &amp; Secret (12 months) or daily access token. Orders route through your
-                dedicated static IP.
-              </p>
-            </button>
-            <button
-              type="button"
-              disabled={switchingBroker}
-              onClick={() => chooseBroker('zerodha')}
-              className="text-left rounded-xl border border-zinc-800 hover:border-orange-600 bg-zinc-950 p-4 transition-colors disabled:opacity-60"
-            >
-              <div className="font-semibold text-zinc-100">Zerodha Kite</div>
-              <p className="text-xs text-zinc-400 mt-1">
-                Kite Connect login. Session resets daily at 6:00 AM IST. Same static IP is reused.
-              </p>
-            </button>
+            {enabledBrokers.length === 0 && (
+              <p className="text-sm text-zinc-400">No broker is available right now. Please try again later.</p>
+            )}
+            {enabledBrokers.map((b: any) => (
+              <button
+                key={b.id}
+                type="button"
+                disabled={switchingBroker}
+                onClick={() => chooseBroker(b.id)}
+                className="text-left rounded-xl border border-zinc-800 hover:border-emerald-600 bg-zinc-950 p-4 transition-colors disabled:opacity-60"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="size-2.5 rounded-full" style={{ backgroundColor: b.color }} />
+                  <span className="font-semibold text-zinc-100">{b.name}</span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-1 capitalize">
+                  {(b.features || []).join(' · ').replace(/-/g, ' ')}
+                </p>
+              </button>
+            ))}
           </CardContent>
         </Card>
       ) : (
@@ -584,7 +584,8 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
               <Shield className="w-4 h-4 text-emerald-500" />
               <span className="text-zinc-400">Your broker:</span>
               <span className="font-semibold text-zinc-100">
-                {activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan'}
+                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name ||
+                  (activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan')}
               </span>
               {(activeBroker === 'zerodha' ? brokerAvailability.zerodha : brokerAvailability.dhan) ? (
                 <span className="text-emerald-400 text-xs flex items-center gap-1">
