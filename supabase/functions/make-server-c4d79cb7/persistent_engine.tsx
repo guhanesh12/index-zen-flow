@@ -23,6 +23,7 @@ import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
+import * as BrokerRouter from "./broker_router.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
@@ -1554,7 +1555,7 @@ class PersistentTradingEngine {
           const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
           if (reversalPosition && confidence >= 90 && reversalPnl <= -reversalSL) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
-            const exitResult = await placeOrderViaStaticIP(
+            const exitResult = await BrokerRouter.placeOrderSmart(
               userId,
               { dhanClientId, dhanAccessToken },
               {
@@ -1872,7 +1873,7 @@ class PersistentTradingEngine {
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
               const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || "OLD"} → ${targetOptionType})`;
-              const exitResult = await placeOrderViaStaticIP(
+              const exitResult = await BrokerRouter.placeOrderSmart(
                 userId,
                 { dhanClientId, dhanAccessToken },
                 {
@@ -1988,7 +1989,7 @@ class PersistentTradingEngine {
 
               let orderResult: any;
               try {
-                orderResult = await placeOrderViaStaticIP(
+                orderResult = await BrokerRouter.placeOrderSmart(
                   userId,
                   {
                     dhanClientId: dhanClientId,
@@ -2949,7 +2950,7 @@ class PersistentTradingEngine {
             amoTime: "",
           };
 
-          const exitResult = await placeOrderViaStaticIP(
+          const exitResult = await BrokerRouter.placeOrderSmart(
             userId,
             {
               dhanClientId: state.dhanClientId || "",

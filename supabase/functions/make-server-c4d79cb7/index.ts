@@ -2736,7 +2736,7 @@ app.post("/make-server-c4d79cb7/execute-trade", async (c) => {
     console.log('📤 [EXECUTE TRADE] Placing order via Static IP server...');
     
     // ✅ Use Static IP server for order placement (SEBI compliance)
-    const orderResult = await placeOrderViaStaticIP(
+    const orderResult = await BrokerRouter.placeOrderSmart(
       user.id,
       {
         dhanClientId: credentials.dhanClientId,
@@ -2825,7 +2825,7 @@ app.post("/make-server-c4d79cb7/place-bracket-order", async (c) => {
       validity: 'DAY'
     };
 
-    const orderResult = await placeOrderViaStaticIP(
+    const orderResult = await BrokerRouter.placeOrderSmart(
       user.id,
       credentials,
       orderParams
@@ -2896,7 +2896,7 @@ app.post("/make-server-c4d79cb7/place-cover-order", async (c) => {
       validity: 'DAY'
     };
 
-    const orderResult = await placeOrderViaStaticIP(
+    const orderResult = await BrokerRouter.placeOrderSmart(
       user.id,
       credentials,
       orderParams
