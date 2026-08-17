@@ -64,6 +64,12 @@ interface User {
   engineRunning: boolean;
   isActive: boolean;
   dhanClientId: string;
+  activeBroker?: string;
+  brokerName?: string;
+  brokerConnected?: boolean;
+  brokerClientId?: string;
+  brokerUserName?: string;
+  zerodhaConnected?: boolean;
   createdAt: string;
   lastActive?: string;
   staticIp?: string;
@@ -91,6 +97,7 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all'); // all, active, suspended, engineRunning
+  const [filterBroker, setFilterBroker] = useState('all'); // all | dhan | zerodha | connected | notConnected
   const [showAddUser, setShowAddUser] = useState(false);
   const [showWalletDialog, setShowWalletDialog] = useState(false);
   const [showEditUser, setShowEditUser] = useState(false);
@@ -140,8 +147,17 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
       filtered = filtered.filter(user => user.engineRunning);
     }
 
+    // Broker filter
+    if (filterBroker === 'connected') {
+      filtered = filtered.filter(user => user.brokerConnected);
+    } else if (filterBroker === 'notConnected') {
+      filtered = filtered.filter(user => !user.brokerConnected);
+    } else if (filterBroker !== 'all') {
+      filtered = filtered.filter(user => (user.activeBroker || 'dhan') === filterBroker);
+    }
+
     setFilteredUsers(filtered);
-  }, [users, searchTerm, filterStatus]);
+  }, [users, searchTerm, filterStatus, filterBroker]);
 
   const loadUsers = async () => {
     console.log('🔄 [ADMIN USERS] Loading users...');
@@ -332,7 +348,8 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
         ...filteredUsers.map(u => [
           u.name, u.email, u.phone, u.city || '', u.state || '', u.communityId, u.id, u.wallet, u.brokerBalance, 
           u.dailyPnL, u.totalPnL, u.engineRunning ? 'Running' : 'Stopped', 
-          u.isActive ? 'Active' : 'Suspended', u.dhanClientId
+          u.isActive ? 'Active' : 'Suspended', u.brokerName || u.activeBroker || 'Dhan',
+          u.brokerConnected ? 'Connected' : 'Not Connected', u.brokerClientId || u.dhanClientId
         ])
       ].map(row => row.join(',')).join('\n');
 
@@ -465,6 +482,19 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                 className="pl-10 bg-slate-800 border-slate-700"
               />
             </div>
+            <Select value={filterBroker} onValueChange={setFilterBroker}>
+              <SelectTrigger className="w-full md:w-[200px] bg-slate-800 border-slate-700">
+                <SelectValue placeholder="Filter by broker" />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectItem value="all">All Brokers</SelectItem>
+                <SelectItem value="dhan">Dhan</SelectItem>
+                <SelectItem value="zerodha">Zerodha Kite</SelectItem>
+                <SelectItem value="connected">Broker Connected</SelectItem>
+                <SelectItem value="notConnected">Broker Not Connected</SelectItem>
+              </SelectContent>
+            </Select>
+
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-full md:w-[200px] bg-slate-800 border-slate-700">
                 <Filter className="size-4 mr-2" />
@@ -570,14 +600,28 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
                               <Hash className="size-3 text-blue-400" />
                               <span className="text-slate-300">{user.communityId}</span>
                             </div>
-                            {user.dhanClientId ? (
+                            <div className="flex items-center gap-1.5">
+                              <Badge
+                                className={`text-xs border ${
+                                  (user.activeBroker || 'dhan') === 'zerodha'
+                                    ? 'bg-orange-500/15 text-orange-400 border-orange-500/30'
+                                    : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                }`}
+                              >
+                                {user.brokerName || ((user.activeBroker || 'dhan') === 'zerodha' ? 'Zerodha Kite' : 'Dhan')}
+                              </Badge>
+                            </div>
+                            {user.brokerConnected ? (
                               <div className="space-y-1">
                                 <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
                                   <Activity className="size-3 mr-1" />
                                   Connected
                                 </Badge>
                                 <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                                  <span className="font-mono">{user.dhanClientId}</span>
+                                  <span className="font-mono">
+                                    {user.brokerClientId || user.dhanClientId || '—'}
+                                  </span>
+                                  {user.brokerUserName ? <span>· {user.brokerUserName}</span> : null}
                                 </div>
                               </div>
                             ) : (
