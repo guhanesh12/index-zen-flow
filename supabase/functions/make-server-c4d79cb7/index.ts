@@ -13431,6 +13431,302 @@ ${ok ? `<p style="margin-top:16px"><a href="${dashboardUrl}">Open dashboard now 
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 });
 
+// ============================================================================
+// 🟠 ZERODHA KITE CONNECT (v3) — login, session, status, broker selection
+// ----------------------------------------------------------------------------
+// Docs: kite.trade/docs/connect/v3/user | /orders | /portfolio
+// Flow: save-keys → login-url → Zerodha login → /broker/kite/callback
+//       → consume(request_token) → access_token stored (valid till 6 AM IST)
+// Nothing here touches the Dhan flow — both brokers can stay connected and the
+// user picks which one executes orders via POST /broker/active.
+// ============================================================================
+
+const KITE_DEFAULT_REDIRECT =
+  "https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/kite/callback";
+
+function sanitizeKite(creds: any) {
+  if (!creds) return null;
+  return {
+    api_key: creds.apiKey || null,
+    api_secret_set: !!creds.apiSecret,
+    kite_user_id: creds.kiteUserId || null,
+    kite_user_name: creds.kiteUserName || null,
+    redirect_url: creds.redirectUrl || KITE_DEFAULT_REDIRECT,
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "keys_saved"),
+    last_error: creds.lastError || null,
+  };
+}
+
+// --- GET which broker is active -------------------------------------------
+app.get("/make-server-c4d79cb7/broker/active", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const activeBroker = await BrokerRouter.getActiveBroker(user.id);
+    const kite = await BrokerRouter.getKiteCredentials(user.id);
+    const dhanCreds = await kv.get(`api_credentials:${user.id}`);
+    return c.json({
+      success: true,
+      activeBroker,
+      available: {
+        dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
+        zerodha: !!(kite?.apiKey && kite?.accessToken),
+      },
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST select active broker --------------------------------------------
+app.post("/make-server-c4d79cb7/broker/active", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const broker = String(body?.broker || "").toLowerCase();
+    if (broker !== "dhan" && broker !== "zerodha") {
+      return c.json({ error: "broker must be 'dhan' or 'zerodha'" }, 400);
+    }
+    if (broker === "zerodha") {
+      const kite = await BrokerRouter.getKiteCredentials(user.id);
+      if (!kite?.accessToken) {
+        return c.json({ error: "Login to Zerodha first, then make it the active broker." }, 400);
+      }
+    }
+    await BrokerRouter.setActiveBroker(user.id, broker as any);
+    return c.json({ success: true, activeBroker: broker });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- GET kite status -------------------------------------------------------
+app.get("/make-server-c4d79cb7/broker/kite/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getKiteCredentials(user.id);
+    let liveCheck: any = null;
+    if (creds?.apiKey && creds?.accessToken) {
+      const svc = new KiteService({ apiKey: creds.apiKey, accessToken: creds.accessToken });
+      liveCheck = await svc.verify();
+      await BrokerRouter.saveKiteCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      } as any);
+      await BrokerRouter.mirrorKiteStatus(user.id, {
+        last_status: liveCheck.ok ? "connected" : "token_invalid",
+        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+      });
+    }
+    const refreshed = await BrokerRouter.getKiteCredentials(user.id);
+    return c.json({
+      success: true,
+      credentials: sanitizeKite(refreshed),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+      defaultRedirect: KITE_DEFAULT_REDIRECT,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST save kite api key/secret ----------------------------------------
+app.post("/make-server-c4d79cb7/broker/kite/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json();
+    const apiKey = String(body.apiKey || "").trim();
+    const apiSecret = String(body.apiSecret || "").trim();
+    const redirectUrl = String(body.redirectUrl || KITE_DEFAULT_REDIRECT).trim();
+    if (!apiKey || !apiSecret) return c.json({ error: "apiKey and apiSecret are required" }, 400);
+
+    const creds = await BrokerRouter.saveKiteCredentials(user.id, {
+      apiKey,
+      apiSecret,
+      redirectUrl,
+      lastStatus: "keys_saved",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorKiteStatus(user.id, {
+      api_key: null, // secrets stay out of the DB
+      redirect_url: redirectUrl,
+      last_status: "keys_saved",
+      last_error: null,
+    });
+    return c.json({ success: true, credentials: sanitizeKite(creds) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- GET kite login url ----------------------------------------------------
+app.get("/make-server-c4d79cb7/broker/kite/login-url", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getKiteCredentials(user.id);
+    if (!creds?.apiKey) return c.json({ error: "Save your Kite API Key & Secret first" }, 400);
+    return c.json({ success: true, loginUrl: buildKiteLoginUrl(creds.apiKey) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST consume request_token -------------------------------------------
+app.post("/make-server-c4d79cb7/broker/kite/consume", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json();
+    const requestToken = String(body.requestToken || body.request_token || "").trim();
+    if (!requestToken) return c.json({ error: "requestToken is required" }, 400);
+
+    const creds = await BrokerRouter.getKiteCredentials(user.id);
+    if (!creds?.apiKey || !creds?.apiSecret) {
+      return c.json({ error: "Save your Kite API Key & Secret first" }, 400);
+    }
+
+    const session = await exchangeKiteRequestToken({
+      apiKey: creds.apiKey,
+      apiSecret: creds.apiSecret,
+      requestToken,
+    });
+    const tokenExpiry = kiteTokenExpiryIso();
+
+    const updated = await BrokerRouter.saveKiteCredentials(user.id, {
+      accessToken: session.accessToken,
+      kiteUserId: session.userId,
+      kiteUserName: session.userName,
+      tokenExpiry,
+      lastStatus: "connected",
+      lastError: null,
+    } as any);
+
+    await BrokerRouter.mirrorKiteStatus(user.id, {
+      kite_user_id: session.userId,
+      kite_user_name: session.userName || null,
+      access_token_expiry: tokenExpiry,
+      last_status: "connected",
+      last_error: null,
+    });
+
+    // Auto-select Zerodha when the user has no working Dhan session.
+    const dhanCreds = await kv.get(`api_credentials:${user.id}`);
+    if (!dhanCreds?.dhanAccessToken) {
+      await BrokerRouter.setActiveBroker(user.id, "zerodha");
+    }
+
+    const svc = new KiteService({ apiKey: creds.apiKey, accessToken: session.accessToken });
+    const liveCheck = await svc.verify();
+
+    return c.json({
+      success: true,
+      credentials: sanitizeKite(updated),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+    });
+  } catch (err: any) {
+    await (async () => {
+      try {
+        const { user } = await validateAuth(c);
+        if (user) {
+          await BrokerRouter.saveKiteCredentials(user.id, {
+            lastStatus: "session_failed",
+            lastError: String(err?.message || err).slice(0, 400),
+          } as any);
+        }
+      } catch { /* ignore */ }
+    })();
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
+// --- POST verify kite session ---------------------------------------------
+app.post("/make-server-c4d79cb7/broker/kite/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getKiteService(user.id);
+    if (!svc) return c.json({ success: false, error: "Zerodha not connected" }, 400);
+    const liveCheck = await svc.verify();
+    await BrokerRouter.saveKiteCredentials(user.id, {
+      lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+      lastError: liveCheck.ok ? null : liveCheck.error,
+    } as any);
+    return c.json({ success: true, liveCheck });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST disconnect zerodha ----------------------------------------------
+app.post("/make-server-c4d79cb7/broker/kite/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearKiteCredentials(user.id);
+    await supabase.from("broker_credentials").delete().eq("user_id", user.id).eq("broker", "zerodha");
+    await BrokerRouter.setActiveBroker(user.id, "dhan");
+    return c.json({ success: true, activeBroker: "dhan" });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- GET kite callback (Zerodha redirects the browser here) ---------------
+app.get("/make-server-c4d79cb7/broker/kite/callback", (c) => {
+  const requestToken = c.req.query("request_token") || "";
+  const status = c.req.query("status") || "";
+  const ok = !!requestToken && status !== "error";
+  const dashboardUrl = "https://indexpilotai.com/dashboard?zerodha=connected";
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Zerodha Login Complete</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
+  main{max-width:420px;padding:32px 24px;border:1px solid #2a2a2a;border-radius:16px;background:#111}
+  h1{font-size:20px;margin:16px 0 8px;font-weight:600}
+  p{color:#a3a3a3;font-size:14px;margin:8px 0}
+  .tick{width:84px;height:84px;border-radius:50%;background:${ok ? "#f97316" : "#ef4444"};display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 0 0 8px ${ok ? "rgba(249,115,22,.15)" : "rgba(239,68,68,.15)"}}
+  .tick svg{width:44px;height:44px;stroke:#fff;stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  a{color:#f97316;text-decoration:none;font-size:13px}
+</style></head>
+<body><main>
+<div class="tick">${ok
+  ? `<svg viewBox="0 0 52 52"><path d="M14 27 L23 36 L40 18"/></svg>`
+  : `<svg viewBox="0 0 52 52"><path d="M16 16 L36 36 M36 16 L16 36"/></svg>`}</div>
+<h1>${ok ? "Zerodha Login Complete" : "Zerodha Login Failed"}</h1>
+<p>${ok ? "Finishing session setup…" : "No request_token returned. Please retry from the app."}</p>
+${ok ? `<p><a href="${dashboardUrl}">Open dashboard now →</a></p>` : ""}
+</main>
+<script>
+(function(){
+  var msg={type:"KITE_OAUTH_TOKEN",requestToken:${JSON.stringify(requestToken)},status:${ok ? '"success"' : '"error"'}};
+  var sent=false;
+  try{ if(window.opener && !window.opener.closed){ window.opener.postMessage(msg,"*"); sent=true; } }catch(e){}
+  try{ if(window.parent && window.parent!==window){ window.parent.postMessage(msg,"*"); sent=true; } }catch(e){}
+  try{ if(window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(JSON.stringify(msg)); sent=true; } }catch(e){}
+  if(!${ok ? "true" : "false"}) return;
+  setTimeout(function(){
+    if(sent && window.opener && !window.opener.closed){
+      try{ window.close(); }catch(e){}
+      setTimeout(function(){ window.location.replace(${JSON.stringify(dashboardUrl)}); }, 400);
+    } else {
+      window.location.replace(${JSON.stringify(dashboardUrl)});
+    }
+  }, 1800);
+})();
+</script>
+</body></html>`;
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+});
+
 const FUNCTION_ROUTE_PREFIX = "/make-server-c4d79cb7";
 const SUPABASE_FUNCTIONS_PREFIX = `/functions/v1${FUNCTION_ROUTE_PREFIX}`;
 
