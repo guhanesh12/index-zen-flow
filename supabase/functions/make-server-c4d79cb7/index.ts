@@ -27,6 +27,8 @@ import * as VPSPower from "./vps_power.tsx";
 import * as CentralMarketData from "./central_market_data.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
 import { KiteService, buildKiteLoginUrl, exchangeKiteRequestToken, kiteTokenExpiryIso } from "./kite_service.tsx";
+import { syncKiteInstruments, ensureKiteInstruments, getKiteInstrumentStatus } from "./kite_instruments.tsx";
+
 
 const app = new Hono();
 
@@ -11755,7 +11757,10 @@ app.all("/make-server-c4d79cb7/cron/refresh-instruments", async (c) => {
     const url = new URL(c.req.url);
     const force = url.searchParams.get("force") === "1";
     const result = await refreshInstrumentMaster({ force });
-    return c.json(result);
+    // 🟠 Re-attach Zerodha tradingsymbols right after the Dhan master is rebuilt.
+    const kite = await ensureKiteInstruments(true);
+    return c.json({ ...result, kiteInstruments: kite });
+
   } catch (error: any) {
     console.error("❌ [INSTRUMENT_REFRESH] Failed:", error);
     return c.json({ success: false, error: error.message }, 500);
@@ -13500,11 +13505,44 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
       await BrokerRouter.setActiveBroker(user.id, broker as any);
     }
     await kv.set(`broker_choice:${user.id}`, { broker, at: new Date().toISOString() });
-    return c.json({ success: true, activeBroker: broker, switchedFrom: current });
+
+    // Switching to Zerodha → make sure Kite-format contracts are downloaded.
+    let instrumentSync: any = null;
+    if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
+
+    return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
 });
+
+// --- Zerodha instrument master (near-expiry NIFTY / BANKNIFTY / SENSEX) -----
+// Docs: https://kite.trade/docs/connect/v3/market-quotes/#instruments
+app.get("/make-server-c4d79cb7/broker/kite/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getKiteInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/kite/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await syncKiteInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    return c.json({ success: true, ...result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
 
 // --- GET kite status -------------------------------------------------------
 app.get("/make-server-c4d79cb7/broker/kite/status", async (c) => {
@@ -13622,15 +13660,21 @@ app.post("/make-server-c4d79cb7/broker/kite/consume", async (c) => {
     // One broker per user — a successful Kite login makes Zerodha the only broker.
     await BrokerRouter.setActiveBroker(user.id, "zerodha");
 
+    // 📥 Make sure Zerodha-format contracts exist for NIFTY/BANKNIFTY/SENSEX.
+    const instrumentSync = await ensureKiteInstruments(false);
+
     const svc = new KiteService({ apiKey: creds.apiKey, accessToken: session.accessToken });
     const liveCheck = await svc.verify();
+
 
     return c.json({
       success: true,
       credentials: sanitizeKite(updated),
       liveCheck,
+      instrumentSync,
       activeBroker: await BrokerRouter.getActiveBroker(user.id),
     });
+
   } catch (err: any) {
     await (async () => {
       try {

@@ -50,7 +50,7 @@ interface ProvisioningJob {
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
 const DEDICATED_IP_MONTHLY_FEE = 599;
-const ORDER_SERVER_VERSION = '1.2.0';
+const ORDER_SERVER_VERSION = '1.3.0';
 
 async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
   try {
@@ -381,6 +381,9 @@ app.get('/test', (req, res) => {
       health: '/health',
       placeOrder: '/place-order (POST)',
       placeOrderKite: '/place-order-kite (POST)',
+      brokerRequest: '/broker-request (POST) — any broker: dhan | zerodha',
+      orderStatusKite: '/order-status-kite/:orderId (GET)',
+      cancelOrderKite: '/cancel-order-kite/:orderId (DELETE)',
       orderStatus: '/order-status/:orderId (GET)',
       cancelOrder: '/cancel-order/:orderId (DELETE)'
     }
@@ -517,6 +520,103 @@ app.post('/place-order-kite', async (req, res) => {
     });
   }
 });
+
+// 🔀 GENERIC MULTI-BROKER PROXY — every broker call (orders, funds, positions,
+// quotes, instruments) can be routed through this dedicated static IP.
+// Body: { broker, method, path, headers, body, form }
+const BROKER_HOSTS = {
+  dhan: 'https://api.dhan.co',
+  zerodha: 'https://api.kite.trade',
+  kite: 'https://api.kite.trade'
+};
+
+app.post('/broker-request', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+    }
+
+    const { broker, method, path, headers, body, form } = req.body || {};
+    const base = BROKER_HOSTS[String(broker || '').toLowerCase()];
+    if (!base) return res.status(400).json({ error: 'Unsupported broker: ' + broker });
+    if (!path || typeof path !== 'string' || !path.startsWith('/')) {
+      return res.status(400).json({ error: 'path must start with /' });
+    }
+
+    const isForm = !!form;
+    const payload = isForm ? new URLSearchParams(form).toString() : body;
+    const reqHeaders = Object.assign({}, headers || {});
+    if (isForm) reqHeaders['Content-Type'] = 'application/x-www-form-urlencoded';
+    else if (payload && !reqHeaders['Content-Type']) reqHeaders['Content-Type'] = 'application/json';
+
+    log(\`🔀 [\${String(broker).toUpperCase()}] \${String(method || 'GET').toUpperCase()} \${path}\`);
+
+    const response = await axios({
+      url: base + path,
+      method: String(method || 'GET').toUpperCase(),
+      headers: reqHeaders,
+      data: payload,
+      timeout: 12000,
+      validateStatus: () => true
+    });
+
+    res.status(response.status).json(response.data);
+  } catch (error) {
+    const errorMsg = error.response?.data || error.message;
+    log(\`❌ [PROXY] \${JSON.stringify(errorMsg)}\`);
+    res.status(error.response?.status || 500).json({ status: 'error', error: errorMsg });
+  }
+});
+
+// 🟠 Kite order status / cancel through the same static IP
+app.get('/order-status-kite/:orderId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { apiKey, accessToken } = req.query;
+    const response = await axios.get(
+      'https://api.kite.trade/orders/' + encodeURIComponent(req.params.orderId),
+      {
+        headers: {
+          'X-Kite-Version': '3',
+          'Authorization': 'token ' + apiKey + ':' + accessToken
+        },
+        timeout: 10000
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ status: 'error', error: error.response?.data || error.message });
+  }
+});
+
+app.delete('/cancel-order-kite/:orderId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { apiKey, accessToken } = req.body || {};
+    const response = await axios.delete(
+      'https://api.kite.trade/orders/regular/' + encodeURIComponent(req.params.orderId),
+      {
+        headers: {
+          'X-Kite-Version': '3',
+          'Authorization': 'token ' + apiKey + ':' + accessToken
+        },
+        timeout: 10000
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ status: 'error', error: error.response?.data || error.message });
+  }
+});
+
+
 
 // Get order status
 app.get('/order-status/:orderId', async (req, res) => {

@@ -670,6 +670,10 @@ export type Database = {
           expiry_date: string
           id: string
           index_name: string
+          kite_exchange: string | null
+          kite_instrument_token: string | null
+          kite_synced_at: string | null
+          kite_tradingsymbol: string | null
           lot_size: number
           option_type: string
           refreshed_at: string
@@ -683,6 +687,10 @@ export type Database = {
           expiry_date: string
           id?: string
           index_name: string
+          kite_exchange?: string | null
+          kite_instrument_token?: string | null
+          kite_synced_at?: string | null
+          kite_tradingsymbol?: string | null
           lot_size?: number
           option_type: string
           refreshed_at?: string
@@ -696,6 +704,10 @@ export type Database = {
           expiry_date?: string
           id?: string
           index_name?: string
+          kite_exchange?: string | null
+          kite_instrument_token?: string | null
+          kite_synced_at?: string | null
+          kite_tradingsymbol?: string | null
           lot_size?: number
           option_type?: string
           refreshed_at?: string
@@ -1727,6 +1739,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_kite_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
       broker_token_expiries: {
         Args: never
         Returns: {

@@ -24,8 +24,10 @@ export function ZerodhaConnect({ serverUrl, accessToken, onConnected }: Props) {
   const [liveCheck, setLiveCheck] = useState<any>(null);
   const [activeBroker, setActiveBroker] = useState<string>("dhan");
   const [form, setForm] = useState({ apiKey: "", apiSecret: "", redirectUrl: DEFAULT_REDIRECT });
-  const [busy, setBusy] = useState<"" | "save" | "login" | "consume" | "verify" | "disconnect" | "activate">("");
+  const [busy, setBusy] = useState<"" | "save" | "login" | "consume" | "verify" | "disconnect" | "activate" | "instruments">("");
   const [loading, setLoading] = useState(false);
+  const [instruments, setInstruments] = useState<any>(null);
+
 
   const getToken = async () => (await getAccessToken()) || accessToken;
 
@@ -54,9 +56,44 @@ export function ZerodhaConnect({ serverUrl, accessToken, onConnected }: Props) {
     }
   };
 
+  const loadInstruments = async () => {
+    try {
+      const tok = await getToken();
+      const res = await fetchWithAuth(`${serverUrl}/broker/kite/instruments/status`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      const data = await res.json();
+      if (data?.success) setInstruments(data);
+    } catch (e) {
+      console.error("kite instruments status error", e);
+    }
+  };
+
+  const syncInstruments = async () => {
+    setBusy("instruments");
+    try {
+      const tok = await getToken();
+      const res = await fetchWithAuth(`${serverUrl}/broker/kite/instruments/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
+        body: JSON.stringify({ force: true, expiries: 2 }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Instrument sync failed");
+      toast.success(`Zerodha instruments updated (${data.mapped ?? data.mappedContracts ?? 0} contracts)`);
+      await loadInstruments();
+    } catch (e: any) {
+      toast.error(e.message || "Instrument sync failed");
+    } finally {
+      setBusy("");
+    }
+  };
+
   useEffect(() => {
     loadStatus();
+    loadInstruments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   // Zerodha callback popup → postMessage with request_token
@@ -296,7 +333,37 @@ export function ZerodhaConnect({ serverUrl, accessToken, onConnected }: Props) {
           </Alert>
         )}
 
+        {/* Zerodha instrument master (near-expiry NIFTY / BANKNIFTY / SENSEX) */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm text-zinc-200 font-medium">Zerodha instruments</div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-zinc-700"
+              onClick={syncInstruments}
+              disabled={busy === "instruments"}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-2 ${busy === "instruments" ? "animate-spin" : ""}`} />
+              Download now
+            </Button>
+          </div>
+          <p className="text-xs text-zinc-400">
+            Near-expiry NIFTY, BANKNIFTY and SENSEX option contracts are downloaded from Kite and
+            saved to the shared instrument database, so every signal is placed in Zerodha format.
+          </p>
+          <div className="text-xs text-zinc-400">
+            {instruments
+              ? instruments.mappedContracts > 0
+                ? <>Mapped contracts: <span className="text-zinc-200">{instruments.mappedContracts}</span>
+                    {" · "}{instruments.freshToday ? "updated today" : "needs refresh"}</>
+                : "Not downloaded yet — switching to Zerodha will download them automatically."
+              : "Checking…"}
+          </div>
+        </div>
+
         {loading && <p className="text-xs text-zinc-500">Loading status…</p>}
+
       </CardContent>
     </Card>
   );
