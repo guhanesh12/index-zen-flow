@@ -73,9 +73,10 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       if (res.ok && data?.success) {
         setBrokerAvailability(data.available || { dhan: false, zerodha: false });
         // Only treat a broker as "chosen" once the user actually picked/connected one.
-        const chosen = data.activeBroker as 'dhan' | 'zerodha';
         const anyConnected = !!(data.available?.dhan || data.available?.zerodha);
-        setActiveBroker(anyConnected || data.chosen ? chosen : (localStorage.getItem('indexpilot_broker_choice') as any) || null);
+        const explicit = !!data.chosen || anyConnected;
+        setActiveBroker(explicit ? (data.activeBroker as 'dhan' | 'zerodha') : null);
+        if (explicit) localStorage.setItem('indexpilot_broker_choice', data.activeBroker);
       }
     } catch (e) {
       console.error('broker/active failed', e);
