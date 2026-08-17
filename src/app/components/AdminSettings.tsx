@@ -12,6 +12,7 @@ import { BrevoIntegration } from './BrevoIntegration';
 import { BackendConfiguration } from './BackendConfiguration';
 import { AdminVPSPower } from './AdminVPSPower';
 import { AdminMarketDataCenter } from './AdminMarketDataCenter';
+import { AdminBrokerControl } from './AdminBrokerControl';
 import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
 
 import { toast } from 'sonner';
@@ -29,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { useAllowedTabs } from '@/hooks/useAllowedTabs';
 import {
   Settings, Smartphone, AlertCircle, Bell, CheckCircle, Activity,
-  Eye, EyeOff, Key, Mail, MessageSquare, Server, Shield, UserPlus
+  Eye, EyeOff, Key, Mail, MessageSquare, Server, Shield, UserPlus, Building2
 } from 'lucide-react';
 
 interface PlatformSettings {
@@ -62,7 +63,7 @@ interface AdminSettingsProps {
 
 const SETTINGS_SUB_TABS = [
   'api-keys', 'notifications', 'push-notifications', 'security', 'activity-monitor',
-  'access-control', 'monitoring', 'system-health', 'backend', 'brevo', 'market-data', 'vps-power', 'app-update',
+  'access-control', 'monitoring', 'system-health', 'backend', 'brevo', 'market-data', 'brokers', 'vps-power', 'app-update',
 ];
 
 export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpdate }: AdminSettingsProps) {
@@ -362,6 +363,12 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             <TabsTrigger value="market-data">
               <Server className="size-4 mr-2" />
               Market Data Center
+            </TabsTrigger>
+          )}
+          {showSub('brokers') && (
+            <TabsTrigger value="brokers">
+              <Building2 className="size-4 mr-2" />
+              Broker Control
             </TabsTrigger>
           )}
           {showSub('vps-power') && (
@@ -766,6 +773,11 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
         {/* Central Market Data Tab */}
         <TabsContent value="market-data" className="space-y-4">
           <AdminMarketDataCenter serverUrl={serverUrl} accessToken={accessToken} />
+        </TabsContent>
+
+        {/* Broker Control Tab */}
+        <TabsContent value="brokers" className="space-y-4">
+          <AdminBrokerControl serverUrl={serverUrl} accessToken={accessToken} />
         </TabsContent>
 
         {/* VPS Power Tab */}

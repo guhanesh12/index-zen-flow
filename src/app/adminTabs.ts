@@ -34,6 +34,7 @@ export const TAB_TREE: TabDef[] = [
     { key: 'backend',          label: 'Backend Config' },
     { key: 'brevo',            label: 'Brevo Communications' },
     { key: 'market-data',      label: 'Market Data Center' },
+    { key: 'brokers',          label: 'Broker Control' },
     { key: 'vps-power',        label: 'VPS Power' },
     { key: 'app-update',       label: 'App Update' },
   ]},
