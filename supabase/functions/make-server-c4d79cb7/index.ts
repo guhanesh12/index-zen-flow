@@ -3345,7 +3345,7 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
     console.log('🚀 [PLACE ORDER] Using Static IP server for SEBI compliance');
 
     // 🚀 FORWARD TO USER'S DEDICATED VPS
-    const orderResponse = await placeOrderViaStaticIP(
+    const orderResponse = await BrokerRouter.placeOrderSmart(
       user.id,
       credentials,
       {
@@ -3456,7 +3456,7 @@ app.post("/make-server-c4d79cb7/execute-dhan-order", async (c) => {
     console.log(`🔍 Forwarding to Static IP server with:`, JSON.stringify(cleanedOrderRequest, null, 2));
     
     // 🚀 FORWARD TO USER'S DEDICATED VPS
-    const result = await placeOrderViaStaticIP(
+    const result = await BrokerRouter.placeOrderSmart(
       effectiveUserId,
       credentials,
       cleanedOrderRequest
