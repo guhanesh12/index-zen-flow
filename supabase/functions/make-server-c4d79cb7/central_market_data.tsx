@@ -15,7 +15,7 @@
  * everything else still use each user's own broker token — unchanged.
  */
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { DhanService } from "./dhan_service.tsx";
 import * as kv from "./kv_store.tsx";
 
