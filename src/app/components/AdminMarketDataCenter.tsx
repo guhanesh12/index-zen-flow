@@ -61,7 +61,7 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
       setLoading(true);
       const [sRes, sigRes] = await Promise.all([
         fetch(`${serverUrl}/admin/market-data/status`, { headers }),
-        fetch(`${serverUrl}/admin/market-data/signals?tf=15`, { headers }),
+        fetch(`${serverUrl}/admin/market-data/signals?tf=5,15`, { headers }),
       ]);
       const s = await sRes.json().catch(() => null);
       const sig = await sigRes.json().catch(() => null);
