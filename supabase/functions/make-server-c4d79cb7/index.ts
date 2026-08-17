@@ -1820,31 +1820,66 @@ app.post("/make-server-c4d79cb7/intraday-ohlc", async (c) => {
       includeOI 
     } = await c.req.json();
 
-    const credentials = await kv.get(`api_credentials:${user.id}`);
-    if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
-      return c.json({ 
-        error: "Dhan credentials not configured",
-        success: false 
-      }, 400);
+    // 🛰️ CENTRAL MARKET DATA FIRST: index candles come from the ADMIN Dhan data
+    // subscription so every user sees the SAME data with no rate limits and no
+    // dependency on their own data plan. Falls back to the user's own token.
+    let candles: any[] = [];
+    let source: 'central' | 'user' | 'none' = 'none';
+
+    const centralCreds = await CentralMarketData.getCentralCredentials().catch(() => null);
+    if (centralCreds) {
+      try {
+        const centralSvc = new DhanService({
+          clientId: centralCreds.clientId,
+          accessToken: centralCreds.accessToken,
+        });
+        candles = (await centralSvc.getIntradayOHLC(
+          securityId,
+          exchangeSegment || 'IDX_I',
+          instrument || 'INDEX',
+          interval || '15',
+          includeOI || false
+        )) || [];
+        if (candles.length > 0) {
+          source = 'central';
+          await CentralMarketData.markCentralStatus('active', null);
+        }
+      } catch (ce: any) {
+        console.error('[CENTRAL] intraday-ohlc failed:', ce?.message || ce);
+        await CentralMarketData.markCentralStatus('error', ce?.message || String(ce));
+      }
     }
 
-    const dhanService = new DhanService({
-      clientId: credentials.dhanClientId,
-      accessToken: credentials.dhanAccessToken
-    });
+    if (candles.length === 0) {
+      const credentials = await kv.get(`api_credentials:${user.id}`);
+      if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
+        return c.json({
+          error: centralCreds
+            ? "Central market data unavailable and no personal Dhan credentials configured"
+            : "Dhan credentials not configured",
+          success: false
+        }, 400);
+      }
 
-    // Fetch intraday OHLC data
-    const candles = await dhanService.getIntradayOHLC(
-      securityId,
-      exchangeSegment || 'IDX_I',
-      instrument || 'INDEX',
-      interval || '15',
-      includeOI || false
-    );
+      const dhanService = new DhanService({
+        clientId: credentials.dhanClientId,
+        accessToken: credentials.dhanAccessToken
+      });
+
+      candles = (await dhanService.getIntradayOHLC(
+        securityId,
+        exchangeSegment || 'IDX_I',
+        instrument || 'INDEX',
+        interval || '15',
+        includeOI || false
+      )) || [];
+      source = candles.length > 0 ? 'user' : 'none';
+    }
 
     return c.json({ 
       success: true, 
       candles,
+      source,
       totalCandles: candles.length,
       interval: `${interval} minute${interval !== '1' ? 's' : ''}`,
       date: new Date().toISOString().split('T')[0]
@@ -6725,6 +6760,85 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
     return c.json({ error: e.message }, 500);
   }
 });
+
+// 📊 Live proof that the central feed works: latest 5m + 15m candles per index,
+// fetched with the ADMIN data subscription (the exact bars users/engines consume).
+app.get("/make-server-c4d79cb7/admin/market-data/candles", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const creds = await CentralMarketData.getCentralCredentials(true);
+    if (!creds) return c.json({ success: false, error: 'Central market data credentials not configured or disabled' }, 400);
+
+    const INDICES = [
+      { name: 'NIFTY', securityId: '13' },
+      { name: 'BANKNIFTY', securityId: '25' },
+      { name: 'SENSEX', securityId: '51' },
+    ];
+    const TFS = ['5', '15'];
+
+    const out: Record<string, any> = {};
+    let anyOk = false;
+
+    await Promise.all(
+      INDICES.map(async (idx) => {
+        out[idx.name] = {};
+        await Promise.all(
+          TFS.map(async (tf) => {
+            try {
+              const r = await CentralMarketData.getCentralOHLC(idx.securityId, tf, 6, null);
+              const candles = r.candles || [];
+              const last = candles[candles.length - 1] || null;
+              if (candles.length > 0) anyOk = true;
+              const sig = await CentralMarketData.getLatestCentralSignal(idx.name, Number(tf));
+              out[idx.name][`${tf}m`] = {
+                ok: candles.length > 0,
+                source: r.source,
+                count: candles.length,
+                last: last
+                  ? {
+                      timestamp: last.timestamp,
+                      open: last.open,
+                      high: last.high,
+                      low: last.low,
+                      close: last.close,
+                      volume: last.volume ?? 0,
+                    }
+                  : null,
+                recent: candles.slice(-3),
+                signal: sig
+                  ? {
+                      action: sig.signal?.action,
+                      confidence: sig.signal?.confidence,
+                      candleStamp: sig.candleStamp,
+                      generatedAt: sig.at,
+                    }
+                  : null,
+              };
+            } catch (e: any) {
+              out[idx.name][`${tf}m`] = { ok: false, error: e?.message || String(e), count: 0, last: null };
+            }
+          })
+        );
+      })
+    );
+
+    await CentralMarketData.markCentralStatus(anyOk ? 'active' : 'error', anyOk ? null : 'No candles returned');
+
+    return c.json({
+      success: true,
+      working: anyOk,
+      clientId: creds.clientId,
+      fetchedAt: Date.now(),
+      indices: out,
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+
 
 
 

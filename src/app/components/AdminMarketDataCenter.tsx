@@ -17,6 +17,8 @@ interface Props {
 export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
   const [status, setStatus] = useState<any>(null);
   const [signals, setSignals] = useState<any>(null);
+  const [feed, setFeed] = useState<any>(null);
+  const [feedLoading, setFeedLoading] = useState(false);
   const [clientId, setClientId] = useState('');
   const [token, setToken] = useState('');
   const [enabled, setEnabled] = useState(true);
@@ -51,11 +53,28 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
     }
   }, [serverUrl, accessToken]);
 
+  const loadFeed = useCallback(async () => {
+    try {
+      setFeedLoading(true);
+      const r = await fetch(`${serverUrl}/admin/market-data/candles`, { headers });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d?.error) throw new Error(d?.error || `HTTP ${r.status}`);
+      setFeed(d);
+    } catch (e: any) {
+      setFeed(null);
+      toast.error(e.message || 'Live candle fetch failed');
+    } finally {
+      setFeedLoading(false);
+    }
+  }, [serverUrl, accessToken]);
+
   useEffect(() => {
     load();
-    const id = setInterval(load, 60000);
+    loadFeed();
+    const id = setInterval(() => { load(); loadFeed(); }, 60000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, loadFeed]);
+
 
   const save = async () => {
     if (!clientId.trim()) return toast.error('Dhan Client ID is required');
@@ -187,6 +206,80 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
 
       <Card>
         <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Live Candle Feed Check — 5M &amp; 15M
+            {feed && (
+              <Badge className={feed.working ? 'bg-emerald-600' : ''} variant={feed.working ? 'default' : 'destructive'}>
+                {feed.working ? 'Working' : 'Not receiving data'}
+              </Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Exact bars the central feed serves to every user engine. Users trade on whichever timeframe they selected.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={loadFeed} disabled={feedLoading}>
+              <RefreshCw className={`size-4 mr-2 ${feedLoading ? 'animate-spin' : ''}`} />
+              {feedLoading ? 'Fetching live candles…' : 'Fetch live candles'}
+            </Button>
+            {feed?.fetchedAt && (
+              <span className="text-xs text-muted-foreground">
+                Updated {new Date(feed.fetchedAt).toLocaleTimeString('en-IN')}
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {['NIFTY', 'BANKNIFTY', 'SENSEX'].map((idx) => {
+              const row = feed?.indices?.[idx];
+              return (
+                <div key={idx} className="rounded-lg border p-3 space-y-2">
+                  <div className="font-semibold">{idx}</div>
+                  {['5m', '15m'].map((tf) => {
+                    const d = row?.[tf];
+                    return (
+                      <div key={tf} className="rounded-md bg-muted/40 p-2 text-xs space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{tf} candle</span>
+                          <Badge variant={d?.ok ? 'default' : 'secondary'} className={d?.ok ? 'bg-emerald-600' : ''}>
+                            {d?.ok ? (d.source === 'central' ? 'Central OK' : d.source) : 'No data'}
+                          </Badge>
+                        </div>
+                        {d?.last ? (
+                          <>
+                            <div>
+                              O {Number(d.last.open).toFixed(2)} · H {Number(d.last.high).toFixed(2)} · L{' '}
+                              {Number(d.last.low).toFixed(2)} · C {Number(d.last.close).toFixed(2)}
+                            </div>
+                            <div className="text-muted-foreground">
+                              {new Date(
+                                Number(d.last.timestamp) < 1e12 ? Number(d.last.timestamp) * 1000 : Number(d.last.timestamp)
+                              ).toLocaleString('en-IN')}{' '}
+                              · {d.count} bars
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-muted-foreground">{d?.error || 'Awaiting data'}</div>
+                        )}
+                        {d?.signal && (
+                          <div className="text-muted-foreground">
+                            Shared signal: <strong>{d.signal.action}</strong> ({d.signal.confidence ?? 0}%)
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Shared Signal Snapshot (15M)</CardTitle>
           <CardDescription>The signal every user receives for the latest closed candle.</CardDescription>
         </CardHeader>
@@ -210,6 +303,7 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
           })}
         </CardContent>
       </Card>
+
     </div>
   );
 }
