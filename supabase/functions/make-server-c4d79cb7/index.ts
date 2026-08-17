@@ -6761,6 +6761,85 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
   }
 });
 
+// 📊 Live proof that the central feed works: latest 5m + 15m candles per index,
+// fetched with the ADMIN data subscription (the exact bars users/engines consume).
+app.get("/make-server-c4d79cb7/admin/market-data/candles", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const creds = await CentralMarketData.getCentralCredentials(true);
+    if (!creds) return c.json({ success: false, error: 'Central market data credentials not configured or disabled' }, 400);
+
+    const INDICES = [
+      { name: 'NIFTY', securityId: '13' },
+      { name: 'BANKNIFTY', securityId: '25' },
+      { name: 'SENSEX', securityId: '51' },
+    ];
+    const TFS = ['5', '15'];
+
+    const out: Record<string, any> = {};
+    let anyOk = false;
+
+    await Promise.all(
+      INDICES.map(async (idx) => {
+        out[idx.name] = {};
+        await Promise.all(
+          TFS.map(async (tf) => {
+            try {
+              const r = await CentralMarketData.getCentralOHLC(idx.securityId, tf, 6, null);
+              const candles = r.candles || [];
+              const last = candles[candles.length - 1] || null;
+              if (candles.length > 0) anyOk = true;
+              const sig = await CentralMarketData.getLatestCentralSignal(idx.name, Number(tf));
+              out[idx.name][`${tf}m`] = {
+                ok: candles.length > 0,
+                source: r.source,
+                count: candles.length,
+                last: last
+                  ? {
+                      timestamp: last.timestamp,
+                      open: last.open,
+                      high: last.high,
+                      low: last.low,
+                      close: last.close,
+                      volume: last.volume ?? 0,
+                    }
+                  : null,
+                recent: candles.slice(-3),
+                signal: sig
+                  ? {
+                      action: sig.signal?.action,
+                      confidence: sig.signal?.confidence,
+                      candleStamp: sig.candleStamp,
+                      generatedAt: sig.at,
+                    }
+                  : null,
+              };
+            } catch (e: any) {
+              out[idx.name][`${tf}m`] = { ok: false, error: e?.message || String(e), count: 0, last: null };
+            }
+          })
+        );
+      })
+    );
+
+    await CentralMarketData.markCentralStatus(anyOk ? 'active' : 'error', anyOk ? null : 'No candles returned');
+
+    return c.json({
+      success: true,
+      working: anyOk,
+      clientId: creds.clientId,
+      fetchedAt: Date.now(),
+      indices: out,
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+
+
 
 
 
