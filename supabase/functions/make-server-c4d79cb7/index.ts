@@ -13466,6 +13466,41 @@ function sanitizeKite(creds: any) {
 }
 
 // --- GET which broker is active -------------------------------------------
+// --- PUBLIC: broker catalog (landing page + user chooser) ------------------
+app.get("/make-server-c4d79cb7/brokers", async (c) => {
+  try {
+    const brokers = await BrokerRegistry.listEnabledBrokers();
+    return c.json({ success: true, brokers });
+  } catch (err: any) {
+    return c.json({ success: false, brokers: [], error: err?.message || String(err) }, 200);
+  }
+});
+
+// --- ADMIN: broker ON/OFF control ------------------------------------------
+app.get("/make-server-c4d79cb7/admin/brokers", async (c) => {
+  try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || "Unauthorized" }, authErr?.code || 401);
+    return c.json({ success: true, brokers: await BrokerRegistry.listBrokers() });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/brokers", async (c) => {
+  try {
+    const { authorized, error: authErr } = await validateAdminAuth(c);
+    if (!authorized) return c.json({ error: authErr?.message || "Unauthorized" }, authErr?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const id = String(body?.broker || body?.id || "").toLowerCase();
+    const enabled = body?.enabled === true;
+    await BrokerRegistry.setBrokerEnabled(id, enabled);
+    return c.json({ success: true, brokers: await BrokerRegistry.listBrokers() });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
 app.get("/make-server-c4d79cb7/broker/active", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
@@ -13474,14 +13509,19 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const kite = await BrokerRouter.getKiteCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
+    const catalog = await BrokerRegistry.listEnabledBrokers();
+    const available: Record<string, boolean> = {
+      dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
+      zerodha: !!(kite?.apiKey && kite?.accessToken),
+    };
     return c.json({
       success: true,
       activeBroker,
+      activeBrokerName: BrokerRegistry.brokerLabel(activeBroker),
       chosen: !!choice?.broker,   // did the user explicitly pick a broker yet?
-      available: {
-        dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
-        zerodha: !!(kite?.apiKey && kite?.accessToken),
-      },
+      connected: available[activeBroker] === true,
+      available,
+      brokers: catalog,           // only brokers the admin has switched ON
     });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
@@ -13497,6 +13537,12 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     const broker = String(body?.broker || "").toLowerCase();
     if (broker !== "dhan" && broker !== "zerodha") {
       return c.json({ error: "broker must be 'dhan' or 'zerodha'" }, 400);
+    }
+    // Admin can switch a broker OFF for everyone.
+    try {
+      await BrokerRegistry.assertBrokerEnabled(broker);
+    } catch (e: any) {
+      return c.json({ error: e?.message || "Broker disabled" }, 403);
     }
     // ONE USER = ONE BROKER: switching wipes the other broker's session.
     const current = await BrokerRouter.getActiveBroker(user.id);
