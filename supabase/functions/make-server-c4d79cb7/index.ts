@@ -1727,20 +1727,55 @@ app.post("/make-server-c4d79cb7/market-quote", async (c) => {
 
     const { securityId, exchangeSegment } = await c.req.json();
 
-    const credentials = await kv.get(`api_credentials:${user.id}`);
-    if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
-      return c.json({ error: "Dhan credentials not configured" }, 400);
+    // 🛰️ CENTRAL MARKET DATA FIRST — index quotes come from the ADMIN Dhan data
+    // subscription so every user gets the same LTP with no personal data plan.
+    let quote: any = null;
+    let source: 'central' | 'user' | 'none' = 'none';
+
+    const centralCreds = await CentralMarketData.getCentralCredentials().catch(() => null);
+    if (centralCreds) {
+      try {
+        const centralSvc = new DhanService({
+          clientId: centralCreds.clientId,
+          accessToken: centralCreds.accessToken,
+        });
+        quote = await centralSvc.getMarketQuote(securityId, exchangeSegment);
+        if (quote && Number(quote.ltp) > 0) {
+          source = 'central';
+          await CentralMarketData.markCentralStatus('active', null);
+        } else {
+          quote = null;
+        }
+      } catch (ce: any) {
+        console.error('[CENTRAL] market-quote failed:', ce?.message || ce);
+        await CentralMarketData.markCentralStatus('error', ce?.message || String(ce));
+        quote = null;
+      }
     }
 
-    const dhanService = new DhanService({
-      clientId: credentials.dhanClientId,
-      accessToken: credentials.dhanAccessToken
-    });
+    if (!quote) {
+      const credentials = await kv.get(`api_credentials:${user.id}`);
+      if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
+        return c.json({
+          success: false,
+          quote: null,
+          error: centralCreds
+            ? "Central market data unavailable and no personal Dhan credentials configured"
+            : "Dhan credentials not configured",
+        }, centralCreds ? 200 : 400);
+      }
 
-    // Use new lightweight getMarketQuote method (cached, rate-limit friendly)
-    const quote = await dhanService.getMarketQuote(securityId, exchangeSegment);
-    
-    return c.json({ success: true, quote });
+      const dhanService = new DhanService({
+        clientId: credentials.dhanClientId,
+        accessToken: credentials.dhanAccessToken
+      });
+
+      // Use new lightweight getMarketQuote method (cached, rate-limit friendly)
+      quote = await dhanService.getMarketQuote(securityId, exchangeSegment);
+      source = quote ? 'user' : 'none';
+    }
+
+    return c.json({ success: true, quote, source });
   } catch (error) {
     console.log(`Market quote error: ${error}`);
     
