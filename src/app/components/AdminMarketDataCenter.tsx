@@ -14,6 +14,31 @@ interface Props {
   accessToken: string;
 }
 
+const num = (v: any, d = 2) => (v === null || v === undefined || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(d));
+
+const fmtStamp = (v?: string | null) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime())
+    ? String(v)
+    : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
+const actionTone = (action?: string) => {
+  if (action === 'BUY_CALL')
+    return { card: 'border-emerald-500/50 bg-emerald-500/5', badge: 'bg-emerald-600 text-primary-foreground', bar: 'bg-emerald-500' };
+  if (action === 'BUY_PUT')
+    return { card: 'border-rose-500/50 bg-rose-500/5', badge: 'bg-rose-600 text-primary-foreground', bar: 'bg-rose-500' };
+  if (action === 'EXIT')
+    return { card: 'border-orange-500/50 bg-orange-500/5', badge: 'bg-orange-600 text-primary-foreground', bar: 'bg-orange-500' };
+  if (action === 'HOLD')
+    return { card: 'border-sky-500/50 bg-sky-500/5', badge: 'bg-sky-600 text-primary-foreground', bar: 'bg-sky-500' };
+  if (action === 'WAIT')
+    return { card: 'border-amber-500/40 bg-amber-500/5', badge: 'bg-amber-500 text-background', bar: 'bg-amber-500' };
+  return { card: '', badge: 'bg-muted text-muted-foreground', bar: 'bg-muted-foreground' };
+};
+
+
 export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
   const [status, setStatus] = useState<any>(null);
   const [signals, setSignals] = useState<any>(null);
