@@ -86,6 +86,15 @@ export function kiteExchangeFromSegment(segment?: string): "NFO" | "BFO" {
   return String(segment || "").toUpperCase().startsWith("BSE") ? "BFO" : "NFO";
 }
 
+/** Dhan productType (INTRADAY / MARGIN / CNC) → Kite product (MIS / NRML / CNC) */
+export function kiteProductFromDhan(productType?: string): "MIS" | "NRML" | "CNC" {
+  const p = String(productType || "").toUpperCase();
+  if (p === "MIS" || p === "NRML" || p === "CNC") return p as any;
+  if (p === "MARGIN" || p === "NORMAL" || p === "CARRYFORWARD") return "NRML";
+  if (p === "CNC" || p === "DELIVERY") return "CNC";
+  return "MIS";
+}
+
 // ─────────────────────────── service ───────────────────────────
 
 export class KiteService {
@@ -109,7 +118,9 @@ export class KiteService {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const resp = await fetch(`${KITE_API}${path}`, { ...init, signal: ctrl.signal });
+      // Auth header is ALWAYS attached — a missing one makes Kite reply 403 TokenException.
+      const headers = { ...this.headers(), ...((init.headers as Record<string, string>) || {}) };
+      const resp = await fetch(`${KITE_API}${path}`, { ...init, headers, signal: ctrl.signal });
       const text = await resp.text();
       let json: any = {};
       try { json = JSON.parse(text); } catch { json = { raw: text }; }
@@ -218,6 +229,7 @@ export class KiteService {
         const ltp = Number(p.last_price || 0);
         return {
           securityId: String(p.instrument_token || ""),
+          tradingsymbol: String(p.tradingsymbol || ""),
           tradingSymbol: String(p.tradingsymbol || ""),
           exchangeSegment: p.exchange === "BFO" ? "BSE_FNO" : "NSE_FNO",
           positionType: netQty > 0 ? "LONG" : netQty < 0 ? "SHORT" : "CLOSED",
@@ -231,6 +243,7 @@ export class KiteService {
           ltp,
           realizedProfit: Number(p.realised || 0),
           unrealizedProfit: Number(p.unrealised ?? p.pnl ?? 0),
+          pnl: Number(p.pnl ?? ((Number(p.last_price || 0) - Number(p.average_price || 0)) * Number(p.quantity || 0))),
           multiplier: Number(p.multiplier || 1),
           broker: "zerodha",
           raw: p,

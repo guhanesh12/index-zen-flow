@@ -21,6 +21,7 @@ import {
   KiteService,
   buildKiteTradingSymbol,
   kiteExchangeFromSegment,
+  kiteProductFromDhan,
 } from "./kite_service.tsx";
 
 const supabaseAdmin = createClient(
@@ -61,6 +62,38 @@ export async function setActiveBroker(userId: string, broker: BrokerId): Promise
     .update({ active_broker: broker })
     .eq("user_id", userId);
   if (error) throw error;
+}
+
+/**
+ * ONE USER = ONE BROKER.
+ * Selecting a broker makes it active AND removes the other broker's session so
+ * orders, funds and positions can never come from two places at once.
+ */
+export async function selectBroker(userId: string, broker: BrokerId): Promise<void> {
+  if (broker === "zerodha") {
+    // drop the Dhan session (keeps the user's dedicated static IP untouched)
+    await kv.del(`api_credentials:${userId}`);
+    await supabaseAdmin
+      .from("broker_credentials")
+      .delete()
+      .eq("user_id", userId)
+      .eq("broker", "dhan");
+    await supabaseAdmin
+      .from("profiles")
+      .update({ active_broker: "zerodha", broker_connected: false })
+      .eq("user_id", userId);
+  } else {
+    await clearKiteCredentials(userId);
+    await supabaseAdmin
+      .from("broker_credentials")
+      .delete()
+      .eq("user_id", userId)
+      .eq("broker", "zerodha");
+    await supabaseAdmin
+      .from("profiles")
+      .update({ active_broker: "dhan", broker_connected: false })
+      .eq("user_id", userId);
+  }
 }
 
 // ───────────────────────── kite credentials ─────────────────────────
@@ -128,14 +161,37 @@ export async function resolveKiteSymbol(order: any): Promise<{
   }
 
   const securityId = String(order?.securityId || "");
-  if (!securityId) return null;
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
 
-  const { data: inst } = await supabaseAdmin
-    .from("instrument_master")
-    .select("index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment")
-    .eq("security_id", securityId)
-    .maybeSingle();
-  if (!inst) return null;
+  let inst: any = null;
+  if (securityId) {
+    const { data } = await supabaseAdmin
+      .from("instrument_master")
+      .select("index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment")
+      .eq("security_id", securityId)
+      .maybeSingle();
+    inst = data;
+  }
+  // Exits of Kite-native positions carry a tradingsymbol/symbol instead of a Dhan id.
+  if (!inst && symbolText) {
+    const { data } = await supabaseAdmin
+      .from("instrument_master")
+      .select("index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment")
+      .eq("symbol", symbolText)
+      .maybeSingle();
+    inst = data;
+  }
+  if (!inst) {
+    // Already a Zerodha-format symbol (e.g. NIFTY25AUG25000CE) → use it as-is.
+    if (/^[A-Z]+\d{2}[A-Z0-9]{3,5}\d+(CE|PE)$/.test(symbolText.toUpperCase())) {
+      return {
+        tradingsymbol: symbolText.toUpperCase(),
+        exchange: kiteExchangeFromSegment(order?.exchangeSegment),
+        lotSize: Number(order?.lotSize || 0),
+      };
+    }
+    return null;
+  }
 
   // Monthly contracts use MMM (AUG), weeklies use the compact month-code format.
   const expiry = String(inst.expiry_date);
@@ -169,7 +225,7 @@ export async function resolveKiteSymbol(order: any): Promise<{
 async function placeKiteOrderViaStaticIP(
   userId: string,
   creds: KiteStoredCreds,
-  kiteOrder: { tradingsymbol: string; exchange: string; transactionType: string; quantity: number; tag?: string },
+  kiteOrder: { tradingsymbol: string; exchange: string; transactionType: string; quantity: number; product?: string; tag?: string },
 ): Promise<any | null> {
   const ORDER_SERVER_API_KEY = Deno.env.get("ORDER_SERVER_API_KEY");
   if (!ORDER_SERVER_API_KEY) return null;
@@ -271,6 +327,7 @@ export async function placeOrderSmart(
     exchange: resolved.exchange,
     transactionType: String(orderDetails.transactionType || "BUY").toUpperCase(),
     quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+    product: kiteProductFromDhan(orderDetails.productType),
     tag: "indexpilot",
   };
 
@@ -286,7 +343,7 @@ export async function placeOrderSmart(
       exchange: kiteOrder.exchange as "NFO" | "BFO",
       transactionType: kiteOrder.transactionType as "BUY" | "SELL",
       quantity: kiteOrder.quantity,
-      product: "MIS",
+      product: kiteOrder.product,
       orderType: "MARKET",
       validity: "DAY",
       tag: kiteOrder.tag,
