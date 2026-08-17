@@ -11,6 +11,7 @@ import { SystemHealth } from './SystemHealth';
 import { BrevoIntegration } from './BrevoIntegration';
 import { BackendConfiguration } from './BackendConfiguration';
 import { AdminVPSPower } from './AdminVPSPower';
+import { AdminMarketDataCenter } from './AdminMarketDataCenter';
 import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
 
 import { toast } from 'sonner';
@@ -61,7 +62,7 @@ interface AdminSettingsProps {
 
 const SETTINGS_SUB_TABS = [
   'api-keys', 'notifications', 'push-notifications', 'security', 'activity-monitor',
-  'access-control', 'monitoring', 'system-health', 'backend', 'brevo', 'vps-power', 'app-update',
+  'access-control', 'monitoring', 'system-health', 'backend', 'brevo', 'market-data', 'vps-power', 'app-update',
 ];
 
 export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpdate }: AdminSettingsProps) {
@@ -355,6 +356,12 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
             <TabsTrigger value="brevo">
               <Mail className="size-4 mr-2" />
               Brevo Communications
+            </TabsTrigger>
+          )}
+          {showSub('market-data') && (
+            <TabsTrigger value="market-data">
+              <Server className="size-4 mr-2" />
+              Market Data Center
             </TabsTrigger>
           )}
           {showSub('vps-power') && (
@@ -754,6 +761,11 @@ export function AdminSettings({ serverUrl, accessToken, currentAdmin, onAdminUpd
         {/* Brevo Communications Tab */}
         <TabsContent value="brevo" className="space-y-4">
           <BrevoIntegration serverUrl={serverUrl} accessToken={accessToken} />
+        </TabsContent>
+
+        {/* Central Market Data Tab */}
+        <TabsContent value="market-data" className="space-y-4">
+          <AdminMarketDataCenter serverUrl={serverUrl} accessToken={accessToken} />
         </TabsContent>
 
         {/* VPS Power Tab */}
