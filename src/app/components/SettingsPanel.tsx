@@ -44,6 +44,12 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [showDhanPricingDialog, setShowDhanPricingDialog] = useState(false);
   const [vpsSubInfo, setVpsSubInfo] = useState<{ status: string; daysUntilExpiry: number; expiryDate?: string } | null>(null);
   const [showVpsExpiredModal, setShowVpsExpiredModal] = useState(false);
+  // 🔒 ONE USER = ONE BROKER
+  const [activeBroker, setActiveBroker] = useState<'dhan' | 'zerodha' | null>(null);
+  const [brokerLoading, setBrokerLoading] = useState(true);
+  const [switchingBroker, setSwitchingBroker] = useState(false);
+  const [showSwitchDialog, setShowSwitchDialog] = useState(false);
+  const [brokerAvailability, setBrokerAvailability] = useState<{ dhan: boolean; zerodha: boolean }>({ dhan: false, zerodha: false });
 
   const getFreshToken = async (): Promise<string | null> => {
     try {
@@ -53,6 +59,58 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         console.error('❌ Error getting fresh token:', error);
       }
       return accessToken || null;
+    }
+  };
+
+  const loadActiveBroker = async () => {
+    try {
+      setBrokerLoading(true);
+      const tok = await getFreshToken();
+      const res = await fetchWithAuth(`${serverUrl}/broker/active`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      });
+      const data = await res.json();
+      if (res.ok && data?.success) {
+        setBrokerAvailability(data.available || { dhan: false, zerodha: false });
+        // Only treat a broker as "chosen" once the user actually picked/connected one.
+        const chosen = data.activeBroker as 'dhan' | 'zerodha';
+        const anyConnected = !!(data.available?.dhan || data.available?.zerodha);
+        setActiveBroker(anyConnected || data.chosen ? chosen : (localStorage.getItem('indexpilot_broker_choice') as any) || null);
+      }
+    } catch (e) {
+      console.error('broker/active failed', e);
+      setActiveBroker((localStorage.getItem('indexpilot_broker_choice') as any) || null);
+    } finally {
+      setBrokerLoading(false);
+    }
+  };
+
+  const chooseBroker = async (broker: 'dhan' | 'zerodha') => {
+    setSwitchingBroker(true);
+    try {
+      const tok = await getFreshToken();
+      const res = await fetchWithAuth(`${serverUrl}/broker/active`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+        body: JSON.stringify({ broker }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Could not switch broker');
+      localStorage.setItem('indexpilot_broker_choice', broker);
+      setActiveBroker(broker);
+      setShowSwitchDialog(false);
+      toast.success(
+        broker === 'zerodha'
+          ? 'Zerodha Kite selected — login to place orders'
+          : 'Dhan selected — connect your Dhan API to place orders'
+      );
+      await loadActiveBroker();
+      await loadCredentials();
+      onSettingsSaved();
+    } catch (e: any) {
+      toast.error(e.message || 'Broker switch failed');
+    } finally {
+      setSwitchingBroker(false);
     }
   };
 
