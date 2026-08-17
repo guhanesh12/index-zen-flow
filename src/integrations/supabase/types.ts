@@ -407,6 +407,8 @@ export type Database = {
           encrypted_at: string | null
           given_power_of_attorney: boolean | null
           id: string
+          kite_user_id: string | null
+          kite_user_name: string | null
           last_consent_app_id: string | null
           last_error: string | null
           last_status: string | null
@@ -433,6 +435,8 @@ export type Database = {
           encrypted_at?: string | null
           given_power_of_attorney?: boolean | null
           id?: string
+          kite_user_id?: string | null
+          kite_user_name?: string | null
           last_consent_app_id?: string | null
           last_error?: string | null
           last_status?: string | null
@@ -459,6 +463,8 @@ export type Database = {
           encrypted_at?: string | null
           given_power_of_attorney?: boolean | null
           id?: string
+          kite_user_id?: string | null
+          kite_user_name?: string | null
           last_consent_app_id?: string | null
           last_error?: string | null
           last_status?: string | null
@@ -1021,6 +1027,7 @@ export type Database = {
       profiles: {
         Row: {
           account_status: string | null
+          active_broker: string
           broker_connected: boolean | null
           client_id: string
           created_at: string
@@ -1046,6 +1053,7 @@ export type Database = {
         }
         Insert: {
           account_status?: string | null
+          active_broker?: string
           broker_connected?: boolean | null
           client_id?: string
           created_at?: string
@@ -1071,6 +1079,7 @@ export type Database = {
         }
         Update: {
           account_status?: string | null
+          active_broker?: string
           broker_connected?: boolean | null
           client_id?: string
           created_at?: string
