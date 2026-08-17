@@ -27,6 +27,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { sendPushToUser } from "./push_notifications.tsx";
+import { getCentralOHLC, getCachedCentralSignal, saveCentralSignal } from "./central_market_data.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
