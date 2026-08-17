@@ -431,6 +431,9 @@ const ALLOWED_CORS_ORIGINS = [
   "https://api.indexpilotai.com",
   "http://localhost:8080",
   "http://127.0.0.1:8080",
+  // RN app local dev (Metro / Expo web)
+  "http://localhost:8081",
+  "http://127.0.0.1:8081",
   // Lovable preview domains
   /\.lovable\.app$/,
   /\.lovableproject\.com$/,
