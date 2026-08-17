@@ -125,6 +125,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   useEffect(() => {
     loadCredentials();
     fetchVpsSubscriptionStatus();
+    loadActiveBroker();
 
     // 🔄 Refresh connection state after Dhan OAuth completes. BrokerOAuthConnect
     // dispatches these events on /consume success. Without this, the panel
@@ -529,11 +530,124 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   };
 
   return (
+    <div className="space-y-4">
+      {/* ── Broker chooser: ONE user = ONE broker ─────────────────────── */}
+      {brokerLoading ? (
+        <Card className="bg-zinc-900 border-zinc-800">
+          <CardContent className="p-6 text-sm text-zinc-400 flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 animate-spin" /> Loading your broker…
+          </CardContent>
+        </Card>
+      ) : !activeBroker ? (
+        <Card className="bg-zinc-900 border-zinc-800">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-emerald-500" />
+              Choose your broker
+            </CardTitle>
+            <CardDescription className="text-zinc-400">
+              You can connect <span className="text-zinc-200">one broker at a time</span>. All signals,
+              orders, funds and positions will use only this broker.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              disabled={switchingBroker}
+              onClick={() => chooseBroker('dhan')}
+              className="text-left rounded-xl border border-zinc-800 hover:border-emerald-600 bg-zinc-950 p-4 transition-colors disabled:opacity-60"
+            >
+              <div className="font-semibold text-zinc-100">Dhan</div>
+              <p className="text-xs text-zinc-400 mt-1">
+                API Key &amp; Secret (12 months) or daily access token. Orders route through your
+                dedicated static IP.
+              </p>
+            </button>
+            <button
+              type="button"
+              disabled={switchingBroker}
+              onClick={() => chooseBroker('zerodha')}
+              className="text-left rounded-xl border border-zinc-800 hover:border-orange-600 bg-zinc-950 p-4 transition-colors disabled:opacity-60"
+            >
+              <div className="font-semibold text-zinc-100">Zerodha Kite</div>
+              <p className="text-xs text-zinc-400 mt-1">
+                Kite Connect login. Session resets daily at 6:00 AM IST. Same static IP is reused.
+              </p>
+            </button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="bg-zinc-900 border-zinc-800">
+          <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Shield className="w-4 h-4 text-emerald-500" />
+              <span className="text-zinc-400">Your broker:</span>
+              <span className="font-semibold text-zinc-100">
+                {activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan'}
+              </span>
+              {(activeBroker === 'zerodha' ? brokerAvailability.zerodha : brokerAvailability.dhan) ? (
+                <span className="text-emerald-400 text-xs flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> connected
+                </span>
+              ) : (
+                <span className="text-amber-400 text-xs flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> not connected yet
+                </span>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-zinc-700"
+              onClick={() => setShowSwitchDialog(true)}
+            >
+              Change broker
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={showSwitchDialog} onOpenChange={setShowSwitchDialog}>
+        <DialogContent className="bg-zinc-900 border-zinc-800">
+          <DialogHeader>
+            <DialogTitle>Switch broker?</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Only one broker can be connected. Switching will disconnect{' '}
+              <span className="text-zinc-200">{activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan'}</span>{' '}
+              and remove its saved session. Close all open positions first — running trades will no
+              longer be monitored by this app.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setShowSwitchDialog(false)}>Cancel</Button>
+            <Button
+              className="bg-rose-600 hover:bg-rose-500"
+              disabled={switchingBroker}
+              onClick={() => chooseBroker(activeBroker === 'zerodha' ? 'dhan' : 'zerodha')}
+            >
+              {switchingBroker ? 'Switching…' : `Switch to ${activeBroker === 'zerodha' ? 'Dhan' : 'Zerodha Kite'}`}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {activeBroker === 'zerodha' && (
+        <ZerodhaConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
+
+      {activeBroker === 'dhan' && (
     <Tabs defaultValue="oauth" className="space-y-4">
-      <TabsList className="grid grid-cols-3 bg-zinc-900 border border-zinc-800">
-        <TabsTrigger value="oauth">Dhan · API Key &amp; Secret</TabsTrigger>
-        <TabsTrigger value="token">Dhan · Daily Token</TabsTrigger>
-        <TabsTrigger value="zerodha">Zerodha Kite</TabsTrigger>
+      <TabsList className="grid grid-cols-2 bg-zinc-900 border border-zinc-800">
+        <TabsTrigger value="oauth">API Key &amp; Secret (12 months)</TabsTrigger>
+        <TabsTrigger value="token">Daily Access Token</TabsTrigger>
       </TabsList>
 
       <TabsContent value="oauth">
@@ -1014,17 +1128,8 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       </Dialog>
     </Card>
       </TabsContent>
-
-      <TabsContent value="zerodha">
-        <ZerodhaConnect
-          serverUrl={serverUrl}
-          accessToken={accessToken}
-          onConnected={() => {
-            onSettingsSaved();
-            loadCredentials();
-          }}
-        />
-      </TabsContent>
     </Tabs>
+      )}
+    </div>
   );
 }
