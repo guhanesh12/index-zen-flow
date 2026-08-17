@@ -50,7 +50,7 @@ interface ProvisioningJob {
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
 const DEDICATED_IP_MONTHLY_FEE = 599;
-const ORDER_SERVER_VERSION = '1.1.0';
+const ORDER_SERVER_VERSION = '1.2.0';
 
 async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
   try {
@@ -380,6 +380,7 @@ app.get('/test', (req, res) => {
     endpoints: {
       health: '/health',
       placeOrder: '/place-order (POST)',
+      placeOrderKite: '/place-order-kite (POST)',
       orderStatus: '/order-status/:orderId (GET)',
       cancelOrder: '/cancel-order/:orderId (DELETE)'
     }
@@ -461,6 +462,58 @@ app.post('/place-order', async (req, res) => {
     res.status(error.response?.status || 500).json({ 
       error: errorMsg,
       errorCode: error.response?.data?.errorCode || 'UNKNOWN_ERROR'
+    });
+  }
+});
+
+// 🟠 Place order via Zerodha Kite Connect (same dedicated static IP)
+app.post('/place-order-kite', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+    }
+
+    const { userId, apiKey, accessToken, orderDetails } = req.body;
+    if (!userId || !apiKey || !accessToken || !orderDetails) {
+      return res.status(400).json({ error: 'Missing required fields: userId, apiKey, accessToken, orderDetails' });
+    }
+
+    const params = new URLSearchParams({
+      tradingsymbol: String(orderDetails.tradingsymbol || ''),
+      exchange: orderDetails.exchange || 'NFO',
+      transaction_type: orderDetails.transactionType || 'BUY',
+      order_type: 'MARKET',
+      quantity: String(Math.max(1, Number(orderDetails.quantity) || 0)),
+      product: orderDetails.product || 'MIS',
+      validity: 'DAY'
+    });
+    if (orderDetails.tag) params.append('tag', String(orderDetails.tag).substring(0, 20));
+
+    log(\`📤 [KITE] MARKET order \${params.get('transaction_type')} \${params.get('tradingsymbol')} x\${params.get('quantity')} for \${userId}\`);
+
+    const response = await axios.post(
+      'https://api.kite.trade/orders/regular',
+      params.toString(),
+      {
+        headers: {
+          'X-Kite-Version': '3',
+          'Authorization': 'token ' + apiKey + ':' + accessToken,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 10000
+      }
+    );
+
+    log(\`✅ [KITE] Order placed for \${userId}: \${JSON.stringify(response.data)}\`);
+    res.json(response.data);
+  } catch (error) {
+    const errorMsg = error.response?.data || error.message;
+    log(\`❌ [KITE] Order placement failed: \${JSON.stringify(errorMsg)}\`);
+    res.status(error.response?.status || 500).json({
+      status: 'error',
+      message: error.response?.data?.message || error.message,
+      error: errorMsg
     });
   }
 });
