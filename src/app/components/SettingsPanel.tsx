@@ -597,14 +597,16 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
                 </span>
               )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-zinc-700"
-              onClick={() => setShowSwitchDialog(true)}
-            >
-              Change broker
-            </Button>
+            {enabledBrokers.length > 1 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-zinc-700"
+                onClick={() => setShowSwitchDialog(true)}
+              >
+                Change broker
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
