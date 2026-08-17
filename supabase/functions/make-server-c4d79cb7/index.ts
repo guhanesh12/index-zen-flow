@@ -7751,8 +7751,8 @@ app.get("/make-server-c4d79cb7/admin/users", async (c) => {
               const pnl = Number(p?.pnl ?? 0);
               return sum + (Number.isFinite(pnl) ? pnl : 0);
             }, 0);
-            const margins = await svc.getMargins().catch(() => null);
-            const avail = Number(margins?.equity?.available?.live_balance ?? margins?.availableBalance ?? NaN);
+            const margins = await svc.getFundLimits().catch(() => null);
+            const avail = Number(margins?.availableBalance ?? NaN);
             if (Number.isFinite(avail)) brokerFunds = avail;
           } catch (kiteErr: any) {
             console.warn(`⚠️ Could not fetch Kite data for ${userId}:`, kiteErr?.message || kiteErr);
