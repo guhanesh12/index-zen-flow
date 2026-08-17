@@ -1820,31 +1820,66 @@ app.post("/make-server-c4d79cb7/intraday-ohlc", async (c) => {
       includeOI 
     } = await c.req.json();
 
-    const credentials = await kv.get(`api_credentials:${user.id}`);
-    if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
-      return c.json({ 
-        error: "Dhan credentials not configured",
-        success: false 
-      }, 400);
+    // 🛰️ CENTRAL MARKET DATA FIRST: index candles come from the ADMIN Dhan data
+    // subscription so every user sees the SAME data with no rate limits and no
+    // dependency on their own data plan. Falls back to the user's own token.
+    let candles: any[] = [];
+    let source: 'central' | 'user' | 'none' = 'none';
+
+    const centralCreds = await CentralMarketData.getCentralCredentials().catch(() => null);
+    if (centralCreds) {
+      try {
+        const centralSvc = new DhanService({
+          clientId: centralCreds.clientId,
+          accessToken: centralCreds.accessToken,
+        });
+        candles = (await centralSvc.getIntradayOHLC(
+          securityId,
+          exchangeSegment || 'IDX_I',
+          instrument || 'INDEX',
+          interval || '15',
+          includeOI || false
+        )) || [];
+        if (candles.length > 0) {
+          source = 'central';
+          await CentralMarketData.markCentralStatus('active', null);
+        }
+      } catch (ce: any) {
+        console.error('[CENTRAL] intraday-ohlc failed:', ce?.message || ce);
+        await CentralMarketData.markCentralStatus('error', ce?.message || String(ce));
+      }
     }
 
-    const dhanService = new DhanService({
-      clientId: credentials.dhanClientId,
-      accessToken: credentials.dhanAccessToken
-    });
+    if (candles.length === 0) {
+      const credentials = await kv.get(`api_credentials:${user.id}`);
+      if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
+        return c.json({
+          error: centralCreds
+            ? "Central market data unavailable and no personal Dhan credentials configured"
+            : "Dhan credentials not configured",
+          success: false
+        }, 400);
+      }
 
-    // Fetch intraday OHLC data
-    const candles = await dhanService.getIntradayOHLC(
-      securityId,
-      exchangeSegment || 'IDX_I',
-      instrument || 'INDEX',
-      interval || '15',
-      includeOI || false
-    );
+      const dhanService = new DhanService({
+        clientId: credentials.dhanClientId,
+        accessToken: credentials.dhanAccessToken
+      });
+
+      candles = (await dhanService.getIntradayOHLC(
+        securityId,
+        exchangeSegment || 'IDX_I',
+        instrument || 'INDEX',
+        interval || '15',
+        includeOI || false
+      )) || [];
+      source = candles.length > 0 ? 'user' : 'none';
+    }
 
     return c.json({ 
       success: true, 
       candles,
+      source,
       totalCandles: candles.length,
       interval: `${interval} minute${interval !== '1' ? 's' : ''}`,
       date: new Date().toISOString().split('T')[0]
