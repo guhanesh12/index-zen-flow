@@ -13490,14 +13490,14 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (broker !== "dhan" && broker !== "zerodha") {
       return c.json({ error: "broker must be 'dhan' or 'zerodha'" }, 400);
     }
-    if (broker === "zerodha") {
-      const kite = await BrokerRouter.getKiteCredentials(user.id);
-      if (!kite?.accessToken) {
-        return c.json({ error: "Login to Zerodha first, then make it the active broker." }, 400);
-      }
+    // ONE USER = ONE BROKER: switching wipes the other broker's session.
+    const current = await BrokerRouter.getActiveBroker(user.id);
+    if (current !== broker) {
+      await BrokerRouter.selectBroker(user.id, broker as any);
+    } else {
+      await BrokerRouter.setActiveBroker(user.id, broker as any);
     }
-    await BrokerRouter.setActiveBroker(user.id, broker as any);
-    return c.json({ success: true, activeBroker: broker });
+    return c.json({ success: true, activeBroker: broker, switchedFrom: current });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
@@ -13616,11 +13616,8 @@ app.post("/make-server-c4d79cb7/broker/kite/consume", async (c) => {
       last_error: null,
     });
 
-    // Auto-select Zerodha when the user has no working Dhan session.
-    const dhanCreds = await kv.get(`api_credentials:${user.id}`);
-    if (!dhanCreds?.dhanAccessToken) {
-      await BrokerRouter.setActiveBroker(user.id, "zerodha");
-    }
+    // One broker per user — a successful Kite login makes Zerodha the only broker.
+    await BrokerRouter.setActiveBroker(user.id, "zerodha");
 
     const svc = new KiteService({ apiKey: creds.apiKey, accessToken: session.accessToken });
     const liveCheck = await svc.verify();
