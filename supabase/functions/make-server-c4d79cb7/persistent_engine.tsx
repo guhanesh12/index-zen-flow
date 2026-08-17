@@ -27,6 +27,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { sendPushToUser } from "./push_notifications.tsx";
+import { getCentralOHLC, getCachedCentralSignal, saveCentralSignal } from "./central_market_data.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -1280,14 +1281,24 @@ class PersistentTradingEngine {
           let ohlcData: any[] = [];
           try {
             const dhanSvc = new DhanService({ clientId: dhanClientId, accessToken: dhanAccessToken });
-            const ohlcDataRaw = await dhanSvc.getOHLCData(securityId, String(state.candleInterval), 50);
+            // 🛰️ CENTRAL MARKET DATA: index candles come from the ADMIN Dhan data
+            // subscription so EVERY user analyses the exact same bars (no rate limits,
+            // no per-user data drift). Falls back to the user's own token if the admin
+            // credentials are not configured / failing.
+            const primary = await getCentralOHLC(securityId, String(state.candleInterval), 50, dhanSvc);
+            const ohlcDataRaw = primary.candles;
             const real15mDataRaw =
-              state.candleInterval === "15" ? ohlcDataRaw : await dhanSvc.getOHLCData(securityId, "15", 80);
+              state.candleInterval === "15"
+                ? ohlcDataRaw
+                : (await getCentralOHLC(securityId, "15", 80, dhanSvc)).candles;
             let real1hData: any[] = [];
             try {
-              real1hData = await dhanSvc.getOHLCData(securityId, "60", 40);
+              real1hData = (await getCentralOHLC(securityId, "60", 40, dhanSvc)).candles;
             } catch (_e) {
               real1hData = [];
+            }
+            if (primary.source === "user") {
+              console.warn(`🟡 [CENTRAL] ${indexName} fell back to user market data (${userId})`);
             }
             // ⚡ Dhan index candles use close-time timestamps (09:30 means 09:15-09:30 CLOSED).
             // Keep the latest bar as soon as its timestamp is <= the current closed boundary;
@@ -1336,37 +1347,59 @@ class PersistentTradingEngine {
             const htfAgeMin = lastHtfMs ? Math.round((Date.now() - lastHtfMs) / 60000) : -1;
             console.log(`📊 [HTF] ${indexName} 15m bars=${real15mData?.length || 0}, lastBarAge=${htfAgeMin}min`);
             if (ohlcData && ohlcData.length > 0) {
-              const lastSignalTimestamp = (await kv.get(`last_signal_ts:${userId}:${indexName}`)) || 0;
-              const lastSignalDirection = (await kv.get(`last_signal_dir:${userId}:${indexName}`)) || "WAIT";
-              const lastStopLossTimestamp = (await kv.get(`last_sl_ts:${userId}:${indexName}`)) || 0;
-              const lastStopLossDirection = (await kv.get(`last_sl_dir:${userId}:${indexName}`)) || null;
-              const consecutiveLossCount = Number((await kv.get(`loss_streak:${userId}:${indexName}`)) || 0);
-              const lastLossTimestamp = Number((await kv.get(`last_loss_ts:${userId}:${indexName}`)) || 0);
-              const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
-                higherTimeframeData: real15mData,
-                hourlyTimeframeData: real1hDataClosed,
-                timeframeMinutes: tfMin,
-                lastSignalTimestamp,
-                lastSignalDirection,
-                lastStopLossTimestamp,
-                lastStopLossDirection,
-                stopLossCooldownBars: 2,
-                consecutiveLossCount,
-                lastLossTimestamp,
-                consecutiveLossThreshold: 3,
-                consecutiveLossCooldownMs: 30 * 60 * 1000,
-                minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
-                blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
-              });
-              if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
+              // 🛰️ ONE SIGNAL PER INDEX PER CANDLE, SHARED BY ALL USERS.
+              // If another user's engine already analysed this candle, reuse that exact
+              // signal instead of re-running the strategy with per-user state.
+              const cachedSignal = await getCachedCentralSignal(indexName, tfMin, currentCandleTimestamp);
+              if (cachedSignal) {
+                console.log(`♻️ [CENTRAL] ${indexName} reusing shared signal for candle ${currentCandleTimestamp}`);
+                aiSignal = { signal: cachedSignal };
+              } else {
+                // Cooldown/streak state is GLOBAL (not per-user) so the strategy output is
+                // identical for every user on the same candle.
+                const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${indexName}`)) || 0;
+                const lastSignalDirection = (await kv.get(`central:last_signal_dir:${indexName}`)) || "WAIT";
+                const lastStopLossTimestamp = (await kv.get(`central:last_sl_ts:${indexName}`)) || 0;
+                const lastStopLossDirection = (await kv.get(`central:last_sl_dir:${indexName}`)) || null;
+                const consecutiveLossCount = Number((await kv.get(`central:loss_streak:${indexName}`)) || 0);
+                const lastLossTimestamp = Number((await kv.get(`central:last_loss_ts:${indexName}`)) || 0);
+                const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
+                  higherTimeframeData: real15mData,
+                  hourlyTimeframeData: real1hDataClosed,
+                  timeframeMinutes: tfMin,
+                  lastSignalTimestamp,
+                  lastSignalDirection,
+                  lastStopLossTimestamp,
+                  lastStopLossDirection,
+                  stopLossCooldownBars: 2,
+                  consecutiveLossCount,
+                  lastLossTimestamp,
+                  consecutiveLossThreshold: 3,
+                  consecutiveLossCooldownMs: 30 * 60 * 1000,
+                  minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
+                  blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
+                });
+                (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
+                (sig as any).signalSource = primary.source === "central" ? "CENTRAL_DATA" : "USER_DATA";
+                if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
+                  await kv.set(
+                    `central:last_signal_ts:${indexName}`,
+                    ohlcData[ohlcData.length - 1].timestamp || Date.now(),
+                  );
+                  await kv.set(`central:last_signal_dir:${indexName}`, sig.action);
+                }
+                await saveCentralSignal(indexName, tfMin, currentCandleTimestamp, sig);
+                aiSignal = { signal: sig };
+              }
+
+              const finalAction = aiSignal?.signal?.action;
+              if (finalAction === "BUY_CALL" || finalAction === "BUY_PUT") {
                 await kv.set(
                   `last_signal_ts:${userId}:${indexName}`,
                   ohlcData[ohlcData.length - 1].timestamp || Date.now(),
                 );
-                await kv.set(`last_signal_dir:${userId}:${indexName}`, sig.action);
+                await kv.set(`last_signal_dir:${userId}:${indexName}`, finalAction);
               }
-              (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
-              aiSignal = { signal: sig };
             }
           } catch (e) {
             console.error(`❌ ${indexName} OHLC/AI error:`, (e as any)?.message || e);

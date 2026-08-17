@@ -745,6 +745,48 @@ export type Database = {
         }
         Relationships: []
       }
+      market_data_credentials: {
+        Row: {
+          access_token_encrypted: string | null
+          created_at: string
+          dhan_client_id: string | null
+          enabled: boolean
+          id: number
+          last_error: string | null
+          last_verified_at: string | null
+          status: string
+          token_expiry: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          access_token_encrypted?: string | null
+          created_at?: string
+          dhan_client_id?: string | null
+          enabled?: boolean
+          id?: number
+          last_error?: string | null
+          last_verified_at?: string | null
+          status?: string
+          token_expiry?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          access_token_encrypted?: string | null
+          created_at?: string
+          dhan_client_id?: string | null
+          enabled?: boolean
+          id?: number
+          last_error?: string | null
+          last_verified_at?: string | null
+          status?: string
+          token_expiry?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       mobile_app_config: {
         Row: {
           android_current_version: string
@@ -1689,6 +1731,16 @@ export type Database = {
       expire_signup_bonuses: { Args: never; Returns: number }
       generate_client_id: { Args: never; Returns: string }
       get_broker_encryption_key: { Args: never; Returns: string }
+      get_market_data_credentials: {
+        Args: never
+        Returns: {
+          access_token: string
+          dhan_client_id: string
+          enabled: boolean
+          status: string
+          updated_at: string
+        }[]
+      }
       has_permission: {
         Args: { _action: string; _module: string; _user_id: string }
         Returns: boolean
@@ -1723,6 +1775,15 @@ export type Database = {
         Returns: undefined
       }
       referral_code_exists: { Args: { _code: string }; Returns: boolean }
+      set_market_data_credentials: {
+        Args: {
+          _access_token: string
+          _client_id: string
+          _enabled?: boolean
+          _updated_by?: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
