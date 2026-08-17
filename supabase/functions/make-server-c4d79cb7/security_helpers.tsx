@@ -25,6 +25,9 @@ const ALLOWED_ORIGINS = new Set<string>([
   "https://id-preview--53074c3b-4efc-4555-9d50-55b7d0bc2930.lovable.app",
   "http://localhost:8080",
   "http://localhost:5173",
+  // RN app local dev (Metro / Expo web) — testing only
+  "http://localhost:8081",
+  "http://127.0.0.1:8081",
 ]);
 
 export function corsAllowlist(req: Request): Record<string, string> {
