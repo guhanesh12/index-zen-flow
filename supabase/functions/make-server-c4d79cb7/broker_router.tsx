@@ -23,6 +23,8 @@ import {
   kiteExchangeFromSegment,
   kiteProductFromDhan,
 } from "./kite_service.tsx";
+import { ensureKiteInstruments } from "./kite_instruments.tsx";
+
 
 const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_URL") || "",
@@ -82,6 +84,10 @@ export async function selectBroker(userId: string, broker: BrokerId): Promise<vo
       .from("profiles")
       .update({ active_broker: "zerodha", broker_connected: false })
       .eq("user_id", userId);
+    // 📥 Download Zerodha's near-expiry NIFTY/BANKNIFTY/SENSEX option contracts
+    // and merge them into instrument_master so orders go out in Kite format.
+    await ensureKiteInstruments(false);
+
   } else {
     await clearKiteCredentials(userId);
     await supabaseAdmin
@@ -162,25 +168,41 @@ export async function resolveKiteSymbol(order: any): Promise<{
 
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS =
+    "index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment, kite_tradingsymbol, kite_exchange";
 
-  let inst: any = null;
-  if (securityId) {
-    const { data } = await supabaseAdmin
-      .from("instrument_master")
-      .select("index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment")
-      .eq("security_id", securityId)
-      .maybeSingle();
-    inst = data;
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    // Exits of Kite-native positions carry a tradingsymbol/symbol instead of a Dhan id.
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},kite_tradingsymbol.eq.${symbolText.toUpperCase()}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+
+  // Contract known to Dhan but not yet mapped to Zerodha → pull the Kite dump now.
+  if (!inst || !inst.kite_tradingsymbol) {
+    await ensureKiteInstruments(!!inst); // force when the row exists but lacks the mapping
+    const retry = await lookup();
+    if (retry?.kite_tradingsymbol) inst = retry;
+    else inst = inst || retry;
   }
-  // Exits of Kite-native positions carry a tradingsymbol/symbol instead of a Dhan id.
-  if (!inst && symbolText) {
-    const { data } = await supabaseAdmin
-      .from("instrument_master")
-      .select("index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment")
-      .eq("symbol", symbolText)
-      .maybeSingle();
-    inst = data;
-  }
+
   if (!inst) {
     // Already a Zerodha-format symbol (e.g. NIFTY25AUG25000CE) → use it as-is.
     if (/^[A-Z]+\d{2}[A-Z0-9]{3,5}\d+(CE|PE)$/.test(symbolText.toUpperCase())) {
@@ -193,7 +215,18 @@ export async function resolveKiteSymbol(order: any): Promise<{
     return null;
   }
 
-  // Monthly contracts use MMM (AUG), weeklies use the compact month-code format.
+  // ✅ Preferred: the exact tradingsymbol Zerodha published for this contract.
+  if (inst.kite_tradingsymbol) {
+    return {
+      tradingsymbol: String(inst.kite_tradingsymbol).toUpperCase(),
+      exchange: String(inst.kite_exchange || "").toUpperCase() === "BFO"
+        ? "BFO"
+        : kiteExchangeFromSegment(inst.exchange_segment || order?.exchangeSegment),
+      lotSize: Number(inst.lot_size || 0),
+    };
+  }
+
+  // Fallback: build the symbol ourselves (monthly = MMM, weekly = month-code).
   const expiry = String(inst.expiry_date);
   const monthPrefix = expiry.slice(0, 7);
   const { data: sameMonth } = await supabaseAdmin
@@ -219,6 +252,7 @@ export async function resolveKiteSymbol(order: any): Promise<{
     lotSize: Number(inst.lot_size || 0),
   };
 }
+
 
 // ───────────────────────── Kite order via static IP ─────────────────────────
 
@@ -402,4 +436,58 @@ export async function getFundsSmart(
     console.error("[KITE] funds failed:", (e as any)?.message || e);
     return null;
   }
+}
+
+/** Broker-aware last traded price for a contract (Dhan securityId or Kite symbol). */
+export async function getLtpSmart(
+  userId: string,
+  order: any,
+  dhanFetch: () => Promise<number | null>,
+): Promise<number | null> {
+  const broker = await getActiveBroker(userId);
+  if (broker !== "zerodha") return await dhanFetch();
+  const svc = await getKiteService(userId);
+  if (!svc) return null;
+  const resolved = await resolveKiteSymbol(order);
+  if (!resolved) return null;
+  return await svc.getLastPrice(resolved.exchange, resolved.tradingsymbol);
+}
+
+/** Broker-aware order status. */
+export async function getOrderStatusSmart(
+  userId: string,
+  orderId: string,
+  dhanFetch: () => Promise<any>,
+): Promise<any> {
+  const broker = await getActiveBroker(userId);
+  if (broker !== "zerodha") return await dhanFetch();
+  const svc = await getKiteService(userId);
+  if (!svc) return null;
+  try {
+    const st = await svc.getOrderStatus(orderId);
+    return {
+      orderId: String(st?.order_id || orderId),
+      orderStatus: String(st?.status || "").toUpperCase(),
+      tradedQuantity: Number(st?.filled_quantity || 0),
+      averageTradedPrice: Number(st?.average_price || 0),
+      broker: "zerodha",
+      raw: st,
+    };
+  } catch (e) {
+    console.error("[KITE] order status failed:", (e as any)?.message || e);
+    return null;
+  }
+}
+
+/** Broker-aware cancel. */
+export async function cancelOrderSmart(
+  userId: string,
+  orderId: string,
+  dhanCancel: () => Promise<boolean>,
+): Promise<boolean> {
+  const broker = await getActiveBroker(userId);
+  if (broker !== "zerodha") return await dhanCancel();
+  const svc = await getKiteService(userId);
+  if (!svc) return false;
+  return await svc.cancelOrder(orderId);
 }

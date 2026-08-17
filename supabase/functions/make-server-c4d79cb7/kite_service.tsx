@@ -255,7 +255,44 @@ export class KiteService {
     const data = await this.request("/portfolio/holdings", { headers: this.headers() });
     return Array.isArray(data) ? data : [];
   }
+
+  // ── MARKET QUOTES ───────────────────────────────────────────
+  // https://kite.trade/docs/connect/v3/market-quotes/
+  private static qs(instruments: string[]): string {
+    return instruments.map((i) => `i=${encodeURIComponent(i)}`).join("&");
+  }
+
+  /** Full quote (depth, OHLC, OI). instruments = ["NFO:NIFTY25AUG25000CE"] */
+  async getQuote(instruments: string[]): Promise<Record<string, any>> {
+    if (!instruments.length) return {};
+    return await this.request(`/quote?${KiteService.qs(instruments)}`);
+  }
+
+  /** OHLC + last price only (lighter than /quote). */
+  async getOHLC(instruments: string[]): Promise<Record<string, any>> {
+    if (!instruments.length) return {};
+    return await this.request(`/quote/ohlc?${KiteService.qs(instruments)}`);
+  }
+
+  /** Last traded price only (cheapest call). */
+  async getLTP(instruments: string[]): Promise<Record<string, any>> {
+    if (!instruments.length) return {};
+    return await this.request(`/quote/ltp?${KiteService.qs(instruments)}`);
+  }
+
+  /** LTP for a single tradingsymbol, normalised to a plain number. */
+  async getLastPrice(exchange: string, tradingsymbol: string): Promise<number | null> {
+    const key = `${exchange}:${tradingsymbol}`;
+    try {
+      const data = await this.getLTP([key]);
+      const v = data?.[key]?.last_price;
+      return typeof v === "number" ? v : null;
+    } catch {
+      return null;
+    }
+  }
 }
+
 
 // ─────────────────── session (login) exchange ───────────────────
 
