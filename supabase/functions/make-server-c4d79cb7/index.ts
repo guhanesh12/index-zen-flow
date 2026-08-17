@@ -24,6 +24,7 @@ import * as IPPoolManager from "./ip_pool_manager.tsx";
 import * as OTPAuth from "npm:otpauth@9";
 import * as VPSProvisioning from "./vps_provisioning.tsx";
 import * as VPSPower from "./vps_power.tsx";
+import * as CentralMarketData from "./central_market_data.tsx";
 
 const app = new Hono();
 
@@ -6603,6 +6604,129 @@ app.post("/make-server-c4d79cb7/admin/vps-power/toggle/:userId", async (c) => {
     return c.json({ error: e.message }, 500);
   }
 });
+
+// ============================================================
+// 🛰️ CENTRAL MARKET DATA (ADMIN DHAN DATA SUBSCRIPTION)
+// One admin data feed → same candles & same signal for every user.
+// User broker tokens are still used for orders/positions/funds.
+// ============================================================
+app.get("/make-server-c4d79cb7/admin/market-data/status", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const { data } = await supabase
+      .from('market_data_credentials')
+      .select('dhan_client_id, enabled, status, last_error, last_verified_at, updated_at, access_token_encrypted')
+      .eq('id', 1)
+      .maybeSingle();
+
+    return c.json({
+      success: true,
+      configured: !!(data?.dhan_client_id && data?.access_token_encrypted),
+      clientId: data?.dhan_client_id || '',
+      enabled: data?.enabled ?? false,
+      status: data?.status || 'not_configured',
+      lastError: data?.last_error || null,
+      lastVerifiedAt: data?.last_verified_at || null,
+      updatedAt: data?.updated_at || null,
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/market-data/save", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    const clientId = String(body?.clientId || '').trim();
+    const accessToken = String(body?.accessToken || '').trim();
+    const enabled = body?.enabled === undefined ? true : !!body.enabled;
+
+    if (!clientId && !accessToken && body?.enabled === undefined) {
+      return c.json({ error: 'clientId or accessToken required' }, 400);
+    }
+
+    // Verify before storing (only when a token is supplied)
+    let verified: any = null;
+    if (accessToken) {
+      verified = await CentralMarketData.testCentralCredentials(clientId, accessToken);
+      if (!verified.ok) {
+        return c.json({ error: `Dhan verification failed: ${verified.error || 'unknown error'}` }, 400);
+      }
+    }
+
+    const { error: rpcError } = await supabase.rpc('set_market_data_credentials', {
+      _client_id: clientId || null,
+      _access_token: accessToken || null,
+      _enabled: enabled,
+      _updated_by: null,
+    });
+    if (rpcError) return c.json({ error: rpcError.message }, 500);
+
+    CentralMarketData.invalidateCentralCredentials();
+    if (verified?.ok) await CentralMarketData.markCentralStatus('active', null);
+
+    return c.json({ success: true, verifiedCandles: verified?.candles || 0 });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/market-data/test", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const body = await c.req.json().catch(() => ({}));
+    let clientId = String(body?.clientId || '').trim();
+    let accessToken = String(body?.accessToken || '').trim();
+
+    if (!accessToken) {
+      const creds = await CentralMarketData.getCentralCredentials(true);
+      if (!creds) return c.json({ error: 'No central market data credentials saved' }, 400);
+      clientId = creds.clientId;
+      accessToken = creds.accessToken;
+    }
+
+    const result = await CentralMarketData.testCentralCredentials(clientId, accessToken);
+    await CentralMarketData.markCentralStatus(result.ok ? 'active' : 'error', result.error || null);
+    return c.json({ success: result.ok, candles: result.candles, error: result.error || null });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Latest shared signal per index (what EVERY user sees for the current candle)
+app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const tf = Number(c.req.query('tf') || 15);
+    const indices = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
+    const signals: Record<string, any> = {};
+    for (const idx of indices) {
+      const latest = await CentralMarketData.getLatestCentralSignal(idx, tf);
+      signals[idx] = latest
+        ? {
+            action: latest.signal?.action,
+            confidence: latest.signal?.confidence,
+            reason: latest.signal?.reason || latest.signal?.reasoning || '',
+            candleStamp: latest.candleStamp,
+            generatedAt: latest.at,
+          }
+        : null;
+    }
+    return c.json({ success: true, timeframe: tf, signals });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+
 
 
 app.post("/make-server-c4d79cb7/ip-pool/create-payment-order", async (c) => {

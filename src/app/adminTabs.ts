@@ -33,6 +33,7 @@ export const TAB_TREE: TabDef[] = [
     { key: 'system-health',    label: 'System Health' },
     { key: 'backend',          label: 'Backend Config' },
     { key: 'brevo',            label: 'Brevo Communications' },
+    { key: 'market-data',      label: 'Market Data Center' },
     { key: 'vps-power',        label: 'VPS Power' },
     { key: 'app-update',       label: 'App Update' },
   ]},
