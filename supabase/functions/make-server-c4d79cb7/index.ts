@@ -2062,6 +2062,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const kite = await BrokerRouter.getKiteService(user.id);
       if (!kite) return c.json({ error: "Zerodha (Kite) not connected" }, 400);
       funds = await kite.getFundLimits();
+    } else if (activeBroker === 'groww') {
+      const groww = await BrokerRouter.getGrowwService(user.id);
+      if (!groww) return c.json({ error: "Groww not connected" }, 400);
+      funds = await groww.getFundLimits();
     } else {
       const credentials = await kv.get(`api_credentials:${user.id}`);
       if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
