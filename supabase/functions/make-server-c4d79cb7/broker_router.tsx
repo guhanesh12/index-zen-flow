@@ -75,6 +75,18 @@ export async function setActiveBroker(userId: string, broker: BrokerId): Promise
   if (error) throw error;
 }
 
+/** Flip the profile's broker_connected flag (drives dashboard connection badge). */
+export async function setBrokerConnected(userId: string, connected: boolean): Promise<void> {
+  try {
+    await supabaseAdmin
+      .from("profiles")
+      .update({ broker_connected: connected })
+      .eq("user_id", userId);
+  } catch (e) {
+    console.error("[BROKER] broker_connected update failed:", (e as any)?.message || e);
+  }
+}
+
 /** Wipe one broker's stored session (KV secret + non-secret mirror row). */
 async function clearBrokerSession(userId: string, broker: BrokerId) {
   if (broker === "dhan") await kv.del(`api_credentials:${userId}`);

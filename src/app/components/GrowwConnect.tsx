@@ -23,6 +23,7 @@ export function GrowwConnect({ serverUrl, accessToken, onConnected }: GrowwConne
   const [token, setToken] = useState('');
   const [status, setStatus] = useState<any>(null);
   const [instruments, setInstruments] = useState<any>(null);
+  const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -38,6 +39,8 @@ export function GrowwConnect({ serverUrl, accessToken, onConnected }: GrowwConne
       ]);
       setStatus(s?.groww || null);
       setInstruments(i || null);
+      const bal = s?.liveCheck?.balance ?? s?.balance;
+      setBalance(typeof bal === 'number' ? bal : null);
     } catch (e: any) {
       console.error('groww status failed', e);
     } finally {
@@ -152,6 +155,14 @@ export function GrowwConnect({ serverUrl, accessToken, onConnected }: GrowwConne
             </Button>
           )}
         </div>
+
+        {connected && balance !== null && (
+          <Alert className="bg-emerald-950/40 border-emerald-900">
+            <AlertDescription className="text-emerald-300 text-sm">
+              Live Groww funds: ₹{balance.toLocaleString('en-IN', { maximumFractionDigits: 2 })} — connection verified
+            </AlertDescription>
+          </Alert>
+        )}
 
         <p className="text-xs text-zinc-500">
           Contracts mapped: {instruments?.mappedContracts ?? 0}
