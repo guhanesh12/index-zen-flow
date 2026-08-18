@@ -13767,6 +13767,13 @@ app.post("/make-server-c4d79cb7/broker/groww/verify", async (c) => {
       lastStatus: check.ok ? "connected" : "token_invalid",
       lastError: check.ok ? null : check.error,
     } as any);
+    await BrokerRouter.mirrorGrowwStatus(user.id, {
+      last_status: check.ok ? "connected" : "token_invalid",
+      last_error: check.ok ? null : String(check.error || "").slice(0, 400),
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "groww") {
+      await BrokerRouter.setBrokerConnected(user.id, !!check.ok);
+    }
     return c.json({ success: check.ok, ...check });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
@@ -13779,6 +13786,9 @@ app.post("/make-server-c4d79cb7/broker/groww/disconnect", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     await BrokerRouter.clearGrowwCredentials(user.id);
     await BrokerRouter.mirrorGrowwStatus(user.id, { last_status: "disconnected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "groww") {
+      await BrokerRouter.setBrokerConnected(user.id, false);
+    }
     return c.json({ success: true });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
