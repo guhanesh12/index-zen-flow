@@ -1966,8 +1966,15 @@ class PersistentTradingEngine {
 
             // ⚡ EXECUTE ORDER!
             if (action === "BUY_CALL" || action === "BUY_PUT") {
+              // 🔒 Atomic cross-isolate claim — blocks the cron tick and the
+              // candle-watcher from both firing the SAME order (double quantity).
+              const claimed = await this.claimOrderKeyGlobal(orderKey);
+              if (!claimed) {
+                console.log(`⏸️ SKIPPING DUPLICATE - order already claimed elsewhere for ${normalizedSymbolName}`);
+                return;
+              }
               actionableOrderAttempted = true;
-              this.markRecentOrderKey(orderKey);
+
               console.log(
                 `\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || "UNKNOWN"}) for ${action} on ${normalizedExchangeSegment}`,
               );
