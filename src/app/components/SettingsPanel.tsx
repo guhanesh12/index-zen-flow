@@ -584,10 +584,10 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
               <Shield className="w-4 h-4 text-emerald-500" />
               <span className="text-zinc-400">Your broker:</span>
               <span className="font-semibold text-zinc-100">
-                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name ||
-                  (activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan')}
+                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name || activeBroker}
               </span>
-              {(activeBroker === 'zerodha' ? brokerAvailability.zerodha : brokerAvailability.dhan) ? (
+              {brokerAvailability?.[activeBroker] ? (
+
                 <span className="text-emerald-400 text-xs flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" /> connected
                 </span>
