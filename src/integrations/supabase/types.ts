@@ -668,6 +668,10 @@ export type Database = {
         Row: {
           exchange_segment: string
           expiry_date: string
+          groww_exchange: string | null
+          groww_segment: string | null
+          groww_synced_at: string | null
+          groww_trading_symbol: string | null
           id: string
           index_name: string
           kite_exchange: string | null
@@ -685,6 +689,10 @@ export type Database = {
         Insert: {
           exchange_segment: string
           expiry_date: string
+          groww_exchange?: string | null
+          groww_segment?: string | null
+          groww_synced_at?: string | null
+          groww_trading_symbol?: string | null
           id?: string
           index_name: string
           kite_exchange?: string | null
@@ -702,6 +710,10 @@ export type Database = {
         Update: {
           exchange_segment?: string
           expiry_date?: string
+          groww_exchange?: string | null
+          groww_segment?: string | null
+          groww_synced_at?: string | null
+          groww_trading_symbol?: string | null
           id?: string
           index_name?: string
           kite_exchange?: string | null
@@ -1739,6 +1751,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_groww_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
       apply_kite_instruments: {
         Args: { _rows: Json }
         Returns: {
