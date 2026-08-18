@@ -655,8 +655,9 @@ class PersistentTradingEngine {
           const credentials = await loadDhanCredentials(userId);
           if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) {
             console.warn(`⚠️ [CRON] No Dhan credentials for user ${userId}, skipping`);
-            continue;
+            return;
           }
+
 
           // Hydrate/sync memory state from DB every tick. Edge isolates keep module memory
           // between requests; after a stop/start, an old in-memory `isRunning:false` state
