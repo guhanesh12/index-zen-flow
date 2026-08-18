@@ -13666,7 +13666,10 @@ app.get("/make-server-c4d79cb7/broker/groww/status", async (c) => {
     const creds = await BrokerRouter.getGrowwCredentials(user.id);
     let liveCheck: any = null;
     if (creds?.accessToken) {
-      const svc = new GrowwService({ accessToken: creds.accessToken });
+      const svc = new GrowwService({
+        accessToken: creds.accessToken,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "groww"),
+      });
       liveCheck = await svc.verify();
       await BrokerRouter.saveGrowwCredentials(user.id, {
         lastStatus: liveCheck.ok ? "connected" : "token_invalid",
@@ -13701,7 +13704,10 @@ app.post("/make-server-c4d79cb7/broker/groww/save-keys", async (c) => {
     const accessToken = String(body?.accessToken || body?.access_token || "").trim();
     if (accessToken.length < 20) return c.json({ error: "A valid Groww Trade API access token is required" }, 400);
 
-    const svc = new GrowwService({ accessToken });
+    const svc = new GrowwService({
+      accessToken,
+      proxy: await BrokerRouter.makeBrokerProxy(user.id, "groww"),
+    });
     const check = await svc.verify();
     if (!check.ok) return c.json({ error: check.error || "Groww rejected this access token" }, 400);
 
