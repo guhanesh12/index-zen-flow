@@ -716,7 +716,13 @@ class PersistentTradingEngine {
         } catch (engineErr) {
           console.error(`❌ [CRON] Error processing engine for user ${engine.user_id}:`, engineErr);
         }
+      };
+
+      const CONCURRENCY = 10;
+      for (let i = 0; i < activeEngines.length; i += CONCURRENCY) {
+        await Promise.all(activeEngines.slice(i, i + CONCURRENCY).map(runEngineForUser));
       }
+
 
       // ⚡⚡⚡ ALSO MONITOR USERS WITH OPEN POSITIONS BUT ENGINE STOPPED ⚡⚡⚡
       // (so SL/Target still triggers even if user clicks "Stop Engine")
