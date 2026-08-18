@@ -1,5 +1,8 @@
 # Broker Integration Playbook (used for Upstox — reuse for any next broker)
 
+➡️ Ready-made fill-in prompt: **`docs/NEW_BROKER_INTEGRATION_PROMPT.md`** — paste the broker
+name + documentation URLs into it and send; the whole integration below is generated.
+
 Give me only two things for a new broker and I repeat this exact process:
 
 1. Broker name (e.g. "Upstox")
