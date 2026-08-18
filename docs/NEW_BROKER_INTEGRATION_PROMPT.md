@@ -67,7 +67,18 @@ without changing or breaking any existing broker (Dhan is the default and must s
    - Landing page (SupportedBrokers), Admin → Broker Control and the React Native app are
      registry-driven: verify they pick the broker up with zero extra code.
 
-8. Rules
+8. Redirect / callback URL (OAuth brokers)
+   - The ONLY correct redirect URI is:
+     https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7/broker/<<brokerid>>/callback
+     Build it in code from SUPABASE_URL, never hardcode a preview/localhost URL.
+   - Register that exact string (no trailing slash, https, same case) in the broker's developer app.
+   - Show it in the connect card with a Copy button, return it from /status, /save-keys and
+     /login-url, and allow an override via save-keys { redirectUri } for brokers that
+     demand a custom domain.
+   - The callback page must print an actionable reason on failure (segment not activated,
+     redirect mismatch, wrong key/secret) plus the redirect URI that was actually used.
+
+9. Rules
    - One user = one active broker; switching wipes the other broker's session and
      downloads this broker's contracts.
    - Dashboard funds, positions, orders, exit button and signal execution must follow the
@@ -75,8 +86,9 @@ without changing or breaking any existing broker (Dhan is the default and must s
    - Order latency path (candle watcher, atomic order claim, parallel batches) is shared —
      do not fork it per broker.
 
-9. Deploy the make-server-c4d79cb7 edge function and append a "<<BROKER NAME>> — what is live now"
-   section to docs/BROKER_INTEGRATION_PLAYBOOK.md.
+10. Deploy the make-server-c4d79cb7 edge function and append a "<<BROKER NAME>> — what is live now"
+    section to docs/BROKER_INTEGRATION_PLAYBOOK.md.
+
 ```
 
 ## ✂️ COPY TO HERE
