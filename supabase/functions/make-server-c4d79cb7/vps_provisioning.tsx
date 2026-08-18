@@ -50,7 +50,29 @@ interface ProvisioningJob {
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
 const DEDICATED_IP_MONTHLY_FEE = 599;
-const ORDER_SERVER_VERSION = '1.3.0';
+export const ORDER_SERVER_VERSION = '1.4.0';
+
+/**
+ * Push the latest server.js to an already-running VPS (no SSH needed).
+ * Works on images >= 1.4.0 which expose POST /self-update.
+ */
+export async function pushServerUpdate(ipAddress: string): Promise<{ success: boolean; error?: string }> {
+  const apiKey = Deno.env.get('ORDER_SERVER_API_KEY');
+  if (!apiKey) return { success: false, error: 'ORDER_SERVER_API_KEY missing' };
+  try {
+    const resp = await fetch(`http://${ipAddress}:3000/self-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ script: generateOrderServerJs(), version: ORDER_SERVER_VERSION }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (resp.status === 404) return { success: false, error: 'VPS image too old for /self-update' };
+    if (!resp.ok) return { success: false, error: `HTTP ${resp.status}` };
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+}
 
 async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
   try {
@@ -293,54 +315,11 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 }
 
 /**
- * Generate cloud-init script for automatic order server deployment
+ * server.js source for the dedicated order VPS.
+ * Exported so it can be pushed to already-running VPSs via /self-update.
  */
-function generateCloudInitScript(orderServerApiKey: string): string {
-  return `#!/bin/bash
-
-# ===================================
-# IndexpilotAI Order Server Auto-Deploy
-# IMPROVED VERSION - 100% AUTOMATIC
-# ===================================
-
-set -e
-
-# Log everything
-exec > >(tee -a /var/log/indexpilot-deploy.log)
-exec 2>&1
-
-echo "========================================="
-echo "🤖 IndexpilotAI Auto-Deployment Starting"
-echo "Time: $(date)"
-echo "========================================="
-
-# Update system
-echo "📦 [1/8] Updating system packages..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get upgrade -y -qq
-
-# Install Node.js 18.x
-echo "📦 [2/8] Installing Node.js 18.x..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash - 
-apt-get install -y nodejs
-
-node --version
-npm --version
-
-# Install PM2 for process management
-echo "📦 [3/8] Installing PM2..."
-npm install -g pm2
-
-# Create order server directory
-echo "📁 [4/8] Creating server directory..."
-mkdir -p /root/indexpilot-order-server
-cd /root/indexpilot-order-server
-
-# Create server.js
-echo "📝 [5/8] Creating server files..."
-cat > server.js << 'SERVEREOF'
-const express = require('express');
+export function generateOrderServerJs(): string {
+  return `const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const app = express();
@@ -388,6 +367,31 @@ app.get('/test', (req, res) => {
       cancelOrder: '/cancel-order/:orderId (DELETE)'
     }
   });
+});
+
+// 🔄 SELF-UPDATE — lets the backend push a newer server.js to this VPS with no SSH.
+app.post('/self-update', (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { script, version } = req.body || {};
+    if (!script || typeof script !== 'string' || script.length < 500) {
+      return res.status(400).json({ error: 'Invalid script payload' });
+    }
+    const fs = require('fs');
+    const { exec } = require('child_process');
+    const file = '/root/indexpilot-order-server/server.js';
+    fs.copyFileSync(file, file + '.bak');
+    fs.writeFileSync(file, script);
+    log(\`🔄 Self-update written (target version \${version || 'unknown'}), restarting...\`);
+    res.json({ success: true, restarting: true, version: version || null });
+    setTimeout(() => exec('pm2 restart indexpilot-order-server'), 400);
+  } catch (error) {
+    log(\`❌ Self-update failed: \${error.message}\`);
+    try { res.status(500).json({ error: error.message }); } catch (_) {}
+  }
 });
 
 // Place order endpoint
@@ -527,7 +531,19 @@ app.post('/place-order-kite', async (req, res) => {
 const BROKER_HOSTS = {
   dhan: 'https://api.dhan.co',
   zerodha: 'https://api.kite.trade',
-  kite: 'https://api.kite.trade'
+  kite: 'https://api.kite.trade',
+  groww: 'https://api.groww.in',
+  upstox: 'https://api.upstox.com',
+  angelone: 'https://apiconnect.angelone.in',
+  fyers: 'https://api-t1.fyers.in',
+  aliceblue: 'https://ant.aliceblueonline.com',
+  fivepaisa: 'https://Openapi.5paisa.com',
+  kotak: 'https://gw-napi.kotaksecurities.com',
+  icici: 'https://api.icicidirect.com',
+  motilal: 'https://openapi.motilaloswal.com',
+  iifl: 'https://ttblaze.iifl.com',
+  finvasia: 'https://api.shoonya.com',
+  paytm: 'https://developer.paytmmoney.com'
 };
 
 app.post('/broker-request', async (req, res) => {
@@ -537,8 +553,12 @@ app.post('/broker-request', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
     }
 
-    const { broker, method, path, headers, body, form } = req.body || {};
-    const base = BROKER_HOSTS[String(broker || '').toLowerCase()];
+    const { broker, method, path, headers, body, form, baseUrl } = req.body || {};
+    // baseUrl lets ANY future broker route through this IP with zero VPS redeploy.
+    let base = BROKER_HOSTS[String(broker || '').toLowerCase()];
+    if (!base && typeof baseUrl === 'string' && /^https:\\/\\/[a-z0-9.-]+(:\\d+)?$/i.test(baseUrl)) {
+      base = baseUrl.replace(/\\/$/, '');
+    }
     if (!base) return res.status(400).json({ error: 'Unsupported broker: ' + broker });
     if (!path || typeof path !== 'string' || !path.startsWith('/')) {
       return res.status(400).json({ error: 'path must start with /' });
@@ -700,7 +720,58 @@ process.on('unhandledRejection', (reason, promise) => {
   log(\`❌ Unhandled rejection at: \${promise}, reason: \${reason}\`);
 });
 
-log('✅ Server initialization complete');
+log('✅ Server initialization complete');`;
+}
+
+/**
+ * Generate cloud-init script for automatic order server deployment
+ */
+function generateCloudInitScript(orderServerApiKey: string): string {
+  return `#!/bin/bash
+
+# ===================================
+# IndexpilotAI Order Server Auto-Deploy
+# IMPROVED VERSION - 100% AUTOMATIC
+# ===================================
+
+set -e
+
+# Log everything
+exec > >(tee -a /var/log/indexpilot-deploy.log)
+exec 2>&1
+
+echo "========================================="
+echo "🤖 IndexpilotAI Auto-Deployment Starting"
+echo "Time: $(date)"
+echo "========================================="
+
+# Update system
+echo "📦 [1/8] Updating system packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get upgrade -y -qq
+
+# Install Node.js 18.x
+echo "📦 [2/8] Installing Node.js 18.x..."
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash - 
+apt-get install -y nodejs
+
+node --version
+npm --version
+
+# Install PM2 for process management
+echo "📦 [3/8] Installing PM2..."
+npm install -g pm2
+
+# Create order server directory
+echo "📁 [4/8] Creating server directory..."
+mkdir -p /root/indexpilot-order-server
+cd /root/indexpilot-order-server
+
+# Create server.js
+echo "📝 [5/8] Creating server files..."
+cat > server.js << 'SERVEREOF'
+${generateOrderServerJs()}
 SERVEREOF
 
 # Create package.json
