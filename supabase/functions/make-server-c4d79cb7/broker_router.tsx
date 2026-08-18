@@ -549,7 +549,7 @@ export async function placeOrderSmart(
         orderId: res.orderId,
         orderStatus: res.orderId ? "PLACED" : "REJECTED",
         broker: "groww",
-        routedVia: "edge",
+        routedVia: gProxy ? "static-ip" : "edge",
         message: res.orderId ? "Order placed via Groww" : "Groww order rejected",
         raw: res.raw,
       };
