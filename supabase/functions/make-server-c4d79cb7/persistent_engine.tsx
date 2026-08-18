@@ -1065,6 +1065,18 @@ class PersistentTradingEngine {
           );
         }
 
+        if (inMarket && msIntoMinute >= this.CANDLE_RETRY_MS && key !== this.lastCandleRetryKey) {
+          this.lastCandleRetryKey = key;
+          fires++;
+          console.log(`🔁 [CANDLE-WATCH] Safety re-fire at +${msIntoMinute}ms for ${h}:${String(m).padStart(2, "0")}`);
+          inflight.push(
+            this.runCronTick(true).catch((e: any) =>
+              console.error(`❌ [CANDLE-WATCH] Retry tick failed: ${e?.message || e}`)
+            ),
+          );
+        }
+
+
         await new Promise((r) => setTimeout(r, this.CANDLE_WATCH_POLL_MS));
       }
 
