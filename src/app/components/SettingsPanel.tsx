@@ -15,6 +15,7 @@ import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
 import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
 import { ZerodhaConnect } from "./ZerodhaConnect";
 import { GrowwConnect } from "./GrowwConnect";
+import { UpstoxConnect } from "./UpstoxConnect";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
@@ -51,7 +52,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [brokerLoading, setBrokerLoading] = useState(true);
   const [switchingBroker, setSwitchingBroker] = useState(false);
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
-  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false });
+  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false, upstox: false });
 
   // 🔀 Brokers the admin has switched ON (common registry — new brokers appear automatically)
   const [enabledBrokers, setEnabledBrokers] = useState<any[]>([]);
@@ -671,6 +672,18 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         />
       )}
 
+
+      {activeBroker === 'upstox' && (
+        <UpstoxConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
 
       {activeBroker === 'dhan' && (
     <Tabs defaultValue="oauth" className="space-y-4">

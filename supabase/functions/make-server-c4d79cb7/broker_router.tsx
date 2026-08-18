@@ -30,6 +30,11 @@ import {
   growwProductFromDhan,
 } from "./groww_service.tsx";
 import { ensureGrowwInstruments } from "./groww_instruments.tsx";
+import {
+  UpstoxService,
+  upstoxProductFromDhan,
+} from "./upstox_service.tsx";
+import { ensureUpstoxInstruments } from "./upstox_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -37,8 +42,8 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha" | "groww";
-const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww"];
+export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox"];
 
 
 export interface KiteStoredCreds {
@@ -92,6 +97,7 @@ async function clearBrokerSession(userId: string, broker: BrokerId) {
   if (broker === "dhan") await kv.del(`api_credentials:${userId}`);
   if (broker === "zerodha") await clearKiteCredentials(userId);
   if (broker === "groww") await clearGrowwCredentials(userId);
+  if (broker === "upstox") await clearUpstoxCredentials(userId);
   await supabaseAdmin
     .from("broker_credentials")
     .delete()
@@ -117,6 +123,119 @@ export async function selectBroker(userId: string, broker: BrokerId): Promise<vo
   // orders go out in that broker's own symbol format (shared by all users).
   if (broker === "zerodha") await ensureKiteInstruments(false);
   if (broker === "groww") await ensureGrowwInstruments(false);
+  if (broker === "upstox") await ensureUpstoxInstruments(false);
+}
+
+// ───────────────────────── upstox credentials ─────────────────────────
+
+export interface UpstoxStoredCreds {
+  apiKey: string;
+  apiSecret: string;
+  redirectUri?: string;
+  accessToken?: string;
+  upstoxUserId?: string;
+  upstoxUserName?: string;
+  tokenExpiry?: string;
+  lastStatus?: string;
+  lastError?: string | null;
+}
+
+export async function getUpstoxCredentials(userId: string): Promise<UpstoxStoredCreds | null> {
+  const creds = (await kv.get(`upstox_credentials:${userId}`)) as UpstoxStoredCreds | null;
+  if (!creds?.apiKey && !creds?.accessToken) return null;
+  return creds;
+}
+
+export async function saveUpstoxCredentials(userId: string, patch: Partial<UpstoxStoredCreds>) {
+  const existing = (await getUpstoxCredentials(userId)) || ({} as UpstoxStoredCreds);
+  const merged = { ...existing, ...patch };
+  await kv.set(`upstox_credentials:${userId}`, merged);
+  return merged;
+}
+
+export async function clearUpstoxCredentials(userId: string) {
+  await kv.del(`upstox_credentials:${userId}`);
+}
+
+export async function getUpstoxService(userId: string): Promise<UpstoxService | null> {
+  const creds = await getUpstoxCredentials(userId);
+  if (!creds?.accessToken) return null;
+  const proxy = await makeBrokerProxy(userId, "upstox");
+  return new UpstoxService({ accessToken: creds.accessToken, proxy });
+}
+
+/** Non-secret mirror so the Broker screen can show Upstox status. */
+export async function mirrorUpstoxStatus(userId: string, patch: Record<string, any>) {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("broker_credentials")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("broker", "upstox")
+      .maybeSingle();
+    const payload = { user_id: userId, broker: "upstox", auth_method: "oauth", ...patch };
+    if (existing?.id) {
+      await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
+    } else {
+      await supabaseAdmin.from("broker_credentials").insert(payload);
+    }
+  } catch (e) {
+    console.error("[UPSTOX] status mirror failed:", (e as any)?.message || e);
+  }
+}
+
+/** Resolve a Dhan-style order into an Upstox instrument key. */
+export async function resolveUpstoxSymbol(order: any): Promise<{
+  instrumentKey: string;
+  tradingSymbol: string;
+  lotSize: number;
+} | null> {
+  const securityId = String(order?.securityId || "");
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS = "lot_size, exchange_segment, upstox_instrument_key, upstox_tradingsymbol";
+
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},upstox_tradingsymbol.eq.${symbolText.toUpperCase()}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+  if (!inst?.upstox_instrument_key) {
+    await ensureUpstoxInstruments(!!inst);
+    const retry = await lookup();
+    if (retry?.upstox_instrument_key) inst = retry;
+  }
+
+  if (!inst?.upstox_instrument_key) {
+    // Position exits carry the instrument key directly from Upstox positions.
+    if (/^[A-Z]+_[A-Z]+\|/.test(symbolText.toUpperCase()) || /^[A-Z]+_[A-Z]+\|/.test(securityId)) {
+      const key = /\|/.test(securityId) ? securityId : symbolText.toUpperCase();
+      return { instrumentKey: key, tradingSymbol: symbolText, lotSize: Number(order?.lotSize || 0) };
+    }
+    return null;
+  }
+
+  return {
+    instrumentKey: String(inst.upstox_instrument_key),
+    tradingSymbol: String(inst.upstox_tradingsymbol || symbolText),
+    lotSize: Number(inst.lot_size || 0),
+  };
 }
 
 // ───────────────────────── groww credentials ─────────────────────────
@@ -516,6 +635,54 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🟣 UPSTOX
+  if (broker === "upstox") {
+    const uCreds = await getUpstoxCredentials(userId);
+    if (!uCreds?.accessToken) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Upstox is your active broker but no valid Upstox session was found. Open Broker Setup → Upstox and login again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const u = await resolveUpstoxSymbol(orderDetails);
+    if (!u?.instrumentKey) {
+      throw new Error("Could not map this contract to an Upstox instrument key. Refresh the instrument master and retry.");
+    }
+    const uProxy = await makeBrokerProxy(userId, "upstox");
+    const svcU = new UpstoxService({ accessToken: uCreds.accessToken, proxy: uProxy });
+    try {
+      const res = await svcU.placeOrder({
+        instrumentToken: u.instrumentKey,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: upstoxProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        validity: "DAY",
+        tag: "indexpilot",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "upstox",
+        routedVia: uProxy ? "static-ip" : "edge",
+        message: res.orderId ? "Order placed via Upstox" : "Upstox order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired|UDAPI100050/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Upstox session has expired (Upstox tokens reset daily at 3:30 AM). Login again from Broker Setup → Upstox.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   // 🟢 GROWW
   if (broker === "groww") {
     const gCreds = await getGrowwCredentials(userId);
@@ -639,6 +806,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "upstox") {
+    const u = await getUpstoxService(userId);
+    if (!u) return [];
+    try {
+      return await u.getPositions();
+    } catch (e) {
+      console.error("[UPSTOX] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker === "groww") {
     const g = await getGrowwService(userId);
     if (!g) return [];
@@ -666,6 +843,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "upstox") {
+    const u = await getUpstoxService(userId);
+    if (!u) return null;
+    try {
+      return await u.getFundLimits();
+    } catch (e) {
+      console.error("[UPSTOX] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "groww") {
     const g = await getGrowwService(userId);
     if (!g) return null;
@@ -694,6 +881,13 @@ export async function getLtpSmart(
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "upstox") {
+    const u = await getUpstoxService(userId);
+    if (!u) return null;
+    const ru = await resolveUpstoxSymbol(order);
+    if (!ru) return null;
+    return await u.getLastPrice(ru.instrumentKey);
+  }
   if (broker === "groww") {
     const g = await getGrowwService(userId);
     if (!g) return null;
@@ -716,6 +910,24 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "upstox") {
+    const u = await getUpstoxService(userId);
+    if (!u) return null;
+    try {
+      const st = await u.getOrderStatus(orderId);
+      return {
+        orderId: String(st?.order_id || orderId),
+        orderStatus: String(st?.status || "").toUpperCase(),
+        tradedQuantity: Number(st?.filled_quantity ?? 0),
+        averageTradedPrice: Number(st?.average_price ?? 0),
+        broker: "upstox",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[UPSTOX] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "groww") {
     const g = await getGrowwService(userId);
     if (!g) return null;
@@ -760,6 +972,11 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "upstox") {
+    const u = await getUpstoxService(userId);
+    if (!u) return false;
+    return await u.cancelOrder(orderId);
+  }
   if (broker === "groww") {
     const g = await getGrowwService(userId);
     if (!g) return false;

@@ -685,6 +685,10 @@ export type Database = {
           strike_price: number
           symbol: string
           tick_size: number | null
+          upstox_exchange: string | null
+          upstox_instrument_key: string | null
+          upstox_synced_at: string | null
+          upstox_tradingsymbol: string | null
         }
         Insert: {
           exchange_segment: string
@@ -706,6 +710,10 @@ export type Database = {
           strike_price: number
           symbol: string
           tick_size?: number | null
+          upstox_exchange?: string | null
+          upstox_instrument_key?: string | null
+          upstox_synced_at?: string | null
+          upstox_tradingsymbol?: string | null
         }
         Update: {
           exchange_segment?: string
@@ -727,6 +735,10 @@ export type Database = {
           strike_price?: number
           symbol?: string
           tick_size?: number | null
+          upstox_exchange?: string | null
+          upstox_instrument_key?: string | null
+          upstox_synced_at?: string | null
+          upstox_tradingsymbol?: string | null
         }
         Relationships: []
       }
@@ -1759,6 +1771,13 @@ export type Database = {
         }[]
       }
       apply_kite_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
+      apply_upstox_instruments: {
         Args: { _rows: Json }
         Returns: {
           inserted_count: number

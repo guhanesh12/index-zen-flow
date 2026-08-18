@@ -31,6 +31,8 @@ import { syncKiteInstruments, ensureKiteInstruments, getKiteInstrumentStatus } f
 import * as BrokerRegistry from "./broker_registry.tsx";
 import { GrowwService } from "./groww_service.tsx";
 import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
+import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox_service.tsx";
+import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
 
 
 
@@ -2066,6 +2068,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const groww = await BrokerRouter.getGrowwService(user.id);
       if (!groww) return c.json({ error: "Groww not connected" }, 400);
       funds = await groww.getFundLimits();
+    } else if (activeBroker === 'upstox') {
+      const upstox = await BrokerRouter.getUpstoxService(user.id);
+      if (!upstox) return c.json({ error: "Upstox not connected" }, 400);
+      funds = await upstox.getFundLimits();
     } else {
       const credentials = await kv.get(`api_credentials:${user.id}`);
       if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -2260,6 +2266,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(groww.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'upstox') {
+      const upstox = await BrokerRouter.getUpstoxService(effectiveUserId);
+      if (!upstox) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Upstox session not found. Connect Upstox again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(upstox.getPositions(), 4500, cachedPositions || []);
     } else {
       const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
       if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -13555,6 +13571,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const activeBroker = await BrokerRouter.getActiveBroker(user.id);
     const kite = await BrokerRouter.getKiteCredentials(user.id);
     const groww = await BrokerRouter.getGrowwCredentials(user.id);
+    const upstox = await BrokerRouter.getUpstoxCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
@@ -13562,6 +13579,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
       dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
       zerodha: !!(kite?.apiKey && kite?.accessToken),
       groww: !!groww?.accessToken,
+      upstox: !!upstox?.accessToken,
     };
 
     return c.json({
@@ -13585,8 +13603,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (broker !== "dhan" && broker !== "zerodha" && broker !== "groww") {
-      return c.json({ error: "broker must be 'dhan', 'zerodha' or 'groww'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww' or 'upstox'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13608,6 +13626,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     let instrumentSync: any = null;
     if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
     if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
+    if (broker === "upstox") instrumentSync = await ensureUpstoxInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
@@ -13817,6 +13836,271 @@ app.post("/make-server-c4d79cb7/broker/groww/instruments/sync", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const result = await syncGrowwInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    return c.json({ success: true, ...result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+
+
+// ============================================================================
+// 🟣 UPSTOX — OAuth login, funds, status, instruments
+// Docs: https://upstox.com/developer/api-documentation/authentication
+// ============================================================================
+
+function upstoxRedirectUri() {
+  return `${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-c4d79cb7/broker/upstox/callback`;
+}
+
+function sanitizeUpstox(creds: any) {
+  if (!creds) return null;
+  return {
+    api_key_set: !!creds.apiKey,
+    api_secret_set: !!creds.apiSecret,
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    redirect_uri: creds.redirectUri || upstoxRedirectUri(),
+    upstox_user_id: creds.upstoxUserId || null,
+    upstox_user_name: creds.upstoxUserName || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
+    last_error: creds.lastError || null,
+  };
+}
+
+app.get("/make-server-c4d79cb7/broker/upstox/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getUpstoxCredentials(user.id);
+    let liveCheck: any = null;
+    if (creds?.accessToken) {
+      const svc = new UpstoxService({
+        accessToken: creds.accessToken,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "upstox"),
+      });
+      liveCheck = await svc.verify();
+      await BrokerRouter.saveUpstoxCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      } as any);
+      await BrokerRouter.mirrorUpstoxStatus(user.id, {
+        last_status: liveCheck.ok ? "connected" : "token_invalid",
+        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+      });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "upstox") {
+        await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+      }
+    }
+    const refreshed = await BrokerRouter.getUpstoxCredentials(user.id);
+    return c.json({
+      success: true,
+      upstox: sanitizeUpstox(refreshed),
+      redirectUri: upstoxRedirectUri(),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+      balance: liveCheck?.balance ?? null,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Save the Upstox app's API key + secret (from https://account.upstox.com/developer/apps). */
+app.post("/make-server-c4d79cb7/broker/upstox/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const apiKey = String(body?.apiKey || "").trim();
+    const apiSecret = String(body?.apiSecret || "").trim();
+    const accessToken = String(body?.accessToken || "").trim();
+    if (!accessToken && (apiKey.length < 5 || apiSecret.length < 5)) {
+      return c.json({ error: "Upstox API key and secret are required" }, 400);
+    }
+
+    // one user = one broker
+    const currentBroker = await BrokerRouter.getActiveBroker(user.id);
+    if (currentBroker !== "upstox") await BrokerRouter.selectBroker(user.id, "upstox" as any);
+
+    let balance: number | null = null;
+    if (accessToken) {
+      const svc = new UpstoxService({
+        accessToken,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "upstox"),
+      });
+      const check = await svc.verify();
+      if (!check.ok) return c.json({ error: check.error || "Upstox rejected this access token" }, 400);
+      balance = typeof check.balance === "number" ? check.balance : null;
+    }
+
+    const creds = await BrokerRouter.saveUpstoxCredentials(user.id, {
+      apiKey: apiKey || undefined,
+      apiSecret: apiSecret || undefined,
+      redirectUri: String(body?.redirectUri || "").trim() || upstoxRedirectUri(),
+      accessToken: accessToken || undefined,
+      lastStatus: accessToken ? "connected" : "keys_saved",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorUpstoxStatus(user.id, {
+      last_status: accessToken ? "connected" : "keys_saved",
+      last_error: null,
+    });
+    await kv.set(`broker_choice:${user.id}`, { broker: "upstox", at: new Date().toISOString() });
+    await BrokerRouter.setBrokerConnected(user.id, !!accessToken);
+
+    if (balance !== null) {
+      await kv.set(`broker_funds:${user.id}`, {
+        availableBalance: balance,
+        sodLimit: balance,
+        collateralAmount: 0,
+        utilizationAmount: 0,
+        blockedPayinAmount: 0,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    const instrumentSync = await ensureUpstoxInstruments(false);
+    return c.json({
+      success: true,
+      upstox: sanitizeUpstox(creds),
+      redirectUri: upstoxRedirectUri(),
+      activeBroker: "upstox",
+      connected: !!accessToken,
+      balance,
+      instrumentSync,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Build the Upstox OAuth dialog URL. */
+app.get("/make-server-c4d79cb7/broker/upstox/login-url", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getUpstoxCredentials(user.id);
+    if (!creds?.apiKey) return c.json({ error: "Save your Upstox API key and secret first" }, 400);
+    const state = crypto.randomUUID();
+    await kv.set(`upstox_oauth_state:${state}`, { userId: user.id, at: Date.now() });
+    const redirectUri = creds.redirectUri || upstoxRedirectUri();
+    return c.json({
+      success: true,
+      url: buildUpstoxLoginUrl(creds.apiKey, redirectUri, state),
+      redirectUri,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Upstox redirects the browser here with ?code=&state= — public by design. */
+app.get("/make-server-c4d79cb7/broker/upstox/callback", async (c) => {
+  const html = (title: string, msg: string, ok: boolean) =>
+    c.html(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:420px"><h2 style="color:${ok ? "#34d399" : "#f87171"}">${title}</h2>
+<p style="color:#94a3b8">${msg}</p><p style="color:#64748b;font-size:13px">You can close this window and return to IndexPilot.</p></div>
+<script>setTimeout(function(){window.close()},2500)</script></body></html>`);
+  try {
+    const code = c.req.query("code") || "";
+    const state = c.req.query("state") || "";
+    if (!code || !state) return html("Upstox login failed", "Missing authorization code.", false);
+    const st = await kv.get(`upstox_oauth_state:${state}`);
+    if (!st?.userId) return html("Upstox login failed", "This login link has expired. Try again.", false);
+    await kv.del(`upstox_oauth_state:${state}`);
+
+    const creds = await BrokerRouter.getUpstoxCredentials(st.userId);
+    if (!creds?.apiKey || !creds?.apiSecret) {
+      return html("Upstox login failed", "API key/secret missing. Save them again in Broker Setup.", false);
+    }
+
+    const tok = await exchangeUpstoxCode({
+      apiKey: creds.apiKey,
+      apiSecret: creds.apiSecret,
+      redirectUri: creds.redirectUri || upstoxRedirectUri(),
+      code,
+    });
+
+    await BrokerRouter.saveUpstoxCredentials(st.userId, {
+      accessToken: tok.accessToken,
+      upstoxUserId: tok.userId,
+      upstoxUserName: tok.userName,
+      tokenExpiry: new Date(new Date().setHours(24 + 3, 30, 0, 0)).toISOString(),
+      lastStatus: "connected",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorUpstoxStatus(st.userId, { last_status: "connected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(st.userId)) === "upstox") {
+      await BrokerRouter.setBrokerConnected(st.userId, true);
+    }
+    await ensureUpstoxInstruments(false);
+
+    return html("Upstox connected ✅", "Your Upstox account is linked. Funds, positions and orders now route through Upstox.", true);
+  } catch (err: any) {
+    return html("Upstox login failed", String(err?.message || err).slice(0, 200), false);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/upstox/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getUpstoxService(user.id);
+    if (!svc) return c.json({ success: false, error: "Upstox is not connected" }, 400);
+    const check = await svc.verify();
+    await BrokerRouter.saveUpstoxCredentials(user.id, {
+      lastStatus: check.ok ? "connected" : "token_invalid",
+      lastError: check.ok ? null : check.error,
+    } as any);
+    await BrokerRouter.mirrorUpstoxStatus(user.id, {
+      last_status: check.ok ? "connected" : "token_invalid",
+      last_error: check.ok ? null : String(check.error || "").slice(0, 400),
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "upstox") {
+      await BrokerRouter.setBrokerConnected(user.id, !!check.ok);
+    }
+    return c.json({ success: check.ok, ...check });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/upstox/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearUpstoxCredentials(user.id);
+    await BrokerRouter.mirrorUpstoxStatus(user.id, { last_status: "disconnected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "upstox") {
+      await BrokerRouter.setBrokerConnected(user.id, false);
+    }
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/upstox/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getUpstoxInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/upstox/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await syncUpstoxInstruments({
       force: body?.force !== false,
       expiries: Number(body?.expiries) || 2,
     });
