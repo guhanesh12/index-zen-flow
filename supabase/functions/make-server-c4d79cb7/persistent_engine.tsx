@@ -641,9 +641,13 @@ class PersistentTradingEngine {
 
       let processedCount = 0;
 
-      for (const engine of activeEngines) {
+      // ⚡ SPEED: users used to be processed one-by-one, so the last user in the
+      // list could get their order minutes after the candle closed. Run them in
+      // parallel batches instead (order placement is per-user isolated).
+      const runEngineForUser = async (engine: any) => {
         try {
           const userId = engine.user_id;
+
           const settings = engine.strategy_settings || {};
           const symbols = engine.selected_symbols || [];
 
@@ -651,8 +655,9 @@ class PersistentTradingEngine {
           const credentials = await loadDhanCredentials(userId);
           if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) {
             console.warn(`⚠️ [CRON] No Dhan credentials for user ${userId}, skipping`);
-            continue;
+            return;
           }
+
 
           // Hydrate/sync memory state from DB every tick. Edge isolates keep module memory
           // between requests; after a stop/start, an old in-memory `isRunning:false` state
@@ -711,7 +716,13 @@ class PersistentTradingEngine {
         } catch (engineErr) {
           console.error(`❌ [CRON] Error processing engine for user ${engine.user_id}:`, engineErr);
         }
+      };
+
+      const CONCURRENCY = 10;
+      for (let i = 0; i < activeEngines.length; i += CONCURRENCY) {
+        await Promise.all(activeEngines.slice(i, i + CONCURRENCY).map(runEngineForUser));
       }
+
 
       // ⚡⚡⚡ ALSO MONITOR USERS WITH OPEN POSITIONS BUT ENGINE STOPPED ⚡⚡⚡
       // (so SL/Target still triggers even if user clicks "Stop Engine")
@@ -1000,10 +1011,16 @@ class PersistentTradingEngine {
   // clock every 150ms and triggers the engine tick within ~2s of the
   // candle close (e.g. 09:30:02) so orders go out on time.
   // ============================================================
-  private static readonly CANDLE_WATCH_POLL_MS = 150;
-  private static readonly CANDLE_SETTLE_MS = 1_800; // let broker publish the closed candle
+  private static readonly CANDLE_WATCH_POLL_MS = 100;
+  private static readonly CANDLE_SETTLE_MS = 700; // let broker publish the closed candle
+  // Safety re-fire in the same minute: if the broker had not published the closed
+  // candle at +700ms, this second pass still executes the order inside the minute
+  // (duplicate orders are blocked by the atomic order claim).
+  private static readonly CANDLE_RETRY_MS = 6_000;
   private static candleWatchUntil = 0;
   private static lastCandleFireKey = "";
+  private static lastCandleRetryKey = "";
+
 
   static async runCandleWatchLoop(durationMs = 58_000): Promise<any> {
     const now = Date.now();
@@ -1047,6 +1064,18 @@ class PersistentTradingEngine {
             ),
           );
         }
+
+        if (inMarket && msIntoMinute >= this.CANDLE_RETRY_MS && key !== this.lastCandleRetryKey) {
+          this.lastCandleRetryKey = key;
+          fires++;
+          console.log(`🔁 [CANDLE-WATCH] Safety re-fire at +${msIntoMinute}ms for ${h}:${String(m).padStart(2, "0")}`);
+          inflight.push(
+            this.runCronTick(true).catch((e: any) =>
+              console.error(`❌ [CANDLE-WATCH] Retry tick failed: ${e?.message || e}`)
+            ),
+          );
+        }
+
 
         await new Promise((r) => setTimeout(r, this.CANDLE_WATCH_POLL_MS));
       }
@@ -1966,8 +1995,15 @@ class PersistentTradingEngine {
 
             // ⚡ EXECUTE ORDER!
             if (action === "BUY_CALL" || action === "BUY_PUT") {
+              // 🔒 Atomic cross-isolate claim — blocks the cron tick and the
+              // candle-watcher from both firing the SAME order (double quantity).
+              const claimed = await this.claimOrderKeyGlobal(orderKey);
+              if (!claimed) {
+                console.log(`⏸️ SKIPPING DUPLICATE - order already claimed elsewhere for ${normalizedSymbolName}`);
+                return;
+              }
               actionableOrderAttempted = true;
-              this.markRecentOrderKey(orderKey);
+
               console.log(
                 `\n💰 PLACING ORDER: ${normalizedSymbolName} (${normalizedOptionType || symbol.optionType || symbol.option_type || "UNKNOWN"}) for ${action} on ${normalizedExchangeSegment}`,
               );
@@ -2085,7 +2121,8 @@ class PersistentTradingEngine {
                   message: `❌ ORDER FAILED: ${normalizedSymbolName} | ${action} | Qty ${orderParams.quantity} | ${orderResult.error || orderResult.message || "Dhan/VPS rejected order"}`,
                   data: { index: indexName, symbol: normalizedSymbolName, action, orderParams, orderResult },
                 });
-                this.recentOrderKeys.delete(orderKey);
+                await this.releaseOrderKeyGlobal(orderKey);
+
               }
             } else {
               await this.appendSharedLog(userId, {
@@ -3518,6 +3555,51 @@ class PersistentTradingEngine {
     this.pruneRecentOrderKeys();
     this.recentOrderKeys.set(orderKey, Date.now());
   }
+
+  /**
+   * 🔒 CROSS-ISOLATE ORDER CLAIM
+   * In-memory keys only dedupe inside ONE edge isolate. The pg_cron tick and the
+   * millisecond candle-watcher run in DIFFERENT isolates, so both could place the
+   * same order (user saw 15 lots executed twice = 30 lots). This takes an atomic
+   * claim in the kv table (PK conflict = someone else already claimed the candle).
+   */
+  private static async claimOrderKeyGlobal(orderKey: string): Promise<boolean> {
+    const key = `order_claim:${orderKey}`;
+    try {
+      const { error } = await supabaseAdmin
+        .from("kv_store_c4d79cb7")
+        .insert({ key, value: { at: Date.now() } });
+      if (!error) {
+        this.markRecentOrderKey(orderKey);
+        return true;
+      }
+      // 23505 = unique violation → another isolate already owns this order
+      if ((error as any).code === "23505") {
+        this.markRecentOrderKey(orderKey);
+        return false;
+      }
+      console.error("⚠️ claimOrderKeyGlobal failed:", error.message);
+      // Fail-safe: on infra errors fall back to in-memory guard only
+      const owned = !this.hasRecentOrderKey(orderKey);
+      this.markRecentOrderKey(orderKey);
+      return owned;
+    } catch (e: any) {
+      console.error("⚠️ claimOrderKeyGlobal exception:", e?.message || e);
+      const owned = !this.hasRecentOrderKey(orderKey);
+      this.markRecentOrderKey(orderKey);
+      return owned;
+    }
+  }
+
+  private static async releaseOrderKeyGlobal(orderKey: string): Promise<void> {
+    this.recentOrderKeys.delete(orderKey);
+    try {
+      await supabaseAdmin.from("kv_store_c4d79cb7").delete().eq("key", `order_claim:${orderKey}`);
+    } catch (_e) {
+      /* best effort */
+    }
+  }
+
 
   private static async hasRecentOrderInDB(userId: string, symbolId: string): Promise<boolean> {
     if (!symbolId) return false;
