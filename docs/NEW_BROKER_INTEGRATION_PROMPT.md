@@ -62,15 +62,15 @@ without changing or breaking any existing broker (Dhan is the default and must s
 7. UI
    - src/app/components/<<Broker>>Connect.tsx — keys / OAuth login / verify / sync contracts /
      disconnect / live balance, same layout as UpstoxConnect.tsx, with the copyable redirect URI
-     https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7/broker/<<brokerid>>/callback
+     https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/<<brokerid>>/callback
    - SettingsPanel.tsx — render that card when the broker is active.
    - Landing page (SupportedBrokers), Admin → Broker Control and the React Native app are
      registry-driven: verify they pick the broker up with zero extra code.
 
 8. Redirect / callback URL (OAuth brokers)
    - The ONLY correct redirect URI is:
-     https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7/broker/<<brokerid>>/callback
-     Build it in code from SUPABASE_URL, never hardcode a preview/localhost URL.
+     https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/<<brokerid>>/callback
+     Always use the public API domain api.indexpilotai.com (NOT the *.supabase.co URL — brokers reject it), and ignore any legacy supabase.co value saved in credentials.
    - Register that exact string (no trailing slash, https, same case) in the broker's developer app.
    - Show it in the connect card with a Copy button, return it from /status, /save-keys and
      /login-url, and allow an override via save-keys { redirectUri } for brokers that
