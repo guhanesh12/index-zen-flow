@@ -641,9 +641,13 @@ class PersistentTradingEngine {
 
       let processedCount = 0;
 
-      for (const engine of activeEngines) {
+      // ⚡ SPEED: users used to be processed one-by-one, so the last user in the
+      // list could get their order minutes after the candle closed. Run them in
+      // parallel batches instead (order placement is per-user isolated).
+      const runEngineForUser = async (engine: any) => {
         try {
           const userId = engine.user_id;
+
           const settings = engine.strategy_settings || {};
           const symbols = engine.selected_symbols || [];
 
