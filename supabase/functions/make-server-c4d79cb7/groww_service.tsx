@@ -47,11 +47,21 @@ export function growwProductFromDhan(productType?: string): "NRML" | "MIS" | "CN
   return "NRML";
 }
 
+export type BrokerProxy = (r: {
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body?: string;
+}) => Promise<{ status: number; json: any; text: string } | null>;
+
 export class GrowwService {
   private accessToken: string;
+  /** Optional dedicated static-IP proxy (user's VPS). Falls back to direct calls. */
+  private proxy?: BrokerProxy;
 
-  constructor(creds: { accessToken: string }) {
+  constructor(creds: { accessToken: string; proxy?: BrokerProxy }) {
     this.accessToken = creds.accessToken;
+    this.proxy = creds.proxy;
   }
 
   private headers(extra: Record<string, string> = {}) {
@@ -68,15 +78,34 @@ export class GrowwService {
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const headers = { ...this.headers(), ...((init.headers as Record<string, string>) || {}) };
-      const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: ctrl.signal });
-      const text = await resp.text();
+
+      let status = 0;
+      let text = "";
+      if (this.proxy) {
+        const proxied = await this.proxy({
+          method: String(init.method || "GET").toUpperCase(),
+          path,
+          headers,
+          body: typeof init.body === "string" ? init.body : undefined,
+        });
+        if (proxied) {
+          status = proxied.status;
+          text = proxied.text;
+        }
+      }
+      if (!status) {
+        const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: ctrl.signal });
+        status = resp.status;
+        text = await resp.text();
+      }
+
       let json: any = {};
       try { json = JSON.parse(text); } catch { json = { raw: text }; }
-      if (!resp.ok || String(json?.status || "").toUpperCase() === "FAILURE") {
+      if (status >= 400 || String(json?.status || "").toUpperCase() === "FAILURE") {
         const err: any = new Error(
-          json?.error?.message || json?.message || `Groww ${resp.status}: ${text.slice(0, 250)}`,
+          json?.error?.message || json?.message || `Groww ${status}: ${text.slice(0, 250)}`,
         );
-        err.status = resp.status;
+        err.status = status;
         err.errorCode = json?.error?.code;
         throw err;
       }
