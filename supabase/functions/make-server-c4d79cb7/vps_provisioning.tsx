@@ -484,7 +484,19 @@ app.post('/place-order-kite', async (req, res) => {
 const BROKER_HOSTS = {
   dhan: 'https://api.dhan.co',
   zerodha: 'https://api.kite.trade',
-  kite: 'https://api.kite.trade'
+  kite: 'https://api.kite.trade',
+  groww: 'https://api.groww.in',
+  upstox: 'https://api.upstox.com',
+  angelone: 'https://apiconnect.angelone.in',
+  fyers: 'https://api-t1.fyers.in',
+  aliceblue: 'https://ant.aliceblueonline.com',
+  fivepaisa: 'https://Openapi.5paisa.com',
+  kotak: 'https://gw-napi.kotaksecurities.com',
+  icici: 'https://api.icicidirect.com',
+  motilal: 'https://openapi.motilaloswal.com',
+  iifl: 'https://ttblaze.iifl.com',
+  finvasia: 'https://api.shoonya.com',
+  paytm: 'https://developer.paytmmoney.com'
 };
 
 app.post('/broker-request', async (req, res) => {
@@ -494,8 +506,12 @@ app.post('/broker-request', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
     }
 
-    const { broker, method, path, headers, body, form } = req.body || {};
-    const base = BROKER_HOSTS[String(broker || '').toLowerCase()];
+    const { broker, method, path, headers, body, form, baseUrl } = req.body || {};
+    // baseUrl lets ANY future broker route through this IP with zero VPS redeploy.
+    let base = BROKER_HOSTS[String(broker || '').toLowerCase()];
+    if (!base && typeof baseUrl === 'string' && /^https:\\/\\/[a-z0-9.-]+(:\\d+)?$/i.test(baseUrl)) {
+      base = baseUrl.replace(/\\/$/, '');
+    }
     if (!base) return res.status(400).json({ error: 'Unsupported broker: ' + broker });
     if (!path || typeof path !== 'string' || !path.startsWith('/')) {
       return res.status(400).json({ error: 'path must start with /' });
