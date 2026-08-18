@@ -74,12 +74,12 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       });
       const data = await res.json();
       if (res.ok && data?.success) {
-        setBrokerAvailability(data.available || { dhan: false, zerodha: false });
+        setBrokerAvailability(data.available || {});
         setEnabledBrokers(Array.isArray(data.brokers) ? data.brokers : []);
         // Only treat a broker as "chosen" once the user actually picked/connected one.
-        const anyConnected = !!(data.available?.dhan || data.available?.zerodha);
+        const anyConnected = Object.values(data.available || {}).some(Boolean);
         const explicit = !!data.chosen || anyConnected;
-        setActiveBroker(explicit ? (data.activeBroker as 'dhan' | 'zerodha') : null);
+        setActiveBroker(explicit ? String(data.activeBroker) : null);
         if (explicit) localStorage.setItem('indexpilot_broker_choice', data.activeBroker);
       }
     } catch (e) {
@@ -90,7 +90,8 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
     }
   };
 
-  const chooseBroker = async (broker: 'dhan' | 'zerodha') => {
+  const chooseBroker = async (broker: string) => {
+
     setSwitchingBroker(true);
     try {
       const tok = await getFreshToken();
