@@ -530,7 +530,9 @@ export async function placeOrderSmart(
     if (!g?.tradingSymbol) {
       throw new Error("Could not map this contract to a Groww trading symbol. Refresh the instrument master and retry.");
     }
-    const svcG = new GrowwService({ accessToken: gCreds.accessToken });
+    // Orders go out through the user's dedicated static IP (same VPS as Dhan).
+    const gProxy = await makeBrokerProxy(userId, "groww");
+    const svcG = new GrowwService({ accessToken: gCreds.accessToken, proxy: gProxy });
     try {
       const res = await svcG.placeOrder({
         tradingSymbol: g.tradingSymbol,
