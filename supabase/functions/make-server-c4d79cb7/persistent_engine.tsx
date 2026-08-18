@@ -2092,7 +2092,8 @@ class PersistentTradingEngine {
                   message: `❌ ORDER FAILED: ${normalizedSymbolName} | ${action} | Qty ${orderParams.quantity} | ${orderResult.error || orderResult.message || "Dhan/VPS rejected order"}`,
                   data: { index: indexName, symbol: normalizedSymbolName, action, orderParams, orderResult },
                 });
-                this.recentOrderKeys.delete(orderKey);
+                await this.releaseOrderKeyGlobal(orderKey);
+
               }
             } else {
               await this.appendSharedLog(userId, {
