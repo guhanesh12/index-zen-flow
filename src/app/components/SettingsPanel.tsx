@@ -45,11 +45,12 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [vpsSubInfo, setVpsSubInfo] = useState<{ status: string; daysUntilExpiry: number; expiryDate?: string } | null>(null);
   const [showVpsExpiredModal, setShowVpsExpiredModal] = useState(false);
   // 🔒 ONE USER = ONE BROKER
-  const [activeBroker, setActiveBroker] = useState<'dhan' | 'zerodha' | null>(null);
+  const [activeBroker, setActiveBroker] = useState<string | null>(null);
   const [brokerLoading, setBrokerLoading] = useState(true);
   const [switchingBroker, setSwitchingBroker] = useState(false);
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
-  const [brokerAvailability, setBrokerAvailability] = useState<{ dhan: boolean; zerodha: boolean }>({ dhan: false, zerodha: false });
+  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false });
+
   // 🔀 Brokers the admin has switched ON (common registry — new brokers appear automatically)
   const [enabledBrokers, setEnabledBrokers] = useState<any[]>([]);
 
