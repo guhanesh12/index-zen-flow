@@ -24,6 +24,12 @@ import {
   kiteProductFromDhan,
 } from "./kite_service.tsx";
 import { ensureKiteInstruments } from "./kite_instruments.tsx";
+import {
+  GrowwService,
+  growwExchangeFromSegment,
+  growwProductFromDhan,
+} from "./groww_service.tsx";
+import { ensureGrowwInstruments } from "./groww_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -31,7 +37,9 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha";
+export type BrokerId = "dhan" | "zerodha" | "groww";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww"];
+
 
 export interface KiteStoredCreds {
   apiKey: string;
