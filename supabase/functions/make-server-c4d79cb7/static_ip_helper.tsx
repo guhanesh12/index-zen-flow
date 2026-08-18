@@ -202,6 +202,8 @@ export async function placeOrderViaStaticIP(
       `Continuing with edge-enforced MARKET payload for automatic compatibility.`
     );
   }
+  // 🔄 Never blocks the trade — upgrade happens in the background.
+  maybeAutoUpgradeVps(userIP.ipAddress, vpsInspection.version);
 
   const endpoint = `http://${userIP.ipAddress}:3000/place-order`;
 
