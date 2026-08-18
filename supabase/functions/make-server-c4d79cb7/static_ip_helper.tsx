@@ -14,6 +14,32 @@ import * as VPSPower from "./vps_power.tsx";
 
 const REQUIRED_ORDER_SERVER_VERSION = "1.1.0";
 const VPS_SELF_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
+const VPS_UPGRADE_COOLDOWN_MS = 30 * 60 * 1000;
+
+/**
+ * 🔄 Auto-upgrade a running VPS to the newest order-server image (no SSH, no
+ * re-provisioning). Fire-and-forget: it must never delay or fail an order.
+ */
+export function maybeAutoUpgradeVps(ipAddress: string, currentVersion: string): void {
+  (async () => {
+    try {
+      const { ORDER_SERVER_VERSION, pushServerUpdate } = await import("./vps_provisioning.tsx");
+      if (compareSemver(currentVersion, ORDER_SERVER_VERSION) >= 0) return;
+      const key = `vps_upgrade_attempt:${ipAddress}`;
+      const last = Number((await kv.get(key))?.at || 0);
+      if (Date.now() - last < VPS_UPGRADE_COOLDOWN_MS) return;
+      await kv.set(key, { at: Date.now(), from: currentVersion, to: ORDER_SERVER_VERSION });
+      const res = await pushServerUpdate(ipAddress);
+      console.log(
+        res.success
+          ? `🔄 [VPS UPGRADE] ${ipAddress} ${currentVersion} → ${ORDER_SERVER_VERSION}`
+          : `⚠️ [VPS UPGRADE] ${ipAddress} skipped: ${res.error}`,
+      );
+    } catch (e: any) {
+      console.warn(`⚠️ [VPS UPGRADE] ${ipAddress} failed: ${e?.message || e}`);
+    }
+  })();
+}
 
 type VpsServerInspection = {
   version: string;
