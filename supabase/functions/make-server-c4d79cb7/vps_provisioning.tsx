@@ -50,7 +50,29 @@ interface ProvisioningJob {
 
 const PROVISIONING_PREFIX = 'vps_provisioning:';
 const DEDICATED_IP_MONTHLY_FEE = 599;
-const ORDER_SERVER_VERSION = '1.3.0';
+export const ORDER_SERVER_VERSION = '1.4.0';
+
+/**
+ * Push the latest server.js to an already-running VPS (no SSH needed).
+ * Works on images >= 1.4.0 which expose POST /self-update.
+ */
+export async function pushServerUpdate(ipAddress: string): Promise<{ success: boolean; error?: string }> {
+  const apiKey = Deno.env.get('ORDER_SERVER_API_KEY');
+  if (!apiKey) return { success: false, error: 'ORDER_SERVER_API_KEY missing' };
+  try {
+    const resp = await fetch(`http://${ipAddress}:3000/self-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ script: generateOrderServerJs(), version: ORDER_SERVER_VERSION }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (resp.status === 404) return { success: false, error: 'VPS image too old for /self-update' };
+    if (!resp.ok) return { success: false, error: `HTTP ${resp.status}` };
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || String(e) };
+  }
+}
 
 async function checkOrderServerHealth(ipAddress: string): Promise<boolean> {
   try {
