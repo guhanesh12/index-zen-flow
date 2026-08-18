@@ -13676,9 +13676,18 @@ app.get("/make-server-c4d79cb7/broker/groww/status", async (c) => {
         last_status: liveCheck.ok ? "connected" : "token_invalid",
         last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
       });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "groww") {
+        await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+      }
     }
     const refreshed = await BrokerRouter.getGrowwCredentials(user.id);
-    return c.json({ success: true, groww: sanitizeGroww(refreshed), liveCheck });
+    return c.json({
+      success: true,
+      groww: sanitizeGroww(refreshed),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+      balance: liveCheck?.balance ?? null,
+    });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
