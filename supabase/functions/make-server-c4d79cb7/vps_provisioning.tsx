@@ -293,54 +293,11 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 }
 
 /**
- * Generate cloud-init script for automatic order server deployment
+ * server.js source for the dedicated order VPS.
+ * Exported so it can be pushed to already-running VPSs via /self-update.
  */
-function generateCloudInitScript(orderServerApiKey: string): string {
-  return `#!/bin/bash
-
-# ===================================
-# IndexpilotAI Order Server Auto-Deploy
-# IMPROVED VERSION - 100% AUTOMATIC
-# ===================================
-
-set -e
-
-# Log everything
-exec > >(tee -a /var/log/indexpilot-deploy.log)
-exec 2>&1
-
-echo "========================================="
-echo "🤖 IndexpilotAI Auto-Deployment Starting"
-echo "Time: $(date)"
-echo "========================================="
-
-# Update system
-echo "📦 [1/8] Updating system packages..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get upgrade -y -qq
-
-# Install Node.js 18.x
-echo "📦 [2/8] Installing Node.js 18.x..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash - 
-apt-get install -y nodejs
-
-node --version
-npm --version
-
-# Install PM2 for process management
-echo "📦 [3/8] Installing PM2..."
-npm install -g pm2
-
-# Create order server directory
-echo "📁 [4/8] Creating server directory..."
-mkdir -p /root/indexpilot-order-server
-cd /root/indexpilot-order-server
-
-# Create server.js
-echo "📝 [5/8] Creating server files..."
-cat > server.js << 'SERVEREOF'
-const express = require('express');
+export function generateOrderServerJs(): string {
+  return `const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const app = express();
@@ -700,7 +657,58 @@ process.on('unhandledRejection', (reason, promise) => {
   log(\`❌ Unhandled rejection at: \${promise}, reason: \${reason}\`);
 });
 
-log('✅ Server initialization complete');
+log('✅ Server initialization complete');`;
+}
+
+/**
+ * Generate cloud-init script for automatic order server deployment
+ */
+function generateCloudInitScript(orderServerApiKey: string): string {
+  return `#!/bin/bash
+
+# ===================================
+# IndexpilotAI Order Server Auto-Deploy
+# IMPROVED VERSION - 100% AUTOMATIC
+# ===================================
+
+set -e
+
+# Log everything
+exec > >(tee -a /var/log/indexpilot-deploy.log)
+exec 2>&1
+
+echo "========================================="
+echo "🤖 IndexpilotAI Auto-Deployment Starting"
+echo "Time: $(date)"
+echo "========================================="
+
+# Update system
+echo "📦 [1/8] Updating system packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get upgrade -y -qq
+
+# Install Node.js 18.x
+echo "📦 [2/8] Installing Node.js 18.x..."
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash - 
+apt-get install -y nodejs
+
+node --version
+npm --version
+
+# Install PM2 for process management
+echo "📦 [3/8] Installing PM2..."
+npm install -g pm2
+
+# Create order server directory
+echo "📁 [4/8] Creating server directory..."
+mkdir -p /root/indexpilot-order-server
+cd /root/indexpilot-order-server
+
+# Create server.js
+echo "📝 [5/8] Creating server files..."
+cat > server.js << 'SERVEREOF'
+${generateOrderServerJs()}
 SERVEREOF
 
 # Create package.json
