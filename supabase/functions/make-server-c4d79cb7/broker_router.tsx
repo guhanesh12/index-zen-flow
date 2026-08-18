@@ -146,10 +146,56 @@ export async function clearGrowwCredentials(userId: string) {
   await kv.del(`groww_credentials:${userId}`);
 }
 
+/**
+ * 🔀 Route ANY broker HTTP call through the user's dedicated static-IP VPS.
+ * Returns `undefined` when no IP / key / new-enough VPS image is available, in
+ * which case the caller transparently falls back to a direct API call.
+ * Works for every broker (present and future) via the VPS `/broker-request`
+ * proxy — no VPS redeploy needed when a new broker is added.
+ */
+export async function makeBrokerProxy(userId: string, broker: string, baseUrl?: string) {
+  const ORDER_SERVER_API_KEY = Deno.env.get("ORDER_SERVER_API_KEY");
+  if (!ORDER_SERVER_API_KEY) return undefined;
+
+  let ip: string;
+  try {
+    ip = (await getUserOrderPlacementIP(userId)).ipAddress;
+  } catch {
+    return undefined;
+  }
+
+  return async (r: { method: string; path: string; headers: Record<string, string>; body?: string }) => {
+    try {
+      const resp = await fetch(`http://${ip}:3000/broker-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ORDER_SERVER_API_KEY}` },
+        body: JSON.stringify({
+          broker,
+          baseUrl,
+          method: r.method,
+          path: r.path,
+          headers: r.headers,
+          body: r.body,
+        }),
+        signal: AbortSignal.timeout(9000),
+      });
+      if (resp.status === 404 || resp.status === 400) return null; // old image / unknown broker → direct
+      const text = await resp.text();
+      let json: any = {};
+      try { json = JSON.parse(text); } catch { json = { raw: text }; }
+      return { status: resp.status, json, text };
+    } catch (e: any) {
+      console.warn(`[${broker.toUpperCase()}] VPS proxy unreachable → direct API:`, e?.message || e);
+      return null;
+    }
+  };
+}
+
 export async function getGrowwService(userId: string): Promise<GrowwService | null> {
   const creds = await getGrowwCredentials(userId);
   if (!creds?.accessToken) return null;
-  return new GrowwService({ accessToken: creds.accessToken });
+  const proxy = await makeBrokerProxy(userId, "groww");
+  return new GrowwService({ accessToken: creds.accessToken, proxy });
 }
 
 /** Non-secret mirror so the Broker screen can show Groww status. */
