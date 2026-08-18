@@ -414,29 +414,45 @@ export async function getUserOrderPlacementIP(
     }
 
     if (assignments.length > 0) {
+      // ⚠️ FIX: previously the FIRST record with an IP that was not active threw
+      // "subscription expired" — a stale/legacy KV row shadowed a perfectly valid
+      // paid VPS and blocked live orders. Scan EVERY record for an active one and
+      // only report expiry when none of them is active.
+      let expiredIp: string | null = null;
+      let latestExpiry: Date | null = null;
+
       for (const row of assignments) {
         const data = row.value || row;
+        if (!data?.ipAddress) continue;
 
-        const isActive =
-          data.subscriptionStatus === "active" &&
-          data.expiresAt &&
-          new Date(data.expiresAt) > new Date();
+        const expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+        const notExpired = !!expiresAt && expiresAt > new Date();
+        const statusOk =
+          data.subscriptionStatus === "active" ||
+          data.status === "active" ||
+          // some older records never stored a status at all
+          (!data.subscriptionStatus && !data.status);
 
-        if (isActive && data.ipAddress) {
-          console.log(`✅ [KV] Dedicated IP for ${userId.substring(0, 8)}: ${data.ipAddress}`);
+        if (notExpired && statusOk) {
+          console.log(`✅ [KV] Dedicated IP for ${userId.substring(0, 8)}: ${data.ipAddress} (till ${data.expiresAt})`);
           return { ipAddress: data.ipAddress, type: "dedicated" };
         }
 
-        // Has a VPS entry but it's expired
-        if (data.ipAddress) {
-          console.log(`⚠️ [KV] VPS subscription expired for user ${userId.substring(0, 8)}`);
-          throw new Error(
-            "Your dedicated VPS subscription has expired. " +
-            "Please renew from the Broker Setup page to continue placing orders."
-          );
-        }
+        expiredIp = data.ipAddress;
+        if (expiresAt && (!latestExpiry || expiresAt > latestExpiry)) latestExpiry = expiresAt;
+      }
+
+      if (expiredIp) {
+        console.log(
+          `⚠️ [KV] No active VPS record for ${userId.substring(0, 8)} (latest expiry: ${latestExpiry?.toISOString() || "unknown"})`,
+        );
+        throw new Error(
+          `Your dedicated VPS subscription has expired${latestExpiry ? ` on ${latestExpiry.toISOString().slice(0, 10)}` : ""}. ` +
+          "Please renew from the Broker Setup page to continue placing orders."
+        );
       }
     }
+
   } catch (err: any) {
     // Re-throw our own meaningful errors
     if (err.message?.includes("expired") || err.message?.includes("dedicated VPS")) {
