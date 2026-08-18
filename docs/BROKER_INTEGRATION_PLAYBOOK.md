@@ -39,7 +39,7 @@ features: orders · positions · funds · instruments · static-ip · oauth.
 **Authentication** (https://upstox.com/developer/api-documentation/authentication)
 1. User creates an app at account.upstox.com → Developer → Apps.
 2. Redirect URI to register (shown + copyable in the UI):
-   `https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7/broker/upstox/callback`
+   `https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/upstox/callback`
 3. `POST /broker/upstox/save-keys` `{ apiKey, apiSecret }` (also accepts a ready `accessToken`).
 4. `GET /broker/upstox/login-url` → opens `…/v2/login/authorization/dialog` with a one-time `state`.
 5. Upstox redirects to `/broker/upstox/callback?code=&state=` → server exchanges the code at

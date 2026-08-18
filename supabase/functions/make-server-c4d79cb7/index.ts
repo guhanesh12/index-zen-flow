@@ -13852,9 +13852,25 @@ app.post("/make-server-c4d79cb7/broker/groww/instruments/sync", async (c) => {
 // Docs: https://upstox.com/developer/api-documentation/authentication
 // ============================================================================
 
-function upstoxRedirectUri() {
-  return `${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-c4d79cb7/broker/upstox/callback`;
+/** Public API domain is the ONLY redirect host that brokers accept reliably. */
+const PUBLIC_API_BASE = "https://api.indexpilotai.com";
+
+/** Callback URL for any OAuth broker — register this exact string in the broker app. */
+export function brokerRedirectUri(brokerId: string) {
+  return `${PUBLIC_API_BASE}/functions/v1/make-server-c4d79cb7/broker/${brokerId}/callback`;
 }
+
+function upstoxRedirectUri() {
+  return brokerRedirectUri("upstox");
+}
+
+/** Ignore legacy *.supabase.co redirect URIs saved before the api.indexpilotai.com switch. */
+function effectiveUpstoxRedirect(creds: any) {
+  const saved = String(creds?.redirectUri || "").trim();
+  if (!saved || saved.includes("supabase.co")) return upstoxRedirectUri();
+  return saved;
+}
+
 
 function sanitizeUpstox(creds: any) {
   if (!creds) return null;
@@ -13863,7 +13879,7 @@ function sanitizeUpstox(creds: any) {
     api_secret_set: !!creds.apiSecret,
     access_token_set: !!creds.accessToken,
     access_token_expiry: creds.tokenExpiry || null,
-    redirect_uri: creds.redirectUri || upstoxRedirectUri(),
+    redirect_uri: effectiveUpstoxRedirect(creds),
     upstox_user_id: creds.upstoxUserId || null,
     upstox_user_name: creds.upstoxUserName || null,
     last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
@@ -13940,7 +13956,7 @@ app.post("/make-server-c4d79cb7/broker/upstox/save-keys", async (c) => {
     const creds = await BrokerRouter.saveUpstoxCredentials(user.id, {
       apiKey: apiKey || undefined,
       apiSecret: apiSecret || undefined,
-      redirectUri: String(body?.redirectUri || "").trim() || upstoxRedirectUri(),
+      redirectUri: (() => { const r = String(body?.redirectUri || "").trim(); return r && !r.includes("supabase.co") ? r : upstoxRedirectUri(); })(),
       accessToken: accessToken || undefined,
       lastStatus: accessToken ? "connected" : "keys_saved",
       lastError: null,
@@ -13987,7 +14003,7 @@ app.get("/make-server-c4d79cb7/broker/upstox/login-url", async (c) => {
     if (!creds?.apiKey) return c.json({ error: "Save your Upstox API key and secret first" }, 400);
     const state = crypto.randomUUID();
     await kv.set(`upstox_oauth_state:${state}`, { userId: user.id, at: Date.now() });
-    const redirectUri = creds.redirectUri || upstoxRedirectUri();
+    const redirectUri = effectiveUpstoxRedirect(creds);
     return c.json({
       success: true,
       url: buildUpstoxLoginUrl(creds.apiKey, redirectUri, state),
@@ -14022,7 +14038,7 @@ app.get("/make-server-c4d79cb7/broker/upstox/callback", async (c) => {
     const tok = await exchangeUpstoxCode({
       apiKey: creds.apiKey,
       apiSecret: creds.apiSecret,
-      redirectUri: creds.redirectUri || upstoxRedirectUri(),
+      redirectUri: effectiveUpstoxRedirect(creds),
       code,
     });
 
