@@ -2250,6 +2250,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(kite.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'groww') {
+      const groww = await BrokerRouter.getGrowwService(effectiveUserId);
+      if (!groww) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Groww session not found. Connect Groww again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(groww.getPositions(), 4500, cachedPositions || []);
     } else {
       const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
       if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
