@@ -48,6 +48,16 @@ export const BROKER_CATALOG: BrokerDef[] = [
     defaultEnabled: true,
   },
   {
+    id: "groww",
+    name: "Groww",
+    short: "Groww",
+    status: "live",
+    color: "#00b386",
+    website: "https://groww.in/trade-api",
+    features: ["orders", "positions", "funds", "instruments", "static-ip"],
+    defaultEnabled: true,
+  },
+
     id: "upstox",
     name: "Upstox",
     short: "Upstox",
