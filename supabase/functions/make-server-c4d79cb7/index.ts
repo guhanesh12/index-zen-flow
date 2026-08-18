@@ -13629,6 +13629,129 @@ app.post("/make-server-c4d79cb7/broker/kite/instruments/sync", async (c) => {
   }
 });
 
+// ============================================================================
+// 🟢 GROWW TRADE API — access token session, funds, status, instruments
+// Docs: https://groww.in/trade-api/docs/curl
+// ============================================================================
+
+function sanitizeGroww(creds: any) {
+  if (!creds) return null;
+  return {
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    groww_user_id: creds.growwUserId || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
+    last_error: creds.lastError || null,
+  };
+}
+
+app.get("/make-server-c4d79cb7/broker/groww/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getGrowwCredentials(user.id);
+    let liveCheck: any = null;
+    if (creds?.accessToken) {
+      const svc = new GrowwService({ accessToken: creds.accessToken });
+      liveCheck = await svc.verify();
+      await BrokerRouter.saveGrowwCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      } as any);
+      await BrokerRouter.mirrorGrowwStatus(user.id, {
+        last_status: liveCheck.ok ? "connected" : "token_invalid",
+        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+      });
+    }
+    const refreshed = await BrokerRouter.getGrowwCredentials(user.id);
+    return c.json({ success: true, groww: sanitizeGroww(refreshed), liveCheck });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const accessToken = String(body?.accessToken || body?.access_token || "").trim();
+    if (accessToken.length < 20) return c.json({ error: "A valid Groww Trade API access token is required" }, 400);
+
+    const svc = new GrowwService({ accessToken });
+    const check = await svc.verify();
+    if (!check.ok) return c.json({ error: check.error || "Groww rejected this access token" }, 400);
+
+    const creds = await BrokerRouter.saveGrowwCredentials(user.id, {
+      accessToken,
+      growwUserId: String(body?.growwUserId || "").trim() || undefined,
+      lastStatus: "connected",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorGrowwStatus(user.id, { last_status: "connected", last_error: null });
+    // shared instrument mapping so orders go out in Groww format
+    const instrumentSync = await ensureGrowwInstruments(false);
+    return c.json({ success: true, groww: sanitizeGroww(creds), balance: check.balance, instrumentSync });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getGrowwService(user.id);
+    if (!svc) return c.json({ success: false, error: "No Groww session saved" }, 400);
+    const check = await svc.verify();
+    await BrokerRouter.saveGrowwCredentials(user.id, {
+      lastStatus: check.ok ? "connected" : "token_invalid",
+      lastError: check.ok ? null : check.error,
+    } as any);
+    return c.json({ success: check.ok, ...check });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearGrowwCredentials(user.id);
+    await BrokerRouter.mirrorGrowwStatus(user.id, { last_status: "disconnected", last_error: null });
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/groww/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getGrowwInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await syncGrowwInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    return c.json({ success: true, ...result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+
 
 // --- GET kite status -------------------------------------------------------
 app.get("/make-server-c4d79cb7/broker/kite/status", async (c) => {
