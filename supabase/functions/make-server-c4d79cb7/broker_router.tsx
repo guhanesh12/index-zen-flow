@@ -579,6 +579,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return [];
+    try {
+      return await g.getPositions();
+    } catch (e) {
+      console.error("[GROWW] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return [];
@@ -596,6 +606,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return null;
+    try {
+      return await g.getFundLimits();
+    } catch (e) {
+      console.error("[GROWW] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return null;
@@ -607,13 +627,20 @@ export async function getFundsSmart(
   }
 }
 
-/** Broker-aware last traded price for a contract (Dhan securityId or Kite symbol). */
+/** Broker-aware last traded price for a contract (Dhan securityId or broker symbol). */
 export async function getLtpSmart(
   userId: string,
   order: any,
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return null;
+    const resolved = await resolveGrowwSymbol(order);
+    if (!resolved) return null;
+    return await g.getLastPrice(resolved.exchange, resolved.segment, resolved.tradingSymbol);
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return null;
@@ -629,6 +656,24 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return null;
+    try {
+      const st = await g.getOrderStatus(orderId);
+      return {
+        orderId: String(st?.groww_order_id || st?.order_id || orderId),
+        orderStatus: String(st?.order_status || st?.status || "").toUpperCase(),
+        tradedQuantity: Number(st?.filled_quantity ?? 0),
+        averageTradedPrice: Number(st?.average_fill_price ?? st?.average_price ?? 0),
+        broker: "groww",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[GROWW] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return null;
@@ -655,8 +700,14 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return false;
+    return await g.cancelOrder(orderId);
+  }
   if (broker !== "zerodha") return await dhanCancel();
   const svc = await getKiteService(userId);
   if (!svc) return false;
   return await svc.cancelOrder(orderId);
 }
+
