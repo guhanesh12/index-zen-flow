@@ -458,9 +458,58 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🟢 GROWW
+  if (broker === "groww") {
+    const gCreds = await getGrowwCredentials(userId);
+    if (!gCreds?.accessToken) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Groww is your active broker but no valid Groww session was found. Open Broker Setup → Groww and save your access token again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const g = await resolveGrowwSymbol(orderDetails);
+    if (!g?.tradingSymbol) {
+      throw new Error("Could not map this contract to a Groww trading symbol. Refresh the instrument master and retry.");
+    }
+    const svcG = new GrowwService({ accessToken: gCreds.accessToken });
+    try {
+      const res = await svcG.placeOrder({
+        tradingSymbol: g.tradingSymbol,
+        exchange: g.exchange,
+        segment: g.segment,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: growwProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        validity: "DAY",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "groww",
+        routedVia: "edge",
+        message: res.orderId ? "Order placed via Groww" : "Groww order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Groww session has expired. Create a new Trade API access token and save it in Broker Setup → Groww.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   if (broker !== "zerodha") {
     return await placeOrderViaStaticIP(userId, dhanCredentials, orderDetails);
   }
+
 
   const creds = await getKiteCredentials(userId);
   if (!creds?.apiKey || !creds?.accessToken) {
