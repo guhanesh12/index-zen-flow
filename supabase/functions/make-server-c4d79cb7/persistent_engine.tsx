@@ -3519,6 +3519,51 @@ class PersistentTradingEngine {
     this.recentOrderKeys.set(orderKey, Date.now());
   }
 
+  /**
+   * 🔒 CROSS-ISOLATE ORDER CLAIM
+   * In-memory keys only dedupe inside ONE edge isolate. The pg_cron tick and the
+   * millisecond candle-watcher run in DIFFERENT isolates, so both could place the
+   * same order (user saw 15 lots executed twice = 30 lots). This takes an atomic
+   * claim in the kv table (PK conflict = someone else already claimed the candle).
+   */
+  private static async claimOrderKeyGlobal(orderKey: string): Promise<boolean> {
+    const key = `order_claim:${orderKey}`;
+    try {
+      const { error } = await supabaseAdmin
+        .from("kv_store_c4d79cb7")
+        .insert({ key, value: { at: Date.now() } });
+      if (!error) {
+        this.markRecentOrderKey(orderKey);
+        return true;
+      }
+      // 23505 = unique violation → another isolate already owns this order
+      if ((error as any).code === "23505") {
+        this.markRecentOrderKey(orderKey);
+        return false;
+      }
+      console.error("⚠️ claimOrderKeyGlobal failed:", error.message);
+      // Fail-safe: on infra errors fall back to in-memory guard only
+      const owned = !this.hasRecentOrderKey(orderKey);
+      this.markRecentOrderKey(orderKey);
+      return owned;
+    } catch (e: any) {
+      console.error("⚠️ claimOrderKeyGlobal exception:", e?.message || e);
+      const owned = !this.hasRecentOrderKey(orderKey);
+      this.markRecentOrderKey(orderKey);
+      return owned;
+    }
+  }
+
+  private static async releaseOrderKeyGlobal(orderKey: string): Promise<void> {
+    this.recentOrderKeys.delete(orderKey);
+    try {
+      await supabaseAdmin.from("kv_store_c4d79cb7").delete().eq("key", `order_claim:${orderKey}`);
+    } catch (_e) {
+      /* best effort */
+    }
+  }
+
+
   private static async hasRecentOrderInDB(userId: string, symbolId: string): Promise<boolean> {
     if (!symbolId) return false;
 
