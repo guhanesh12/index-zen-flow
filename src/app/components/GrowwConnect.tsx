@@ -156,6 +156,14 @@ export function GrowwConnect({ serverUrl, accessToken, onConnected }: GrowwConne
           )}
         </div>
 
+        {connected && balance !== null && (
+          <Alert className="bg-emerald-950/40 border-emerald-900">
+            <AlertDescription className="text-emerald-300 text-sm">
+              Live Groww funds: ₹{balance.toLocaleString('en-IN', { maximumFractionDigits: 2 })} — connection verified
+            </AlertDescription>
+          </Alert>
+        )}
+
         <p className="text-xs text-zinc-500">
           Contracts mapped: {instruments?.mappedContracts ?? 0}
           {instruments?.freshToday ? ' · synced today' : ' · sync pending'}
