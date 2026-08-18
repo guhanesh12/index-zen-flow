@@ -24,6 +24,12 @@ import {
   kiteProductFromDhan,
 } from "./kite_service.tsx";
 import { ensureKiteInstruments } from "./kite_instruments.tsx";
+import {
+  GrowwService,
+  growwExchangeFromSegment,
+  growwProductFromDhan,
+} from "./groww_service.tsx";
+import { ensureGrowwInstruments } from "./groww_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -31,7 +37,9 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha";
+export type BrokerId = "dhan" | "zerodha" | "groww";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww"];
+
 
 export interface KiteStoredCreds {
   apiKey: string;
@@ -52,7 +60,8 @@ export async function getActiveBroker(userId: string): Promise<BrokerId> {
       .select("active_broker")
       .eq("user_id", userId)
       .maybeSingle();
-    return String(data?.active_broker || "dhan").toLowerCase() === "zerodha" ? "zerodha" : "dhan";
+    const b = String(data?.active_broker || "dhan").toLowerCase() as BrokerId;
+    return KNOWN_BROKERS.includes(b) ? b : "dhan";
   } catch {
     return "dhan";
   }
@@ -66,41 +75,152 @@ export async function setActiveBroker(userId: string, broker: BrokerId): Promise
   if (error) throw error;
 }
 
+/** Wipe one broker's stored session (KV secret + non-secret mirror row). */
+async function clearBrokerSession(userId: string, broker: BrokerId) {
+  if (broker === "dhan") await kv.del(`api_credentials:${userId}`);
+  if (broker === "zerodha") await clearKiteCredentials(userId);
+  if (broker === "groww") await clearGrowwCredentials(userId);
+  await supabaseAdmin
+    .from("broker_credentials")
+    .delete()
+    .eq("user_id", userId)
+    .eq("broker", broker);
+}
+
 /**
  * ONE USER = ONE BROKER.
- * Selecting a broker makes it active AND removes the other broker's session so
+ * Selecting a broker makes it active AND removes every other broker's session so
  * orders, funds and positions can never come from two places at once.
  */
 export async function selectBroker(userId: string, broker: BrokerId): Promise<void> {
-  if (broker === "zerodha") {
-    // drop the Dhan session (keeps the user's dedicated static IP untouched)
-    await kv.del(`api_credentials:${userId}`);
-    await supabaseAdmin
-      .from("broker_credentials")
-      .delete()
-      .eq("user_id", userId)
-      .eq("broker", "dhan");
-    await supabaseAdmin
-      .from("profiles")
-      .update({ active_broker: "zerodha", broker_connected: false })
-      .eq("user_id", userId);
-    // 📥 Download Zerodha's near-expiry NIFTY/BANKNIFTY/SENSEX option contracts
-    // and merge them into instrument_master so orders go out in Kite format.
-    await ensureKiteInstruments(false);
+  for (const other of KNOWN_BROKERS) {
+    if (other !== broker) await clearBrokerSession(userId, other);
+  }
+  await supabaseAdmin
+    .from("profiles")
+    .update({ active_broker: broker, broker_connected: false })
+    .eq("user_id", userId);
 
-  } else {
-    await clearKiteCredentials(userId);
-    await supabaseAdmin
+  // 📥 Download the broker's near-expiry NIFTY/BANKNIFTY/SENSEX contracts so
+  // orders go out in that broker's own symbol format (shared by all users).
+  if (broker === "zerodha") await ensureKiteInstruments(false);
+  if (broker === "groww") await ensureGrowwInstruments(false);
+}
+
+// ───────────────────────── groww credentials ─────────────────────────
+
+export interface GrowwStoredCreds {
+  accessToken: string;
+  growwUserId?: string;
+  tokenExpiry?: string;
+  lastStatus?: string;
+  lastError?: string | null;
+}
+
+export async function getGrowwCredentials(userId: string): Promise<GrowwStoredCreds | null> {
+  const creds = (await kv.get(`groww_credentials:${userId}`)) as GrowwStoredCreds | null;
+  if (!creds?.accessToken) return null;
+  return creds;
+}
+
+export async function saveGrowwCredentials(userId: string, patch: Partial<GrowwStoredCreds>) {
+  const existing = (await getGrowwCredentials(userId)) || ({} as GrowwStoredCreds);
+  const merged = { ...existing, ...patch };
+  await kv.set(`groww_credentials:${userId}`, merged);
+  return merged;
+}
+
+export async function clearGrowwCredentials(userId: string) {
+  await kv.del(`groww_credentials:${userId}`);
+}
+
+export async function getGrowwService(userId: string): Promise<GrowwService | null> {
+  const creds = await getGrowwCredentials(userId);
+  if (!creds?.accessToken) return null;
+  return new GrowwService({ accessToken: creds.accessToken });
+}
+
+/** Non-secret mirror so the Broker screen can show Groww status. */
+export async function mirrorGrowwStatus(userId: string, patch: Record<string, any>) {
+  try {
+    const { data: existing } = await supabaseAdmin
       .from("broker_credentials")
-      .delete()
+      .select("id")
       .eq("user_id", userId)
-      .eq("broker", "zerodha");
-    await supabaseAdmin
-      .from("profiles")
-      .update({ active_broker: "dhan", broker_connected: false })
-      .eq("user_id", userId);
+      .eq("broker", "groww")
+      .maybeSingle();
+    const payload = { user_id: userId, broker: "groww", auth_method: "access_token", ...patch };
+    if (existing?.id) {
+      await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
+    } else {
+      await supabaseAdmin.from("broker_credentials").insert(payload);
+    }
+  } catch (e) {
+    console.error("[GROWW] status mirror failed:", (e as any)?.message || e);
   }
 }
+
+/** Resolve a Dhan-style order into a Groww trading symbol. */
+export async function resolveGrowwSymbol(order: any): Promise<{
+  tradingSymbol: string;
+  exchange: "NSE" | "BSE";
+  segment: "FNO" | "CASH";
+  lotSize: number;
+} | null> {
+  const securityId = String(order?.securityId || "");
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS =
+    "lot_size, exchange_segment, groww_trading_symbol, groww_exchange, groww_segment";
+
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},groww_trading_symbol.eq.${symbolText.toUpperCase()}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+  if (!inst?.groww_trading_symbol) {
+    await ensureGrowwInstruments(!!inst);
+    const retry = await lookup();
+    if (retry?.groww_trading_symbol) inst = retry;
+  }
+
+  if (!inst?.groww_trading_symbol) {
+    if (!symbolText) return null;
+    const fallback = growwExchangeFromSegment(order?.exchangeSegment);
+    return {
+      tradingSymbol: symbolText.toUpperCase(),
+      exchange: fallback.exchange,
+      segment: fallback.segment,
+      lotSize: Number(order?.lotSize || 0),
+    };
+  }
+
+  const exch = String(inst.groww_exchange || "").toUpperCase() === "BSE" ? "BSE" : "NSE";
+  const seg = String(inst.groww_segment || "FNO").toUpperCase() === "CASH" ? "CASH" : "FNO";
+  return {
+    tradingSymbol: String(inst.groww_trading_symbol).toUpperCase(),
+    exchange: exch as "NSE" | "BSE",
+    segment: seg as "FNO" | "CASH",
+    lotSize: Number(inst.lot_size || 0),
+  };
+}
+
 
 // ───────────────────────── kite credentials ─────────────────────────
 
@@ -338,9 +458,58 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🟢 GROWW
+  if (broker === "groww") {
+    const gCreds = await getGrowwCredentials(userId);
+    if (!gCreds?.accessToken) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Groww is your active broker but no valid Groww session was found. Open Broker Setup → Groww and save your access token again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const g = await resolveGrowwSymbol(orderDetails);
+    if (!g?.tradingSymbol) {
+      throw new Error("Could not map this contract to a Groww trading symbol. Refresh the instrument master and retry.");
+    }
+    const svcG = new GrowwService({ accessToken: gCreds.accessToken });
+    try {
+      const res = await svcG.placeOrder({
+        tradingSymbol: g.tradingSymbol,
+        exchange: g.exchange,
+        segment: g.segment,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: growwProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        validity: "DAY",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "groww",
+        routedVia: "edge",
+        message: res.orderId ? "Order placed via Groww" : "Groww order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Groww session has expired. Create a new Trade API access token and save it in Broker Setup → Groww.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   if (broker !== "zerodha") {
     return await placeOrderViaStaticIP(userId, dhanCredentials, orderDetails);
   }
+
 
   const creds = await getKiteCredentials(userId);
   if (!creds?.apiKey || !creds?.accessToken) {
@@ -410,6 +579,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return [];
+    try {
+      return await g.getPositions();
+    } catch (e) {
+      console.error("[GROWW] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return [];
@@ -427,6 +606,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return null;
+    try {
+      return await g.getFundLimits();
+    } catch (e) {
+      console.error("[GROWW] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return null;
@@ -438,13 +627,20 @@ export async function getFundsSmart(
   }
 }
 
-/** Broker-aware last traded price for a contract (Dhan securityId or Kite symbol). */
+/** Broker-aware last traded price for a contract (Dhan securityId or broker symbol). */
 export async function getLtpSmart(
   userId: string,
   order: any,
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return null;
+    const resolved = await resolveGrowwSymbol(order);
+    if (!resolved) return null;
+    return await g.getLastPrice(resolved.exchange, resolved.segment, resolved.tradingSymbol);
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return null;
@@ -460,6 +656,24 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return null;
+    try {
+      const st = await g.getOrderStatus(orderId);
+      return {
+        orderId: String(st?.groww_order_id || st?.order_id || orderId),
+        orderStatus: String(st?.order_status || st?.status || "").toUpperCase(),
+        tradedQuantity: Number(st?.filled_quantity ?? 0),
+        averageTradedPrice: Number(st?.average_fill_price ?? st?.average_price ?? 0),
+        broker: "groww",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[GROWW] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker !== "zerodha") return await dhanFetch();
   const svc = await getKiteService(userId);
   if (!svc) return null;
@@ -486,8 +700,14 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "groww") {
+    const g = await getGrowwService(userId);
+    if (!g) return false;
+    return await g.cancelOrder(orderId);
+  }
   if (broker !== "zerodha") return await dhanCancel();
   const svc = await getKiteService(userId);
   if (!svc) return false;
   return await svc.cancelOrder(orderId);
 }
+

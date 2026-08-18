@@ -29,6 +29,9 @@ import * as BrokerRouter from "./broker_router.tsx";
 import { KiteService, buildKiteLoginUrl, exchangeKiteRequestToken, kiteTokenExpiryIso } from "./kite_service.tsx";
 import { syncKiteInstruments, ensureKiteInstruments, getKiteInstrumentStatus } from "./kite_instruments.tsx";
 import * as BrokerRegistry from "./broker_registry.tsx";
+import { GrowwService } from "./groww_service.tsx";
+import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
+
 
 
 const app = new Hono();
@@ -13537,13 +13540,16 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const activeBroker = await BrokerRouter.getActiveBroker(user.id);
     const kite = await BrokerRouter.getKiteCredentials(user.id);
+    const groww = await BrokerRouter.getGrowwCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
     const available: Record<string, boolean> = {
       dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
       zerodha: !!(kite?.apiKey && kite?.accessToken),
+      groww: !!groww?.accessToken,
     };
+
     return c.json({
       success: true,
       activeBroker,
@@ -13565,8 +13571,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (broker !== "dhan" && broker !== "zerodha") {
-      return c.json({ error: "broker must be 'dhan' or 'zerodha'" }, 400);
+    if (broker !== "dhan" && broker !== "zerodha" && broker !== "groww") {
+      return c.json({ error: "broker must be 'dhan', 'zerodha' or 'groww'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13583,9 +13589,12 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     }
     await kv.set(`broker_choice:${user.id}`, { broker, at: new Date().toISOString() });
 
-    // Switching to Zerodha → make sure Kite-format contracts are downloaded.
+    // Switching broker → make sure that broker's contract format is downloaded
+    // (one shared download for all users, cached per IST date).
     let instrumentSync: any = null;
     if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
+    if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
+
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
   } catch (err: any) {
@@ -13619,6 +13628,129 @@ app.post("/make-server-c4d79cb7/broker/kite/instruments/sync", async (c) => {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
 });
+
+// ============================================================================
+// 🟢 GROWW TRADE API — access token session, funds, status, instruments
+// Docs: https://groww.in/trade-api/docs/curl
+// ============================================================================
+
+function sanitizeGroww(creds: any) {
+  if (!creds) return null;
+  return {
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    groww_user_id: creds.growwUserId || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
+    last_error: creds.lastError || null,
+  };
+}
+
+app.get("/make-server-c4d79cb7/broker/groww/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getGrowwCredentials(user.id);
+    let liveCheck: any = null;
+    if (creds?.accessToken) {
+      const svc = new GrowwService({ accessToken: creds.accessToken });
+      liveCheck = await svc.verify();
+      await BrokerRouter.saveGrowwCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      } as any);
+      await BrokerRouter.mirrorGrowwStatus(user.id, {
+        last_status: liveCheck.ok ? "connected" : "token_invalid",
+        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+      });
+    }
+    const refreshed = await BrokerRouter.getGrowwCredentials(user.id);
+    return c.json({ success: true, groww: sanitizeGroww(refreshed), liveCheck });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const accessToken = String(body?.accessToken || body?.access_token || "").trim();
+    if (accessToken.length < 20) return c.json({ error: "A valid Groww Trade API access token is required" }, 400);
+
+    const svc = new GrowwService({ accessToken });
+    const check = await svc.verify();
+    if (!check.ok) return c.json({ error: check.error || "Groww rejected this access token" }, 400);
+
+    const creds = await BrokerRouter.saveGrowwCredentials(user.id, {
+      accessToken,
+      growwUserId: String(body?.growwUserId || "").trim() || undefined,
+      lastStatus: "connected",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorGrowwStatus(user.id, { last_status: "connected", last_error: null });
+    // shared instrument mapping so orders go out in Groww format
+    const instrumentSync = await ensureGrowwInstruments(false);
+    return c.json({ success: true, groww: sanitizeGroww(creds), balance: check.balance, instrumentSync });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getGrowwService(user.id);
+    if (!svc) return c.json({ success: false, error: "No Groww session saved" }, 400);
+    const check = await svc.verify();
+    await BrokerRouter.saveGrowwCredentials(user.id, {
+      lastStatus: check.ok ? "connected" : "token_invalid",
+      lastError: check.ok ? null : check.error,
+    } as any);
+    return c.json({ success: check.ok, ...check });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearGrowwCredentials(user.id);
+    await BrokerRouter.mirrorGrowwStatus(user.id, { last_status: "disconnected", last_error: null });
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/groww/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getGrowwInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/groww/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await syncGrowwInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    return c.json({ success: true, ...result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
 
 
 // --- GET kite status -------------------------------------------------------

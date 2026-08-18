@@ -14,6 +14,8 @@ import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
 import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
 import { ZerodhaConnect } from "./ZerodhaConnect";
+import { GrowwConnect } from "./GrowwConnect";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 
@@ -45,11 +47,12 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [vpsSubInfo, setVpsSubInfo] = useState<{ status: string; daysUntilExpiry: number; expiryDate?: string } | null>(null);
   const [showVpsExpiredModal, setShowVpsExpiredModal] = useState(false);
   // 🔒 ONE USER = ONE BROKER
-  const [activeBroker, setActiveBroker] = useState<'dhan' | 'zerodha' | null>(null);
+  const [activeBroker, setActiveBroker] = useState<string | null>(null);
   const [brokerLoading, setBrokerLoading] = useState(true);
   const [switchingBroker, setSwitchingBroker] = useState(false);
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
-  const [brokerAvailability, setBrokerAvailability] = useState<{ dhan: boolean; zerodha: boolean }>({ dhan: false, zerodha: false });
+  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false });
+
   // 🔀 Brokers the admin has switched ON (common registry — new brokers appear automatically)
   const [enabledBrokers, setEnabledBrokers] = useState<any[]>([]);
 
@@ -73,12 +76,12 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       });
       const data = await res.json();
       if (res.ok && data?.success) {
-        setBrokerAvailability(data.available || { dhan: false, zerodha: false });
+        setBrokerAvailability(data.available || {});
         setEnabledBrokers(Array.isArray(data.brokers) ? data.brokers : []);
         // Only treat a broker as "chosen" once the user actually picked/connected one.
-        const anyConnected = !!(data.available?.dhan || data.available?.zerodha);
+        const anyConnected = Object.values(data.available || {}).some(Boolean);
         const explicit = !!data.chosen || anyConnected;
-        setActiveBroker(explicit ? (data.activeBroker as 'dhan' | 'zerodha') : null);
+        setActiveBroker(explicit ? String(data.activeBroker) : null);
         if (explicit) localStorage.setItem('indexpilot_broker_choice', data.activeBroker);
       }
     } catch (e) {
@@ -89,7 +92,8 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
     }
   };
 
-  const chooseBroker = async (broker: 'dhan' | 'zerodha') => {
+  const chooseBroker = async (broker: string) => {
+
     setSwitchingBroker(true);
     try {
       const tok = await getFreshToken();
@@ -584,10 +588,10 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
               <Shield className="w-4 h-4 text-emerald-500" />
               <span className="text-zinc-400">Your broker:</span>
               <span className="font-semibold text-zinc-100">
-                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name ||
-                  (activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan')}
+                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name || activeBroker}
               </span>
-              {(activeBroker === 'zerodha' ? brokerAvailability.zerodha : brokerAvailability.dhan) ? (
+              {brokerAvailability?.[activeBroker] ? (
+
                 <span className="text-emerald-400 text-xs flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" /> connected
                 </span>
@@ -617,20 +621,28 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
             <DialogTitle>Switch broker?</DialogTitle>
             <DialogDescription className="text-zinc-400">
               Only one broker can be connected. Switching will disconnect{' '}
-              <span className="text-zinc-200">{activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan'}</span>{' '}
+              <span className="text-zinc-200">
+                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name || activeBroker}
+              </span>{' '}
               and remove its saved session. Close all open positions first — running trades will no
               longer be monitored by this app.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end gap-2">
+          <div className="grid gap-2">
+            {enabledBrokers
+              .filter((b: any) => b.id !== activeBroker)
+              .map((b: any) => (
+                <Button
+                  key={b.id}
+                  className="bg-rose-600 hover:bg-rose-500 justify-start"
+                  disabled={switchingBroker}
+                  onClick={() => chooseBroker(b.id)}
+                >
+                  <span className="size-2.5 rounded-full mr-2" style={{ backgroundColor: b.color }} />
+                  {switchingBroker ? 'Switching…' : `Switch to ${b.name}`}
+                </Button>
+              ))}
             <Button variant="ghost" onClick={() => setShowSwitchDialog(false)}>Cancel</Button>
-            <Button
-              className="bg-rose-600 hover:bg-rose-500"
-              disabled={switchingBroker}
-              onClick={() => chooseBroker(activeBroker === 'zerodha' ? 'dhan' : 'zerodha')}
-            >
-              {switchingBroker ? 'Switching…' : `Switch to ${activeBroker === 'zerodha' ? 'Dhan' : 'Zerodha Kite'}`}
-            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -646,6 +658,19 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
           }}
         />
       )}
+
+      {activeBroker === 'groww' && (
+        <GrowwConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
+
 
       {activeBroker === 'dhan' && (
     <Tabs defaultValue="oauth" className="space-y-4">
