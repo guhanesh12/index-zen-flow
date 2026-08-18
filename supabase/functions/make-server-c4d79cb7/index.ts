@@ -29,6 +29,9 @@ import * as BrokerRouter from "./broker_router.tsx";
 import { KiteService, buildKiteLoginUrl, exchangeKiteRequestToken, kiteTokenExpiryIso } from "./kite_service.tsx";
 import { syncKiteInstruments, ensureKiteInstruments, getKiteInstrumentStatus } from "./kite_instruments.tsx";
 import * as BrokerRegistry from "./broker_registry.tsx";
+import { GrowwService } from "./groww_service.tsx";
+import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
+
 
 
 const app = new Hono();
