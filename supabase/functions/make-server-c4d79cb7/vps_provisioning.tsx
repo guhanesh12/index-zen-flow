@@ -347,6 +347,31 @@ app.get('/test', (req, res) => {
   });
 });
 
+// 🔄 SELF-UPDATE — lets the backend push a newer server.js to this VPS with no SSH.
+app.post('/self-update', (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== \`Bearer \${ORDER_SERVER_API_KEY}\`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const { script, version } = req.body || {};
+    if (!script || typeof script !== 'string' || script.length < 500) {
+      return res.status(400).json({ error: 'Invalid script payload' });
+    }
+    const fs = require('fs');
+    const { exec } = require('child_process');
+    const file = '/root/indexpilot-order-server/server.js';
+    fs.copyFileSync(file, file + '.bak');
+    fs.writeFileSync(file, script);
+    log(\`🔄 Self-update written (target version \${version || 'unknown'}), restarting...\`);
+    res.json({ success: true, restarting: true, version: version || null });
+    setTimeout(() => exec('pm2 restart indexpilot-order-server'), 400);
+  } catch (error) {
+    log(\`❌ Self-update failed: \${error.message}\`);
+    try { res.status(500).json({ error: error.message }); } catch (_) {}
+  }
+});
+
 // Place order endpoint
 app.post('/place-order', async (req, res) => {
   try {
