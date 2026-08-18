@@ -617,20 +617,28 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
             <DialogTitle>Switch broker?</DialogTitle>
             <DialogDescription className="text-zinc-400">
               Only one broker can be connected. Switching will disconnect{' '}
-              <span className="text-zinc-200">{activeBroker === 'zerodha' ? 'Zerodha Kite' : 'Dhan'}</span>{' '}
+              <span className="text-zinc-200">
+                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name || activeBroker}
+              </span>{' '}
               and remove its saved session. Close all open positions first — running trades will no
               longer be monitored by this app.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end gap-2">
+          <div className="grid gap-2">
+            {enabledBrokers
+              .filter((b: any) => b.id !== activeBroker)
+              .map((b: any) => (
+                <Button
+                  key={b.id}
+                  className="bg-rose-600 hover:bg-rose-500 justify-start"
+                  disabled={switchingBroker}
+                  onClick={() => chooseBroker(b.id)}
+                >
+                  <span className="size-2.5 rounded-full mr-2" style={{ backgroundColor: b.color }} />
+                  {switchingBroker ? 'Switching…' : `Switch to ${b.name}`}
+                </Button>
+              ))}
             <Button variant="ghost" onClick={() => setShowSwitchDialog(false)}>Cancel</Button>
-            <Button
-              className="bg-rose-600 hover:bg-rose-500"
-              disabled={switchingBroker}
-              onClick={() => chooseBroker(activeBroker === 'zerodha' ? 'dhan' : 'zerodha')}
-            >
-              {switchingBroker ? 'Switching…' : `Switch to ${activeBroker === 'zerodha' ? 'Dhan' : 'Zerodha Kite'}`}
-            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -646,6 +654,19 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
           }}
         />
       )}
+
+      {activeBroker === 'groww' && (
+        <GrowwConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
+
 
       {activeBroker === 'dhan' && (
     <Tabs defaultValue="oauth" className="space-y-4">
