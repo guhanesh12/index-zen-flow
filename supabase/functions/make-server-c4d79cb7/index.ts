@@ -31,6 +31,8 @@ import { syncKiteInstruments, ensureKiteInstruments, getKiteInstrumentStatus } f
 import * as BrokerRegistry from "./broker_registry.tsx";
 import { GrowwService } from "./groww_service.tsx";
 import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
+import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox_service.tsx";
+import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
 
 
 
@@ -2066,6 +2068,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const groww = await BrokerRouter.getGrowwService(user.id);
       if (!groww) return c.json({ error: "Groww not connected" }, 400);
       funds = await groww.getFundLimits();
+    } else if (activeBroker === 'upstox') {
+      const upstox = await BrokerRouter.getUpstoxService(user.id);
+      if (!upstox) return c.json({ error: "Upstox not connected" }, 400);
+      funds = await upstox.getFundLimits();
     } else {
       const credentials = await kv.get(`api_credentials:${user.id}`);
       if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -2260,6 +2266,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(groww.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'upstox') {
+      const upstox = await BrokerRouter.getUpstoxService(effectiveUserId);
+      if (!upstox) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Upstox session not found. Connect Upstox again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(upstox.getPositions(), 4500, cachedPositions || []);
     } else {
       const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
       if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
@@ -13555,6 +13571,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const activeBroker = await BrokerRouter.getActiveBroker(user.id);
     const kite = await BrokerRouter.getKiteCredentials(user.id);
     const groww = await BrokerRouter.getGrowwCredentials(user.id);
+    const upstox = await BrokerRouter.getUpstoxCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
@@ -13562,6 +13579,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
       dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
       zerodha: !!(kite?.apiKey && kite?.accessToken),
       groww: !!groww?.accessToken,
+      upstox: !!upstox?.accessToken,
     };
 
     return c.json({
@@ -13585,8 +13603,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (broker !== "dhan" && broker !== "zerodha" && broker !== "groww") {
-      return c.json({ error: "broker must be 'dhan', 'zerodha' or 'groww'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww' or 'upstox'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13608,6 +13626,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     let instrumentSync: any = null;
     if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
     if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
+    if (broker === "upstox") instrumentSync = await ensureUpstoxInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
