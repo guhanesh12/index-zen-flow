@@ -57,6 +57,7 @@ export const BROKER_CATALOG: BrokerDef[] = [
     features: ["orders", "positions", "funds", "instruments", "static-ip"],
     defaultEnabled: true,
   },
+  {
 
     id: "upstox",
     name: "Upstox",
