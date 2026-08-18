@@ -13568,8 +13568,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (broker !== "dhan" && broker !== "zerodha") {
-      return c.json({ error: "broker must be 'dhan' or 'zerodha'" }, 400);
+    if (broker !== "dhan" && broker !== "zerodha" && broker !== "groww") {
+      return c.json({ error: "broker must be 'dhan', 'zerodha' or 'groww'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13586,9 +13586,12 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     }
     await kv.set(`broker_choice:${user.id}`, { broker, at: new Date().toISOString() });
 
-    // Switching to Zerodha → make sure Kite-format contracts are downloaded.
+    // Switching broker → make sure that broker's contract format is downloaded
+    // (one shared download for all users, cached per IST date).
     let instrumentSync: any = null;
     if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
+    if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
+
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
   } catch (err: any) {
