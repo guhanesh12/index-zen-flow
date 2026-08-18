@@ -13537,13 +13537,16 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const activeBroker = await BrokerRouter.getActiveBroker(user.id);
     const kite = await BrokerRouter.getKiteCredentials(user.id);
+    const groww = await BrokerRouter.getGrowwCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
     const available: Record<string, boolean> = {
       dhan: !!(dhanCreds?.dhanClientId && dhanCreds?.dhanAccessToken),
       zerodha: !!(kite?.apiKey && kite?.accessToken),
+      groww: !!groww?.accessToken,
     };
+
     return c.json({
       success: true,
       activeBroker,
