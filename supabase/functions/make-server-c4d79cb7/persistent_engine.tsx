@@ -1011,10 +1011,16 @@ class PersistentTradingEngine {
   // clock every 150ms and triggers the engine tick within ~2s of the
   // candle close (e.g. 09:30:02) so orders go out on time.
   // ============================================================
-  private static readonly CANDLE_WATCH_POLL_MS = 150;
-  private static readonly CANDLE_SETTLE_MS = 1_800; // let broker publish the closed candle
+  private static readonly CANDLE_WATCH_POLL_MS = 100;
+  private static readonly CANDLE_SETTLE_MS = 700; // let broker publish the closed candle
+  // Safety re-fire in the same minute: if the broker had not published the closed
+  // candle at +700ms, this second pass still executes the order inside the minute
+  // (duplicate orders are blocked by the atomic order claim).
+  private static readonly CANDLE_RETRY_MS = 6_000;
   private static candleWatchUntil = 0;
   private static lastCandleFireKey = "";
+  private static lastCandleRetryKey = "";
+
 
   static async runCandleWatchLoop(durationMs = 58_000): Promise<any> {
     const now = Date.now();
