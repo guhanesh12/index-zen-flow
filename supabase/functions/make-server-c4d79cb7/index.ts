@@ -14042,8 +14042,27 @@ app.get("/make-server-c4d79cb7/broker/upstox/callback", async (c) => {
 
     return html("Upstox connected ✅", "Your Upstox account is linked. Funds, positions and orders now route through Upstox.", true);
   } catch (err: any) {
-    return html("Upstox login failed", String(err?.message || err).slice(0, 200), false);
+    const raw = String(err?.message || err);
+    const low = raw.toLowerCase();
+    let hint = "";
+    if (low.includes("segment")) {
+      hint = `Your Upstox account works, but no trading segment is active on it.
+        Open the Upstox app/web → Profile → Segment activation and enable <b>F&O (Derivatives)</b>,
+        then click Login with Upstox again.`;
+    } else if (low.includes("redirect")) {
+      hint = `The redirect URI registered in your Upstox app does not match. Register exactly:<br>
+        <code style="color:#22d3ee;word-break:break-all">${upstoxRedirectUri()}</code>`;
+    } else if (low.includes("invalid") && (low.includes("key") || low.includes("secret") || low.includes("client"))) {
+      hint = "API key or secret is wrong. Re-copy them from account.upstox.com → Developer → Apps and save again.";
+    }
+    return html(
+      "Upstox login failed",
+      `${raw.slice(0, 200)}${hint ? `<br><br><span style="color:#cbd5e1">${hint}</span>` : ""}
+       <br><br><span style="color:#475569;font-size:12px">Redirect URI used: ${upstoxRedirectUri()}</span>`,
+      false,
+    );
   }
+
 });
 
 app.post("/make-server-c4d79cb7/broker/upstox/verify", async (c) => {
