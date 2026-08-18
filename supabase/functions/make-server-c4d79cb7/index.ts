@@ -13852,9 +13852,18 @@ app.post("/make-server-c4d79cb7/broker/groww/instruments/sync", async (c) => {
 // Docs: https://upstox.com/developer/api-documentation/authentication
 // ============================================================================
 
-function upstoxRedirectUri() {
-  return `${Deno.env.get("SUPABASE_URL")}/functions/v1/make-server-c4d79cb7/broker/upstox/callback`;
+/** Public API domain is the ONLY redirect host that brokers accept reliably. */
+const PUBLIC_API_BASE = "https://api.indexpilotai.com";
+
+/** Callback URL for any OAuth broker — register this exact string in the broker app. */
+export function brokerRedirectUri(brokerId: string) {
+  return `${PUBLIC_API_BASE}/functions/v1/make-server-c4d79cb7/broker/${brokerId}/callback`;
 }
+
+function upstoxRedirectUri() {
+  return brokerRedirectUri("upstox");
+}
+
 
 function sanitizeUpstox(creds: any) {
   if (!creds) return null;
