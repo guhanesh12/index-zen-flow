@@ -13703,9 +13703,45 @@ app.post("/make-server-c4d79cb7/broker/groww/save-keys", async (c) => {
       lastError: null,
     } as any);
     await BrokerRouter.mirrorGrowwStatus(user.id, { last_status: "connected", last_error: null });
+
+    // ✅ Make Groww the ACTIVE broker so the dashboard reads funds/positions from it.
+    const currentBroker = await BrokerRouter.getActiveBroker(user.id);
+    if (currentBroker !== "groww") {
+      // one user = one broker: switching wipes other sessions, so re-save Groww after
+      await BrokerRouter.selectBroker(user.id, "groww" as any);
+      await BrokerRouter.saveGrowwCredentials(user.id, {
+        accessToken,
+        growwUserId: String(body?.growwUserId || "").trim() || undefined,
+        lastStatus: "connected",
+        lastError: null,
+      } as any);
+      await BrokerRouter.mirrorGrowwStatus(user.id, { last_status: "connected", last_error: null });
+    }
+    await BrokerRouter.setBrokerConnected(user.id, true);
+    await kv.set(`broker_choice:${user.id}`, { broker: "groww", at: new Date().toISOString() });
+
+    // cache balance so admin/dashboard cards show a real number immediately
+    if (typeof check.balance === "number") {
+      await kv.set(`broker_funds:${user.id}`, {
+        availableBalance: check.balance,
+        sodLimit: check.balance,
+        collateralAmount: 0,
+        utilizationAmount: 0,
+        blockedPayinAmount: 0,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
     // shared instrument mapping so orders go out in Groww format
     const instrumentSync = await ensureGrowwInstruments(false);
-    return c.json({ success: true, groww: sanitizeGroww(creds), balance: check.balance, instrumentSync });
+    return c.json({
+      success: true,
+      groww: sanitizeGroww(creds),
+      activeBroker: "groww",
+      connected: true,
+      balance: check.balance,
+      instrumentSync,
+    });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
