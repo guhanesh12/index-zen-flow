@@ -18,11 +18,13 @@ const num = (v: any, d = 2) => (v === null || v === undefined || Number.isNaN(Nu
 
 const fmtStamp = (v?: string | null) => {
   if (!v) return '—';
+  if (/^\d{1,2}:\d{2}$/.test(v)) return v; // already an IST candle stamp
   const d = new Date(v);
   return Number.isNaN(d.getTime())
     ? String(v)
-    : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    : d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
 };
+
 
 const actionTone = (action?: string) => {
   if (action === 'BUY_CALL')

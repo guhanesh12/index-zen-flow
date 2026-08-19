@@ -6926,11 +6926,16 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
           tfs.map(async (tf) => {
             try {
               const latest = await CentralMarketData.getLatestCentralSignal(idx, tf);
-              if (latest?.signal) {
+              // Only trust the cached signal when it belongs to the CURRENT/last closed
+              // candle. Otherwise the panel showed yesterday's stamp (e.g. "12:30").
+              const maxAgeMs = (tf + 2) * 60 * 1000;
+              const fresh = latest?.signal && latest?.at && Date.now() - Number(latest.at) <= maxAgeMs;
+              if (fresh) {
                 out[idx][`${tf}m`] = shapeCentralSignal(latest.signal, latest.candleStamp || null, latest.at || null, false);
                 return;
               }
-              // no cached signal for this timeframe yet — compute live from the central feed (read-only)
+              // stale or missing → compute live from the central feed AND publish it so
+              // every user engine reuses the exact same signal for this candle.
               const sec = CENTRAL_INDEX_IDS[idx];
               const primary = await CentralMarketData.getCentralOHLC(sec, String(tf), 150, null);
               const candles = primary.candles || [];
@@ -6945,7 +6950,13 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
               });
               const lastTs = candles[candles.length - 1]?.timestamp;
               const ms = Number(lastTs) < 1e12 ? Number(lastTs) * 1000 : Number(lastTs);
-              out[idx][`${tf}m`] = shapeCentralSignal(sig, new Date(ms).toISOString(), Date.now(), true);
+              const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+              const bucket = Math.floor(istNow.getUTCMinutes() / tf) * tf;
+              const stamp = `${String(istNow.getUTCHours()).padStart(2, '0')}:${String(bucket).padStart(2, '0')}`;
+              await CentralMarketData.saveCentralSignal(idx, tf, stamp, sig).catch(() => {});
+              out[idx][`${tf}m`] = shapeCentralSignal(sig, stamp, Date.now(), true);
+              out[idx][`${tf}m`].lastBarAt = new Date(ms).toISOString();
+
             } catch (e: any) {
               out[idx][`${tf}m`] = { error: e?.message || String(e) };
             }
