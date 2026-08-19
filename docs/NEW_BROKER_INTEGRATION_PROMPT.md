@@ -78,7 +78,21 @@ without changing or breaking any existing broker (Dhan is the default and must s
    - The callback page must print an actionable reason on failure (segment not activated,
      redirect mismatch, wrong key/secret) plus the redirect URI that was actually used.
 
-9. Rules
+9. Trading engine (MANDATORY — this broke Zerodha/Groww/Upstox once)
+   - persistent_engine.tsx must NEVER gate a tick on Dhan credentials.
+     Selecting a non-Dhan broker deletes api_credentials:<userId>, so a Dhan-only
+     guard silently skips the user: no signals, no orders, no SL/target monitoring
+     while the dashboard still shows "connected".
+   - Use loadEngineCredentials(userId): own Dhan creds → else, if the active broker
+     has a live session, fall back to the CENTRAL market-data credentials for
+     candles/LTP only.
+   - All broker I/O inside the engine must go through the router helpers
+     (placeOrderSmart / getPositionsSmart / getLtpSmart / getOrderStatusSmart /
+     cancelOrderSmart) — never a raw DhanService call.
+   - Verify after integration: engine start, signal, order, position monitor,
+     trailing SL and exit all work with ONLY the new broker connected.
+
+10. Rules
    - One user = one active broker; switching wipes the other broker's session and
      downloads this broker's contracts.
    - Dashboard funds, positions, orders, exit button and signal execution must follow the
@@ -86,8 +100,9 @@ without changing or breaking any existing broker (Dhan is the default and must s
    - Order latency path (candle watcher, atomic order claim, parallel batches) is shared —
      do not fork it per broker.
 
-10. Deploy the make-server-c4d79cb7 edge function and append a "<<BROKER NAME>> — what is live now"
+11. Deploy the make-server-c4d79cb7 edge function and append a "<<BROKER NAME>> — what is live now"
     section to docs/BROKER_INTEGRATION_PLAYBOOK.md.
+
 
 ```
 
