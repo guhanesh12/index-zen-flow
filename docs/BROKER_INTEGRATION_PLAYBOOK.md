@@ -99,3 +99,24 @@ GET  /fund-limits                               broker-agnostic funds
 GET  /positions | /live-positions               broker-agnostic positions
 POST /execute-dhan-order       { action, symbol, quantity, orderId }   broker-agnostic entry/exit
 ```
+
+## ⚠️ Known pitfall: engine must be broker-aware (fixed)
+
+**Symptom:** user selects Zerodha / Groww / Upstox, dashboard shows "connected",
+but the engine never trades and open positions stop being monitored.
+
+**Cause:** `selectBroker()` deletes the Dhan KV session (`api_credentials:<userId>`),
+while `persistent_engine.tsx` gated every tick on Dhan credentials
+(`if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;`).
+
+**Fix now in place:**
+- `loadEngineCredentials(userId)` — own Dhan creds first; for a non-Dhan active broker
+  with a live session it falls back to the **central market-data** Dhan credentials,
+  used only for candles/LTP.
+- Used by the cron engine loop, the orphan-position monitor and
+  `startPositionMonitorLoops`.
+- Position reads go through `BrokerRouter.getPositionsSmart(userId, dhanFetch)`;
+  orders/exits already use `placeOrderSmart`.
+
+**Rule for every new broker:** no raw `DhanService` call and no Dhan-credential guard
+may decide whether a user's engine runs.
