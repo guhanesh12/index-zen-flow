@@ -28,7 +28,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { sendPushToUser } from "./push_notifications.tsx";
-import { getCentralOHLC, getCachedCentralSignal, saveCentralSignal } from "./central_market_data.tsx";
+import { getCentralOHLC, getCachedCentralSignal, saveCentralSignal, getCentralCredentials } from "./central_market_data.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -390,6 +390,47 @@ async function loadDhanCredentials(userId: string): Promise<{ dhanClientId: stri
   return legacy?.dhanClientId && legacy?.dhanAccessToken ? legacy : null;
 }
 
+/**
+ * 🔀 Broker-aware engine credentials.
+ * Dhan users keep the exact old behaviour. For Zerodha/Groww/Upstox users the
+ * Dhan KV session is intentionally wiped by selectBroker(), so we fall back to
+ * the CENTRAL market-data Dhan credentials purely for candles/LTP — orders,
+ * positions and funds still route through BrokerRouter (*Smart helpers).
+ */
+async function loadEngineCredentials(
+  userId: string,
+): Promise<{ dhanClientId: string; dhanAccessToken: string } | null> {
+  const own = await loadDhanCredentials(userId);
+  if (own) return own;
+
+  try {
+    const broker = await BrokerRouter.getActiveBroker(userId);
+    if (broker === "dhan") return null;
+
+    // Only run when that broker actually has a live session.
+    const connected =
+      broker === "zerodha"
+        ? !!(await BrokerRouter.getKiteCredentials(userId))?.accessToken
+        : broker === "groww"
+          ? !!(await BrokerRouter.getGrowwCredentials(userId))?.accessToken
+          : broker === "upstox"
+            ? !!(await BrokerRouter.getUpstoxCredentials(userId))?.accessToken
+            : false;
+    if (!connected) return null;
+
+    const central = await getCentralCredentials();
+    if (!central?.clientId || !central?.accessToken) {
+      console.warn(`⚠️ [ENGINE] ${broker} user ${userId} has no central market-data credentials`);
+      return null;
+    }
+    return { dhanClientId: central.clientId, dhanAccessToken: central.accessToken };
+  } catch (e) {
+    console.error("[ENGINE] broker-aware credential load failed:", (e as any)?.message || e);
+    return null;
+  }
+}
+
+
 interface EngineState {
   isRunning: boolean;
   userId: string;
@@ -652,9 +693,9 @@ class PersistentTradingEngine {
           const symbols = engine.selected_symbols || [];
 
           // Get fresh Dhan credentials from DB first; KV can be stale after reconnect/token refresh.
-          const credentials = await loadDhanCredentials(userId);
+          const credentials = await loadEngineCredentials(userId);
           if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) {
-            console.warn(`⚠️ [CRON] No Dhan credentials for user ${userId}, skipping`);
+            console.warn(`⚠️ [CRON] No usable broker credentials for user ${userId}, skipping`);
             return;
           }
 
@@ -742,7 +783,7 @@ class PersistentTradingEngine {
         );
         for (const uid of orphanUserIds) {
           try {
-            const credentials = await loadDhanCredentials(uid);
+            const credentials = await loadEngineCredentials(uid);
             if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) continue;
             const dhanService = new DhanService({
               clientId: credentials.dhanClientId,
@@ -816,7 +857,7 @@ class PersistentTradingEngine {
       if (this.monitorLoops.has(userId)) continue;
 
       const loop = (async () => {
-        const credentials = await loadDhanCredentials(userId);
+        const credentials = await loadEngineCredentials(userId);
         if (!credentials?.dhanClientId || !credentials?.dhanAccessToken) return;
 
         const dhanService = new DhanService({
@@ -826,7 +867,7 @@ class PersistentTradingEngine {
 
         // ⚡ AUTO-IMPORT: any open broker position not yet in position_monitor_state
         try {
-          const brokerPositions = await dhanService.getPositions();
+          const brokerPositions = await BrokerRouter.getPositionsSmart(userId, () => dhanService.getPositions());
           const openPositions = (brokerPositions || []).filter((p: any) => Math.abs(Number(p.netQty || 0)) > 0);
 
           if (openPositions.length > 0) {
@@ -2366,7 +2407,7 @@ class PersistentTradingEngine {
 
     try {
       // Fetch fresh positions from Dhan
-      const dhanPositions = await dhanService.getPositions();
+      const dhanPositions = await BrokerRouter.getPositionsSmart(userId, () => dhanService.getPositions());
       const monitorSignalCache = new Map<string, any>();
       const getMonitorSignal = async (indexName: SupportedIndex) => {
         if (monitorSignalCache.has(indexName)) return monitorSignalCache.get(indexName);
