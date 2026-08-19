@@ -1093,6 +1093,14 @@ class PersistentTradingEngine {
 
         if (inMarket && msIntoMinute >= this.CANDLE_SETTLE_MS && key !== this.lastCandleFireKey) {
           this.lastCandleFireKey = key;
+          // 🛰️ Publish the shared central signal FIRST (independent of any user engine)
+          // so every user's tick reuses the exact same signal from cache instantly.
+          inflight.push(
+            this.publishCentralSignals(istNow).catch((e: any) =>
+              console.error(`❌ [CENTRAL-PUB] ${e?.message || e}`)
+            ),
+          );
+
           lastLatencyMs = msIntoMinute;
           fires++;
           console.log(
