@@ -390,6 +390,47 @@ async function loadDhanCredentials(userId: string): Promise<{ dhanClientId: stri
   return legacy?.dhanClientId && legacy?.dhanAccessToken ? legacy : null;
 }
 
+/**
+ * 🔀 Broker-aware engine credentials.
+ * Dhan users keep the exact old behaviour. For Zerodha/Groww/Upstox users the
+ * Dhan KV session is intentionally wiped by selectBroker(), so we fall back to
+ * the CENTRAL market-data Dhan credentials purely for candles/LTP — orders,
+ * positions and funds still route through BrokerRouter (*Smart helpers).
+ */
+async function loadEngineCredentials(
+  userId: string,
+): Promise<{ dhanClientId: string; dhanAccessToken: string } | null> {
+  const own = await loadDhanCredentials(userId);
+  if (own) return own;
+
+  try {
+    const broker = await BrokerRouter.getActiveBroker(userId);
+    if (broker === "dhan") return null;
+
+    // Only run when that broker actually has a live session.
+    const connected =
+      broker === "zerodha"
+        ? !!(await BrokerRouter.getKiteCredentials(userId))?.accessToken
+        : broker === "groww"
+          ? !!(await BrokerRouter.getGrowwCredentials(userId))?.accessToken
+          : broker === "upstox"
+            ? !!(await BrokerRouter.getUpstoxCredentials(userId))?.accessToken
+            : false;
+    if (!connected) return null;
+
+    const central = await getCentralCredentials();
+    if (!central?.clientId || !central?.accessToken) {
+      console.warn(`⚠️ [ENGINE] ${broker} user ${userId} has no central market-data credentials`);
+      return null;
+    }
+    return { dhanClientId: central.clientId, dhanAccessToken: central.accessToken };
+  } catch (e) {
+    console.error("[ENGINE] broker-aware credential load failed:", (e as any)?.message || e);
+    return null;
+  }
+}
+
+
 interface EngineState {
   isRunning: boolean;
   userId: string;
