@@ -3690,6 +3690,62 @@ class PersistentTradingEngine {
     const intervalMs = interval * 60 * 1000;
     return Math.floor(istDate.getTime() / intervalMs) * intervalMs - istOffsetMs;
   }
+
+  // ============================================================
+  // 🛰️ CENTRAL SIGNAL PUBLISHER
+  // Runs at every candle close (5m / 15m) from the millisecond
+  // watcher, independent of whether any user engine is running.
+  // Every user tick then reads this cached signal → identical
+  // signal for all users, generated within ms of the close.
+  // ============================================================
+  private static readonly CENTRAL_PUBLISH_INDEXES: Array<{ name: string; securityId: string }> = [
+    { name: "NIFTY", securityId: "13" },
+    { name: "BANKNIFTY", securityId: "25" },
+    { name: "SENSEX", securityId: "51" },
+  ];
+
+  static async publishCentralSignals(istNow: Date = new Date(Date.now() + 5.5 * 60 * 60 * 1000)) {
+    const minuteOfDay = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+    const tfs = [5, 15].filter((tf) => (minuteOfDay - (9 * 60 + 15)) % tf === 0);
+    if (tfs.length === 0) return { published: 0 };
+
+    const creds = await getCentralCredentials();
+    if (!creds) return { published: 0, reason: "no central credentials" };
+
+    let published = 0;
+    await Promise.all(
+      tfs.flatMap((tf) =>
+        this.CENTRAL_PUBLISH_INDEXES.map(async (idx) => {
+          try {
+            const stamp = this.getCurrentCandleTimestamp(istNow, tf);
+            if (await getCachedCentralSignal(idx.name, tf, stamp)) return;
+
+            const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null);
+            const candles = primary.candles || [];
+            if (candles.length < 30) return;
+            const htf =
+              tf < 15 ? (await getCentralOHLC(idx.securityId, "15", 100, null)).candles || candles : candles;
+
+            const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
+              higherTimeframeData: htf,
+              timeframeMinutes: tf,
+              minimumBarsBetweenSignals: 1,
+              blockNewEntriesAfterMinutes: 15 * 60 + 15,
+            });
+            (sig as any).timestamp = candles[candles.length - 1]?.timestamp || Date.now();
+            (sig as any).signalSource = "CENTRAL_DATA";
+            await saveCentralSignal(idx.name, tf, stamp, sig);
+            published++;
+            console.log(`🛰️ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} → ${sig.action} (${sig.confidence}%)`);
+          } catch (e: any) {
+            console.error(`❌ [CENTRAL-PUB] ${idx.name} ${tf}m: ${e?.message || e}`);
+          }
+        })
+      )
+    );
+    return { published };
+  }
 }
 
 export { PersistentTradingEngine };
+
