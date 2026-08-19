@@ -867,7 +867,7 @@ class PersistentTradingEngine {
 
         // ⚡ AUTO-IMPORT: any open broker position not yet in position_monitor_state
         try {
-          const brokerPositions = await dhanService.getPositions();
+          const brokerPositions = await BrokerRouter.getPositionsSmart(userId, () => dhanService.getPositions());
           const openPositions = (brokerPositions || []).filter((p: any) => Math.abs(Number(p.netQty || 0)) > 0);
 
           if (openPositions.length > 0) {
@@ -2407,7 +2407,7 @@ class PersistentTradingEngine {
 
     try {
       // Fetch fresh positions from Dhan
-      const dhanPositions = await dhanService.getPositions();
+      const dhanPositions = await BrokerRouter.getPositionsSmart(userId, () => dhanService.getPositions());
       const monitorSignalCache = new Map<string, any>();
       const getMonitorSignal = async (indexName: SupportedIndex) => {
         if (monitorSignalCache.has(indexName)) return monitorSignalCache.get(indexName);
