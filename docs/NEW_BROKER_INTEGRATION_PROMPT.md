@@ -101,12 +101,12 @@ without changing or breaking any existing broker (Dhan is the default and must s
 BROKER NAME: Upstox
 BROKER ID: upstox
 BRAND COLOUR: #7c3aed
-Authentication: https://upstox.com/developer/api-documentation/authentication
-Margin:         https://upstox.com/developer/api-documentation/margin
-Place order:    https://upstox.com/developer/api-documentation/v3/place-order
+Authentication: https://myapi.fyers.in/docsv3#tag/Request-and-Response-Structure
+Margin:        https://myapi.fyers.in/docsv3#tag/Margin-Calculator
+Place order:    https://myapi.fyers.in/docsv3#tag/Sync-Order-Placement
 Orders:         https://upstox.com/developer/api-documentation/orders
-Positions:      https://upstox.com/developer/api-documentation/get-positions
-Instruments:    https://upstox.com/developer/api-documentation/instrument
+Positions:      https://myapi.fyers.in/docsv3#tag/Manage-Positions
+Instruments:   https://myapi.fyers.in/docsv3#tag/Broker-Config
 ```
 
 Result: see section 2 of `docs/BROKER_INTEGRATION_PLAYBOOK.md`.
