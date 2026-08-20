@@ -2301,7 +2301,7 @@ class PersistentTradingEngine {
           .from("position_monitor_state")
           .update({
             is_active: false,
-            exit_reason: "Duplicate monitor row removed",
+            exit_reason: "housekeeping: duplicate monitor row removed",
             exited_at: new Date().toISOString(),
           })
           .in("id", duplicateIds);
