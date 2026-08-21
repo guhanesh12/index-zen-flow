@@ -1015,6 +1015,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return null;
+    try {
+      return await f.getFundLimits();
+    } catch (e) {
+      console.error("[FYERS] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return null;
