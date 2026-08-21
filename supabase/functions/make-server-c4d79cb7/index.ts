@@ -33,6 +33,8 @@ import { GrowwService } from "./groww_service.tsx";
 import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
 import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox_service.tsx";
 import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
+import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode } from "./fyers_service.tsx";
+import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
 
 
 
