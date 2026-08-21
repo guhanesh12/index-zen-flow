@@ -130,9 +130,126 @@ export async function selectBroker(userId: string, broker: BrokerId): Promise<vo
   if (broker === "zerodha") await ensureKiteInstruments(false);
   if (broker === "groww") await ensureGrowwInstruments(false);
   if (broker === "upstox") await ensureUpstoxInstruments(false);
+  if (broker === "fyers") await ensureFyersInstruments(false);
 }
 
-// ───────────────────────── upstox credentials ─────────────────────────
+// ───────────────────────── fyers credentials ─────────────────────────
+
+export interface FyersStoredCreds {
+  appId: string;              // e.g. "XXXXXXXX-100"
+  appSecret: string;
+  redirectUri?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  fyersUserId?: string;
+  tokenExpiry?: string;
+  lastStatus?: string;
+  lastError?: string | null;
+}
+
+export async function getFyersCredentials(userId: string): Promise<FyersStoredCreds | null> {
+  const creds = (await kv.get(`fyers_credentials:${userId}`)) as FyersStoredCreds | null;
+  if (!creds?.appId && !creds?.accessToken) return null;
+  return creds;
+}
+
+export async function saveFyersCredentials(userId: string, patch: Partial<FyersStoredCreds>) {
+  const existing = (await getFyersCredentials(userId)) || ({} as FyersStoredCreds);
+  const merged = { ...existing, ...patch };
+  await kv.set(`fyers_credentials:${userId}`, merged);
+  return merged;
+}
+
+export async function clearFyersCredentials(userId: string) {
+  await kv.del(`fyers_credentials:${userId}`);
+}
+
+export async function getFyersService(userId: string): Promise<FyersService | null> {
+  const creds = await getFyersCredentials(userId);
+  if (!creds?.accessToken || !creds?.appId) return null;
+  const proxy = await makeBrokerProxy(userId, "fyers");
+  return new FyersService({ appId: creds.appId, accessToken: creds.accessToken, proxy });
+}
+
+/** Non-secret mirror so the Broker screen can show Fyers status. */
+export async function mirrorFyersStatus(userId: string, patch: Record<string, any>) {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("broker_credentials")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("broker", "fyers")
+      .maybeSingle();
+    const payload = { user_id: userId, broker: "fyers", auth_method: "oauth", ...patch };
+    if (existing?.id) {
+      await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
+    } else {
+      await supabaseAdmin.from("broker_credentials").insert(payload);
+    }
+  } catch (e) {
+    console.error("[FYERS] status mirror failed:", (e as any)?.message || e);
+  }
+}
+
+/** Resolve a Dhan-style order into a Fyers symbol (e.g. "NSE:NIFTY25AUG24200CE"). */
+export async function resolveFyersSymbol(order: any): Promise<{
+  fyersSymbol: string;
+  tradingSymbol: string;
+  lotSize: number;
+} | null> {
+  const securityId = String(order?.securityId || "");
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS = "lot_size, exchange_segment, fyers_symbol, fyers_tradingsymbol";
+
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},fyers_tradingsymbol.eq.${symbolText.toUpperCase()}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+  if (!inst?.fyers_symbol) {
+    await ensureFyersInstruments(!!inst);
+    const retry = await lookup();
+    if (retry?.fyers_symbol) inst = retry;
+  }
+
+  if (!inst?.fyers_symbol) {
+    // Position exits carry the Fyers symbol directly from Fyers positions.
+    const candidate = /^(NSE|BSE):/i.test(securityId)
+      ? securityId
+      : /^(NSE|BSE):/i.test(symbolText) ? symbolText : "";
+    if (candidate) {
+      return {
+        fyersSymbol: candidate.toUpperCase(),
+        tradingSymbol: candidate.split(":").pop() || candidate,
+        lotSize: Number(order?.lotSize || 0),
+      };
+    }
+    return null;
+  }
+
+  return {
+    fyersSymbol: String(inst.fyers_symbol),
+    tradingSymbol: String(inst.fyers_tradingsymbol || symbolText),
+    lotSize: Number(inst.lot_size || 0),
+  };
+}
 
 export interface UpstoxStoredCreds {
   apiKey: string;
