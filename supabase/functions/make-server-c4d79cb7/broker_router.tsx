@@ -978,6 +978,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return [];
+    try {
+      return await f.getPositions();
+    } catch (e) {
+      console.error("[FYERS] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return [];
