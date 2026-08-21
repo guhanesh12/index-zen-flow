@@ -668,6 +668,10 @@ export type Database = {
         Row: {
           exchange_segment: string
           expiry_date: string
+          fyers_exchange: string | null
+          fyers_symbol: string | null
+          fyers_synced_at: string | null
+          fyers_tradingsymbol: string | null
           groww_exchange: string | null
           groww_segment: string | null
           groww_synced_at: string | null
@@ -693,6 +697,10 @@ export type Database = {
         Insert: {
           exchange_segment: string
           expiry_date: string
+          fyers_exchange?: string | null
+          fyers_symbol?: string | null
+          fyers_synced_at?: string | null
+          fyers_tradingsymbol?: string | null
           groww_exchange?: string | null
           groww_segment?: string | null
           groww_synced_at?: string | null
@@ -718,6 +726,10 @@ export type Database = {
         Update: {
           exchange_segment?: string
           expiry_date?: string
+          fyers_exchange?: string | null
+          fyers_symbol?: string | null
+          fyers_synced_at?: string | null
+          fyers_tradingsymbol?: string | null
           groww_exchange?: string | null
           groww_segment?: string | null
           groww_synced_at?: string | null
@@ -1763,6 +1775,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_fyers_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
       apply_groww_instruments: {
         Args: { _rows: Json }
         Returns: {
