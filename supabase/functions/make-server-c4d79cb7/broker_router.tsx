@@ -1082,6 +1082,24 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return null;
+    try {
+      const st = await f.getOrderStatus(orderId);
+      return {
+        orderId: String(st?.id || orderId),
+        orderStatus: String(st?.status === 2 ? "COMPLETE" : st?.status === 5 ? "REJECTED" : st?.status === 6 ? "PENDING" : st?.status === 1 ? "CANCELLED" : st?.status ?? "").toUpperCase(),
+        tradedQuantity: Number(st?.filledQty ?? 0),
+        averageTradedPrice: Number(st?.tradedPrice ?? 0),
+        broker: "fyers",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[FYERS] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return null;
