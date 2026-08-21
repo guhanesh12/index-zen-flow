@@ -35,6 +35,11 @@ import {
   upstoxProductFromDhan,
 } from "./upstox_service.tsx";
 import { ensureUpstoxInstruments } from "./upstox_instruments.tsx";
+import {
+  FyersService,
+  fyersProductFromDhan,
+} from "./fyers_service.tsx";
+import { ensureFyersInstruments } from "./fyers_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -42,8 +47,8 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox";
-const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox"];
+export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers"];
 
 
 export interface KiteStoredCreds {
