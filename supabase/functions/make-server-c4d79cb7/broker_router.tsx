@@ -35,6 +35,11 @@ import {
   upstoxProductFromDhan,
 } from "./upstox_service.tsx";
 import { ensureUpstoxInstruments } from "./upstox_instruments.tsx";
+import {
+  FyersService,
+  fyersProductFromDhan,
+} from "./fyers_service.tsx";
+import { ensureFyersInstruments } from "./fyers_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -42,8 +47,8 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox";
-const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox"];
+export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers"];
 
 
 export interface KiteStoredCreds {
@@ -98,6 +103,7 @@ async function clearBrokerSession(userId: string, broker: BrokerId) {
   if (broker === "zerodha") await clearKiteCredentials(userId);
   if (broker === "groww") await clearGrowwCredentials(userId);
   if (broker === "upstox") await clearUpstoxCredentials(userId);
+  if (broker === "fyers") await clearFyersCredentials(userId);
   await supabaseAdmin
     .from("broker_credentials")
     .delete()
@@ -124,6 +130,125 @@ export async function selectBroker(userId: string, broker: BrokerId): Promise<vo
   if (broker === "zerodha") await ensureKiteInstruments(false);
   if (broker === "groww") await ensureGrowwInstruments(false);
   if (broker === "upstox") await ensureUpstoxInstruments(false);
+  if (broker === "fyers") await ensureFyersInstruments(false);
+}
+
+// ───────────────────────── fyers credentials ─────────────────────────
+
+export interface FyersStoredCreds {
+  appId: string;              // e.g. "XXXXXXXX-100"
+  appSecret: string;
+  redirectUri?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  fyersUserId?: string;
+  tokenExpiry?: string;
+  lastStatus?: string;
+  lastError?: string | null;
+}
+
+export async function getFyersCredentials(userId: string): Promise<FyersStoredCreds | null> {
+  const creds = (await kv.get(`fyers_credentials:${userId}`)) as FyersStoredCreds | null;
+  if (!creds?.appId && !creds?.accessToken) return null;
+  return creds;
+}
+
+export async function saveFyersCredentials(userId: string, patch: Partial<FyersStoredCreds>) {
+  const existing = (await getFyersCredentials(userId)) || ({} as FyersStoredCreds);
+  const merged = { ...existing, ...patch };
+  await kv.set(`fyers_credentials:${userId}`, merged);
+  return merged;
+}
+
+export async function clearFyersCredentials(userId: string) {
+  await kv.del(`fyers_credentials:${userId}`);
+}
+
+export async function getFyersService(userId: string): Promise<FyersService | null> {
+  const creds = await getFyersCredentials(userId);
+  if (!creds?.accessToken || !creds?.appId) return null;
+  const proxy = await makeBrokerProxy(userId, "fyers");
+  return new FyersService({ appId: creds.appId, accessToken: creds.accessToken, proxy });
+}
+
+/** Non-secret mirror so the Broker screen can show Fyers status. */
+export async function mirrorFyersStatus(userId: string, patch: Record<string, any>) {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("broker_credentials")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("broker", "fyers")
+      .maybeSingle();
+    const payload = { user_id: userId, broker: "fyers", auth_method: "oauth", ...patch };
+    if (existing?.id) {
+      await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
+    } else {
+      await supabaseAdmin.from("broker_credentials").insert(payload);
+    }
+  } catch (e) {
+    console.error("[FYERS] status mirror failed:", (e as any)?.message || e);
+  }
+}
+
+/** Resolve a Dhan-style order into a Fyers symbol (e.g. "NSE:NIFTY25AUG24200CE"). */
+export async function resolveFyersSymbol(order: any): Promise<{
+  fyersSymbol: string;
+  tradingSymbol: string;
+  lotSize: number;
+} | null> {
+  const securityId = String(order?.securityId || "");
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS = "lot_size, exchange_segment, fyers_symbol, fyers_tradingsymbol";
+
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},fyers_tradingsymbol.eq.${symbolText.toUpperCase()}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+  if (!inst?.fyers_symbol) {
+    await ensureFyersInstruments(!!inst);
+    const retry = await lookup();
+    if (retry?.fyers_symbol) inst = retry;
+  }
+
+  if (!inst?.fyers_symbol) {
+    // Position exits carry the Fyers symbol directly from Fyers positions.
+    const candidate = /^(NSE|BSE):/i.test(securityId)
+      ? securityId
+      : /^(NSE|BSE):/i.test(symbolText) ? symbolText : "";
+    if (candidate) {
+      return {
+        fyersSymbol: candidate.toUpperCase(),
+        tradingSymbol: candidate.split(":").pop() || candidate,
+        lotSize: Number(order?.lotSize || 0),
+      };
+    }
+    return null;
+  }
+
+  return {
+    fyersSymbol: String(inst.fyers_symbol),
+    tradingSymbol: String(inst.fyers_tradingsymbol || symbolText),
+    lotSize: Number(inst.lot_size || 0),
+  };
 }
 
 // ───────────────────────── upstox credentials ─────────────────────────
@@ -635,6 +760,53 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🔵 FYERS
+  if (broker === "fyers") {
+    const fCreds = await getFyersCredentials(userId);
+    if (!fCreds?.accessToken || !fCreds?.appId) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Fyers is your active broker but no valid Fyers session was found. Open Broker Setup → Fyers and login again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const f = await resolveFyersSymbol(orderDetails);
+    if (!f?.fyersSymbol) {
+      throw new Error("Could not map this contract to a Fyers symbol. Refresh the instrument master and retry.");
+    }
+    const fProxy = await makeBrokerProxy(userId, "fyers");
+    const svcF = new FyersService({ appId: fCreds.appId, accessToken: fCreds.accessToken, proxy: fProxy });
+    try {
+      const res = await svcF.placeOrder({
+        symbol: f.fyersSymbol,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: fyersProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        validity: "DAY",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "fyers",
+        routedVia: fProxy ? "static-ip" : "edge",
+        message: res.orderId ? "Order placed via Fyers" : "Fyers order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired|invalid app/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Fyers session has expired (Fyers tokens reset daily). Login again from Broker Setup → Fyers.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   // 🟣 UPSTOX
   if (broker === "upstox") {
     const uCreds = await getUpstoxCredentials(userId);
@@ -806,6 +978,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return [];
+    try {
+      return await f.getPositions();
+    } catch (e) {
+      console.error("[FYERS] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return [];
@@ -843,6 +1025,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return null;
+    try {
+      return await f.getFundLimits();
+    } catch (e) {
+      console.error("[FYERS] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return null;
@@ -881,6 +1073,13 @@ export async function getLtpSmart(
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return null;
+    const rf = await resolveFyersSymbol(order);
+    if (!rf) return null;
+    return await f.getLastPrice(rf.fyersSymbol);
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return null;
@@ -910,6 +1109,24 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return null;
+    try {
+      const st = await f.getOrderStatus(orderId);
+      return {
+        orderId: String(st?.id || orderId),
+        orderStatus: String(st?.status === 2 ? "COMPLETE" : st?.status === 5 ? "REJECTED" : st?.status === 6 ? "PENDING" : st?.status === 1 ? "CANCELLED" : st?.status ?? "").toUpperCase(),
+        tradedQuantity: Number(st?.filledQty ?? 0),
+        averageTradedPrice: Number(st?.tradedPrice ?? 0),
+        broker: "fyers",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[FYERS] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return null;
@@ -972,6 +1189,11 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return false;
+    return await f.cancelOrder(orderId);
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return false;

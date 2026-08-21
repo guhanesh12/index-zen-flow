@@ -33,6 +33,8 @@ import { GrowwService } from "./groww_service.tsx";
 import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
 import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox_service.tsx";
 import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
+import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode } from "./fyers_service.tsx";
+import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
 
 
 
@@ -13583,6 +13585,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const kite = await BrokerRouter.getKiteCredentials(user.id);
     const groww = await BrokerRouter.getGrowwCredentials(user.id);
     const upstox = await BrokerRouter.getUpstoxCredentials(user.id);
+    const fyers = await BrokerRouter.getFyersCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
@@ -13591,6 +13594,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
       zerodha: !!(kite?.apiKey && kite?.accessToken),
       groww: !!groww?.accessToken,
       upstox: !!upstox?.accessToken,
+      fyers: !!(fyers?.appId && fyers?.accessToken),
     };
 
     return c.json({
