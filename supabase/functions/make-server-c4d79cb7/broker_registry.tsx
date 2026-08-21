@@ -82,11 +82,11 @@ export const BROKER_CATALOG: BrokerDef[] = [
     id: "fyers",
     name: "Fyers",
     short: "Fyers",
-    status: "planned",
+    status: "live",
     color: "#0ea5e9",
     website: "https://fyers.in",
-    features: [],
-    defaultEnabled: false,
+    features: ["orders", "positions", "funds", "instruments", "static-ip", "oauth"],
+    defaultEnabled: true,
   },
 ];
 
