@@ -1053,6 +1053,13 @@ export async function getLtpSmart(
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "fyers") {
+    const f = await getFyersService(userId);
+    if (!f) return null;
+    const rf = await resolveFyersSymbol(order);
+    if (!rf) return null;
+    return await f.getLastPrice(rf.fyersSymbol);
+  }
   if (broker === "upstox") {
     const u = await getUpstoxService(userId);
     if (!u) return null;
