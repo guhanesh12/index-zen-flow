@@ -251,6 +251,8 @@ export async function resolveFyersSymbol(order: any): Promise<{
   };
 }
 
+// ───────────────────────── upstox credentials ─────────────────────────
+
 export interface UpstoxStoredCreds {
   apiKey: string;
   apiSecret: string;
