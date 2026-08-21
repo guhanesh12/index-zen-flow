@@ -103,6 +103,7 @@ async function clearBrokerSession(userId: string, broker: BrokerId) {
   if (broker === "zerodha") await clearKiteCredentials(userId);
   if (broker === "groww") await clearGrowwCredentials(userId);
   if (broker === "upstox") await clearUpstoxCredentials(userId);
+  if (broker === "fyers") await clearFyersCredentials(userId);
   await supabaseAdmin
     .from("broker_credentials")
     .delete()
