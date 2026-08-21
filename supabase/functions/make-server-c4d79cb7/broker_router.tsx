@@ -760,6 +760,53 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🔵 FYERS
+  if (broker === "fyers") {
+    const fCreds = await getFyersCredentials(userId);
+    if (!fCreds?.accessToken || !fCreds?.appId) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Fyers is your active broker but no valid Fyers session was found. Open Broker Setup → Fyers and login again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const f = await resolveFyersSymbol(orderDetails);
+    if (!f?.fyersSymbol) {
+      throw new Error("Could not map this contract to a Fyers symbol. Refresh the instrument master and retry.");
+    }
+    const fProxy = await makeBrokerProxy(userId, "fyers");
+    const svcF = new FyersService({ appId: fCreds.appId, accessToken: fCreds.accessToken, proxy: fProxy });
+    try {
+      const res = await svcF.placeOrder({
+        symbol: f.fyersSymbol,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: fyersProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        validity: "DAY",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "fyers",
+        routedVia: fProxy ? "static-ip" : "edge",
+        message: res.orderId ? "Order placed via Fyers" : "Fyers order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired|invalid app/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Fyers session has expired (Fyers tokens reset daily). Login again from Broker Setup → Fyers.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   // 🟣 UPSTOX
   if (broker === "upstox") {
     const uCreds = await getUpstoxCredentials(userId);
