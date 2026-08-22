@@ -14670,11 +14670,13 @@ app.post("/make-server-c4d79cb7/broker/angelone/instruments/sync", async (c) => 
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
-    const result = await syncAngelOneInstruments({
+    const job = syncAngelOneInstruments({
       force: body?.force !== false,
       expiries: Number(body?.expiries) || 2,
     });
-    return c.json({ success: true, ...result });
+    const rt: any = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
+    return c.json({ success: true, started: true, message: "Angel One instrument sync started" }, 202);
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }

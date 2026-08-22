@@ -121,16 +121,27 @@ export async function angeloneLogin(opts: {
   const totp = opts.totp || (opts.totpSecret ? await angeloneTotp(opts.totpSecret) : "");
   if (!totp) throw new Error("Angel One TOTP is required (add the TOTP secret from SmartAPI → TOTP)");
 
-  const resp = await fetch(`${ANGELONE_API}/rest/auth/angelbroking/user/v1/loginByPassword`, {
-    method: "POST",
-    headers: baseHeaders(opts.apiKey),
-    body: JSON.stringify({
-      clientcode: String(opts.clientCode).toUpperCase(),
-      password: String(opts.password),
-      totp,
-      state: "indexpilot",
-    }),
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12_000);
+  let resp: Response;
+  try {
+    resp = await fetch(`${ANGELONE_API}/rest/auth/angelbroking/user/v1/loginByPassword`, {
+      method: "POST",
+      headers: baseHeaders(opts.apiKey),
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        clientcode: String(opts.clientCode).toUpperCase(),
+        password: String(opts.password),
+        totp,
+        state: "indexpilot",
+      }),
+    });
+  } catch (error: any) {
+    if (error?.name === "AbortError") throw new Error("Angel One login timed out. Check SmartAPI availability and try again.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   const text = await resp.text();
   let json: any = {};
   try { json = JSON.parse(text); } catch { json = { raw: text }; }

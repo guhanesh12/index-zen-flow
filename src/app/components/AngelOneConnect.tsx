@@ -30,6 +30,8 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<'login' | 'verify' | 'sync' | 'disconnect' | null>(null);
+  const [message, setMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null);
 
   const tok = async () => (await getAccessToken()) || accessToken;
 
@@ -59,6 +61,8 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
     if (totpSecret.trim().length < 8) return toast.error('Enter the TOTP secret from SmartAPI → TOTP');
     try {
       setBusy(true);
+      setAction('login');
+      setMessage({ type: 'info', text: 'Connecting securely to Angel One…' });
       const t = await tok();
       const res = await fetchWithAuth(`${serverUrl}/broker/angelone/login`, {
         method: 'POST',
@@ -73,19 +77,23 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || 'Angel One login failed');
       toast.success(`Angel One connected${data?.userName ? ` — ${data.userName}` : ''}`);
+      setMessage({ type: 'success', text: 'Angel One connected. Instrument sync is running in the background.' });
       setMpin('');
       await load();
       onConnected?.();
     } catch (e: any) {
       toast.error(e.message || 'Angel One login failed');
+      setMessage({ type: 'error', text: e.message || 'Angel One login failed' });
     } finally {
       setBusy(false);
+      setAction(null);
     }
   };
 
   const verify = async () => {
     try {
       setBusy(true);
+      setAction('verify');
       const t = await tok();
       const res = await fetchWithAuth(`${serverUrl}/broker/angelone/verify`, {
         method: 'POST',
@@ -99,12 +107,15 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       toast.error(e.message || 'Verification failed');
     } finally {
       setBusy(false);
+      setAction(null);
     }
   };
 
   const syncInstruments = async () => {
     try {
       setBusy(true);
+      setAction('sync');
+      setMessage({ type: 'info', text: 'Starting Angel One instrument sync…' });
       const t = await tok();
       const res = await fetchWithAuth(`${serverUrl}/broker/angelone/instruments/sync`, {
         method: 'POST',
@@ -113,18 +124,22 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || 'Instrument sync failed');
-      toast.success(`Synced ${data?.merged ?? data?.count ?? 0} Angel One contracts`);
+      toast.success('Angel One instrument sync started');
+      setMessage({ type: 'info', text: 'Instrument sync is running. Contract counts will update automatically.' });
       await load();
     } catch (e: any) {
       toast.error(e.message || 'Instrument sync failed');
+      setMessage({ type: 'error', text: e.message || 'Instrument sync failed' });
     } finally {
       setBusy(false);
+      setAction(null);
     }
   };
 
   const disconnect = async () => {
     try {
       setBusy(true);
+      setAction('disconnect');
       const t = await tok();
       await fetchWithAuth(`${serverUrl}/broker/angelone/disconnect`, {
         method: 'POST',
@@ -137,10 +152,17 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       toast.error(e.message || 'Disconnect failed');
     } finally {
       setBusy(false);
+      setAction(null);
     }
   };
 
   const connected = !!status?.connected;
+
+  useEffect(() => {
+    if (!instruments?.syncing) return;
+    const timer = window.setInterval(load, 4000);
+    return () => window.clearInterval(timer);
+  }, [instruments?.syncing, serverUrl]);
 
   return (
     <Card>
@@ -182,6 +204,13 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>{status.lastError}</AlertDescription>
+          </Alert>
+        )}
+
+        {message && (
+          <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+            {message.type === 'error' ? <AlertTriangle className="h-4 w-4" /> : <RefreshCw className={`h-4 w-4 ${message.type === 'info' ? 'animate-spin' : ''}`} />}
+            <AlertDescription>{message.text}</AlertDescription>
           </Alert>
         )}
 
@@ -269,16 +298,16 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
 
         <div className="flex flex-wrap gap-2">
           <Button onClick={login} disabled={busy}>
-            <LogIn className="mr-2 h-4 w-4" />
-            {connected ? 'Re-login' : 'Connect Angel One'}
+            {action === 'login' ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+            {action === 'login' ? 'Connecting…' : connected ? 'Re-login' : 'Connect Angel One'}
           </Button>
           <Button variant="outline" onClick={verify} disabled={busy || !connected}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Check live funds
           </Button>
           <Button variant="outline" onClick={syncInstruments} disabled={busy}>
-            <Download className="mr-2 h-4 w-4" />
-            Sync instruments
+            {action === 'sync' || instruments?.syncing ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            {instruments?.syncing ? 'Syncing instruments…' : 'Sync instruments'}
           </Button>
           {connected && (
             <Button variant="ghost" onClick={disconnect} disabled={busy}>
@@ -295,9 +324,15 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
 
         <div className="text-xs text-muted-foreground">
           Instruments:{' '}
-          {instruments?.count
-            ? `${instruments.count} contracts · updated ${instruments?.updatedAt || instruments?.date || '—'}`
-            : 'not synced yet'}
+          {instruments?.mappedContracts
+            ? `${Number(instruments.mappedContracts).toLocaleString('en-IN')} contracts · ${instruments?.freshToday ? 'updated today' : `last sync ${instruments?.lastSync?.date || '—'}`}`
+            : instruments?.syncing ? 'syncing now…' : 'not synced yet'}
+          {instruments?.lastSync?.expiries && (
+            <span className="mt-1 block">
+              {Object.entries(instruments.lastSync.expiries).map(([name, expiries]: any) => `${name}: ${expiries.join(', ')}`).join(' · ')}
+            </span>
+          )}
+          {instruments?.syncError && <span className="mt-1 block text-destructive">Sync error: {instruments.syncError}</span>}
         </div>
       </CardContent>
     </Card>
