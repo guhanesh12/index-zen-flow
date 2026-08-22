@@ -14979,13 +14979,9 @@ const aliceblueLoginHandler = async (c: any) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     if (String(body?.apiSecret || "").trim() && String(body?.appCode || "").trim()) {
-      // Re-read the body downstream: hand off to the vendor starter.
-      return await aliceblueVendorStart({
-        ...c,
-        req: { ...c.req, json: async () => body, query: (k: string) => c.req.query(k), header: (k: string) => c.req.header(k) },
-        json: c.json.bind(c),
-      });
+      return await aliceblueVendorStart(c, body);
     }
+
 
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
