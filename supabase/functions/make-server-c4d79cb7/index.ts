@@ -14829,7 +14829,7 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/postback", async (c) => {
 });
 
 /** Save keys + login in one step (userId + apiKey → daily sessionID). */
-app.post("/make-server-c4d79cb7/broker/aliceblue/login", async (c) => {
+const aliceblueLoginHandler = async (c: any) => {
   try {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
@@ -14904,15 +14904,11 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/login", async (c) => {
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
-});
+};
 
+app.post("/make-server-c4d79cb7/broker/aliceblue/login", aliceblueLoginHandler);
 /** Alias kept for shape-compatibility with the OAuth brokers. */
-app.post("/make-server-c4d79cb7/broker/aliceblue/save-keys", async (c) =>
-  app.fetch(new Request(
-    c.req.url.replace("/save-keys", "/login"),
-    { method: "POST", headers: c.req.raw.headers, body: await c.req.raw.clone().text() },
-  )),
-);
+app.post("/make-server-c4d79cb7/broker/aliceblue/save-keys", aliceblueLoginHandler);
 
 /** Re-mint today's session from the credentials saved on first login. */
 app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
