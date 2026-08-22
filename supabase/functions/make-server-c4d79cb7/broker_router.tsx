@@ -1416,6 +1416,11 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "angelone") {
+    const a = await getAngelOneService(userId);
+    if (!a) return false;
+    return await a.cancelOrder(orderId);
+  }
   if (broker === "fyers") {
     const f = await getFyersService(userId);
     if (!f) return false;
