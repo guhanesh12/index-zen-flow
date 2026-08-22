@@ -932,7 +932,7 @@ export async function placeOrderSmart(
 
   // 🔴 ANGEL ONE
   if (broker === "angelone") {
-    const aCreds = await getAngelOneCredentials(userId);
+    const aCreds = await ensureAngelOneSession(userId);
     if (!aCreds?.jwtToken || !aCreds?.apiKey) {
       const err: any = new Error(
         "TOKEN_EXPIRED:Angel One is your active broker but no valid Angel One session was found. Open Broker Setup → Angel One and login again.",
