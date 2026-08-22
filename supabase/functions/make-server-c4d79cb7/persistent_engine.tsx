@@ -415,7 +415,11 @@ async function loadEngineCredentials(
           ? !!(await BrokerRouter.getGrowwCredentials(userId))?.accessToken
           : broker === "upstox"
             ? !!(await BrokerRouter.getUpstoxCredentials(userId))?.accessToken
-            : false;
+            : broker === "fyers"
+              ? !!(await BrokerRouter.getFyersCredentials(userId))?.accessToken
+              : broker === "angelone"
+                ? !!(await BrokerRouter.getAngelOneCredentials(userId))?.jwtToken
+                : false;
     if (!connected) return null;
 
     const central = await getCentralCredentials();
