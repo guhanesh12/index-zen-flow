@@ -666,6 +666,10 @@ export type Database = {
       }
       instrument_master: {
         Row: {
+          angelone_exchange: string | null
+          angelone_symbol_token: string | null
+          angelone_synced_at: string | null
+          angelone_tradingsymbol: string | null
           exchange_segment: string
           expiry_date: string
           fyers_exchange: string | null
@@ -695,6 +699,10 @@ export type Database = {
           upstox_tradingsymbol: string | null
         }
         Insert: {
+          angelone_exchange?: string | null
+          angelone_symbol_token?: string | null
+          angelone_synced_at?: string | null
+          angelone_tradingsymbol?: string | null
           exchange_segment: string
           expiry_date: string
           fyers_exchange?: string | null
@@ -724,6 +732,10 @@ export type Database = {
           upstox_tradingsymbol?: string | null
         }
         Update: {
+          angelone_exchange?: string | null
+          angelone_symbol_token?: string | null
+          angelone_synced_at?: string | null
+          angelone_tradingsymbol?: string | null
           exchange_segment?: string
           expiry_date?: string
           fyers_exchange?: string | null
@@ -1775,6 +1787,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_angelone_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
       apply_fyers_instruments: {
         Args: { _rows: Json }
         Returns: {
