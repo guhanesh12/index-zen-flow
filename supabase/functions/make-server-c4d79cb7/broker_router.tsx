@@ -40,6 +40,13 @@ import {
   fyersProductFromDhan,
 } from "./fyers_service.tsx";
 import { ensureFyersInstruments } from "./fyers_instruments.tsx";
+import {
+  AngelOneService,
+  ANGELONE_API,
+  angeloneExchangeFromSegment,
+  angeloneProductFromDhan,
+} from "./angelone_service.tsx";
+import { ensureAngelOneInstruments } from "./angelone_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -47,8 +54,8 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers";
-const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers"];
+export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone"];
 
 
 export interface KiteStoredCreds {
@@ -104,6 +111,7 @@ async function clearBrokerSession(userId: string, broker: BrokerId) {
   if (broker === "groww") await clearGrowwCredentials(userId);
   if (broker === "upstox") await clearUpstoxCredentials(userId);
   if (broker === "fyers") await clearFyersCredentials(userId);
+  if (broker === "angelone") await clearAngelOneCredentials(userId);
   await supabaseAdmin
     .from("broker_credentials")
     .delete()
@@ -131,6 +139,131 @@ export async function selectBroker(userId: string, broker: BrokerId): Promise<vo
   if (broker === "groww") await ensureGrowwInstruments(false);
   if (broker === "upstox") await ensureUpstoxInstruments(false);
   if (broker === "fyers") await ensureFyersInstruments(false);
+  if (broker === "angelone") await ensureAngelOneInstruments(false);
+}
+
+// ───────────────────────── angelone credentials ─────────────────────────
+
+export interface AngelOneStoredCreds {
+  apiKey: string;              // SmartAPI trading API key
+  clientCode: string;          // Angel One client code (e.g. "A123456")
+  password?: string;           // MPIN / login password (needed for daily re-login)
+  totpSecret?: string;         // base32 secret from SmartAPI → TOTP
+  jwtToken?: string;           // daily session token
+  refreshToken?: string;
+  feedToken?: string;
+  angeloneUserName?: string;
+  tokenExpiry?: string;
+  lastStatus?: string;
+  lastError?: string | null;
+}
+
+export async function getAngelOneCredentials(userId: string): Promise<AngelOneStoredCreds | null> {
+  const creds = (await kv.get(`angelone_credentials:${userId}`)) as AngelOneStoredCreds | null;
+  if (!creds?.apiKey && !creds?.jwtToken) return null;
+  return creds;
+}
+
+export async function saveAngelOneCredentials(userId: string, patch: Partial<AngelOneStoredCreds>) {
+  const existing = (await getAngelOneCredentials(userId)) || ({} as AngelOneStoredCreds);
+  const merged = { ...existing, ...patch };
+  await kv.set(`angelone_credentials:${userId}`, merged);
+  return merged;
+}
+
+export async function clearAngelOneCredentials(userId: string) {
+  await kv.del(`angelone_credentials:${userId}`);
+}
+
+export async function getAngelOneService(userId: string): Promise<AngelOneService | null> {
+  const creds = await getAngelOneCredentials(userId);
+  if (!creds?.jwtToken || !creds?.apiKey) return null;
+  const proxy = await makeBrokerProxy(userId, "angelone", ANGELONE_API);
+  return new AngelOneService({ apiKey: creds.apiKey, jwtToken: creds.jwtToken, proxy });
+}
+
+/** Non-secret mirror so the Broker screen can show Angel One status. */
+export async function mirrorAngelOneStatus(userId: string, patch: Record<string, any>) {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("broker_credentials")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("broker", "angelone")
+      .maybeSingle();
+    const payload = { user_id: userId, broker: "angelone", auth_method: "totp", ...patch };
+    if (existing?.id) {
+      await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
+    } else {
+      await supabaseAdmin.from("broker_credentials").insert(payload);
+    }
+  } catch (e) {
+    console.error("[ANGELONE] status mirror failed:", (e as any)?.message || e);
+  }
+}
+
+/** Resolve a Dhan-style order into an Angel One trading symbol + symbol token. */
+export async function resolveAngelOneSymbol(order: any): Promise<{
+  tradingSymbol: string;
+  symbolToken: string;
+  exchange: "NFO" | "BFO";
+  lotSize: number;
+} | null> {
+  const securityId = String(order?.securityId || "");
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS =
+    "lot_size, exchange_segment, angelone_tradingsymbol, angelone_symbol_token, angelone_exchange";
+
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},angelone_tradingsymbol.eq.${symbolText.toUpperCase()}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+  if (!inst?.angelone_symbol_token) {
+    await ensureAngelOneInstruments(!!inst);
+    const retry = await lookup();
+    if (retry?.angelone_symbol_token) inst = retry;
+  }
+
+  if (!inst?.angelone_symbol_token) {
+    // Position exits carry the Angel One token/symbol straight from Angel One positions.
+    const token = String(order?.angeloneSymbolToken || "").trim();
+    if (token && symbolText) {
+      return {
+        tradingSymbol: symbolText.toUpperCase(),
+        symbolToken: token,
+        exchange: angeloneExchangeFromSegment(order?.exchangeSegment),
+        lotSize: Number(order?.lotSize || 0),
+      };
+    }
+    return null;
+  }
+
+  return {
+    tradingSymbol: String(inst.angelone_tradingsymbol || symbolText).toUpperCase(),
+    symbolToken: String(inst.angelone_symbol_token),
+    exchange: (String(inst.angelone_exchange || "").toUpperCase() === "BFO"
+      ? "BFO"
+      : angeloneExchangeFromSegment(inst.exchange_segment)) as "NFO" | "BFO",
+    lotSize: Number(inst.lot_size || 0),
+  };
 }
 
 // ───────────────────────── fyers credentials ─────────────────────────
@@ -760,6 +893,55 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🔴 ANGEL ONE
+  if (broker === "angelone") {
+    const aCreds = await getAngelOneCredentials(userId);
+    if (!aCreds?.jwtToken || !aCreds?.apiKey) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Angel One is your active broker but no valid Angel One session was found. Open Broker Setup → Angel One and login again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const a = await resolveAngelOneSymbol(orderDetails);
+    if (!a?.symbolToken) {
+      throw new Error("Could not map this contract to an Angel One symbol. Refresh the instrument master and retry.");
+    }
+    const aProxy = await makeBrokerProxy(userId, "angelone", ANGELONE_API);
+    const svcA = new AngelOneService({ apiKey: aCreds.apiKey, jwtToken: aCreds.jwtToken, proxy: aProxy });
+    try {
+      const res = await svcA.placeOrder({
+        tradingSymbol: a.tradingSymbol,
+        symbolToken: a.symbolToken,
+        exchange: a.exchange,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: angeloneProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        duration: "DAY",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "angelone",
+        routedVia: aProxy ? "static-ip" : "edge",
+        message: res.orderId ? "Order placed via Angel One" : "Angel One order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired|invalid/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Angel One session has expired (SmartAPI tokens reset daily). Login again from Broker Setup → Angel One.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   // 🔵 FYERS
   if (broker === "fyers") {
     const fCreds = await getFyersCredentials(userId);
@@ -978,6 +1160,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "angelone") {
+    const a = await getAngelOneService(userId);
+    if (!a) return [];
+    try {
+      return await a.getPositions();
+    } catch (e) {
+      console.error("[ANGELONE] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker === "fyers") {
     const f = await getFyersService(userId);
     if (!f) return [];
@@ -1025,6 +1217,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "angelone") {
+    const a = await getAngelOneService(userId);
+    if (!a) return null;
+    try {
+      return await a.getFundLimits();
+    } catch (e) {
+      console.error("[ANGELONE] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "fyers") {
     const f = await getFyersService(userId);
     if (!f) return null;
@@ -1073,6 +1275,13 @@ export async function getLtpSmart(
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "angelone") {
+    const a = await getAngelOneService(userId);
+    if (!a) return null;
+    const ra = await resolveAngelOneSymbol(order);
+    if (!ra) return null;
+    return await a.getLastPrice(ra.exchange, ra.tradingSymbol, ra.symbolToken);
+  }
   if (broker === "fyers") {
     const f = await getFyersService(userId);
     if (!f) return null;
@@ -1109,6 +1318,24 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "angelone") {
+    const a = await getAngelOneService(userId);
+    if (!a) return null;
+    try {
+      const st = await a.getOrderStatus(orderId);
+      return {
+        orderId: String(st?.orderid || orderId),
+        orderStatus: String(st?.orderstatus || st?.status || "").toUpperCase(),
+        tradedQuantity: Number(st?.filledshares ?? 0),
+        averageTradedPrice: Number(st?.averageprice ?? 0),
+        broker: "angelone",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[ANGELONE] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "fyers") {
     const f = await getFyersService(userId);
     if (!f) return null;
@@ -1189,6 +1416,11 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "angelone") {
+    const a = await getAngelOneService(userId);
+    if (!a) return false;
+    return await a.cancelOrder(orderId);
+  }
   if (broker === "fyers") {
     const f = await getFyersService(userId);
     if (!f) return false;

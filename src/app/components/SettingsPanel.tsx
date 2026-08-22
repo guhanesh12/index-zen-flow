@@ -17,6 +17,7 @@ import { ZerodhaConnect } from "./ZerodhaConnect";
 import { GrowwConnect } from "./GrowwConnect";
 import { UpstoxConnect } from "./UpstoxConnect";
 import { FyersConnect } from "./FyersConnect";
+import { AngelOneConnect } from "./AngelOneConnect";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
@@ -697,6 +698,19 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
           }}
         />
       )}
+
+      {activeBroker === 'angelone' && (
+        <AngelOneConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
+
 
 
 

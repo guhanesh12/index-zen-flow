@@ -35,6 +35,8 @@ import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox
 import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
 import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode } from "./fyers_service.tsx";
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
+import { AngelOneService, ANGELONE_API, angeloneLogin } from "./angelone_service.tsx";
+import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
 
 
 
@@ -2074,6 +2076,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const fyers = await BrokerRouter.getFyersService(user.id);
       if (!fyers) return c.json({ error: "Fyers not connected" }, 400);
       funds = await fyers.getFundLimits();
+    } else if (activeBroker === 'angelone') {
+      const angelone = await BrokerRouter.getAngelOneService(user.id);
+      if (!angelone) return c.json({ error: "Angel One not connected" }, 400);
+      funds = await angelone.getFundLimits();
     } else if (activeBroker === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(user.id);
       if (!upstox) return c.json({ error: "Upstox not connected" }, 400);
@@ -2282,6 +2288,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(fyers.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'angelone') {
+      const angelone = await BrokerRouter.getAngelOneService(effectiveUserId);
+      if (!angelone) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Angel One session not found. Login again from Broker Setup → Angel One.'
+        });
+      }
+      positions = await withTimeout(angelone.getPositions(), 4500, cachedPositions || []);
     } else if (activeBrokerPos === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(effectiveUserId);
       if (!upstox) {
@@ -13600,6 +13616,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const groww = await BrokerRouter.getGrowwCredentials(user.id);
     const upstox = await BrokerRouter.getUpstoxCredentials(user.id);
     const fyers = await BrokerRouter.getFyersCredentials(user.id);
+    const angelone = await BrokerRouter.getAngelOneCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
@@ -13609,6 +13626,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
       groww: !!groww?.accessToken,
       upstox: !!upstox?.accessToken,
       fyers: !!(fyers?.appId && fyers?.accessToken),
+      angelone: !!(angelone?.apiKey && angelone?.jwtToken),
     };
 
     return c.json({
@@ -13632,8 +13650,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (!["dhan", "zerodha", "groww", "upstox", "fyers"].includes(broker)) {
-      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox' or 'fyers'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox", "fyers", "angelone"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox', 'fyers' or 'angelone'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13657,6 +13675,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
     if (broker === "upstox") instrumentSync = await ensureUpstoxInstruments(false);
     if (broker === "fyers") instrumentSync = await ensureFyersInstruments(false);
+    if (broker === "angelone") instrumentSync = await ensureAngelOneInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
@@ -14453,6 +14472,184 @@ app.post("/make-server-c4d79cb7/broker/fyers/instruments/sync", async (c) => {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
 });
+
+// ===========================================================================
+// ANGEL ONE (SmartAPI) — Client Code + MPIN + TOTP login (no OAuth redirect)
+// Docs: https://smartapi.angelone.in/docs
+// ===========================================================================
+
+// --- GET angelone status ---------------------------------------------------
+app.get("/make-server-c4d79cb7/broker/angelone/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getAngelOneCredentials(user.id);
+    let liveCheck: any = null;
+    if (creds?.apiKey && creds?.jwtToken) {
+      const svc = await BrokerRouter.getAngelOneService(user.id);
+      liveCheck = svc ? await svc.verify() : { ok: false, error: "service unavailable" };
+      await BrokerRouter.saveAngelOneCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      });
+      await BrokerRouter.mirrorAngelOneStatus(user.id, {
+        status: liveCheck.ok ? "connected" : "token_invalid",
+        client_id: creds.clientCode || null,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    return c.json({
+      success: true,
+      connected: !!liveCheck?.ok,
+      hasApiKey: !!creds?.apiKey,
+      hasSession: !!creds?.jwtToken,
+      clientCode: creds?.clientCode || null,
+      userName: creds?.angeloneUserName || null,
+      balance: liveCheck?.balance ?? null,
+      lastStatus: creds?.lastStatus || null,
+      lastError: liveCheck?.ok ? null : (liveCheck?.error || creds?.lastError || null),
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST angelone login (apiKey + clientCode + mpin + totp secret) --------
+app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    try { await BrokerRegistry.assertBrokerEnabled("angelone"); }
+    catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
+
+    const body = await c.req.json().catch(() => ({}));
+    const apiKey = String(body?.apiKey || "").trim();
+    const clientCode = String(body?.clientCode || "").trim().toUpperCase();
+    const password = String(body?.password ?? body?.mpin ?? "").trim();
+    const totpSecret = String(body?.totpSecret || "").replace(/\s+/g, "").toUpperCase();
+    const totp = String(body?.totp || "").trim();
+
+    if (!apiKey || !clientCode || !password || (!totpSecret && !totp)) {
+      return c.json({ error: "apiKey, clientCode, mpin/password and totpSecret (or totp) are required" }, 400);
+    }
+
+    let session;
+    try {
+      session = await angeloneLogin({ apiKey, clientCode, password, totpSecret, totp });
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      await BrokerRouter.saveAngelOneCredentials(user.id, { lastStatus: "login_failed", lastError: msg });
+      return c.json({ success: false, error: msg }, 400);
+    }
+
+    await BrokerRouter.saveAngelOneCredentials(user.id, {
+      apiKey,
+      clientCode,
+      password,
+      totpSecret: totpSecret || undefined,
+      jwtToken: session.jwtToken,
+      refreshToken: session.refreshToken,
+      feedToken: session.feedToken,
+      tokenExpiry: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+      lastStatus: "connected",
+      lastError: null,
+    });
+
+    // ONE USER = ONE BROKER
+    await BrokerRouter.selectBroker(user.id, "angelone" as any);
+    await kv.set(`broker_choice:${user.id}`, { broker: "angelone", at: new Date().toISOString() });
+
+    const svc = await BrokerRouter.getAngelOneService(user.id);
+    let profile: any = null;
+    let funds: any = null;
+    try { profile = await svc?.getProfile(); } catch (_) { /* non-fatal */ }
+    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+    if (profile?.name) {
+      await BrokerRouter.saveAngelOneCredentials(user.id, { angeloneUserName: String(profile.name) });
+    }
+
+    await BrokerRouter.mirrorAngelOneStatus(user.id, {
+      status: "connected",
+      client_id: clientCode,
+      updated_at: new Date().toISOString(),
+    });
+
+    const instrumentSync = await ensureAngelOneInstruments(false);
+
+    return c.json({
+      success: true,
+      connected: true,
+      clientCode,
+      userName: profile?.name || null,
+      funds,
+      instrumentSync,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST angelone verify (live funds ping) --------------------------------
+app.post("/make-server-c4d79cb7/broker/angelone/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getAngelOneService(user.id);
+    if (!svc) return c.json({ success: false, connected: false, error: "Angel One is not connected" }, 400);
+    const res = await svc.verify();
+    await BrokerRouter.saveAngelOneCredentials(user.id, {
+      lastStatus: res.ok ? "connected" : "token_invalid",
+      lastError: res.ok ? null : res.error,
+    });
+    return c.json({ success: true, connected: res.ok, balance: res.balance ?? null, error: res.error || null });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST angelone disconnect ----------------------------------------------
+app.post("/make-server-c4d79cb7/broker/angelone/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearAngelOneCredentials(user.id);
+    await BrokerRouter.mirrorAngelOneStatus(user.id, {
+      status: "disconnected",
+      updated_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, connected: false });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- Angel One instrument master -------------------------------------------
+app.get("/make-server-c4d79cb7/broker/angelone/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getAngelOneInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/angelone/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await syncAngelOneInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    return c.json({ success: true, ...result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+
 
 
 
