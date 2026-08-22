@@ -666,6 +666,10 @@ export type Database = {
       }
       instrument_master: {
         Row: {
+          aliceblue_exchange: string | null
+          aliceblue_synced_at: string | null
+          aliceblue_token: string | null
+          aliceblue_tradingsymbol: string | null
           angelone_exchange: string | null
           angelone_symbol_token: string | null
           angelone_synced_at: string | null
@@ -699,6 +703,10 @@ export type Database = {
           upstox_tradingsymbol: string | null
         }
         Insert: {
+          aliceblue_exchange?: string | null
+          aliceblue_synced_at?: string | null
+          aliceblue_token?: string | null
+          aliceblue_tradingsymbol?: string | null
           angelone_exchange?: string | null
           angelone_symbol_token?: string | null
           angelone_synced_at?: string | null
@@ -732,6 +740,10 @@ export type Database = {
           upstox_tradingsymbol?: string | null
         }
         Update: {
+          aliceblue_exchange?: string | null
+          aliceblue_synced_at?: string | null
+          aliceblue_token?: string | null
+          aliceblue_tradingsymbol?: string | null
           angelone_exchange?: string | null
           angelone_symbol_token?: string | null
           angelone_synced_at?: string | null
@@ -1787,6 +1799,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_aliceblue_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
       apply_angelone_instruments: {
         Args: { _rows: Json }
         Returns: {
