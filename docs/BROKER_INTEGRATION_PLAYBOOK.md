@@ -193,3 +193,48 @@ the exact API error, and poll status while synchronization runs.
 NIFTY/BANKNIFTY/SENSEX expiry display, funds and positions routing, one-broker enforcement, symbol
 resolution, a dry-run signal-to-order payload, order status/cancel, and session-expiry re-login. Never
 log or return API keys, MPINs, TOTP secrets, JWTs, refresh tokens, or feed tokens.
+
+## 7. Aliceblue (ANT API v2) — what is live now
+
+**Registry:** `aliceblue` is `status: "live"`, `defaultEnabled: true`, colour `#2563eb`,
+features: orders · positions · funds · instruments · static-ip.
+
+**Auth is NOT OAuth.** ANT logs in with User ID + API key in two steps
+(https://v2api.aliceblueonline.com/Authentication/):
+
+1. `POST /api/customer/getAPIEncpkey` `{ userId }` → `encKey`
+2. `userData = SHA256(userId + apiKey + encKey)`
+3. `POST /api/customer/getUserSID` `{ userId, userData }` → daily `sessionID`
+4. Every later call: `Authorization: Bearer <userId> <sessionID>`
+
+The ANT app form still asks for a redirect URL, postback URL and the static IP — all three are
+shown with Copy buttons in `AliceblueConnect.tsx` and served by
+`/broker/aliceblue/callback` + `/broker/aliceblue/postback`.
+
+Credentials (User ID + API key) are stored ONCE in KV (`aliceblue_credentials:<userId>`).
+`ensureAliceblueSession()` re-mints the session automatically whenever `sessionDate` is not
+today, so the morning re-login is silent (a manual **Reconnect (saved login)** button exists too).
+
+**Funds** — `GET /api/limits/getRmsLimits` → normalized to
+`{ availableBalance, sodLimit, collateralAmount, utilizationAmount }`.
+
+**Orders** — `POST /api/placeOrder/executePlaceOrder` (array payload, `prctyp: "MKT"`, `ret: "DAY"`,
+`pCode` `MIS`/`NRML` mapped from the Dhan product type). Status:
+`POST /api/placeOrder/orderHistory`, cancel: `POST /api/placeOrder/cancelOrder`.
+
+**Positions** — `POST /api/positionAndHoldings/positionBook { ret: "NET" }`, mapped into the Dhan
+position shape used by the monitor, journal and dashboard.
+
+**Instruments** — public CSV contract masters
+`https://v2api.aliceblueonline.com/restpy/static/contract_master/{NFO,BFO}.csv`.
+The two files are ~10 MB combined, so they are **streamed line-by-line** (never buffered and
+split whole), parsed **by header name** (NFO and BFO column order differs!), filtered to
+NIFTY / BANKNIFTY / SENSEX options for the nearest 2 expiries and merged into `instrument_master`
+via `apply_aliceblue_instruments()`, cached once per IST day. Sync always runs through
+`EdgeRuntime.waitUntil` — login never awaits it.
+
+**Routing** — all Aliceblue calls go through `makeBrokerProxy(userId, "aliceblue", ALICEBLUE_API)`
+(static-IP VPS `/broker-request`) with direct-API fallback. Engine stays broker-aware via
+`loadEngineCredentials()` + `getPositionsSmart()` / `placeOrderSmart()`.
+
+**Endpoints** — `/broker/aliceblue/{status,login,save-keys,reconnect,verify,disconnect,callback,postback,instruments/status,instruments/sync}`.

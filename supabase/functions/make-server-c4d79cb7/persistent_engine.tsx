@@ -419,7 +419,9 @@ async function loadEngineCredentials(
               ? !!(await BrokerRouter.getFyersCredentials(userId))?.accessToken
               : broker === "angelone"
                 ? !!(await BrokerRouter.getAngelOneCredentials(userId))?.jwtToken
-                : false;
+                : broker === "aliceblue"
+                  ? !!(await BrokerRouter.getAliceblueCredentials(userId))?.apiKey
+                  : false;
     if (!connected) return null;
 
     const central = await getCentralCredentials();

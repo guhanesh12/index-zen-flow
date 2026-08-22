@@ -18,6 +18,7 @@ import { GrowwConnect } from "./GrowwConnect";
 import { UpstoxConnect } from "./UpstoxConnect";
 import { FyersConnect } from "./FyersConnect";
 import { AngelOneConnect } from "./AngelOneConnect";
+import { AliceblueConnect } from "./AliceblueConnect";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
@@ -54,7 +55,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [brokerLoading, setBrokerLoading] = useState(true);
   const [switchingBroker, setSwitchingBroker] = useState(false);
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
-  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false, upstox: false, fyers: false });
+  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false, upstox: false, fyers: false, angelone: false, aliceblue: false });
 
   // 🔀 Brokers the admin has switched ON (common registry — new brokers appear automatically)
   const [enabledBrokers, setEnabledBrokers] = useState<any[]>([]);
@@ -689,6 +690,18 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
 
       {activeBroker === 'fyers' && (
         <FyersConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
+
+      {activeBroker === 'aliceblue' && (
+        <AliceblueConnect
           serverUrl={serverUrl}
           accessToken={accessToken}
           onConnected={() => {
