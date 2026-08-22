@@ -48,53 +48,85 @@ function toIsoDate(v: any): string {
 async function downloadAngelOneContracts(): Promise<any[]> {
   const today = istDate();
   const res = await fetch(SCRIP_MASTER);
-  if (!res.ok) throw new Error(`Angel One scrip master failed: ${res.status}`);
-  const rows = await res.json();
-  if (!Array.isArray(rows)) throw new Error("Angel One scrip master returned an unexpected payload");
+  if (!res.ok || !res.body) throw new Error(`Angel One scrip master failed: ${res.status}`);
 
+  // ⚠️ The scrip master is a single ~37 MB JSON array with ~160k objects.
+  // JSON.parse on the whole payload exhausts the edge runtime, which is why the
+  // sync appeared "not working". Stream it and parse only OPTIDX rows we need.
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
   const out: any[] = [];
-  for (const r of rows) {
-    const instType = String(r?.instrumenttype || "").toUpperCase();
-    if (instType !== "OPTIDX") continue;
 
-    const exch = String(r?.exch_seg || "").toUpperCase();
-    if (exch !== "NFO" && exch !== "BFO") continue;
+  const consume = (flush: boolean) => {
+    // objects are flat (no nested braces) in this file
+    let idx: number;
+    while ((idx = buf.indexOf("}")) !== -1) {
+      const open = buf.lastIndexOf("{", idx);
+      if (open === -1) { buf = buf.slice(idx + 1); continue; }
+      const chunk = buf.slice(open, idx + 1);
+      buf = buf.slice(idx + 1);
+      let r: any;
+      try { r = JSON.parse(chunk); } catch { continue; }
+      const row = mapContract(r, today);
+      if (row) out.push(row);
+    }
+    if (flush) buf = "";
+    else if (buf.length > 1_000_000) buf = buf.slice(-100_000);
+  };
 
-    const name = String(r?.name || "").toUpperCase().replace(/[^A-Z]/g, "");
-    if (!TARGET_UNDERLYINGS.has(name)) continue;
-
-    const expiry = toIsoDate(r?.expiry);
-    if (!expiry || expiry < today) continue;
-
-    const tradingSymbol = String(r?.symbol || "").toUpperCase();
-    const type = tradingSymbol.endsWith("CE") ? "CE" : tradingSymbol.endsWith("PE") ? "PE" : "";
-    if (!type) continue;
-
-    // strike arrives in paise (e.g. "2420000.000000" → 24200)
-    const rawStrike = Number(r?.strike);
-    const strike = isFinite(rawStrike) ? rawStrike / 100 : NaN;
-    if (!isFinite(strike) || strike <= 0) continue;
-
-    const token = String(r?.token || "").trim();
-    if (!token) continue;
-
-    const rawTick = Number(r?.tick_size);
-    const tick = isFinite(rawTick) && rawTick > 0 ? rawTick / 100 : 0.05;
-
-    out.push({
-      index_name: name,
-      expiry_date: expiry,
-      strike_price: strike,
-      option_type: type,
-      angelone_tradingsymbol: tradingSymbol,
-      angelone_symbol_token: token,
-      angelone_exchange: exch,
-      lot_size: Math.max(1, parseInt(String(r?.lotsize ?? 0), 10) || 1),
-      tick_size: tick,
-      exchange_segment: exch === "BFO" ? "BSE_FNO" : "NSE_FNO",
-    });
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    consume(false);
   }
+  buf += decoder.decode();
+  consume(true);
+
   return out;
+}
+
+/** Map one scrip-master row → instrument_master shape (null when not wanted). */
+function mapContract(r: any, today: string): any | null {
+  if (String(r?.instrumenttype || "").toUpperCase() !== "OPTIDX") return null;
+
+  const exch = String(r?.exch_seg || "").toUpperCase();
+  if (exch !== "NFO" && exch !== "BFO") return null;
+
+  const name = String(r?.name || "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (!TARGET_UNDERLYINGS.has(name)) return null;
+
+  const expiry = toIsoDate(r?.expiry);
+  if (!expiry || expiry < today) return null;
+
+  const tradingSymbol = String(r?.symbol || "").toUpperCase();
+  const type = tradingSymbol.endsWith("CE") ? "CE" : tradingSymbol.endsWith("PE") ? "PE" : "";
+  if (!type) return null;
+
+  // strike arrives in paise (e.g. "2420000.000000" → 24200)
+  const rawStrike = Number(r?.strike);
+  const strike = isFinite(rawStrike) ? rawStrike / 100 : NaN;
+  if (!isFinite(strike) || strike <= 0) return null;
+
+  const token = String(r?.token || "").trim();
+  if (!token) return null;
+
+  const rawTick = Number(r?.tick_size);
+  const tick = isFinite(rawTick) && rawTick > 0 ? rawTick / 100 : 0.05;
+
+  return {
+    index_name: name,
+    expiry_date: expiry,
+    strike_price: strike,
+    option_type: type,
+    angelone_tradingsymbol: tradingSymbol,
+    angelone_symbol_token: token,
+    angelone_exchange: exch,
+    lot_size: Math.max(1, parseInt(String(r?.lotsize ?? 0), 10) || 1),
+    tick_size: tick,
+    exchange_segment: exch === "BFO" ? "BSE_FNO" : "NSE_FNO",
+  };
 }
 
 /**
