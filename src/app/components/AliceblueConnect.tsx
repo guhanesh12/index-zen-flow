@@ -203,8 +203,9 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
           )}
         </CardTitle>
         <CardDescription className="text-zinc-400">
-          Create an app in the ANT web terminal → Apps, then paste your Aliceblue User ID and
-          API key here. Orders, funds and positions route through Aliceblue from your static IP.
+          Create an app in the Aliceblue developer portal, set the Redirect URL below, then enter your
+          User ID, App Code and API secret. You log in on Aliceblue and we exchange the authCode for a
+          session — orders, funds and positions route from your static IP.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -243,23 +244,57 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="ab-apikey" className="text-zinc-300">API key</Label>
+            <Label htmlFor="ab-appcode" className="text-zinc-300">App Code</Label>
             <Input
-              id="ab-apikey"
+              id="ab-appcode"
+              value={appCode}
+              onChange={(e) => setAppCode(e.target.value)}
+              placeholder="from the developer portal"
+              className="bg-zinc-950 border-zinc-800"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ab-apisecret" className="text-zinc-300">API secret</Label>
+            <Input
+              id="ab-apisecret"
               type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={status?.savedCredentials ? `saved ${status.apiKeyMasked || '••••'}` : 'ANT API key'}
+              value={apiSecret}
+              onChange={(e) => setApiSecret(e.target.value)}
+              placeholder={status?.apiSecretMasked ? `saved ${status.apiSecretMasked}` : 'API secret'}
+              className="bg-zinc-950 border-zinc-800"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ab-authcode" className="text-zinc-300">authCode (only if the popup was blocked)</Label>
+            <Input
+              id="ab-authcode"
+              value={authCode}
+              onChange={(e) => setAuthCode(e.target.value)}
+              placeholder="paste authCode from the redirect URL"
               className="bg-zinc-950 border-zinc-800"
             />
           </div>
         </div>
 
+        {awaitingLogin && (
+          <Alert className="bg-blue-950/40 border-blue-900">
+            <AlertDescription className="text-blue-300 text-sm">
+              Waiting for the Aliceblue login window… after logging in, this card connects automatically.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <Button onClick={connect} disabled={busy} className="bg-blue-600 hover:bg-blue-500">
             {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Key className="w-4 h-4 mr-2" />}
-            {busy ? 'Connecting…' : 'Connect Aliceblue'}
+            {busy ? 'Starting…' : 'Login with Aliceblue'}
           </Button>
+          {authCode.trim().length > 4 && (
+            <Button variant="outline" className="border-zinc-700" disabled={busy} onClick={exchange}>
+              <CheckCircle2 className="w-4 h-4 mr-2" /> Finish with authCode
+            </Button>
+          )}
+
           {status?.savedCredentials && (
             <Button variant="outline" className="border-zinc-700" disabled={busy}
               onClick={() => action('/broker/aliceblue/reconnect', 'Aliceblue session refreshed')}>
