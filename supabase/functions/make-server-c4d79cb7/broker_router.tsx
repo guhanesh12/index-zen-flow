@@ -48,6 +48,14 @@ import {
   angeloneLogin,
 } from "./angelone_service.tsx";
 import { ensureAngelOneInstruments } from "./angelone_instruments.tsx";
+import {
+  AliceblueService,
+  ALICEBLUE_API,
+  aliceblueExchangeFromSegment,
+  aliceblueProductFromDhan,
+  aliceblueLogin,
+} from "./aliceblue_service.tsx";
+import { ensureAliceblueInstruments } from "./aliceblue_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -55,8 +63,8 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone";
-const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone"];
+export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone" | "aliceblue";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue"];
 
 
 export interface KiteStoredCreds {
@@ -113,6 +121,7 @@ async function clearBrokerSession(userId: string, broker: BrokerId) {
   if (broker === "upstox") await clearUpstoxCredentials(userId);
   if (broker === "fyers") await clearFyersCredentials(userId);
   if (broker === "angelone") await clearAngelOneCredentials(userId);
+  if (broker === "aliceblue") await clearAliceblueCredentials(userId);
   await supabaseAdmin
     .from("broker_credentials")
     .delete()
@@ -299,6 +308,159 @@ export async function resolveAngelOneSymbol(order: any): Promise<{
     exchange: (String(inst.angelone_exchange || "").toUpperCase() === "BFO"
       ? "BFO"
       : angeloneExchangeFromSegment(inst.exchange_segment)) as "NFO" | "BFO",
+    lotSize: Number(inst.lot_size || 0),
+  };
+}
+
+// ───────────────────────── aliceblue credentials ─────────────────────────
+
+export interface AliceblueStoredCreds {
+  userId: string;              // Aliceblue client / user id (e.g. "AB1234")
+  apiKey: string;              // ANT API key
+  sessionId?: string;          // daily session id (bearer token)
+  sessionDate?: string;        // IST date the session was minted for
+  aliceblueName?: string;
+  lastStatus?: string;
+  lastError?: string | null;
+  updatedAt?: string;
+}
+
+function istToday(): string {
+  return new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
+}
+
+export async function getAliceblueCredentials(userId: string): Promise<AliceblueStoredCreds | null> {
+  const creds = (await kv.get(`aliceblue_credentials:${userId}`)) as AliceblueStoredCreds | null;
+  return creds || null;
+}
+
+export async function saveAliceblueCredentials(userId: string, patch: Partial<AliceblueStoredCreds>) {
+  const existing = (await getAliceblueCredentials(userId)) || ({} as AliceblueStoredCreds);
+  const merged = { ...existing, ...patch, updatedAt: new Date().toISOString() };
+  await kv.set(`aliceblue_credentials:${userId}`, merged);
+  return merged;
+}
+
+export async function clearAliceblueCredentials(userId: string) {
+  await kv.del(`aliceblue_credentials:${userId}`);
+}
+
+/**
+ * Aliceblue session IDs expire every day. Credentials (user id + API key) are
+ * stored once, so we silently mint a fresh session whenever it is missing/stale —
+ * the user never has to re-enter anything after the first save.
+ */
+export async function ensureAliceblueSession(
+  userId: string,
+  opts: { force?: boolean } = {},
+): Promise<AliceblueStoredCreds | null> {
+  const creds = await getAliceblueCredentials(userId);
+  if (!creds?.userId || !creds?.apiKey) return null;
+  if (!opts.force && creds.sessionId && creds.sessionDate === istToday()) return creds;
+
+  try {
+    const session = await aliceblueLogin({ userId: creds.userId, apiKey: creds.apiKey });
+    return await saveAliceblueCredentials(userId, {
+      sessionId: session.sessionId,
+      sessionDate: istToday(),
+      lastStatus: "connected",
+      lastError: null,
+    });
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    console.error("[ALICEBLUE] auto re-login failed:", msg);
+    await saveAliceblueCredentials(userId, { lastStatus: "login_failed", lastError: msg });
+    return creds.sessionId ? creds : null;
+  }
+}
+
+export async function getAliceblueService(userId: string): Promise<AliceblueService | null> {
+  const creds = await ensureAliceblueSession(userId);
+  if (!creds?.sessionId || !creds?.userId) return null;
+  const proxy = await makeBrokerProxy(userId, "aliceblue", ALICEBLUE_API);
+  return new AliceblueService({ userId: creds.userId, sessionId: creds.sessionId, proxy });
+}
+
+/** Non-secret mirror so the Broker screen can show Aliceblue status. */
+export async function mirrorAliceblueStatus(userId: string, patch: Record<string, any>) {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("broker_credentials")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("broker", "aliceblue")
+      .maybeSingle();
+    const payload = { user_id: userId, broker: "aliceblue", auth_method: "api-key", ...patch };
+    if (existing?.id) {
+      await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
+    } else {
+      await supabaseAdmin.from("broker_credentials").insert(payload);
+    }
+  } catch (e) {
+    console.error("[ALICEBLUE] status mirror failed:", (e as any)?.message || e);
+  }
+}
+
+/** Resolve a Dhan-style order into an Aliceblue trading symbol + instrument token. */
+export async function resolveAliceblueSymbol(order: any): Promise<{
+  tradingSymbol: string;
+  symbolToken: string;
+  exchange: "NFO" | "BFO";
+  lotSize: number;
+} | null> {
+  const securityId = String(order?.securityId || "");
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS =
+    "lot_size, exchange_segment, aliceblue_tradingsymbol, aliceblue_token, aliceblue_exchange";
+
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},aliceblue_tradingsymbol.eq.${symbolText.toUpperCase()}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+  if (!inst?.aliceblue_token) {
+    await ensureAliceblueInstruments(!!inst);
+    const retry = await lookup();
+    if (retry?.aliceblue_token) inst = retry;
+  }
+
+  if (!inst?.aliceblue_token) {
+    // Position exits carry the Aliceblue token/symbol straight from Aliceblue positions.
+    const token = String(order?.aliceblueToken || "").trim();
+    if (token && symbolText) {
+      return {
+        tradingSymbol: symbolText.toUpperCase(),
+        symbolToken: token,
+        exchange: aliceblueExchangeFromSegment(order?.exchangeSegment),
+        lotSize: Number(order?.lotSize || 0),
+      };
+    }
+    return null;
+  }
+
+  return {
+    tradingSymbol: String(inst.aliceblue_tradingsymbol || symbolText).toUpperCase(),
+    symbolToken: String(inst.aliceblue_token),
+    exchange: (String(inst.aliceblue_exchange || "").toUpperCase() === "BFO"
+      ? "BFO"
+      : aliceblueExchangeFromSegment(inst.exchange_segment)) as "NFO" | "BFO",
     lotSize: Number(inst.lot_size || 0),
   };
 }
@@ -930,6 +1092,55 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🔷 ALICEBLUE
+  if (broker === "aliceblue") {
+    const abCreds = await ensureAliceblueSession(userId);
+    if (!abCreds?.sessionId || !abCreds?.userId) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Aliceblue is your active broker but no valid Aliceblue session was found. Open Broker Setup → Aliceblue and connect again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const ab = await resolveAliceblueSymbol(orderDetails);
+    if (!ab?.symbolToken) {
+      throw new Error("Could not map this contract to an Aliceblue token. Refresh the instrument master and retry.");
+    }
+    const abProxy = await makeBrokerProxy(userId, "aliceblue", ALICEBLUE_API);
+    const svcAb = new AliceblueService({ userId: abCreds.userId, sessionId: abCreds.sessionId, proxy: abProxy });
+    try {
+      const res = await svcAb.placeOrder({
+        tradingSymbol: ab.tradingSymbol,
+        symbolToken: ab.symbolToken,
+        exchange: ab.exchange,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: aliceblueProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        validity: "DAY",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "aliceblue",
+        routedVia: abProxy ? "static-ip" : "edge",
+        message: res.orderId ? "Order placed via Aliceblue" : "Aliceblue order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired|invalid session/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Aliceblue session has expired (ANT sessions reset daily). Connect again from Broker Setup → Aliceblue.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   // 🔴 ANGEL ONE
   if (broker === "angelone") {
     const aCreds = await ensureAngelOneSession(userId);
@@ -1197,6 +1408,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "aliceblue") {
+    const ab = await getAliceblueService(userId);
+    if (!ab) return [];
+    try {
+      return await ab.getPositions();
+    } catch (e) {
+      console.error("[ALICEBLUE] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker === "angelone") {
     const a = await getAngelOneService(userId);
     if (!a) return [];
@@ -1254,6 +1475,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "aliceblue") {
+    const ab = await getAliceblueService(userId);
+    if (!ab) return null;
+    try {
+      return await ab.getFundLimits();
+    } catch (e) {
+      console.error("[ALICEBLUE] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "angelone") {
     const a = await getAngelOneService(userId);
     if (!a) return null;
@@ -1312,6 +1543,13 @@ export async function getLtpSmart(
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "aliceblue") {
+    const ab = await getAliceblueService(userId);
+    if (!ab) return null;
+    const rab = await resolveAliceblueSymbol(order);
+    if (!rab) return null;
+    return await ab.getLastPrice(rab.exchange, rab.symbolToken);
+  }
   if (broker === "angelone") {
     const a = await getAngelOneService(userId);
     if (!a) return null;
@@ -1355,6 +1593,25 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "aliceblue") {
+    const ab = await getAliceblueService(userId);
+    if (!ab) return null;
+    try {
+      const st = await ab.getOrderStatus(orderId);
+      const raw = String(st?.Status || st?.status || "").toUpperCase();
+      return {
+        orderId: String(st?.Nstordno || st?.nestordernumber || orderId),
+        orderStatus: raw === "COMPLETE" ? "COMPLETE" : raw === "REJECTED" ? "REJECTED" : raw === "CANCELED" || raw === "CANCELLED" ? "CANCELLED" : raw || "PENDING",
+        tradedQuantity: Number(st?.Fillshares ?? st?.filledShares ?? 0),
+        averageTradedPrice: Number(st?.Avgprc ?? st?.averagePrice ?? 0),
+        broker: "aliceblue",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[ALICEBLUE] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "angelone") {
     const a = await getAngelOneService(userId);
     if (!a) return null;
@@ -1453,6 +1710,11 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "aliceblue") {
+    const ab = await getAliceblueService(userId);
+    if (!ab) return false;
+    return await ab.cancelOrder(orderId);
+  }
   if (broker === "angelone") {
     const a = await getAngelOneService(userId);
     if (!a) return false;
