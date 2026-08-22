@@ -2288,6 +2288,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(fyers.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'angelone') {
+      const angelone = await BrokerRouter.getAngelOneService(effectiveUserId);
+      if (!angelone) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Angel One session not found. Login again from Broker Setup → Angel One.'
+        });
+      }
+      positions = await withTimeout(angelone.getPositions(), 4500, cachedPositions || []);
     } else if (activeBrokerPos === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(effectiveUserId);
       if (!upstox) {
