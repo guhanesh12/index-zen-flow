@@ -26,6 +26,7 @@ const SCRIP_MASTER =
   "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json";
 const TARGET_UNDERLYINGS = new Set(["NIFTY", "BANKNIFTY", "SENSEX"]);
 const SYNC_KEY = "angelone_instruments:last_sync";
+const SYNC_STATE_KEY = "angelone_instruments:sync_state";
 
 const MONTHS: Record<string, string> = {
   JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
@@ -145,60 +146,72 @@ export async function syncAngelOneInstruments(opts: { force?: boolean; expiries?
     }
   }
 
-  console.log("[ANGELONE_INSTRUMENTS] Downloading Angel One scrip master...");
-  const all = await downloadAngelOneContracts();
-  if (all.length === 0) throw new Error("Angel One instrument download returned no option contracts");
+  await kv.set(SYNC_STATE_KEY, { syncing: true, startedAt: new Date().toISOString(), error: null }).catch(() => {});
+  try {
+    console.log("[ANGELONE_INSTRUMENTS] Downloading Angel One scrip master...");
+    const all = await downloadAngelOneContracts();
+    if (all.length === 0) throw new Error("Angel One instrument download returned no option contracts");
 
-  const byIndex: Record<string, Set<string>> = {};
-  for (const r of all) (byIndex[r.index_name] ||= new Set()).add(r.expiry_date);
-  const keep: Record<string, Set<string>> = {};
-  for (const [idx, exps] of Object.entries(byIndex)) {
-    keep[idx] = new Set([...exps].sort().slice(0, keepCount));
-  }
-
-  const seen = new Set<string>();
-  const filtered = all.filter((r) => {
-    if (!keep[r.index_name]?.has(r.expiry_date)) return false;
-    const k = `${r.index_name}|${r.expiry_date}|${r.option_type}|${r.strike_price}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-
-  console.log(`[ANGELONE_INSTRUMENTS] Merging ${filtered.length} near-expiry contracts...`);
-
-  let updated = 0;
-  let inserted = 0;
-  const CHUNK = 500;
-  for (let i = 0; i < filtered.length; i += CHUNK) {
-    const batch = filtered.slice(i, i + CHUNK);
-    const { data, error } = await supabase.rpc("apply_angelone_instruments", { _rows: batch });
-    if (error) {
-      console.error("[ANGELONE_INSTRUMENTS] merge error:", error.message);
-      throw error;
+    const byIndex: Record<string, Set<string>> = {};
+    for (const r of all) (byIndex[r.index_name] ||= new Set()).add(r.expiry_date);
+    const keep: Record<string, Set<string>> = {};
+    for (const [idx, exps] of Object.entries(byIndex)) {
+      keep[idx] = new Set([...exps].sort().slice(0, keepCount));
     }
-    const row = Array.isArray(data) ? data[0] : data;
-    updated += Number(row?.updated_count || 0);
-    inserted += Number(row?.inserted_count || 0);
-  }
 
-  const result = {
-    success: true,
-    date: today,
-    count: filtered.length,
-    updated,
-    inserted,
-    expiries: Object.fromEntries(Object.entries(keep).map(([k, v]) => [k, [...v].sort()])),
-    duration_ms: Date.now() - startTs,
-  };
-  await kv.set(SYNC_KEY, result).catch(() => {});
-  console.log(`[ANGELONE_INSTRUMENTS] ✅ ${filtered.length} contracts (updated ${updated}, inserted ${inserted}) in ${result.duration_ms}ms`);
-  return result;
+    const seen = new Set<string>();
+    const filtered = all.filter((r) => {
+      if (!keep[r.index_name]?.has(r.expiry_date)) return false;
+      const k = `${r.index_name}|${r.expiry_date}|${r.option_type}|${r.strike_price}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+
+    console.log(`[ANGELONE_INSTRUMENTS] Merging ${filtered.length} near-expiry contracts...`);
+
+    let updated = 0;
+    let inserted = 0;
+    const CHUNK = 500;
+    for (let i = 0; i < filtered.length; i += CHUNK) {
+      const batch = filtered.slice(i, i + CHUNK);
+      const { data, error } = await supabase.rpc("apply_angelone_instruments", { _rows: batch });
+      if (error) {
+        console.error("[ANGELONE_INSTRUMENTS] merge error:", error.message);
+        throw error;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      updated += Number(row?.updated_count || 0);
+      inserted += Number(row?.inserted_count || 0);
+    }
+
+    const result = {
+      success: true,
+      date: today,
+      count: filtered.length,
+      updated,
+      inserted,
+      expiries: Object.fromEntries(Object.entries(keep).map(([k, v]) => [k, [...v].sort()])),
+      duration_ms: Date.now() - startTs,
+    };
+    await kv.set(SYNC_KEY, result).catch(() => {});
+    await kv.set(SYNC_STATE_KEY, { syncing: false, completedAt: new Date().toISOString(), error: null }).catch(() => {});
+    console.log(`[ANGELONE_INSTRUMENTS] ✅ ${filtered.length} contracts (updated ${updated}, inserted ${inserted}) in ${result.duration_ms}ms`);
+    return result;
+  } catch (error: any) {
+    await kv.set(SYNC_STATE_KEY, {
+      syncing: false,
+      failedAt: new Date().toISOString(),
+      error: error?.message || String(error),
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 /** Has the Angel One mapping been built for today? */
 export async function getAngelOneInstrumentStatus() {
   const last = await kv.get(SYNC_KEY).catch(() => null);
+  const state = await kv.get(SYNC_STATE_KEY).catch(() => null);
   const { count } = await supabase
     .from("instrument_master")
     .select("id", { count: "exact", head: true })
@@ -207,6 +220,9 @@ export async function getAngelOneInstrumentStatus() {
     lastSync: last || null,
     mappedContracts: count || 0,
     freshToday: last?.date === istDate(),
+    syncing: !!state?.syncing,
+    syncError: state?.error || null,
+    syncStartedAt: state?.startedAt || null,
   };
 }
 

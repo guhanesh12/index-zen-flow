@@ -133,13 +133,8 @@ export async function selectBroker(userId: string, broker: BrokerId): Promise<vo
     .update({ active_broker: broker, broker_connected: false })
     .eq("user_id", userId);
 
-  // 📥 Download the broker's near-expiry NIFTY/BANKNIFTY/SENSEX contracts so
-  // orders go out in that broker's own symbol format (shared by all users).
-  if (broker === "zerodha") await ensureKiteInstruments(false);
-  if (broker === "groww") await ensureGrowwInstruments(false);
-  if (broker === "upstox") await ensureUpstoxInstruments(false);
-  if (broker === "fyers") await ensureFyersInstruments(false);
-  if (broker === "angelone") await ensureAngelOneInstruments(false);
+  // Instrument masters are large shared downloads. Never block broker selection
+  // or login on them; the broker endpoints schedule/track synchronization.
 }
 
 // ───────────────────────── angelone credentials ─────────────────────────

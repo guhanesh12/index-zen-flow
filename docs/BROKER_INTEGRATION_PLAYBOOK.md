@@ -160,7 +160,9 @@ via `apply_fyers_instruments()`, cached once per IST day.
 
 **Auth is NOT OAuth.** Angel One logs in with API Key + Client Code + MPIN/password + a 6-digit
 TOTP. IndexPilot stores the user's base32 TOTP secret and generates the code itself
-(`angeloneTotp()`, RFC 6238 / HMAC-SHA1), so there is no redirect URI to whitelist.
+(`angeloneTotp()`, RFC 6238 / HMAC-SHA1). SmartAPI's app form still requires the displayed
+redirect URL, postback URL, and the user's assigned static IP even though login does not exchange
+an OAuth code.
 
 1. User enters keys in `AngelOneConnect.tsx` → `POST /broker/angelone/login`.
 2. Server calls `/rest/auth/angelbroking/user/v1/loginByPassword` and stores
@@ -178,3 +180,16 @@ paise (divide by 100) and expiry is formatted `28AUG2025`.
 static-IP execution. Orders/positions/funds/LTP/cancel all have `angelone` branches in
 `broker_router.tsx`, and `loadEngineCredentials()` falls back to central market-data credentials so
 the trading engine keeps running for Angel One users.
+
+**Non-blocking connection rule** — never await the 37 MB scrip-master download from broker
+selection or login. Login must return immediately after SmartAPI authentication, credential save,
+single-broker selection, profile/funds verification, and status mirroring. Start instrument sync with
+`EdgeRuntime.waitUntil`; expose `syncing`, `syncError`, `mappedContracts`, `lastSync`, and expiry
+details through the status endpoint. The web/RN UI must show an immediate Connecting state, render
+the exact API error, and poll status while synchronization runs.
+
+**Release verification checklist** — test invalid credentials (visible SmartAPI error), valid login
+(connected badge and live funds), manual sync (immediate 202 response, then non-zero contract count),
+NIFTY/BANKNIFTY/SENSEX expiry display, funds and positions routing, one-broker enforcement, symbol
+resolution, a dry-run signal-to-order payload, order status/cancel, and session-expiry re-login. Never
+log or return API keys, MPINs, TOTP secrets, JWTs, refresh tokens, or feed tokens.
