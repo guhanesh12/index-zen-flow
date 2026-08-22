@@ -2070,6 +2070,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const groww = await BrokerRouter.getGrowwService(user.id);
       if (!groww) return c.json({ error: "Groww not connected" }, 400);
       funds = await groww.getFundLimits();
+    } else if (activeBroker === 'fyers') {
+      const fyers = await BrokerRouter.getFyersService(user.id);
+      if (!fyers) return c.json({ error: "Fyers not connected" }, 400);
+      funds = await fyers.getFundLimits();
     } else if (activeBroker === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(user.id);
       if (!upstox) return c.json({ error: "Upstox not connected" }, 400);
@@ -2268,6 +2272,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(groww.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'fyers') {
+      const fyers = await BrokerRouter.getFyersService(effectiveUserId);
+      if (!fyers) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Fyers session not found. Connect Fyers again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(fyers.getPositions(), 4500, cachedPositions || []);
     } else if (activeBrokerPos === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(effectiveUserId);
       if (!upstox) {
@@ -13618,8 +13632,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (!["dhan", "zerodha", "groww", "upstox"].includes(broker)) {
-      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww' or 'upstox'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox", "fyers"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox' or 'fyers'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13642,6 +13656,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
     if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
     if (broker === "upstox") instrumentSync = await ensureUpstoxInstruments(false);
+    if (broker === "fyers") instrumentSync = await ensureFyersInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
@@ -14151,6 +14166,285 @@ app.post("/make-server-c4d79cb7/broker/upstox/instruments/sync", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const result = await syncUpstoxInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    return c.json({ success: true, ...result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// ═══════════════════════ FYERS ═══════════════════════
+
+function fyersRedirectUri() {
+  return brokerRedirectUri("fyers");
+}
+
+function effectiveFyersRedirect(creds: any) {
+  const saved = String(creds?.redirectUri || "").trim();
+  if (!saved || saved.includes("supabase.co")) return fyersRedirectUri();
+  return saved;
+}
+
+function sanitizeFyers(creds: any) {
+  if (!creds) return null;
+  return {
+    app_id_set: !!creds.appId,
+    app_secret_set: !!creds.appSecret,
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    redirect_uri: effectiveFyersRedirect(creds),
+    fyers_user_id: creds.fyersUserId || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
+    last_error: creds.lastError || null,
+  };
+}
+
+app.get("/make-server-c4d79cb7/broker/fyers/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFyersCredentials(user.id);
+    let liveCheck: any = null;
+    if (creds?.accessToken && creds?.appId) {
+      const svc = new FyersService({
+        appId: creds.appId,
+        accessToken: creds.accessToken,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "fyers"),
+      });
+      liveCheck = await svc.verify();
+      await BrokerRouter.saveFyersCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      } as any);
+      await BrokerRouter.mirrorFyersStatus(user.id, {
+        last_status: liveCheck.ok ? "connected" : "token_invalid",
+        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+      });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+        await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+      }
+    }
+    const refreshed = await BrokerRouter.getFyersCredentials(user.id);
+    return c.json({
+      success: true,
+      fyers: sanitizeFyers(refreshed),
+      redirectUri: fyersRedirectUri(),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+      balance: liveCheck?.balance ?? null,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Save the Fyers app id + secret (from myapi.fyers.in → Create App). */
+app.post("/make-server-c4d79cb7/broker/fyers/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const appId = String(body?.appId || body?.apiKey || "").trim();
+    const appSecret = String(body?.appSecret || body?.apiSecret || "").trim();
+    const accessToken = String(body?.accessToken || "").trim();
+    if (!accessToken && (appId.length < 5 || appSecret.length < 5)) {
+      return c.json({ error: "Fyers App ID and Secret ID are required" }, 400);
+    }
+
+    const currentBroker = await BrokerRouter.getActiveBroker(user.id);
+    if (currentBroker !== "fyers") await BrokerRouter.selectBroker(user.id, "fyers" as any);
+
+    let balance: number | null = null;
+    if (accessToken && appId) {
+      const svc = new FyersService({
+        appId,
+        accessToken,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "fyers"),
+      });
+      const check = await svc.verify();
+      if (!check.ok) return c.json({ error: check.error || "Fyers rejected this access token" }, 400);
+      balance = typeof check.balance === "number" ? check.balance : null;
+    }
+
+    const creds = await BrokerRouter.saveFyersCredentials(user.id, {
+      appId: appId || undefined,
+      appSecret: appSecret || undefined,
+      redirectUri: (() => { const r = String(body?.redirectUri || "").trim(); return r && !r.includes("supabase.co") ? r : fyersRedirectUri(); })(),
+      accessToken: accessToken || undefined,
+      lastStatus: accessToken ? "connected" : "keys_saved",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorFyersStatus(user.id, {
+      last_status: accessToken ? "connected" : "keys_saved",
+      last_error: null,
+    });
+    await kv.set(`broker_choice:${user.id}`, { broker: "fyers", at: new Date().toISOString() });
+    await BrokerRouter.setBrokerConnected(user.id, !!accessToken);
+
+    if (balance !== null) {
+      await kv.set(`broker_funds:${user.id}`, {
+        availableBalance: balance,
+        sodLimit: balance,
+        collateralAmount: 0,
+        utilizationAmount: 0,
+        blockedPayinAmount: 0,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    const instrumentSync = await ensureFyersInstruments(false);
+    return c.json({
+      success: true,
+      fyers: sanitizeFyers(creds),
+      redirectUri: fyersRedirectUri(),
+      activeBroker: "fyers",
+      connected: !!accessToken,
+      balance,
+      instrumentSync,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/fyers/login-url", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFyersCredentials(user.id);
+    if (!creds?.appId) return c.json({ error: "Save your Fyers App ID and Secret ID first" }, 400);
+    const state = crypto.randomUUID();
+    await kv.set(`fyers_oauth_state:${state}`, { userId: user.id, at: Date.now() });
+    const redirectUri = effectiveFyersRedirect(creds);
+    return c.json({
+      success: true,
+      url: buildFyersLoginUrl(creds.appId, redirectUri, state),
+      redirectUri,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Fyers redirects the browser here with ?auth_code=&state= — public by design. */
+app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
+  const html = (title: string, msg: string, ok: boolean) =>
+    c.html(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:420px"><h2 style="color:${ok ? "#34d399" : "#f87171"}">${title}</h2>
+<p style="color:#94a3b8">${msg}</p><p style="color:#64748b;font-size:13px">You can close this window and return to IndexPilot.</p></div>
+<script>setTimeout(function(){window.close()},2500)</script></body></html>`);
+  try {
+    const authCode = c.req.query("auth_code") || c.req.query("code") || "";
+    const state = c.req.query("state") || "";
+    if (!authCode || !state) return html("Fyers login failed", "Missing authorization code.", false);
+    const st = await kv.get(`fyers_oauth_state:${state}`);
+    if (!st?.userId) return html("Fyers login failed", "This login link has expired. Try again.", false);
+    await kv.del(`fyers_oauth_state:${state}`);
+
+    const creds = await BrokerRouter.getFyersCredentials(st.userId);
+    if (!creds?.appId || !creds?.appSecret) {
+      return html("Fyers login failed", "App ID / Secret ID missing. Save them again in Broker Setup.", false);
+    }
+
+    const tok = await exchangeFyersAuthCode({
+      appId: creds.appId,
+      appSecret: creds.appSecret,
+      authCode,
+    });
+
+    await BrokerRouter.saveFyersCredentials(st.userId, {
+      accessToken: tok.accessToken,
+      refreshToken: tok.refreshToken,
+      tokenExpiry: new Date(new Date().setHours(24 + 6, 0, 0, 0)).toISOString(),
+      lastStatus: "connected",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorFyersStatus(st.userId, { last_status: "connected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(st.userId)) === "fyers") {
+      await BrokerRouter.setBrokerConnected(st.userId, true);
+    }
+    await ensureFyersInstruments(false);
+
+    return html("Fyers connected ✅", "Your Fyers account is linked. Funds, positions and orders now route through Fyers.", true);
+  } catch (err: any) {
+    const raw = String(err?.message || err);
+    const low = raw.toLowerCase();
+    let hint = "";
+    if (low.includes("segment")) {
+      hint = `Your Fyers account works, but no trading segment is active. Enable <b>F&O (Derivatives)</b> in the Fyers app and login again.`;
+    } else if (low.includes("redirect")) {
+      hint = `The redirect URI registered in your Fyers app does not match. Register exactly:<br>
+        <code style="color:#22d3ee;word-break:break-all">${fyersRedirectUri()}</code>`;
+    } else if (low.includes("invalid") && (low.includes("app") || low.includes("secret") || low.includes("hash"))) {
+      hint = "App ID or Secret ID is wrong. Re-copy them from myapi.fyers.in → My Apps and save again.";
+    }
+    return html(
+      "Fyers login failed",
+      `${raw.slice(0, 200)}${hint ? `<br><br><span style="color:#cbd5e1">${hint}</span>` : ""}
+       <br><br><span style="color:#475569;font-size:12px">Redirect URI used: ${fyersRedirectUri()}</span>`,
+      false,
+    );
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/fyers/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getFyersService(user.id);
+    if (!svc) return c.json({ success: false, error: "Fyers is not connected" }, 400);
+    const check = await svc.verify();
+    await BrokerRouter.saveFyersCredentials(user.id, {
+      lastStatus: check.ok ? "connected" : "token_invalid",
+      lastError: check.ok ? null : check.error,
+    } as any);
+    await BrokerRouter.mirrorFyersStatus(user.id, {
+      last_status: check.ok ? "connected" : "token_invalid",
+      last_error: check.ok ? null : String(check.error || "").slice(0, 400),
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+      await BrokerRouter.setBrokerConnected(user.id, !!check.ok);
+    }
+    return c.json({ success: check.ok, ...check });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/fyers/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearFyersCredentials(user.id);
+    await BrokerRouter.mirrorFyersStatus(user.id, { last_status: "disconnected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+      await BrokerRouter.setBrokerConnected(user.id, false);
+    }
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/fyers/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getFyersInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/fyers/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await syncFyersInstruments({
       force: body?.force !== false,
       expiries: Number(body?.expiries) || 2,
     });
