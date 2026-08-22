@@ -40,6 +40,13 @@ import {
   fyersProductFromDhan,
 } from "./fyers_service.tsx";
 import { ensureFyersInstruments } from "./fyers_instruments.tsx";
+import {
+  AngelOneService,
+  ANGELONE_API,
+  angeloneExchangeFromSegment,
+  angeloneProductFromDhan,
+} from "./angelone_service.tsx";
+import { ensureAngelOneInstruments } from "./angelone_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -47,8 +54,8 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers";
-const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers"];
+export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone"];
 
 
 export interface KiteStoredCreds {
