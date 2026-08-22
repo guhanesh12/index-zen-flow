@@ -14633,6 +14633,35 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
   }
 });
 
+// --- POST angelone reconnect (uses the credentials saved on first login) ----
+app.post("/make-server-c4d79cb7/broker/angelone/reconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getAngelOneCredentials(user.id);
+    if (!creds?.apiKey || !creds?.clientCode || !creds?.password || !creds?.totpSecret) {
+      return c.json({ success: false, error: "No saved Angel One credentials. Login once with API key, client code, MPIN and TOTP secret." }, 400);
+    }
+    const refreshed = await BrokerRouter.ensureAngelOneSession(user.id, { force: true });
+    if (!refreshed?.jwtToken) {
+      return c.json({ success: false, error: refreshed?.lastError || "Angel One re-login failed" }, 400);
+    }
+    await BrokerRouter.selectBroker(user.id, "angelone" as any);
+    const svc = await BrokerRouter.getAngelOneService(user.id);
+    let funds: any = null;
+    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+    await BrokerRouter.mirrorAngelOneStatus(user.id, {
+      status: "connected",
+      client_id: creds.clientCode,
+      updated_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, connected: true, clientCode: creds.clientCode, userName: creds.angeloneUserName || null, funds });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+
 // --- POST angelone verify (live funds ping) --------------------------------
 app.post("/make-server-c4d79cb7/broker/angelone/verify", async (c) => {
   try {
