@@ -103,18 +103,16 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
   useEffect(() => { load(); }, [serverUrl]);
 
   const login = async () => {
-    if (apiKey.trim().length < 5) return toast.error('Enter your SmartAPI Trading API Key');
-    if (clientCode.trim().length < 3) return toast.error('Enter your Angel One Client Code');
-    if (mpin.trim().length < 4) return toast.error('Enter your Angel One MPIN / password');
-    if (totpSecret.trim().length < 8) return toast.error('Enter the TOTP secret from SmartAPI → TOTP');
+    if (apiKey.trim().length < 5) { setMessage({ type: 'error', text: 'Enter your SmartAPI Trading API Key' }); return toast.error('Enter your SmartAPI Trading API Key'); }
+    if (clientCode.trim().length < 3) { setMessage({ type: 'error', text: 'Enter your Angel One Client Code' }); return toast.error('Enter your Angel One Client Code'); }
+    if (mpin.trim().length < 4) { setMessage({ type: 'error', text: 'Enter your Angel One MPIN / password' }); return toast.error('Enter your Angel One MPIN / password'); }
+    if (totpSecret.trim().length < 8) { setMessage({ type: 'error', text: 'Enter the TOTP secret from SmartAPI → TOTP' }); return toast.error('Enter the TOTP secret from SmartAPI → TOTP'); }
     try {
       setBusy(true);
       setAction('login');
       setMessage({ type: 'info', text: 'Connecting securely to Angel One…' });
-      const t = await tok();
-      const res = await fetchWithAuth(`${serverUrl}/broker/angelone/login`, {
+      const data = await call('/broker/angelone/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
         body: JSON.stringify({
           apiKey: apiKey.trim(),
           clientCode: clientCode.trim(),
@@ -122,11 +120,10 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
           totpSecret: totpSecret.replace(/\s+/g, '').trim(),
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.success) throw new Error(data?.error || 'Angel One login failed');
       toast.success(`Angel One connected${data?.userName ? ` — ${data.userName}` : ''}`);
-      setMessage({ type: 'success', text: 'Angel One connected. Instrument sync is running in the background.' });
+      setMessage({ type: 'success', text: 'Angel One connected and credentials saved. Next time just tap “Reconnect (saved login)”.' });
       setMpin('');
+      setTotpSecret('');
       await load();
       onConnected?.();
     } catch (e: any) {
@@ -137,6 +134,28 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       setAction(null);
     }
   };
+
+  /** Daily one-tap login using the credentials saved on first connect. */
+  const reconnect = async () => {
+    try {
+      setBusy(true);
+      setAction('reconnect');
+      setMessage({ type: 'info', text: 'Signing in with your saved Angel One credentials…' });
+      const data = await call('/broker/angelone/reconnect', { method: 'POST' });
+      toast.success(`Angel One reconnected${data?.userName ? ` — ${data.userName}` : ''}`);
+      setMessage({ type: 'success', text: 'Angel One session refreshed. You are ready to trade.' });
+      await load();
+      onConnected?.();
+    } catch (e: any) {
+      toast.error(e.message || 'Reconnect failed');
+      setMessage({ type: 'error', text: e.message || 'Reconnect failed' });
+    } finally {
+      setBusy(false);
+      setAction(null);
+    }
+  };
+
+
 
   const verify = async () => {
     try {
