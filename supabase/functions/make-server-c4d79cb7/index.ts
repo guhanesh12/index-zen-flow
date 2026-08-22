@@ -37,7 +37,7 @@ import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode } from "./fyers
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
 import { AngelOneService, ANGELONE_API, angeloneLogin } from "./angelone_service.tsx";
 import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
-import { AliceblueService, ALICEBLUE_API, aliceblueLogin } from "./aliceblue_service.tsx";
+import { AliceblueService, ALICEBLUE_API, aliceblueLogin, aliceblueVendorSession, aliceblueAuthUrl } from "./aliceblue_service.tsx";
 import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
 
 
@@ -14757,7 +14757,7 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAliceblueCredentials(user.id);
-    const savedCredentials = !!(creds?.userId && creds?.apiKey);
+    const savedCredentials = !!(creds?.userId && (creds?.apiKey || (creds?.apiSecret && creds?.authCode)));
     let liveCheck: any = null;
 
     if (savedCredentials) {
@@ -14796,6 +14796,12 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
       apiKeyMasked: refreshedCreds?.apiKey
         ? `${String(refreshedCreds.apiKey).slice(0, 4)}••••${String(refreshedCreds.apiKey).slice(-2)}`
         : null,
+      appCode: refreshedCreds?.appCode || null,
+      apiSecretMasked: refreshedCreds?.apiSecret
+        ? `${String(refreshedCreds.apiSecret).slice(0, 4)}••••${String(refreshedCreds.apiSecret).slice(-2)}`
+        : null,
+      authMethod: refreshedCreds?.authMethod || (refreshedCreds?.apiKey ? "api-key" : "vendor"),
+      loginUrl: refreshedCreds?.appCode ? aliceblueAuthUrl(refreshedCreds.appCode) : null,
       balance: liveCheck?.balance ?? null,
       lastStatus: refreshedCreds?.lastStatus || null,
       lastError: liveCheck?.ok ? null : (liveCheck?.error || refreshedCreds?.lastError || null),
@@ -14814,14 +14820,6 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
   }
 });
 
-/** Aliceblue's app form requires a redirect URL — this page just proves it is live. */
-app.get("/make-server-c4d79cb7/broker/aliceblue/callback", (c) =>
-  c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Aliceblue</title></head>
-<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-<div style="text-align:center;max-width:440px"><h2 style="color:#34d399">Aliceblue redirect URL is live</h2>
-<p style="color:#94a3b8">This URL only satisfies the ANT app form. Connect from IndexPilot &rarr; Broker Setup with your Aliceblue User ID and API key.</p></div></body></html>`),
-);
-
 /** Optional postback endpoint for ANT order updates. */
 app.post("/make-server-c4d79cb7/broker/aliceblue/postback", async (c) => {
   try {
@@ -14831,19 +14829,175 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/postback", async (c) => {
   return c.json({ status: "ok" });
 });
 
-/** Save keys + login in one step (userId + apiKey → daily sessionID). */
+/** Shared: persist a fresh Aliceblue session and light everything up. */
+async function finalizeAliceblueConnection(appUserId: string, abUserId: string, patch: Record<string, any>) {
+  await BrokerRouter.selectBroker(appUserId, "aliceblue" as any);
+  await BrokerRouter.saveAliceblueCredentials(appUserId, {
+    userId: abUserId,
+    sessionDate: new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10),
+    lastStatus: "connected",
+    lastError: null,
+    ...patch,
+  });
+  await kv.set(`broker_choice:${appUserId}`, { broker: "aliceblue", at: new Date().toISOString() });
+
+  const svc = await BrokerRouter.getAliceblueService(appUserId);
+  let funds: any = null;
+  try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+  if (funds) {
+    await kv.set(`broker_funds:${appUserId}`, {
+      availableBalance: funds.availableBalance,
+      sodLimit: funds.sodLimit,
+      collateralAmount: funds.collateralAmount,
+      utilizationAmount: funds.utilizationAmount,
+      blockedPayinAmount: 0,
+      lastUpdated: new Date().toISOString(),
+    });
+  }
+  await BrokerRouter.setBrokerConnected(appUserId, true);
+  await BrokerRouter.mirrorAliceblueStatus(appUserId, {
+    status: "connected",
+    client_id: abUserId,
+    updated_at: new Date().toISOString(),
+  });
+
+  // Contract masters are ~10 MB — never block the response on them.
+  try {
+    const job = ensureAliceblueInstruments(false);
+    const rt: any = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
+  } catch (_) { /* non-fatal */ }
+
+  return funds;
+}
+
+const abPage = (title: string, color: string, msg: string) =>
+  `<!doctype html><html><head><meta charset="utf-8"><title>Aliceblue</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:460px"><h2 style="color:${color}">${title}</h2>
+<p style="color:#94a3b8">${msg}</p></div>
+<script>try{window.opener&&window.opener.postMessage({source:'aliceblue',ok:${color === "#34d399"}},'*');setTimeout(()=>window.close(),2500);}catch(e){}</script>
+</body></html>`;
+
+/**
+ * Aliceblue vendor redirect: /callback?authCode=...&userId=...
+ * Exchanges SHA256(userId + authCode + apiSecret) for the userSession.
+ */
+app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
+  const authCode = String(c.req.query("authCode") || c.req.query("authcode") || "").trim();
+  const abUserId = String(c.req.query("userId") || c.req.query("userid") || "").trim().toUpperCase();
+
+  if (!authCode || !abUserId) {
+    return c.html(abPage(
+      "Aliceblue redirect URL is live",
+      "#34d399",
+      "Paste this URL as the Redirect URL in the Aliceblue developer portal, then connect from IndexPilot &rarr; Broker Setup.",
+    ));
+  }
+
+  try {
+    const pending = (await kv.get(`aliceblue_pending:${abUserId}`)) as any;
+    if (!pending?.appUserId) {
+      return c.html(abPage("Login session not found", "#f87171",
+        "Start the connection again from IndexPilot &rarr; Broker Setup &rarr; Aliceblue."));
+    }
+    const creds = await BrokerRouter.getAliceblueCredentials(pending.appUserId);
+    const apiSecret = String(creds?.apiSecret || pending.apiSecret || "");
+    if (!apiSecret) {
+      return c.html(abPage("API secret missing", "#f87171", "Re-enter your App Code and API secret in IndexPilot and try again."));
+    }
+
+    const session = await aliceblueVendorSession({ userId: abUserId, authCode, apiSecret });
+    await finalizeAliceblueConnection(pending.appUserId, session.clientId || abUserId, {
+      authCode,
+      apiSecret,
+      appCode: creds?.appCode || pending.appCode || null,
+      authMethod: "vendor",
+      sessionId: session.sessionId,
+    });
+    await kv.del(`aliceblue_pending:${abUserId}`);
+    return c.html(abPage("Aliceblue connected", "#34d399", "You can close this window and return to IndexPilot."));
+  } catch (e: any) {
+    return c.html(abPage("Aliceblue login failed", "#f87171", String(e?.message || e)));
+  }
+});
+
+/**
+ * Start the vendor login: saves App Code + API secret and returns the Aliceblue
+ * login URL (https://ant.aliceblueonline.com/?appcode=...).
+ */
+const aliceblueVendorStart = async (c: any, preBody?: any) => {
+  const { user, error } = await validateAuth(c);
+  if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+  try { await BrokerRegistry.assertBrokerEnabled("aliceblue"); }
+  catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
+
+  const body = preBody ?? (await c.req.json().catch(() => ({})));
+  const abUserId = String(body?.userId || body?.clientCode || "").trim().toUpperCase();
+  const appCode = String(body?.appCode || "").trim();
+  const apiSecret = String(body?.apiSecret || "").trim();
+  if (!abUserId || !appCode || !apiSecret) {
+    return c.json({ success: false, error: "Aliceblue User ID, App Code and API secret are required" }, 400);
+  }
+
+  await BrokerRouter.saveAliceblueCredentials(user.id, {
+    userId: abUserId, appCode, apiSecret, authMethod: "vendor", lastStatus: "pending_login", lastError: null,
+  });
+  await kv.set(`aliceblue_pending:${abUserId}`, {
+    appUserId: user.id, appCode, apiSecret, at: new Date().toISOString(),
+  });
+
+  return c.json({ success: true, loginUrl: aliceblueAuthUrl(appCode), requiresLogin: true });
+};
+
+app.post("/make-server-c4d79cb7/broker/aliceblue/vendor-start", (c) => aliceblueVendorStart(c));
+
+
+/** Manual paste of the authCode returned on the redirect URL. */
+app.post("/make-server-c4d79cb7/broker/aliceblue/exchange", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const creds = await BrokerRouter.getAliceblueCredentials(user.id);
+    const abUserId = String(body?.userId || creds?.userId || "").trim().toUpperCase();
+    const authCode = String(body?.authCode || "").trim();
+    const apiSecret = String(body?.apiSecret || creds?.apiSecret || "").trim();
+    if (!abUserId || !authCode || !apiSecret) {
+      return c.json({ success: false, error: "User ID, authCode and API secret are required" }, 400);
+    }
+    const session = await aliceblueVendorSession({ userId: abUserId, authCode, apiSecret });
+    const funds = await finalizeAliceblueConnection(user.id, session.clientId || abUserId, {
+      authCode, apiSecret, authMethod: "vendor", sessionId: session.sessionId,
+    });
+    return c.json({ success: true, connected: true, clientCode: session.clientId || abUserId, funds });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
+/**
+ * Connect handler.
+ *  • App Code + API secret  → vendor OAuth flow (returns loginUrl)
+ *  • User ID + API key      → legacy direct ANT login
+ */
 const aliceblueLoginHandler = async (c: any) => {
   try {
+    const body = await c.req.json().catch(() => ({}));
+    if (String(body?.apiSecret || "").trim() && String(body?.appCode || "").trim()) {
+      return await aliceblueVendorStart(c, body);
+    }
+
+
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     try { await BrokerRegistry.assertBrokerEnabled("aliceblue"); }
     catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
 
-    const body = await c.req.json().catch(() => ({}));
     const abUserId = String(body?.userId || body?.clientCode || "").trim().toUpperCase();
     const apiKey = String(body?.apiKey || "").trim();
     if (!abUserId || !apiKey) {
-      return c.json({ error: "Aliceblue User ID and API key are required" }, 400);
+      return c.json({ error: "Enter your Aliceblue User ID with either the App Code + API secret (recommended) or the ANT API key" }, 400);
     }
 
     let session;
@@ -14857,45 +15011,9 @@ const aliceblueLoginHandler = async (c: any) => {
       return c.json({ success: false, error: msg }, 400);
     }
 
-    // ONE USER = ONE BROKER — select first (it wipes other broker sessions),
-    // then persist the Aliceblue credentials so they survive the switch.
-    await BrokerRouter.selectBroker(user.id, "aliceblue" as any);
-    await BrokerRouter.saveAliceblueCredentials(user.id, {
-      userId: abUserId,
-      apiKey,
-      sessionId: session.sessionId,
-      sessionDate: new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10),
-      lastStatus: "connected",
-      lastError: null,
+    const funds = await finalizeAliceblueConnection(user.id, abUserId, {
+      apiKey, authMethod: "api-key", sessionId: session.sessionId,
     });
-    await kv.set(`broker_choice:${user.id}`, { broker: "aliceblue", at: new Date().toISOString() });
-
-    const svc = await BrokerRouter.getAliceblueService(user.id);
-    let funds: any = null;
-    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
-    if (funds) {
-      await kv.set(`broker_funds:${user.id}`, {
-        availableBalance: funds.availableBalance,
-        sodLimit: funds.sodLimit,
-        collateralAmount: funds.collateralAmount,
-        utilizationAmount: funds.utilizationAmount,
-        blockedPayinAmount: 0,
-        lastUpdated: new Date().toISOString(),
-      });
-    }
-    await BrokerRouter.setBrokerConnected(user.id, true);
-    await BrokerRouter.mirrorAliceblueStatus(user.id, {
-      status: "connected",
-      client_id: abUserId,
-      updated_at: new Date().toISOString(),
-    });
-
-    // Contract masters are ~10 MB — never block the login response on them.
-    try {
-      const job = ensureAliceblueInstruments(false);
-      const rt: any = (globalThis as any).EdgeRuntime;
-      if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
-    } catch (_) { /* non-fatal */ }
 
     return c.json({
       success: true,
@@ -14909,6 +15027,7 @@ const aliceblueLoginHandler = async (c: any) => {
   }
 };
 
+
 app.post("/make-server-c4d79cb7/broker/aliceblue/login", aliceblueLoginHandler);
 /** Alias kept for shape-compatibility with the OAuth brokers. */
 app.post("/make-server-c4d79cb7/broker/aliceblue/save-keys", aliceblueLoginHandler);
@@ -14919,8 +15038,8 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAliceblueCredentials(user.id);
-    if (!creds?.userId || !creds?.apiKey) {
-      return c.json({ success: false, error: "No saved Aliceblue credentials. Connect once with your User ID and API key." }, 400);
+    if (!creds?.userId || !(creds?.apiKey || (creds?.apiSecret && creds?.authCode))) {
+      return c.json({ success: false, error: "No saved Aliceblue login. Connect once with your App Code + API secret." }, 400);
     }
     const refreshed = await BrokerRouter.ensureAliceblueSession(user.id, { force: true });
     if (!refreshed?.sessionId) {

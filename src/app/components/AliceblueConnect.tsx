@@ -23,11 +23,15 @@ interface AliceblueConnectProps {
  */
 export function AliceblueConnect({ serverUrl, accessToken, onConnected }: AliceblueConnectProps) {
   const [userId, setUserId] = useState('');
+  const [appCode, setAppCode] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [authCode, setAuthCode] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState<any>(null);
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [awaitingLogin, setAwaitingLogin] = useState(false);
   const pollRef = useRef<any>(null);
 
   const tok = async () => {
@@ -75,6 +79,8 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
       const { data } = await call('/broker/aliceblue/status', {}, 20000);
       setStatus(data || null);
       if (data?.clientCode && !userId) setUserId(data.clientCode);
+      if (data?.appCode && !appCode) setAppCode(data.appCode);
+      if (data?.connected) setAwaitingLogin(false);
       await loadInstruments();
     } catch (e) {
       console.error('aliceblue status failed', e);
@@ -95,27 +101,68 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [instruments?.syncing]);
 
+  // The popup posts back once Aliceblue redirects to our callback.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if ((e.data as any)?.source === 'aliceblue') { setAwaitingLogin(false); load(); onConnected?.(); }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  /** Step 1 — save App Code + API secret, then open the Aliceblue login page. */
   const connect = async () => {
-    if (!userId.trim() || apiKey.trim().length < 5) {
-      return toast.error('Enter your Aliceblue User ID and API key');
+    if (!userId.trim() || !appCode.trim() || apiSecret.trim().length < 5) {
+      return toast.error('Enter your Aliceblue User ID, App Code and API secret');
     }
     try {
       setBusy(true);
-      const { res, data } = await call('/broker/aliceblue/login', {
+      const { res, data } = await call('/broker/aliceblue/vendor-start', {
         method: 'POST',
-        body: JSON.stringify({ userId: userId.trim().toUpperCase(), apiKey: apiKey.trim() }),
+        body: JSON.stringify({
+          userId: userId.trim().toUpperCase(),
+          appCode: appCode.trim(),
+          apiSecret: apiSecret.trim(),
+        }),
       });
-      if (!res.ok || !data?.success) throw new Error(data?.error || 'Aliceblue login failed');
-      toast.success('Aliceblue connected — contracts are syncing in the background');
-      setApiKey('');
-      await load();
-      onConnected?.();
+      if (!res.ok || !data?.success || !data?.loginUrl) throw new Error(data?.error || 'Could not start Aliceblue login');
+      setAwaitingLogin(true);
+      window.open(data.loginUrl, 'aliceblue-login', 'width=520,height=720');
+      toast.success('Log in on the Aliceblue page — this card updates automatically');
     } catch (e: any) {
       toast.error(e?.name === 'AbortError' ? 'Aliceblue did not respond in time. Try again.' : (e.message || 'Aliceblue login failed'));
     } finally {
       setBusy(false);
     }
   };
+
+  /** Fallback — paste the authCode from the redirect URL manually. */
+  const exchange = async () => {
+    if (authCode.trim().length < 5) return toast.error('Paste the authCode from the redirect URL');
+    try {
+      setBusy(true);
+      const { res, data } = await call('/broker/aliceblue/exchange', {
+        method: 'POST',
+        body: JSON.stringify({
+          userId: userId.trim().toUpperCase(),
+          authCode: authCode.trim(),
+          ...(apiSecret.trim() ? { apiSecret: apiSecret.trim() } : {}),
+        }),
+      });
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Aliceblue session exchange failed');
+      toast.success('Aliceblue connected — contracts are syncing in the background');
+      setAuthCode('');
+      setApiSecret('');
+      setAwaitingLogin(false);
+      await load();
+      onConnected?.();
+    } catch (e: any) {
+      toast.error(e.message || 'Aliceblue session exchange failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
 
   const action = async (path: string, okMsg: string) => {
     try {
@@ -156,8 +203,9 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
           )}
         </CardTitle>
         <CardDescription className="text-zinc-400">
-          Create an app in the ANT web terminal → Apps, then paste your Aliceblue User ID and
-          API key here. Orders, funds and positions route through Aliceblue from your static IP.
+          Create an app in the Aliceblue developer portal, set the Redirect URL below, then enter your
+          User ID, App Code and API secret. You log in on Aliceblue and we exchange the authCode for a
+          session — orders, funds and positions route from your static IP.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -196,23 +244,57 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="ab-apikey" className="text-zinc-300">API key</Label>
+            <Label htmlFor="ab-appcode" className="text-zinc-300">App Code</Label>
             <Input
-              id="ab-apikey"
+              id="ab-appcode"
+              value={appCode}
+              onChange={(e) => setAppCode(e.target.value)}
+              placeholder="from the developer portal"
+              className="bg-zinc-950 border-zinc-800"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ab-apisecret" className="text-zinc-300">API secret</Label>
+            <Input
+              id="ab-apisecret"
               type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={status?.savedCredentials ? `saved ${status.apiKeyMasked || '••••'}` : 'ANT API key'}
+              value={apiSecret}
+              onChange={(e) => setApiSecret(e.target.value)}
+              placeholder={status?.apiSecretMasked ? `saved ${status.apiSecretMasked}` : 'API secret'}
+              className="bg-zinc-950 border-zinc-800"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ab-authcode" className="text-zinc-300">authCode (only if the popup was blocked)</Label>
+            <Input
+              id="ab-authcode"
+              value={authCode}
+              onChange={(e) => setAuthCode(e.target.value)}
+              placeholder="paste authCode from the redirect URL"
               className="bg-zinc-950 border-zinc-800"
             />
           </div>
         </div>
 
+        {awaitingLogin && (
+          <Alert className="bg-blue-950/40 border-blue-900">
+            <AlertDescription className="text-blue-300 text-sm">
+              Waiting for the Aliceblue login window… after logging in, this card connects automatically.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <Button onClick={connect} disabled={busy} className="bg-blue-600 hover:bg-blue-500">
             {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Key className="w-4 h-4 mr-2" />}
-            {busy ? 'Connecting…' : 'Connect Aliceblue'}
+            {busy ? 'Starting…' : 'Login with Aliceblue'}
           </Button>
+          {authCode.trim().length > 4 && (
+            <Button variant="outline" className="border-zinc-700" disabled={busy} onClick={exchange}>
+              <CheckCircle2 className="w-4 h-4 mr-2" /> Finish with authCode
+            </Button>
+          )}
+
           {status?.savedCredentials && (
             <Button variant="outline" className="border-zinc-700" disabled={busy}
               onClick={() => action('/broker/aliceblue/reconnect', 'Aliceblue session refreshed')}>
