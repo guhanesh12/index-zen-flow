@@ -155,3 +155,26 @@ via `apply_fyers_instruments()`, cached once per IST day.
 **Routing** — all Fyers calls go through `makeBrokerProxy(userId, "fyers")` (static-IP VPS
 `/broker-request`) with direct-API fallback. Engine stays broker-aware via
 `loadEngineCredentials()` + `getPositionsSmart()` / `placeOrderSmart()`.
+
+## 6. Angel One (SmartAPI) — what is live now
+
+**Auth is NOT OAuth.** Angel One logs in with API Key + Client Code + MPIN/password + a 6-digit
+TOTP. IndexPilot stores the user's base32 TOTP secret and generates the code itself
+(`angeloneTotp()`, RFC 6238 / HMAC-SHA1), so there is no redirect URI to whitelist.
+
+1. User enters keys in `AngelOneConnect.tsx` → `POST /broker/angelone/login`.
+2. Server calls `/rest/auth/angelbroking/user/v1/loginByPassword` and stores
+   `jwtToken` / `refreshToken` / `feedToken` in KV (`angelone_credentials:{userId}`).
+3. `selectBroker(userId, "angelone")` enforces ONE USER = ONE BROKER and wipes other sessions.
+4. Sessions expire daily — the status endpoint reports `token_invalid` and the UI prompts re-login.
+
+**Endpoints** — `/broker/angelone/{status,login,verify,disconnect,instruments/status,instruments/sync}`.
+
+**Instruments** — daily `OpenAPIScripMaster.json`, filtered to NIFTY / BANKNIFTY / SENSEX options
+for the nearest expiries, merged via `apply_angelone_instruments()`. Note: strike price arrives in
+paise (divide by 100) and expiry is formatted `28AUG2025`.
+
+**Routing** — all calls go through `makeBrokerProxy(userId, "angelone", ANGELONE_API)` for
+static-IP execution. Orders/positions/funds/LTP/cancel all have `angelone` branches in
+`broker_router.tsx`, and `loadEngineCredentials()` falls back to central market-data credentials so
+the trading engine keeps running for Angel One users.
