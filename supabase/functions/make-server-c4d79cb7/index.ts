@@ -13642,6 +13642,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
     if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
     if (broker === "upstox") instrumentSync = await ensureUpstoxInstruments(false);
+    if (broker === "fyers") instrumentSync = await ensureFyersInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
