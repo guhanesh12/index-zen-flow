@@ -2070,6 +2070,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const groww = await BrokerRouter.getGrowwService(user.id);
       if (!groww) return c.json({ error: "Groww not connected" }, 400);
       funds = await groww.getFundLimits();
+    } else if (activeBroker === 'fyers') {
+      const fyers = await BrokerRouter.getFyersService(user.id);
+      if (!fyers) return c.json({ error: "Fyers not connected" }, 400);
+      funds = await fyers.getFundLimits();
     } else if (activeBroker === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(user.id);
       if (!upstox) return c.json({ error: "Upstox not connected" }, 400);
