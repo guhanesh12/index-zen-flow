@@ -14484,10 +14484,20 @@ app.get("/make-server-c4d79cb7/broker/angelone/status", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAngelOneCredentials(user.id);
+    const canAutoReconnect = !!(creds?.apiKey && creds?.clientCode && creds?.password && creds?.totpSecret);
     let liveCheck: any = null;
-    if (creds?.apiKey && creds?.jwtToken) {
+    if (creds?.apiKey && (creds?.jwtToken || canAutoReconnect)) {
+      // Auto-mints a fresh daily session from the saved credentials when needed,
+      // so the user never has to retype anything the next morning.
       const svc = await BrokerRouter.getAngelOneService(user.id);
       liveCheck = svc ? await svc.verify() : { ok: false, error: "service unavailable" };
+      if (!liveCheck.ok && canAutoReconnect) {
+        const refreshed = await BrokerRouter.ensureAngelOneSession(user.id, { force: true });
+        if (refreshed?.jwtToken) {
+          const svc2 = await BrokerRouter.getAngelOneService(user.id);
+          if (svc2) liveCheck = await svc2.verify();
+        }
+      }
       await BrokerRouter.saveAngelOneCredentials(user.id, {
         lastStatus: liveCheck.ok ? "connected" : "token_invalid",
         lastError: liveCheck.ok ? null : liveCheck.error,
@@ -14503,11 +14513,14 @@ app.get("/make-server-c4d79cb7/broker/angelone/status", async (c) => {
       connected: !!liveCheck?.ok,
       hasApiKey: !!creds?.apiKey,
       hasSession: !!creds?.jwtToken,
+      savedCredentials: canAutoReconnect,
+      apiKeyMasked: creds?.apiKey ? `${String(creds.apiKey).slice(0, 4)}••••${String(creds.apiKey).slice(-2)}` : null,
       clientCode: creds?.clientCode || null,
       userName: creds?.angeloneUserName || null,
       balance: liveCheck?.balance ?? null,
       lastStatus: creds?.lastStatus || null,
       lastError: liveCheck?.ok ? null : (liveCheck?.error || creds?.lastError || null),
+
       // SmartAPI "Add App" form requires a Redirect URL + Primary Static IP even
       // though the actual login is Client Code + MPIN + TOTP (no OAuth exchange).
       redirectUri: brokerRedirectUri("angelone"),
@@ -14619,6 +14632,35 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
 });
+
+// --- POST angelone reconnect (uses the credentials saved on first login) ----
+app.post("/make-server-c4d79cb7/broker/angelone/reconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getAngelOneCredentials(user.id);
+    if (!creds?.apiKey || !creds?.clientCode || !creds?.password || !creds?.totpSecret) {
+      return c.json({ success: false, error: "No saved Angel One credentials. Login once with API key, client code, MPIN and TOTP secret." }, 400);
+    }
+    const refreshed = await BrokerRouter.ensureAngelOneSession(user.id, { force: true });
+    if (!refreshed?.jwtToken) {
+      return c.json({ success: false, error: refreshed?.lastError || "Angel One re-login failed" }, 400);
+    }
+    await BrokerRouter.selectBroker(user.id, "angelone" as any);
+    const svc = await BrokerRouter.getAngelOneService(user.id);
+    let funds: any = null;
+    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+    await BrokerRouter.mirrorAngelOneStatus(user.id, {
+      status: "connected",
+      client_id: creds.clientCode,
+      updated_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, connected: true, clientCode: creds.clientCode, userName: creds.angeloneUserName || null, funds });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
 
 // --- POST angelone verify (live funds ping) --------------------------------
 app.post("/make-server-c4d79cb7/broker/angelone/verify", async (c) => {

@@ -30,10 +30,47 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [action, setAction] = useState<'login' | 'verify' | 'sync' | 'disconnect' | null>(null);
+  const [action, setAction] = useState<'login' | 'verify' | 'sync' | 'disconnect' | 'reconnect' | null>(null);
   const [message, setMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null);
 
-  const tok = async () => (await getAccessToken()) || accessToken;
+  /** Never let a stuck Supabase session lookup freeze the button. */
+  const tok = async () => {
+    try {
+      const t = await Promise.race([
+        getAccessToken(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]);
+      return t || accessToken;
+    } catch {
+      return accessToken;
+    }
+  };
+
+  /** fetch + hard timeout so the UI always gets an answer. */
+  const call = async (path: string, init: RequestInit = {}, timeoutMs = 45000) => {
+    const t = await tok();
+    if (!t) throw new Error('Your session expired. Refresh the page and login again.');
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetchWithAuth(`${serverUrl}${path}`, {
+        ...init,
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json', ...(init.headers || {}), Authorization: `Bearer ${t}` },
+      } as any);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) {
+        throw new Error(body?.error || `Request failed (${res.status})`);
+      }
+      return body;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('Angel One did not respond in time. Please try again.');
+      throw e;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
 
   const load = async () => {
     try {
@@ -65,19 +102,23 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
 
   useEffect(() => { load(); }, [serverUrl]);
 
+  // Prefill the non-secret field so the user doesn't retype it every morning.
+  useEffect(() => {
+    if (status?.clientCode && !clientCode) setClientCode(String(status.clientCode));
+  }, [status?.clientCode]);
+
+
   const login = async () => {
-    if (apiKey.trim().length < 5) return toast.error('Enter your SmartAPI Trading API Key');
-    if (clientCode.trim().length < 3) return toast.error('Enter your Angel One Client Code');
-    if (mpin.trim().length < 4) return toast.error('Enter your Angel One MPIN / password');
-    if (totpSecret.trim().length < 8) return toast.error('Enter the TOTP secret from SmartAPI → TOTP');
+    if (apiKey.trim().length < 5) { setMessage({ type: 'error', text: 'Enter your SmartAPI Trading API Key' }); return toast.error('Enter your SmartAPI Trading API Key'); }
+    if (clientCode.trim().length < 3) { setMessage({ type: 'error', text: 'Enter your Angel One Client Code' }); return toast.error('Enter your Angel One Client Code'); }
+    if (mpin.trim().length < 4) { setMessage({ type: 'error', text: 'Enter your Angel One MPIN / password' }); return toast.error('Enter your Angel One MPIN / password'); }
+    if (totpSecret.trim().length < 8) { setMessage({ type: 'error', text: 'Enter the TOTP secret from SmartAPI → TOTP' }); return toast.error('Enter the TOTP secret from SmartAPI → TOTP'); }
     try {
       setBusy(true);
       setAction('login');
       setMessage({ type: 'info', text: 'Connecting securely to Angel One…' });
-      const t = await tok();
-      const res = await fetchWithAuth(`${serverUrl}/broker/angelone/login`, {
+      const data = await call('/broker/angelone/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
         body: JSON.stringify({
           apiKey: apiKey.trim(),
           clientCode: clientCode.trim(),
@@ -85,11 +126,10 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
           totpSecret: totpSecret.replace(/\s+/g, '').trim(),
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.success) throw new Error(data?.error || 'Angel One login failed');
       toast.success(`Angel One connected${data?.userName ? ` — ${data.userName}` : ''}`);
-      setMessage({ type: 'success', text: 'Angel One connected. Instrument sync is running in the background.' });
+      setMessage({ type: 'success', text: 'Angel One connected and credentials saved. Next time just tap “Reconnect (saved login)”.' });
       setMpin('');
+      setTotpSecret('');
       await load();
       onConnected?.();
     } catch (e: any) {
@@ -101,21 +141,39 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
     }
   };
 
+  /** Daily one-tap login using the credentials saved on first connect. */
+  const reconnect = async () => {
+    try {
+      setBusy(true);
+      setAction('reconnect');
+      setMessage({ type: 'info', text: 'Signing in with your saved Angel One credentials…' });
+      const data = await call('/broker/angelone/reconnect', { method: 'POST' });
+      toast.success(`Angel One reconnected${data?.userName ? ` — ${data.userName}` : ''}`);
+      setMessage({ type: 'success', text: 'Angel One session refreshed. You are ready to trade.' });
+      await load();
+      onConnected?.();
+    } catch (e: any) {
+      toast.error(e.message || 'Reconnect failed');
+      setMessage({ type: 'error', text: e.message || 'Reconnect failed' });
+    } finally {
+      setBusy(false);
+      setAction(null);
+    }
+  };
+
+
+
   const verify = async () => {
     try {
       setBusy(true);
       setAction('verify');
-      const t = await tok();
-      const res = await fetchWithAuth(`${serverUrl}/broker/angelone/verify`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${t}` },
-      });
-      const data = await res.json();
+      const data = await call('/broker/angelone/verify', { method: 'POST' }, 30000);
       if (!data?.connected) throw new Error(data?.error || 'Angel One session is not active');
       toast.success(`Live funds: ₹${Number(data.balance || 0).toLocaleString('en-IN')}`);
       await load();
     } catch (e: any) {
       toast.error(e.message || 'Verification failed');
+      setMessage({ type: 'error', text: e.message || 'Verification failed' });
     } finally {
       setBusy(false);
       setAction(null);
@@ -127,14 +185,10 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       setBusy(true);
       setAction('sync');
       setMessage({ type: 'info', text: 'Starting Angel One instrument sync…' });
-      const t = await tok();
-      const res = await fetchWithAuth(`${serverUrl}/broker/angelone/instruments/sync`, {
+      await call('/broker/angelone/instruments/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
         body: JSON.stringify({ force: true, expiries: 2 }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.success) throw new Error(data?.error || 'Instrument sync failed');
       toast.success('Angel One instrument sync started');
       setMessage({ type: 'info', text: 'Instrument sync is running. Contract counts will update automatically.' });
       await load();
@@ -146,6 +200,7 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       setAction(null);
     }
   };
+
 
   const disconnect = async () => {
     try {
@@ -308,10 +363,17 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
         </p>
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={login} disabled={busy}>
+          {status?.savedCredentials && (
+            <Button onClick={reconnect} disabled={busy}>
+              {action === 'reconnect' ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+              {action === 'reconnect' ? 'Reconnecting…' : 'Reconnect (saved login)'}
+            </Button>
+          )}
+          <Button onClick={login} disabled={busy} variant={status?.savedCredentials ? 'outline' : 'default'}>
             {action === 'login' ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
-            {action === 'login' ? 'Connecting…' : connected ? 'Re-login' : 'Connect Angel One'}
+            {action === 'login' ? 'Connecting…' : status?.savedCredentials ? 'Update credentials' : 'Connect Angel One'}
           </Button>
+
           <Button variant="outline" onClick={verify} disabled={busy || !connected}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Check live funds
