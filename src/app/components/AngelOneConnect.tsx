@@ -30,10 +30,47 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [action, setAction] = useState<'login' | 'verify' | 'sync' | 'disconnect' | null>(null);
+  const [action, setAction] = useState<'login' | 'verify' | 'sync' | 'disconnect' | 'reconnect' | null>(null);
   const [message, setMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null);
 
-  const tok = async () => (await getAccessToken()) || accessToken;
+  /** Never let a stuck Supabase session lookup freeze the button. */
+  const tok = async () => {
+    try {
+      const t = await Promise.race([
+        getAccessToken(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]);
+      return t || accessToken;
+    } catch {
+      return accessToken;
+    }
+  };
+
+  /** fetch + hard timeout so the UI always gets an answer. */
+  const call = async (path: string, init: RequestInit = {}, timeoutMs = 45000) => {
+    const t = await tok();
+    if (!t) throw new Error('Your session expired. Refresh the page and login again.');
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetchWithAuth(`${serverUrl}${path}`, {
+        ...init,
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json', ...(init.headers || {}), Authorization: `Bearer ${t}` },
+      } as any);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.success === false) {
+        throw new Error(body?.error || `Request failed (${res.status})`);
+      }
+      return body;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('Angel One did not respond in time. Please try again.');
+      throw e;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
 
   const load = async () => {
     try {
