@@ -13650,8 +13650,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (!["dhan", "zerodha", "groww", "upstox", "fyers"].includes(broker)) {
-      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox' or 'fyers'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox", "fyers", "angelone"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox', 'fyers' or 'angelone'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
