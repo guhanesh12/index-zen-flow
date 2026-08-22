@@ -699,6 +699,19 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         />
       )}
 
+      {activeBroker === 'angelone' && (
+        <AngelOneConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
+
+
 
 
       {activeBroker === 'dhan' && (
