@@ -14508,10 +14508,35 @@ app.get("/make-server-c4d79cb7/broker/angelone/status", async (c) => {
       balance: liveCheck?.balance ?? null,
       lastStatus: creds?.lastStatus || null,
       lastError: liveCheck?.ok ? null : (liveCheck?.error || creds?.lastError || null),
+      // SmartAPI "Add App" form requires a Redirect URL + Primary Static IP even
+      // though the actual login is Client Code + MPIN + TOTP (no OAuth exchange).
+      redirectUri: brokerRedirectUri("angelone"),
+      postbackUrl: `${PUBLIC_API_BASE}/functions/v1/make-server-c4d79cb7/broker/angelone/postback`,
+      staticIp: await (async () => {
+        try { return (await getUserOrderPlacementIP(user.id))?.ipAddress || null; } catch { return null; }
+      })(),
     });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
+});
+
+/** SmartAPI requires a Redirect URL on the app form. Angel One never exchanges a
+ *  code here (login is TOTP based) — this page only confirms the URL is valid. */
+app.get("/make-server-c4d79cb7/broker/angelone/callback", (c) =>
+  c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Angel One</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:440px"><h2 style="color:#34d399">Angel One redirect URL is live</h2>
+<p style="color:#94a3b8">This URL is only used to satisfy the SmartAPI app form. Log in from IndexPilot &rarr; Broker Setup with your Client Code, MPIN and TOTP.</p></div></body></html>`),
+);
+
+/** Optional postback endpoint for SmartAPI order updates. */
+app.post("/make-server-c4d79cb7/broker/angelone/postback", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    await kv.set(`angelone_postback:${Date.now()}`, body);
+  } catch { /* ignore */ }
+  return c.json({ status: "ok" });
 });
 
 // --- POST angelone login (apiKey + clientCode + mpin + totp secret) --------

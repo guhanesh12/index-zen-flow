@@ -185,6 +185,38 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
           </Alert>
         )}
 
+        {/* SmartAPI "Add App" form fields — Redirect URL is mandatory there */}
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Creating your SmartAPI app? Paste these values in the <strong>Add App</strong> form.
+            Angel One still logs in with Client Code + MPIN + TOTP — the redirect URL is only required by their form.
+          </p>
+          {[
+            { label: 'Redirect URL', value: status?.redirectUri },
+            { label: 'Post back URL (optional)', value: status?.postbackUrl },
+            { label: 'Primary Static IP', value: status?.staticIp },
+          ].map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{row.label}</div>
+                <code className="text-[11px] break-all">{row.value || '—'}</code>
+              </div>
+              {row.value && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label={`Copy ${row.label}`}
+                  onClick={() => { navigator.clipboard.writeText(row.value); toast.success(`${row.label} copied`); }}
+                >
+                  Copy
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+
+
+
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="ao-apikey">Trading API Key</Label>
