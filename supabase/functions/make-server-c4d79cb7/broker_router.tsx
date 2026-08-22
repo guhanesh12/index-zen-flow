@@ -893,6 +893,55 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🔴 ANGEL ONE
+  if (broker === "angelone") {
+    const aCreds = await getAngelOneCredentials(userId);
+    if (!aCreds?.jwtToken || !aCreds?.apiKey) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:Angel One is your active broker but no valid Angel One session was found. Open Broker Setup → Angel One and login again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const a = await resolveAngelOneSymbol(orderDetails);
+    if (!a?.symbolToken) {
+      throw new Error("Could not map this contract to an Angel One symbol. Refresh the instrument master and retry.");
+    }
+    const aProxy = await makeBrokerProxy(userId, "angelone", ANGELONE_API);
+    const svcA = new AngelOneService({ apiKey: aCreds.apiKey, jwtToken: aCreds.jwtToken, proxy: aProxy });
+    try {
+      const res = await svcA.placeOrder({
+        tradingSymbol: a.tradingSymbol,
+        symbolToken: a.symbolToken,
+        exchange: a.exchange,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        product: angeloneProductFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+        duration: "DAY",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "angelone",
+        routedVia: aProxy ? "static-ip" : "edge",
+        message: res.orderId ? "Order placed via Angel One" : "Angel One order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/token|session|unauthor|expired|invalid/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your Angel One session has expired (SmartAPI tokens reset daily). Login again from Broker Setup → Angel One.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   // 🔵 FYERS
   if (broker === "fyers") {
     const fCreds = await getFyersCredentials(userId);
