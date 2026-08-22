@@ -120,3 +120,38 @@ while `persistent_engine.tsx` gated every tick on Dhan credentials
 
 **Rule for every new broker:** no raw `DhanService` call and no Dhan-credential guard
 may decide whether a user's engine runs.
+
+---
+
+## 5. Fyers — what is live now
+
+**Registry:** `fyers` is `status: "live"`, `defaultEnabled: true`, colour `#0ea5e9`,
+features: orders · positions · funds · instruments · static-ip · oauth.
+
+**Authentication** (https://myapi.fyers.in/docsv3)
+1. User creates an app at myapi.fyers.in → My Apps (App ID looks like `XXXXXXXXXX-100`).
+2. Redirect URI to register (shown + copyable in the UI):
+   `https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/fyers/callback`
+3. `POST /broker/fyers/save-keys` `{ appId, appSecret }` (also accepts a ready `accessToken`).
+4. `GET /broker/fyers/login-url` → `…/api/v3/generate-authcode` with a one-time `state`.
+5. Fyers redirects to `/broker/fyers/callback?auth_code=&state=` → server exchanges it at
+   `POST /api/v3/validate-authcode` using `appIdHash = SHA256(appId:appSecret)` and stores the
+   daily token in KV (`fyers_credentials:<userId>` — never in the database).
+6. `POST /broker/fyers/verify` re-checks the session; `POST /broker/fyers/disconnect` clears it.
+   Auth header on every call: `Authorization: <appId>:<accessToken>`.
+
+**Funds** — `GET /api/v3/funds` → normalized to
+`{ availableBalance, sodLimit, collateralAmount, utilizationAmount }`.
+
+**Orders** — `POST /api/v3/orders/sync` (MARKET type 2, DAY, product `INTRADAY`/`MARGIN` mapped from
+the Dhan product type). Status: `GET /api/v3/orders`, cancel: `DELETE /api/v3/orders/sync`.
+
+**Positions** — `GET /api/v3/positions`, mapped into the Dhan position shape.
+
+**Instruments** — `https://public.fyers.in/sym_details/{NSE_FO,BSE_FO}_sym_master.json`, filtered to
+NIFTY / BANKNIFTY / SENSEX options for the nearest 2 expiries and merged into `instrument_master`
+via `apply_fyers_instruments()`, cached once per IST day.
+
+**Routing** — all Fyers calls go through `makeBrokerProxy(userId, "fyers")` (static-IP VPS
+`/broker-request`) with direct-API fallback. Engine stays broker-aware via
+`loadEngineCredentials()` + `getPositionsSmart()` / `placeOrderSmart()`.
