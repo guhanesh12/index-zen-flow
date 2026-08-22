@@ -171,8 +171,49 @@ export async function clearAngelOneCredentials(userId: string) {
   await kv.del(`angelone_credentials:${userId}`);
 }
 
-export async function getAngelOneService(userId: string): Promise<AngelOneService | null> {
+/**
+ * Angel One sessions expire every morning. Because the user's API key, client code,
+ * MPIN and TOTP secret are stored once, we can silently mint a fresh JWT instead of
+ * asking them to type credentials again. Returns the usable credentials or null.
+ */
+export async function ensureAngelOneSession(
+  userId: string,
+  opts: { force?: boolean } = {},
+): Promise<AngelOneStoredCreds | null> {
   const creds = await getAngelOneCredentials(userId);
+  if (!creds?.apiKey) return null;
+
+  const expired = creds.tokenExpiry ? Date.parse(creds.tokenExpiry) <= Date.now() + 60_000 : false;
+  if (creds.jwtToken && !expired && !opts.force) return creds;
+
+  // Need password + TOTP secret to re-login without user input.
+  if (!creds.clientCode || !creds.password || !creds.totpSecret) return creds.jwtToken ? creds : null;
+
+  try {
+    const session = await angeloneLogin({
+      apiKey: creds.apiKey,
+      clientCode: creds.clientCode,
+      password: creds.password,
+      totpSecret: creds.totpSecret,
+    });
+    return await saveAngelOneCredentials(userId, {
+      jwtToken: session.jwtToken,
+      refreshToken: session.refreshToken,
+      feedToken: session.feedToken,
+      tokenExpiry: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+      lastStatus: "connected",
+      lastError: null,
+    });
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    console.error("[ANGELONE] auto re-login failed:", msg);
+    await saveAngelOneCredentials(userId, { lastStatus: "login_failed", lastError: msg });
+    return creds.jwtToken ? creds : null;
+  }
+}
+
+export async function getAngelOneService(userId: string): Promise<AngelOneService | null> {
+  const creds = await ensureAngelOneSession(userId);
   if (!creds?.jwtToken || !creds?.apiKey) return null;
   const proxy = await makeBrokerProxy(userId, "angelone", ANGELONE_API);
   return new AngelOneService({ apiKey: creds.apiKey, jwtToken: creds.jwtToken, proxy });
