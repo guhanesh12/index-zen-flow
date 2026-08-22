@@ -35,6 +35,8 @@ import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox
 import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
 import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode } from "./fyers_service.tsx";
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
+import { AngelOneService, ANGELONE_API, angeloneLogin } from "./angelone_service.tsx";
+import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
 
 
 
