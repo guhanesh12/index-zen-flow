@@ -2268,6 +2268,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(groww.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'fyers') {
+      const fyers = await BrokerRouter.getFyersService(effectiveUserId);
+      if (!fyers) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: 'Fyers session not found. Connect Fyers again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(fyers.getPositions(), 4500, cachedPositions || []);
     } else if (activeBrokerPos === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(effectiveUserId);
       if (!upstox) {
