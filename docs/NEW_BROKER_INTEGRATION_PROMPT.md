@@ -10,17 +10,17 @@ Everything else below is already written so nothing has to be explained again.
 ```
 Integrate a new broker into IndexPilot exactly like Dhan / Zerodha / Groww / Upstox.
 
-BROKER NAME: <<BROKER NAME>>
-BROKER ID (lowercase, no spaces): <<brokerid>>
+BROKER NAME: <<ANGELONE>>
+BROKER ID (lowercase, no spaces): <<angelone>>
 BRAND COLOUR (optional): <<#hex>>
 
 DOCUMENTATION URLS
-- Authentication / login / token: <<url>>
-- Funds / margin / limits:        <<url>>
-- Place order:                    <<url>>
-- Order book / order status / cancel: <<url>>
-- Positions:                      <<url>>
-- Instruments / contract master:  <<url>>
+- Authentication / login / token: <<https://smartapi.angelbroking.com/docs/User>>
+- Funds / margin / limits:        <<https://smartapi.angelbroking.com/docs/User>>
+- Place order:                    <<https://smartapi.angelbroking.com/docs/Orders>>
+- Order book / order status / cancel: <<https://smartapi.angelbroking.com/docs/Orders>>
+- Positions:                      <<https://smartapi.angelbroking.com/docs/Portfolio>>
+- Instruments / contract master:  <<https://smartapi.angelbroking.com/docs/Instruments>>
 - (optional) LTP / quotes:        <<url>>
 
 Follow docs/BROKER_INTEGRATION_PLAYBOOK.md exactly and do ALL of the following,
