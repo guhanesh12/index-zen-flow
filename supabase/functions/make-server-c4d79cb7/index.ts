@@ -13633,6 +13633,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const upstox = await BrokerRouter.getUpstoxCredentials(user.id);
     const fyers = await BrokerRouter.getFyersCredentials(user.id);
     const angelone = await BrokerRouter.getAngelOneCredentials(user.id);
+    const aliceblue = await BrokerRouter.getAliceblueCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
@@ -13643,6 +13644,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
       upstox: !!upstox?.accessToken,
       fyers: !!(fyers?.appId && fyers?.accessToken),
       angelone: !!(angelone?.apiKey && angelone?.jwtToken),
+      aliceblue: !!(aliceblue?.userId && aliceblue?.sessionId),
     };
 
     return c.json({
@@ -13666,8 +13668,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (!["dhan", "zerodha", "groww", "upstox", "fyers", "angelone"].includes(broker)) {
-      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox', 'fyers' or 'angelone'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox', 'fyers', 'angelone' or 'aliceblue'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13692,6 +13694,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (broker === "upstox") instrumentSync = await ensureUpstoxInstruments(false);
     if (broker === "fyers") instrumentSync = await ensureFyersInstruments(false);
     if (broker === "angelone") instrumentSync = await ensureAngelOneInstruments(false);
+    if (broker === "aliceblue") instrumentSync = await ensureAliceblueInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
