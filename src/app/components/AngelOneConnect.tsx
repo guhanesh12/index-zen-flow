@@ -357,10 +357,17 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
         </p>
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={login} disabled={busy}>
+          {status?.savedCredentials && (
+            <Button onClick={reconnect} disabled={busy}>
+              {action === 'reconnect' ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+              {action === 'reconnect' ? 'Reconnecting…' : 'Reconnect (saved login)'}
+            </Button>
+          )}
+          <Button onClick={login} disabled={busy} variant={status?.savedCredentials ? 'outline' : 'default'}>
             {action === 'login' ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
-            {action === 'login' ? 'Connecting…' : connected ? 'Re-login' : 'Connect Angel One'}
+            {action === 'login' ? 'Connecting…' : status?.savedCredentials ? 'Update credentials' : 'Connect Angel One'}
           </Button>
+
           <Button variant="outline" onClick={verify} disabled={busy || !connected}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Check live funds
