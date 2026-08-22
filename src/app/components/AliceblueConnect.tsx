@@ -23,11 +23,15 @@ interface AliceblueConnectProps {
  */
 export function AliceblueConnect({ serverUrl, accessToken, onConnected }: AliceblueConnectProps) {
   const [userId, setUserId] = useState('');
+  const [appCode, setAppCode] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [authCode, setAuthCode] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState<any>(null);
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [awaitingLogin, setAwaitingLogin] = useState(false);
   const pollRef = useRef<any>(null);
 
   const tok = async () => {
