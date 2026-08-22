@@ -14920,13 +14920,13 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
  * Start the vendor login: saves App Code + API secret and returns the Aliceblue
  * login URL (https://ant.aliceblueonline.com/?appcode=...).
  */
-const aliceblueVendorStart = async (c: any) => {
+const aliceblueVendorStart = async (c: any, preBody?: any) => {
   const { user, error } = await validateAuth(c);
   if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
   try { await BrokerRegistry.assertBrokerEnabled("aliceblue"); }
   catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
 
-  const body = await c.req.json().catch(() => ({}));
+  const body = preBody ?? (await c.req.json().catch(() => ({})));
   const abUserId = String(body?.userId || body?.clientCode || "").trim().toUpperCase();
   const appCode = String(body?.appCode || "").trim();
   const apiSecret = String(body?.apiSecret || "").trim();
@@ -14944,7 +14944,8 @@ const aliceblueVendorStart = async (c: any) => {
   return c.json({ success: true, loginUrl: aliceblueAuthUrl(appCode), requiresLogin: true });
 };
 
-app.post("/make-server-c4d79cb7/broker/aliceblue/vendor-start", aliceblueVendorStart);
+app.post("/make-server-c4d79cb7/broker/aliceblue/vendor-start", (c) => aliceblueVendorStart(c));
+
 
 /** Manual paste of the authCode returned on the redirect URL. */
 app.post("/make-server-c4d79cb7/broker/aliceblue/exchange", async (c) => {
