@@ -14796,6 +14796,12 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
       apiKeyMasked: refreshedCreds?.apiKey
         ? `${String(refreshedCreds.apiKey).slice(0, 4)}••••${String(refreshedCreds.apiKey).slice(-2)}`
         : null,
+      appCode: refreshedCreds?.appCode || null,
+      apiSecretMasked: refreshedCreds?.apiSecret
+        ? `${String(refreshedCreds.apiSecret).slice(0, 4)}••••${String(refreshedCreds.apiSecret).slice(-2)}`
+        : null,
+      authMethod: refreshedCreds?.authMethod || (refreshedCreds?.apiKey ? "api-key" : "vendor"),
+      loginUrl: refreshedCreds?.appCode ? aliceblueAuthUrl(refreshedCreds.appCode) : null,
       balance: liveCheck?.balance ?? null,
       lastStatus: refreshedCreds?.lastStatus || null,
       lastError: liveCheck?.ok ? null : (liveCheck?.error || refreshedCreds?.lastError || null),
