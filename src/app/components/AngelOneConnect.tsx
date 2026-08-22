@@ -102,6 +102,12 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
 
   useEffect(() => { load(); }, [serverUrl]);
 
+  // Prefill the non-secret field so the user doesn't retype it every morning.
+  useEffect(() => {
+    if (status?.clientCode && !clientCode) setClientCode(String(status.clientCode));
+  }, [status?.clientCode]);
+
+
   const login = async () => {
     if (apiKey.trim().length < 5) { setMessage({ type: 'error', text: 'Enter your SmartAPI Trading API Key' }); return toast.error('Enter your SmartAPI Trading API Key'); }
     if (clientCode.trim().length < 3) { setMessage({ type: 'error', text: 'Enter your Angel One Client Code' }); return toast.error('Enter your Angel One Client Code'); }
