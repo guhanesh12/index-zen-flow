@@ -104,6 +104,50 @@ export async function aliceblueLogin(opts: {
   return { sessionId: String(sessionId), raw: sid.json };
 }
 
+/** Login URL the user must visit: https://ant.aliceblueonline.com/?appcode=<APP_CODE> */
+export function aliceblueAuthUrl(appCode: string): string {
+  return `${ALICEBLUE_LOGIN_BASE}${encodeURIComponent(String(appCode || "").trim())}`;
+}
+
+/**
+ * Vendor (App Code) session exchange.
+ *   checkSum = SHA256(userId + authCode + apiSecret)
+ *   POST https://a3.aliceblueonline.com/open-api/od/v1/vendor/getUserDetails
+ * Returns the long-lived `userSession` used as the bearer token for all APIs.
+ */
+export async function aliceblueVendorSession(opts: {
+  userId: string;
+  authCode: string;
+  apiSecret: string;
+  timeoutMs?: number;
+}): Promise<{ sessionId: string; clientId: string; raw: any }> {
+  const userId = String(opts.userId || "").trim().toUpperCase();
+  const authCode = String(opts.authCode || "").trim();
+  const apiSecret = String(opts.apiSecret || "").trim();
+  if (!userId || !authCode || !apiSecret) {
+    throw new Error("Aliceblue User ID, authCode and API secret are required");
+  }
+
+  const checkSum = await sha256Hex(`${userId}${authCode}${apiSecret}`);
+  const resp = await fetch(`${ALICEBLUE_VENDOR_API}/vendor/getUserDetails`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ checkSum }),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 15000),
+  });
+  const text = await resp.text();
+  let json: any = {};
+  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+
+  const sessionId = json?.userSession || json?.sessionID;
+  if (!sessionId || String(json?.stat || "Ok").toLowerCase() === "not_ok") {
+    throw new Error(json?.emsg || `Aliceblue session exchange failed (${resp.status}). Login again from the Aliceblue page.`);
+  }
+  return { sessionId: String(sessionId), clientId: String(json?.clientId || userId), raw: json };
+}
+
+
+
 export class AliceblueService {
   private userId: string;
   private sessionId: string;
