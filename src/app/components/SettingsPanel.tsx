@@ -685,6 +685,20 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         />
       )}
 
+      {activeBroker === 'fyers' && (
+        <FyersConnect
+          serverUrl={serverUrl}
+          accessToken={accessToken}
+          onConnected={() => {
+            onSettingsSaved();
+            loadCredentials();
+            loadActiveBroker();
+          }}
+        />
+      )}
+
+
+
       {activeBroker === 'dhan' && (
     <Tabs defaultValue="oauth" className="space-y-4">
       <TabsList className="grid grid-cols-2 bg-zinc-900 border border-zinc-800">
