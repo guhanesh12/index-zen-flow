@@ -1318,6 +1318,24 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "angelone") {
+    const a = await getAngelOneService(userId);
+    if (!a) return null;
+    try {
+      const st = await a.getOrderStatus(orderId);
+      return {
+        orderId: String(st?.orderid || orderId),
+        orderStatus: String(st?.orderstatus || st?.status || "").toUpperCase(),
+        tradedQuantity: Number(st?.filledshares ?? 0),
+        averageTradedPrice: Number(st?.averageprice ?? 0),
+        broker: "angelone",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[ANGELONE] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "fyers") {
     const f = await getFyersService(userId);
     if (!f) return null;
