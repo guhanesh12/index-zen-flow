@@ -16,6 +16,7 @@ import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
 import { ZerodhaConnect } from "./ZerodhaConnect";
 import { GrowwConnect } from "./GrowwConnect";
 import { UpstoxConnect } from "./UpstoxConnect";
+import { FyersConnect } from "./FyersConnect";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
