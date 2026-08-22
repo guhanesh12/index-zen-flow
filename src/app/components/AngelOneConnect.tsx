@@ -161,17 +161,13 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
     try {
       setBusy(true);
       setAction('verify');
-      const t = await tok();
-      const res = await fetchWithAuth(`${serverUrl}/broker/angelone/verify`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${t}` },
-      });
-      const data = await res.json();
+      const data = await call('/broker/angelone/verify', { method: 'POST' }, 30000);
       if (!data?.connected) throw new Error(data?.error || 'Angel One session is not active');
       toast.success(`Live funds: ₹${Number(data.balance || 0).toLocaleString('en-IN')}`);
       await load();
     } catch (e: any) {
       toast.error(e.message || 'Verification failed');
+      setMessage({ type: 'error', text: e.message || 'Verification failed' });
     } finally {
       setBusy(false);
       setAction(null);
@@ -183,14 +179,10 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       setBusy(true);
       setAction('sync');
       setMessage({ type: 'info', text: 'Starting Angel One instrument sync…' });
-      const t = await tok();
-      const res = await fetchWithAuth(`${serverUrl}/broker/angelone/instruments/sync`, {
+      await call('/broker/angelone/instruments/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
         body: JSON.stringify({ force: true, expiries: 2 }),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.success) throw new Error(data?.error || 'Instrument sync failed');
       toast.success('Angel One instrument sync started');
       setMessage({ type: 'info', text: 'Instrument sync is running. Contract counts will update automatically.' });
       await load();
@@ -202,6 +194,7 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
       setAction(null);
     }
   };
+
 
   const disconnect = async () => {
     try {
