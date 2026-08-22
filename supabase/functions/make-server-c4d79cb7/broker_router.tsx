@@ -316,9 +316,13 @@ export async function resolveAngelOneSymbol(order: any): Promise<{
 
 export interface AliceblueStoredCreds {
   userId: string;              // Aliceblue client / user id (e.g. "AB1234")
-  apiKey: string;              // ANT API key
-  sessionId?: string;          // daily session id (bearer token)
+  apiKey?: string;             // legacy ANT API key (direct login)
+  appCode?: string;            // vendor App Code (from the developer portal)
+  apiSecret?: string;          // vendor API secret
+  authCode?: string;           // last authCode returned on the redirect
+  sessionId?: string;          // session / userSession (bearer token)
   sessionDate?: string;        // IST date the session was minted for
+  authMethod?: "vendor" | "api-key";
   aliceblueName?: string;
   lastStatus?: string;
   lastError?: string | null;
@@ -346,23 +350,44 @@ export async function clearAliceblueCredentials(userId: string) {
 }
 
 /**
- * Aliceblue session IDs expire every day. Credentials (user id + API key) are
- * stored once, so we silently mint a fresh session whenever it is missing/stale —
- * the user never has to re-enter anything after the first save.
+ * Keep a usable Aliceblue bearer token.
+ *  • Vendor flow (App Code + API secret): the `userSession` is long lived — reuse
+ *    it, and re-derive it from the stored authCode when it is missing.
+ *  • Legacy API-key flow: mint a fresh daily session.
  */
 export async function ensureAliceblueSession(
   userId: string,
   opts: { force?: boolean } = {},
 ): Promise<AliceblueStoredCreds | null> {
   const creds = await getAliceblueCredentials(userId);
-  if (!creds?.userId || !creds?.apiKey) return null;
-  if (!opts.force && creds.sessionId && creds.sessionDate === istToday()) return creds;
+  if (!creds?.userId) return null;
+
+  const vendor = !!(creds.apiSecret && creds.authCode);
+  if (!vendor && !creds.apiKey) return creds.sessionId ? creds : null;
+
+  // Vendor sessions live for weeks — only re-exchange when forced or missing.
+  if (creds.sessionId && !opts.force && (vendor || creds.sessionDate === istToday())) return creds;
 
   try {
-    const session = await aliceblueLogin({ userId: creds.userId, apiKey: creds.apiKey });
+    if (vendor) {
+      const session = await aliceblueVendorSession({
+        userId: creds.userId,
+        authCode: creds.authCode!,
+        apiSecret: creds.apiSecret!,
+      });
+      return await saveAliceblueCredentials(userId, {
+        sessionId: session.sessionId,
+        sessionDate: istToday(),
+        authMethod: "vendor",
+        lastStatus: "connected",
+        lastError: null,
+      });
+    }
+    const session = await aliceblueLogin({ userId: creds.userId, apiKey: creds.apiKey! });
     return await saveAliceblueCredentials(userId, {
       sessionId: session.sessionId,
       sessionDate: istToday(),
+      authMethod: "api-key",
       lastStatus: "connected",
       lastError: null,
     });
@@ -373,6 +398,7 @@ export async function ensureAliceblueSession(
     return creds.sessionId ? creds : null;
   }
 }
+
 
 export async function getAliceblueService(userId: string): Promise<AliceblueService | null> {
   const creds = await ensureAliceblueSession(userId);
