@@ -53,7 +53,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [brokerLoading, setBrokerLoading] = useState(true);
   const [switchingBroker, setSwitchingBroker] = useState(false);
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
-  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false, upstox: false });
+  const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false, upstox: false, fyers: false });
 
   // 🔀 Brokers the admin has switched ON (common registry — new brokers appear automatically)
   const [enabledBrokers, setEnabledBrokers] = useState<any[]>([]);
