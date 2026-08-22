@@ -88,6 +88,16 @@ export const BROKER_CATALOG: BrokerDef[] = [
     features: ["orders", "positions", "funds", "instruments", "static-ip", "oauth"],
     defaultEnabled: true,
   },
+  {
+    id: "aliceblue",
+    name: "Aliceblue",
+    short: "Aliceblue",
+    status: "live",
+    color: "#2563eb",
+    website: "https://aliceblueonline.com",
+    features: ["orders", "positions", "funds", "instruments", "static-ip"],
+    defaultEnabled: true,
+  },
 ];
 
 const SETTINGS_KEY = "broker_registry_settings";
