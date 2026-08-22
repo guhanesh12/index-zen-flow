@@ -20,6 +20,11 @@
 
 export const ALICEBLUE_API = "https://ant.aliceblueonline.com/rest/AliceBlueAPIService";
 
+/** Vendor / partner (open-api) host used by the App Code + API Secret login flow. */
+export const ALICEBLUE_VENDOR_API = "https://a3.aliceblueonline.com/open-api/od/v1";
+/** Where the user logs in with their Aliceblue credentials. */
+export const ALICEBLUE_LOGIN_BASE = "https://ant.aliceblueonline.com/?appcode=";
+
 export interface AliceblueOrderRequest {
   tradingSymbol: string;             // e.g. "NIFTY28AUG25C24200"
   symbolToken: string;               // Aliceblue instrument token
