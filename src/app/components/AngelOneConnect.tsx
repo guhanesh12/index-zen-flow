@@ -39,12 +39,23 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
     try {
       setLoading(true);
       const t = await tok();
-      const [s, i] = await Promise.all([
-        fetchWithAuth(`${serverUrl}/broker/angelone/status`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
-        fetchWithAuth(`${serverUrl}/broker/angelone/instruments/status`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
+      const [statusResult, instrumentResult] = await Promise.allSettled([
+        fetchWithAuth(`${serverUrl}/broker/angelone/status`, { headers: { Authorization: `Bearer ${t}` } }).then(async (r) => {
+          const body = await r.json();
+          if (!r.ok) throw new Error(body?.error || 'Unable to load Angel One status');
+          return body;
+        }),
+        fetchWithAuth(`${serverUrl}/broker/angelone/instruments/status`, { headers: { Authorization: `Bearer ${t}` } }).then(async (r) => {
+          const body = await r.json();
+          if (!r.ok) throw new Error(body?.error || 'Unable to load instrument status');
+          return body;
+        }),
       ]);
-      setStatus(s || null);
-      setInstruments(i || null);
+      if (statusResult.status === 'fulfilled') setStatus(statusResult.value || null);
+      if (instrumentResult.status === 'fulfilled') setInstruments(instrumentResult.value || null);
+      if (statusResult.status === 'rejected' && instrumentResult.status === 'rejected') {
+        throw statusResult.reason;
+      }
     } catch (e) {
       console.error('angelone status failed', e);
     } finally {

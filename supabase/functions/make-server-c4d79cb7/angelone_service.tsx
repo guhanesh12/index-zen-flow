@@ -186,12 +186,15 @@ export class AngelOneService {
       let text = "";
       // 1️⃣ Preferred: user's dedicated static-IP VPS.
       if (this.proxy) {
-        const proxied = await this.proxy({
-          method: String(init.method || "GET").toUpperCase(),
-          path,
-          headers,
-          body: typeof init.body === "string" ? init.body : undefined,
-        });
+        const proxied = await Promise.race([
+          this.proxy({
+            method: String(init.method || "GET").toUpperCase(),
+            path,
+            headers,
+            body: typeof init.body === "string" ? init.body : undefined,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), Math.min(timeoutMs, 5_000))),
+        ]);
         if (proxied) {
           status = proxied.status;
           text = proxied.text;
