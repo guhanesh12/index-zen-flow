@@ -14599,7 +14599,13 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
       updated_at: new Date().toISOString(),
     });
 
-    const instrumentSync = await ensureAngelOneInstruments(false);
+    // Scrip master is ~37 MB — never block the login response on it.
+    try {
+      const job = ensureAngelOneInstruments(false);
+      // deno-lint-ignore no-explicit-any
+      const rt: any = (globalThis as any).EdgeRuntime;
+      if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
+    } catch (_) { /* non-fatal */ }
 
     return c.json({
       success: true,
@@ -14607,7 +14613,7 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
       clientCode,
       userName: profile?.name || null,
       funds,
-      instrumentSync,
+      instrumentSync: { started: true },
     });
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
