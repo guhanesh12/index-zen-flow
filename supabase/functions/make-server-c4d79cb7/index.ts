@@ -2076,6 +2076,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const fyers = await BrokerRouter.getFyersService(user.id);
       if (!fyers) return c.json({ error: "Fyers not connected" }, 400);
       funds = await fyers.getFundLimits();
+    } else if (activeBroker === 'angelone') {
+      const angelone = await BrokerRouter.getAngelOneService(user.id);
+      if (!angelone) return c.json({ error: "Angel One not connected" }, 400);
+      funds = await angelone.getFundLimits();
     } else if (activeBroker === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(user.id);
       if (!upstox) return c.json({ error: "Upstox not connected" }, 400);
