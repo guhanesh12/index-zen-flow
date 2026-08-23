@@ -15626,7 +15626,7 @@ const fivepaisaCallbackHandler = async (c: any) => {
       form.RequestToken || form.requestToken || form.request_token || "",
     ).trim();
 
-    const state = String(q.State || q.state || "").trim();
+    const state = String(q.State || q.state || form.State || form.state || "").trim();
     if (!requestToken) {
       return page(
         "5paisa redirect URL is live",
