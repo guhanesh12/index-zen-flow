@@ -15590,7 +15590,23 @@ async function finalizeFivepaisaConnection(appUserId: string, tok: any) {
 }
 
 /** 5paisa redirects the browser here with ?RequestToken=&State= — public by design. */
-app.get("/make-server-c4d79cb7/broker/5paisa/callback", async (c) => {
+/** Pull a RequestToken out of a raw token, a full redirect URL, or a query string. */
+function extractFivepaisaRequestToken(input: string): string {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (!/[?&=]/.test(raw)) return raw;
+  try {
+    const qs = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : raw;
+    const p = new URLSearchParams(qs);
+    return String(
+      p.get("RequestToken") || p.get("requestToken") || p.get("request_token") || "",
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+const fivepaisaCallbackHandler = async (c: any) => {
   const page = (title: string, color: string, msg: string) =>
     c.html(`<!doctype html><html><head><meta charset="utf-8"><title>5paisa</title></head>
 <body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
@@ -15600,7 +15616,16 @@ app.get("/make-server-c4d79cb7/broker/5paisa/callback", async (c) => {
 </body></html>`);
   try {
     const q = c.req.query();
-    const requestToken = String(q.RequestToken || q.requestToken || q.request_token || "").trim();
+    // 5paisa sends the token as a query param, but some vendor apps POST a form body.
+    let form: Record<string, any> = {};
+    if (c.req.method === "POST") {
+      form = await c.req.parseBody().catch(() => ({}));
+    }
+    const requestToken = String(
+      q.RequestToken || q.requestToken || q.request_token ||
+      form.RequestToken || form.requestToken || form.request_token || "",
+    ).trim();
+
     const state = String(q.State || q.state || "").trim();
     if (!requestToken) {
       return page(
