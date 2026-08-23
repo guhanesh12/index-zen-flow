@@ -46,6 +46,7 @@ import {
   angeloneExchangeFromSegment,
   angeloneProductFromDhan,
   angeloneLogin,
+  angeloneTokenExpiry,
 } from "./angelone_service.tsx";
 import { ensureAngelOneInstruments } from "./angelone_instruments.tsx";
 import {
@@ -205,12 +206,14 @@ export async function ensureAngelOneSession(
       clientCode: creds.clientCode,
       password: creds.password,
       totpSecret: creds.totpSecret,
+      proxy: await makeBrokerProxy(userId, "angelone", ANGELONE_API),
+      publicIp: await getUserOrderPlacementIP(userId).then((v) => v.ipAddress).catch(() => undefined),
     });
     return await saveAngelOneCredentials(userId, {
       jwtToken: session.jwtToken,
       refreshToken: session.refreshToken,
       feedToken: session.feedToken,
-      tokenExpiry: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+      tokenExpiry: angeloneTokenExpiry(session.jwtToken),
       lastStatus: "connected",
       lastError: null,
     });
@@ -526,6 +529,7 @@ export async function clearFyersCredentials(userId: string) {
 export async function getFyersService(userId: string): Promise<FyersService | null> {
   const creds = await getFyersCredentials(userId);
   if (!creds?.accessToken || !creds?.appId) return null;
+  if (creds.tokenExpiry && Date.parse(creds.tokenExpiry) <= Date.now() + 60_000) return null;
   const proxy = await makeBrokerProxy(userId, "fyers");
   return new FyersService({ appId: creds.appId, accessToken: creds.accessToken, proxy });
 }

@@ -33,9 +33,9 @@ import { GrowwService } from "./groww_service.tsx";
 import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
 import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox_service.tsx";
 import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
-import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode } from "./fyers_service.tsx";
+import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode, fyersTokenExpiry } from "./fyers_service.tsx";
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
-import { AngelOneService, ANGELONE_API, angeloneLogin } from "./angelone_service.tsx";
+import { AngelOneService, ANGELONE_API, angeloneLogin, angeloneTokenExpiry } from "./angelone_service.tsx";
 import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
 import { AliceblueService, ALICEBLUE_API, aliceblueLogin, aliceblueVendorSession, aliceblueAuthUrl } from "./aliceblue_service.tsx";
 import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
@@ -14379,7 +14379,10 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     const state = c.req.query("state") || "";
     if (!authCode || !state) return html("Fyers login failed", "Missing authorization code.", false);
     const st = await kv.get(`fyers_oauth_state:${state}`);
-    if (!st?.userId) return html("Fyers login failed", "This login link has expired. Try again.", false);
+    if (!st?.userId || Date.now() - Number(st.at || 0) > 10 * 60_000) {
+      await kv.del(`fyers_oauth_state:${state}`);
+      return html("Fyers login failed", "This login link has expired. Try again.", false);
+    }
     await kv.del(`fyers_oauth_state:${state}`);
 
     const creds = await BrokerRouter.getFyersCredentials(st.userId);
@@ -14396,7 +14399,7 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     await BrokerRouter.saveFyersCredentials(st.userId, {
       accessToken: tok.accessToken,
       refreshToken: tok.refreshToken,
-      tokenExpiry: new Date(new Date().setHours(24 + 6, 0, 0, 0)).toISOString(),
+      tokenExpiry: fyersTokenExpiry(tok.accessToken),
       lastStatus: "connected",
       lastError: null,
     } as any);
@@ -14406,7 +14409,10 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     }
     await ensureFyersInstruments(false);
 
-    return html("Fyers connected ✅", "Your Fyers account is linked. Funds, positions and orders now route through Fyers.", true);
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Fyers connected</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:420px"><h2 style="color:#34d399">Fyers connected</h2><p style="color:#94a3b8">Funds, positions and orders now route through Fyers.</p></div>
+<script>try{window.opener&&window.opener.postMessage({source:'fyers',ok:true},window.location.origin);setTimeout(function(){window.close()},1200)}catch(e){}</script></body></html>`);
   } catch (err: any) {
     const raw = String(err?.message || err);
     const low = raw.toLowerCase();
@@ -14607,7 +14613,7 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
       jwtToken: session.jwtToken,
       refreshToken: session.refreshToken,
       feedToken: session.feedToken,
-      tokenExpiry: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+      tokenExpiry: angeloneTokenExpiry(session.jwtToken),
       lastStatus: "connected",
       lastError: null,
     });

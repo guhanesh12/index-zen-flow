@@ -97,6 +97,20 @@ export async function exchangeFyersAuthCode(opts: {
   };
 }
 
+/** Decode a JWT expiry without trusting any claims beyond the timestamp. */
+export function fyersTokenExpiry(accessToken: string): string | null {
+  try {
+    const payload = String(accessToken).split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")));
+    const exp = Number(decoded?.exp);
+    return Number.isFinite(exp) ? new Date(exp * 1000).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
+
 export class FyersService {
   private appId: string;
   private accessToken: string;
@@ -173,10 +187,10 @@ export class FyersService {
         rows.find((r) => String(r?.title || "").toLowerCase().includes(needle))?.equityAmount ?? 0,
       );
 
-    const available = pick("available balance") || pick("balance");
+    const available = pick("available balance") || pick("clear balance") || pick("total balance") || pick("balance");
     return {
       availableBalance: available,
-      sodLimit: pick("limit at start of the day") || available,
+      sodLimit: pick("total balance") || available,
       collateralAmount: pick("collaterals"),
       utilizationAmount: pick("utilized"),
       blockedPayinAmount: 0,
