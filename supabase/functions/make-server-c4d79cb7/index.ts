@@ -14925,16 +14925,24 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
   }
 
   try {
-    const pending = (await kv.get(`aliceblue_pending:${abUserId}`)) as any;
+    // Aliceblue only issues an App Code + API secret; the userId arrives here on
+    // the redirect. Resolve the pending login by userId when we already know it,
+    // otherwise fall back to the most recent pending login (20 min window).
+    let pending = (await kv.get(`aliceblue_pending:${abUserId}`)) as any;
+    if (!pending?.appUserId) {
+      const last = (await kv.get("aliceblue_pending_last")) as any;
+      if (last?.appUserId && Date.now() - new Date(last.at || 0).getTime() < 20 * 60_000) pending = last;
+    }
     if (!pending?.appUserId) {
       return c.html(abPage("Login session not found", "#f87171",
         "Start the connection again from IndexPilot &rarr; Broker Setup &rarr; Aliceblue."));
     }
     const creds = await BrokerRouter.getAliceblueCredentials(pending.appUserId);
-    const apiSecret = String(creds?.apiSecret || pending.apiSecret || "");
+    const apiSecret = String(pending.apiSecret || creds?.apiSecret || "");
     if (!apiSecret) {
       return c.html(abPage("API secret missing", "#f87171", "Re-enter your App Code and API secret in IndexPilot and try again."));
     }
+
 
     const session = await aliceblueVendorSession({ userId: abUserId, authCode, apiSecret });
     await finalizeAliceblueConnection(pending.appUserId, session.clientId || abUserId, {
