@@ -14807,22 +14807,18 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
       savedCredentials,
       hasSession: !!refreshedCreds?.sessionId,
       clientCode: refreshedCreds?.userId || null,
-      apiKeyMasked: refreshedCreds?.apiKey
-        ? `${String(refreshedCreds.apiKey).slice(0, 4)}••••${String(refreshedCreds.apiKey).slice(-2)}`
-        : null,
       appCode: refreshedCreds?.appCode || null,
       apiSecretMasked: refreshedCreds?.apiSecret
         ? `${String(refreshedCreds.apiSecret).slice(0, 4)}••••${String(refreshedCreds.apiSecret).slice(-2)}`
         : null,
-      authMethod: refreshedCreds?.authMethod || (refreshedCreds?.apiKey ? "api-key" : "vendor"),
+      authMethod: "vendor",
       loginUrl: refreshedCreds?.appCode ? aliceblueAuthUrl(refreshedCreds.appCode) : null,
       balance: liveCheck?.balance ?? null,
       lastStatus: refreshedCreds?.lastStatus || null,
       lastError: liveCheck?.ok ? null : (liveCheck?.error || refreshedCreds?.lastError || null),
       activeBroker: await BrokerRouter.getActiveBroker(user.id),
 
-      // The ANT "Create App" form asks for a redirect URL + the static IP even
-      // though login itself is User ID + API key (no OAuth code exchange).
+      // The ANT "Create App" form requires this redirect URL and static IP.
       redirectUri: brokerRedirectUri("aliceblue"),
       postbackUrl: `${PUBLIC_API_BASE}/functions/v1/make-server-c4d79cb7/broker/aliceblue/postback`,
       staticIp: await (async () => {

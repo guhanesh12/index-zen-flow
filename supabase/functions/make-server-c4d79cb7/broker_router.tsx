@@ -327,7 +327,7 @@ export interface AliceblueStoredCreds {
   authCode?: string;           // last authCode returned on the redirect
   sessionId?: string;          // session / userSession (bearer token)
   sessionDate?: string;        // IST date the session was minted for
-  authMethod?: "vendor" | "api-key";
+  authMethod?: "vendor";
   tokenExpiry?: string | null;
   aliceblueName?: string;
   lastStatus?: string;
@@ -416,7 +416,7 @@ export async function mirrorAliceblueStatus(userId: string, patch: Record<string
       .eq("user_id", userId)
       .eq("broker", "aliceblue")
       .maybeSingle();
-    const payload = { user_id: userId, broker: "aliceblue", auth_method: "api-key", ...patch };
+    const payload = { user_id: userId, broker: "aliceblue", auth_method: "vendor", ...patch };
     if (existing?.id) {
       await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
     } else {
