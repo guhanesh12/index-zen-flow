@@ -405,16 +405,24 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       return;
     }
     
-    checkCredentials();
-    fetchActiveBroker();
+    refreshBrokerStatus();
     fetchWalletBalance();
+
+    // Re-check broker connection every 20s and when the tab regains focus
+    const brokerInterval = setInterval(refreshBrokerStatus, 20000);
+    const onFocus = () => refreshBrokerStatus();
+    window.addEventListener('focus', onFocus);
+
     
     // Refresh wallet balance every 30 seconds
     const walletInterval = setInterval(fetchWalletBalance, 30000);
     
     return () => {
       clearInterval(walletInterval);
+      clearInterval(brokerInterval);
+      window.removeEventListener('focus', onFocus);
     };
+
   }, [accessToken]); // Add accessToken as dependency
 
   const fetchWalletBalance = async () => {
@@ -440,26 +448,40 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   };
 
   // 🔀 Which broker is this user on, and is it connected?
-  const fetchActiveBroker = async () => {
-    if (!accessToken) return;
+  const fetchActiveBroker = async (): Promise<string> => {
+    if (!accessToken) return 'dhan';
     try {
       const response = await fetch(`${serverUrl}/broker/active`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const data = await response.json();
       if (data?.success) {
-        setActiveBroker(data.activeBroker || 'dhan');
+        const broker = data.activeBroker || 'dhan';
+        setActiveBroker(broker);
         setActiveBrokerName(data.activeBrokerName || 'Dhan');
         // For non-Dhan brokers the /api-credentials check does not apply —
         // trust the broker status returned by the router.
-        if ((data.activeBroker || 'dhan') !== 'dhan') {
+        if (broker !== 'dhan') {
           setCredentialsConfigured(data.connected === true);
         }
+        return broker;
       }
     } catch (error) {
       console.error('Failed to fetch active broker:', error);
     }
+    return 'dhan';
   };
+
+  // Always resolve the active broker FIRST, then only run the Dhan-specific
+  // credentials check when Dhan is actually the active broker. Otherwise the
+  // Dhan check would overwrite a connected Angel One / Fyers / Zerodha status.
+  const refreshBrokerStatus = async () => {
+    const broker = await fetchActiveBroker();
+    if (broker === 'dhan') {
+      await checkCredentials();
+    }
+  };
+
 
   const checkCredentials = async () => {
     if (!accessToken) {
@@ -1179,9 +1201,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                     serverUrl={serverUrl} 
                     accessToken={accessToken}
                     onSettingsSaved={() => {
-                      checkCredentials();
-                      fetchActiveBroker();
+                      refreshBrokerStatus();
                     }}
+
                     onGoToStaticIp={() => setBrokerTab('static-ip')}
                   />
                 </div>
