@@ -23,6 +23,8 @@ import { FivepaisaConnect } from "./FivepaisaConnect";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
+import { BrokerLogo } from "../brokerLogos";
+
 
 interface SettingsPanelProps {
   serverUrl: string;
