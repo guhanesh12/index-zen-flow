@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle2, Building2 } from 'lucide-react';
 import { getBaseUrl } from '../utils/apiService';
+import { BrokerLogo } from '../brokerLogos';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
+
 
 /**
  * 🏦 Supported brokers — driven by the common broker registry.
