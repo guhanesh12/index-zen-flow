@@ -14424,7 +14424,7 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Fyers connected</title></head>
 <body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
 <div style="text-align:center;max-width:420px"><h2 style="color:#34d399">Fyers connected</h2><p style="color:#94a3b8">Funds, positions and orders now route through Fyers.</p></div>
-<script>try{window.opener&&window.opener.postMessage({source:'fyers',ok:true},'*');setTimeout(function(){window.close()},1200)}catch(e){}</script></body></html>`);
+<script>try{if(window.opener){window.opener.postMessage({source:'fyers',ok:true},'*');setTimeout(function(){window.close()},1200)}else{try{localStorage.setItem('fyers_connected_at',String(Date.now()))}catch(e){}setTimeout(function(){window.location.replace('https://indexpilotai.com/dashboard?broker=fyers&connected=1')},1500)}}catch(e){}</script></body></html>`);
   } catch (err: any) {
     const raw = String(err?.message || err);
     const low = raw.toLowerCase();
