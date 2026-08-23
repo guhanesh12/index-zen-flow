@@ -14598,7 +14598,15 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
 
     let session;
     try {
-      session = await angeloneLogin({ apiKey, clientCode, password, totpSecret, totp });
+      session = await angeloneLogin({
+        apiKey,
+        clientCode,
+        password,
+        totpSecret,
+        totp,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "angelone", ANGELONE_API),
+        publicIp: await getUserOrderPlacementIP(user.id).then((v) => v.ipAddress).catch(() => undefined),
+      });
     } catch (e: any) {
       const msg = e?.message || String(e);
       await BrokerRouter.saveAngelOneCredentials(user.id, { lastStatus: "login_failed", lastError: msg });
@@ -14848,8 +14856,14 @@ async function finalizeAliceblueConnection(appUserId: string, abUserId: string, 
   await kv.set(`broker_choice:${appUserId}`, { broker: "aliceblue", at: new Date().toISOString() });
 
   const svc = await BrokerRouter.getAliceblueService(appUserId);
-  let funds: any = null;
-  try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+  if (!svc) throw new Error("Aliceblue session could not be created");
+  const verification = await svc.verify();
+  if (!verification.ok) {
+    await BrokerRouter.setBrokerConnected(appUserId, false);
+    await BrokerRouter.saveAliceblueCredentials(appUserId, { lastStatus: "token_invalid", lastError: verification.error });
+    throw new Error(verification.error || "Aliceblue rejected the session");
+  }
+  const funds = await svc.getFundLimits();
   if (funds) {
     await kv.set(`broker_funds:${appUserId}`, {
       availableBalance: funds.availableBalance,
@@ -15045,7 +15059,7 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAliceblueCredentials(user.id);
     if (!creds?.userId || !(creds?.apiKey || (creds?.apiSecret && creds?.authCode))) {
-      return c.json({ success: false, error: "No saved Aliceblue login. Connect once with your App Code + API secret." }, 400);
+      return c.json({ success: false, error: "No saved Aliceblue login. Connect once with your User ID + ANT API key, or use an approved Vendor App Code." }, 400);
     }
     const refreshed = await BrokerRouter.ensureAliceblueSession(user.id, { force: true });
     if (!refreshed?.sessionId) {
@@ -15056,8 +15070,10 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
       await BrokerRouter.saveAliceblueCredentials(user.id, refreshed);
     }
     const svc = await BrokerRouter.getAliceblueService(user.id);
-    let funds: any = null;
-    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+    if (!svc) return c.json({ success: false, error: "Aliceblue session unavailable" }, 400);
+    const check = await svc.verify();
+    if (!check.ok) return c.json({ success: false, error: check.error || "Aliceblue session is invalid" }, 400);
+    const funds = await svc.getFundLimits();
     await BrokerRouter.setBrokerConnected(user.id, true);
     await BrokerRouter.mirrorAliceblueStatus(user.id, {
       status: "connected",
