@@ -51,7 +51,10 @@ export type BrokerProxy = (r: {
 
 function base32Decode(secret: string): Uint8Array {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const clean = String(secret || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+  const clean = String(secret || "").toUpperCase().replace(/[\s=-]/g, "");
+  if (clean.length < 8 || !/^[A-Z2-7]+$/.test(clean)) {
+    throw new Error("Invalid Angel One TOTP secret. Enter the 6-digit authenticator code or the Base32 secret from SmartAPI.");
+  }
   let bits = 0;
   let value = 0;
   const out: number[] = [];
@@ -71,7 +74,6 @@ function base32Decode(secret: string): Uint8Array {
 /** 6-digit TOTP for a base32 secret (30s step, SHA-1) — same as Google Authenticator. */
 export async function angeloneTotp(secretBase32: string, atMs = Date.now()): Promise<string> {
   const key = base32Decode(secretBase32);
-  if (!key.length) throw new Error("Invalid Angel One TOTP secret");
   const counter = Math.floor(atMs / 1000 / 30);
   const buf = new ArrayBuffer(8);
   const view = new DataView(buf);
@@ -120,8 +122,12 @@ export async function angeloneLogin(opts: {
   publicIp?: string;
   proxy?: BrokerProxy;
 }): Promise<{ jwtToken: string; refreshToken?: string; feedToken?: string; raw: any }> {
-  const totp = opts.totp || (opts.totpSecret ? await angeloneTotp(opts.totpSecret) : "");
-  if (!totp) throw new Error("Angel One TOTP is required (add the TOTP secret from SmartAPI → TOTP)");
+  const enteredTotp = String(opts.totp || "").replace(/\s+/g, "");
+  if (enteredTotp && !/^\d{6}$/.test(enteredTotp)) {
+    throw new Error("Angel One TOTP must be the current 6-digit code from your authenticator app.");
+  }
+  const totp = enteredTotp || (opts.totpSecret ? await angeloneTotp(opts.totpSecret) : "");
+  if (!totp) throw new Error("Enter the current 6-digit TOTP code or your Base32 TOTP secret.");
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12_000);

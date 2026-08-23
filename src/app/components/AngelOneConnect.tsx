@@ -18,14 +18,14 @@ interface AngelOneConnectProps {
 /**
  * 🔴 Angel One (SmartAPI) connect card.
  * Angel One does NOT use an OAuth redirect — login is
- * API Key + Client Code + MPIN + TOTP (generated from your TOTP secret).
+ * API Key + Client Code + MPIN + current 6-digit TOTP or Base32 TOTP secret.
  * Docs: https://smartapi.angelone.in/docs
  */
 export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOneConnectProps) {
   const [apiKey, setApiKey] = useState('');
   const [clientCode, setClientCode] = useState('');
   const [mpin, setMpin] = useState('');
-  const [totpSecret, setTotpSecret] = useState('');
+  const [totpValue, setTotpValue] = useState('');
   const [status, setStatus] = useState<any>(null);
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -112,7 +112,14 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
     if (apiKey.trim().length < 5) { setMessage({ type: 'error', text: 'Enter your SmartAPI Trading API Key' }); return toast.error('Enter your SmartAPI Trading API Key'); }
     if (clientCode.trim().length < 3) { setMessage({ type: 'error', text: 'Enter your Angel One Client Code' }); return toast.error('Enter your Angel One Client Code'); }
     if (mpin.trim().length < 4) { setMessage({ type: 'error', text: 'Enter your Angel One MPIN / password' }); return toast.error('Enter your Angel One MPIN / password'); }
-    if (totpSecret.trim().length < 8) { setMessage({ type: 'error', text: 'Enter the TOTP secret from SmartAPI → TOTP' }); return toast.error('Enter the TOTP secret from SmartAPI → TOTP'); }
+    const normalizedTotp = totpValue.replace(/[\s-]+/g, '').trim();
+    const isTotpCode = /^\d{6}$/.test(normalizedTotp);
+    const isTotpSecret = normalizedTotp.length >= 8 && /^[A-Za-z2-7=]+$/.test(normalizedTotp);
+    if (!isTotpCode && !isTotpSecret) {
+      const text = 'Enter the current 6-digit TOTP code, or paste your Base32 TOTP secret';
+      setMessage({ type: 'error', text });
+      return toast.error(text);
+    }
     try {
       setBusy(true);
       setAction('login');
@@ -123,13 +130,15 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
           apiKey: apiKey.trim(),
           clientCode: clientCode.trim(),
           password: mpin.trim(),
-          totpSecret: totpSecret.replace(/\s+/g, '').trim(),
+          ...(isTotpCode
+            ? { totp: normalizedTotp }
+            : { totpSecret: normalizedTotp.toUpperCase().replace(/=/g, '') }),
         }),
       });
       toast.success(`Angel One connected${data?.userName ? ` — ${data.userName}` : ''}`);
       setMessage({ type: 'success', text: 'Angel One connected and credentials saved. Next time just tap “Reconnect (saved login)”.' });
       setMpin('');
-      setTotpSecret('');
+      setTotpValue('');
       await load();
       onConnected?.();
     } catch (e: any) {
@@ -247,8 +256,8 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
           )}
         </CardTitle>
         <CardDescription>
-          Login with your SmartAPI key, client code, MPIN and TOTP secret. Angel One sessions reset daily,
-          so login again each morning before the market opens.
+          Login with your SmartAPI key, client code, MPIN and current 6-digit TOTP code. You may instead
+          paste the Base32 TOTP secret to enable automatic daily reconnect.
         </CardDescription>
       </CardHeader>
 
@@ -345,21 +354,22 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ao-totp">TOTP Secret</Label>
+            <Label htmlFor="ao-totp">TOTP Code or Secret</Label>
             <Input
               id="ao-totp"
               type="password"
-              value={totpSecret}
-              onChange={(e) => setTotpSecret(e.target.value)}
-              placeholder="Base32 secret from SmartAPI → TOTP"
+              value={totpValue}
+              onChange={(e) => setTotpValue(e.target.value)}
+              placeholder="6-digit code or Base32 secret"
+              inputMode="numeric"
               autoComplete="new-password"
             />
           </div>
         </div>
 
         <p className="text-xs text-muted-foreground">
-          The TOTP secret lets IndexPilot re-generate your 6-digit code automatically, so orders keep
-          working without manual login during the session.
+          A 6-digit code connects the current session. The Base32 secret lets IndexPilot generate future
+          codes automatically for one-tap daily reconnect.
         </p>
 
         <div className="flex flex-wrap gap-2">
