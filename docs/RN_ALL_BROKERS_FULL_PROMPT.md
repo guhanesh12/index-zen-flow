@@ -51,14 +51,14 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
 // src/broker/brokerLogos.ts
 const CDN = "https://indexpilotai.com"; // logos are served from the app origin
 export const BROKER_LOGOS: Record<string, string> = {
-  dhan:      `${CDN}/__l5e/assets-v1/<dhan-asset-id>/broker-dhan.png`,
-  zerodha:   `${CDN}/__l5e/assets-v1/<zerodha-asset-id>/broker-zerodha.png`,
-  groww:     `${CDN}/__l5e/assets-v1/<groww-asset-id>/broker-groww.png`,
-  upstox:    `${CDN}/__l5e/assets-v1/<upstox-asset-id>/broker-upstox.png`,
-  angelone:  `${CDN}/__l5e/assets-v1/<angelone-asset-id>/broker-angelone.png`,
-  fyers:     `${CDN}/__l5e/assets-v1/<fyers-asset-id>/broker-fyers.png`,
-  aliceblue: `${CDN}/__l5e/assets-v1/<aliceblue-asset-id>/broker-aliceblue.png`,
-  "5paisa":  `${CDN}/__l5e/assets-v1/<fivepaisa-asset-id>/broker-fivepaisa.png`,
+  dhan:      `${CDN}/__l5e/assets-v1/7a6a87b4-1717-4d17-8da6-2bd953489408/broker-dhan.png`,
+  zerodha:   `${CDN}/__l5e/assets-v1/78aaa5e4-ca6e-4363-80ae-797b631b8d89/broker-zerodha.png`,
+  groww:     `${CDN}/__l5e/assets-v1/7f811ff6-396c-481b-b3ba-4b3ab1fbcf88/broker-groww.png`,
+  upstox:    `${CDN}/__l5e/assets-v1/b7be7fd9-aaef-4f03-8e03-658b2aac826e/broker-upstox.png`,
+  angelone:  `${CDN}/__l5e/assets-v1/21ad6bde-7b9d-42c2-9249-f10eac9cb7db/broker-angelone.png`,
+  fyers:     `${CDN}/__l5e/assets-v1/8c0627e1-3c89-402e-820b-2a42fc9df41a/broker-fyers.png`,
+  aliceblue: `${CDN}/__l5e/assets-v1/8c820387-7ba2-4723-bd4d-0c7ab6302c10/broker-aliceblue.png`,
+  "5paisa":  `${CDN}/__l5e/assets-v1/0cb01734-5981-4a98-92a9-5c1788b3a231/broker-fivepaisa.png`,
 };
 export const getBrokerLogo = (id?: string) => (id ? BROKER_LOGOS[id.toLowerCase()] : undefined);
 ```
