@@ -138,7 +138,9 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
       if (!res.ok || !data?.url) throw new Error(data?.error || 'Could not build Fyers login URL');
       const popup = window.open(data.url, 'fyers-login', 'width=520,height=720');
       if (!popup) throw new Error('Popup blocked. Allow popups for IndexPilot and try again.');
-      toast.info('Complete the Fyers login in the new window');
+      toast.info('Complete the Fyers login in the new window — this card updates automatically');
+      pollAfterLogin();
+
     } catch (e: any) {
       toast.error(e.message || 'Fyers login failed');
     } finally {
