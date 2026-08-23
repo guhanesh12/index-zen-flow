@@ -196,11 +196,27 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {status?.last_error && (
+        {connected && (
+          <Alert className="bg-emerald-950/40 border-emerald-900">
+            <AlertDescription className="text-emerald-300 text-sm">
+              Fyers login is active — funds, positions and orders route through Fyers.
+              {status?.access_token_expiry ? ` Token valid till ${new Date(status.access_token_expiry).toLocaleString('en-IN')}.` : ''}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!connected && loadError && (
+          <Alert className="bg-amber-950/40 border-amber-900">
+            <AlertDescription className="text-amber-300 text-sm">{loadError}</AlertDescription>
+          </Alert>
+        )}
+
+        {!connected && status?.last_error && (
           <Alert className="bg-rose-950/40 border-rose-900">
             <AlertDescription className="text-rose-300 text-sm">{status.last_error}</AlertDescription>
           </Alert>
         )}
+
 
         {redirectUri && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
