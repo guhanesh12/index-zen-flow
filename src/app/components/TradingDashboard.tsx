@@ -405,9 +405,14 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       return;
     }
     
-    checkCredentials();
-    fetchActiveBroker();
+    refreshBrokerStatus();
     fetchWalletBalance();
+
+    // Re-check broker connection every 20s and when the tab regains focus
+    const brokerInterval = setInterval(refreshBrokerStatus, 20000);
+    const onFocus = () => refreshBrokerStatus();
+    window.addEventListener('focus', onFocus);
+
     
     // Refresh wallet balance every 30 seconds
     const walletInterval = setInterval(fetchWalletBalance, 30000);
