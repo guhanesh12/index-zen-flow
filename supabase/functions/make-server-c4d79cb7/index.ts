@@ -15517,8 +15517,11 @@ app.post("/make-server-c4d79cb7/broker/5paisa/save-keys", async (c) => {
     await kv.set(`broker_choice:${user.id}`, { broker: "5paisa", at: new Date().toISOString() });
 
     // Shared contract download — never block the login path on it.
-    const job = ensureFivepaisaInstruments(false);
-    (c.executionCtx as any)?.waitUntil?.(job);
+    // Supabase's Hono adapter does not expose ExecutionContext. Start the
+    // best-effort sync without reading c.executionCtx, whose getter throws.
+    ensureFivepaisaInstruments(false).catch((error) =>
+      console.warn("[5PAISA] Background instrument sync failed:", error?.message || error)
+    );
 
     return c.json({
       success: true,
@@ -15659,8 +15662,9 @@ const fivepaisaCallbackHandler = async (c: any) => {
     });
     await finalizeFivepaisaConnection(st.userId, tok);
 
-    const job = ensureFivepaisaInstruments(false);
-    (c.executionCtx as any)?.waitUntil?.(job);
+    ensureFivepaisaInstruments(false).catch((error) =>
+      console.warn("[5PAISA] Background instrument sync failed:", error?.message || error)
+    );
 
     return page("5paisa connected ✅", "#34d399", "Your 5paisa account is linked. Funds, positions and orders now route through 5paisa. You can close this window.");
   } catch (err: any) {
