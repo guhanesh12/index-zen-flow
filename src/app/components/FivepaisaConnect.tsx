@@ -162,15 +162,20 @@ export function FivepaisaConnect({ serverUrl, accessToken, onConnected }: Fivepa
     }
   };
 
-  /** Fallback — paste the RequestToken from the redirect URL manually. */
+  /** Fallback — paste the RequestToken (or the full redirect URL) manually. */
   const exchange = async () => {
-    if (requestToken.trim().length < 10) return toast.error('Paste the RequestToken from the redirect URL');
+    const raw = requestToken.trim();
+    const token = /[?&]RequestToken=/i.test(raw)
+      ? decodeURIComponent(raw.split(/[?&]RequestToken=/i)[1].split('&')[0])
+      : raw;
+    if (token.length < 10) return toast.error('Paste the RequestToken (or the whole redirect URL) from 5paisa');
     try {
       setBusy(true);
       const { res, data } = await call('/broker/5paisa/exchange', {
         method: 'POST',
-        body: JSON.stringify({ requestToken: requestToken.trim() }),
+        body: JSON.stringify({ requestToken: token }),
       });
+
       if (!res.ok || !data?.success) throw new Error(data?.error || '5paisa session exchange failed');
       toast.success('5paisa connected — contracts are syncing in the background');
       setRequestToken('');
