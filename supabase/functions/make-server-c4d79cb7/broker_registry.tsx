@@ -98,7 +98,18 @@ export const BROKER_CATALOG: BrokerDef[] = [
     features: ["orders", "positions", "funds", "instruments", "static-ip"],
     defaultEnabled: true,
   },
+  {
+    id: "5paisa",
+    name: "5paisa",
+    short: "5paisa",
+    status: "live",
+    color: "#e11d48",
+    website: "https://xstream.5paisa.com",
+    features: ["orders", "positions", "funds", "instruments", "static-ip", "oauth"],
+    defaultEnabled: true,
+  },
 ];
+
 
 const SETTINGS_KEY = "broker_registry_settings";
 

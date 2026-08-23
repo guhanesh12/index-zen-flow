@@ -58,6 +58,14 @@ import {
   aliceblueTokenExpiry,
 } from "./aliceblue_service.tsx";
 import { ensureAliceblueInstruments } from "./aliceblue_instruments.tsx";
+import {
+  FivepaisaService,
+  FIVEPAISA_API,
+  fivepaisaExchangeFromSegment,
+  fivepaisaExchangeTypeFromSegment,
+  fivepaisaIntradayFromDhan,
+} from "./fivepaisa_service.tsx";
+import { ensureFivepaisaInstruments } from "./fivepaisa_instruments.tsx";
 
 
 const supabaseAdmin = createClient(
@@ -65,8 +73,8 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
 );
 
-export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone" | "aliceblue";
-const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue"];
+export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone" | "aliceblue" | "5paisa";
+const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue", "5paisa"];
 
 
 export interface KiteStoredCreds {
@@ -124,6 +132,7 @@ async function clearBrokerSession(userId: string, broker: BrokerId) {
   if (broker === "fyers") await clearFyersCredentials(userId);
   if (broker === "angelone") await clearAngelOneCredentials(userId);
   if (broker === "aliceblue") await clearAliceblueCredentials(userId);
+  if (broker === "5paisa") await clearFivepaisaCredentials(userId);
   await supabaseAdmin
     .from("broker_credentials")
     .delete()
@@ -487,6 +496,151 @@ export async function resolveAliceblueSymbol(order: any): Promise<{
     exchange: (String(inst.aliceblue_exchange || "").toUpperCase() === "BFO"
       ? "BFO"
       : aliceblueExchangeFromSegment(inst.exchange_segment)) as "NFO" | "BFO",
+    lotSize: Number(inst.lot_size || 0),
+  };
+}
+
+// ───────────────────────── 5paisa credentials ─────────────────────────
+
+export interface FivepaisaStoredCreds {
+  appKey: string;              // 5paisa App Key / Vendor Key
+  encryptionKey?: string;      // Encryption Key from the API credentials
+  userKey?: string;            // "UserId" from the API credentials (partner/user key)
+  clientCode?: string;         // 5paisa demat client code (returned after login)
+  clientName?: string;
+  accessToken?: string;        // daily bearer token
+  tokenExpiry?: string | null; // 11:59 PM IST the day it was minted
+  redirectUri?: string;
+  segments?: Record<string, string>;
+  lastStatus?: string;
+  lastError?: string | null;
+  updatedAt?: string;
+}
+
+export async function getFivepaisaCredentials(userId: string): Promise<FivepaisaStoredCreds | null> {
+  const creds = (await kv.get(`fivepaisa_credentials:${userId}`)) as FivepaisaStoredCreds | null;
+  return creds || null;
+}
+
+export async function saveFivepaisaCredentials(userId: string, patch: Partial<FivepaisaStoredCreds>) {
+  const existing = (await getFivepaisaCredentials(userId)) || ({} as FivepaisaStoredCreds);
+  const merged = { ...existing, ...patch, updatedAt: new Date().toISOString() };
+  await kv.set(`fivepaisa_credentials:${userId}`, merged);
+  return merged;
+}
+
+export async function clearFivepaisaCredentials(userId: string) {
+  await kv.del(`fivepaisa_credentials:${userId}`);
+}
+
+/** A 5paisa access token dies at 11:59 PM IST — treat an expired one as no session. */
+export async function ensureFivepaisaSession(userId: string): Promise<FivepaisaStoredCreds | null> {
+  const creds = await getFivepaisaCredentials(userId);
+  if (!creds?.accessToken || !creds?.appKey || !creds?.clientCode) return null;
+  if (creds.tokenExpiry && Date.parse(creds.tokenExpiry) <= Date.now()) {
+    await saveFivepaisaCredentials(userId, {
+      lastStatus: "token_expired",
+      lastError: "5paisa access tokens expire daily at 11:59 PM IST. Login again.",
+    });
+    return null;
+  }
+  return creds;
+}
+
+export async function getFivepaisaService(userId: string): Promise<FivepaisaService | null> {
+  const creds = await ensureFivepaisaSession(userId);
+  if (!creds) return null;
+  const proxy = await makeBrokerProxy(userId, "5paisa", FIVEPAISA_API);
+  return new FivepaisaService({
+    accessToken: creds.accessToken!,
+    appKey: creds.appKey,
+    clientCode: creds.clientCode!,
+    proxy,
+  });
+}
+
+/** Non-secret mirror so the Broker screen can show 5paisa status. */
+export async function mirrorFivepaisaStatus(userId: string, patch: Record<string, any>) {
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from("broker_credentials")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("broker", "5paisa")
+      .maybeSingle();
+    const payload = { user_id: userId, broker: "5paisa", auth_method: "oauth", ...patch };
+    if (existing?.id) {
+      await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
+    } else {
+      await supabaseAdmin.from("broker_credentials").insert(payload);
+    }
+  } catch (e) {
+    console.error("[5PAISA] status mirror failed:", (e as any)?.message || e);
+  }
+}
+
+export async function resolveFivepaisaSymbol(order: any): Promise<{
+  scripCode: string;
+  scripData: string;
+  exchange: "N" | "B";
+  exchangeType: "C" | "D";
+  lotSize: number;
+} | null> {
+  const securityId = String(order?.securityId || "");
+  const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
+  const COLS =
+    "lot_size, exchange_segment, fivepaisa_scrip_code, fivepaisa_scrip_data, fivepaisa_exchange";
+
+  const lookup = async (): Promise<any> => {
+    let inst: any = null;
+    if (securityId) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .eq("security_id", securityId)
+        .maybeSingle();
+      inst = data;
+    }
+    if (!inst && symbolText) {
+      const { data } = await supabaseAdmin
+        .from("instrument_master")
+        .select(COLS)
+        .or(`symbol.eq.${symbolText},fivepaisa_scrip_data.eq.${symbolText}`)
+        .maybeSingle();
+      inst = data;
+    }
+    return inst;
+  };
+
+  let inst = await lookup();
+  if (!inst?.fivepaisa_scrip_code) {
+    await ensureFivepaisaInstruments(!!inst);
+    const retry = await lookup();
+    if (retry?.fivepaisa_scrip_code) inst = retry;
+  }
+
+  if (!inst?.fivepaisa_scrip_code) {
+    // Position exits carry the 5paisa scrip code straight from 5paisa positions.
+    const code = String(order?.fivepaisaScripCode || "").trim();
+    if (code) {
+      return {
+        scripCode: code,
+        scripData: String(order?.fivepaisaScripData || symbolText),
+        exchange: fivepaisaExchangeFromSegment(order?.exchangeSegment),
+        exchangeType: fivepaisaExchangeTypeFromSegment(order?.exchangeSegment),
+        lotSize: Number(order?.lotSize || 0),
+      };
+    }
+    return null;
+  }
+
+  return {
+    scripCode: String(inst.fivepaisa_scrip_code),
+    scripData: String(inst.fivepaisa_scrip_data || symbolText),
+    exchange: (String(inst.fivepaisa_exchange || "").toUpperCase() === "B"
+      ? "B"
+      : fivepaisaExchangeFromSegment(inst.exchange_segment)) as "N" | "B",
+    exchangeType: fivepaisaExchangeTypeFromSegment(inst.exchange_segment),
     lotSize: Number(inst.lot_size || 0),
   };
 }
@@ -1119,6 +1273,62 @@ export async function placeOrderSmart(
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
 
+  // 🟡 5PAISA
+  if (broker === "5paisa") {
+    const fpCreds = await ensureFivepaisaSession(userId);
+    if (!fpCreds?.accessToken) {
+      const err: any = new Error(
+        "TOKEN_EXPIRED:5paisa is your active broker but no valid 5paisa session was found. Open Broker Setup → 5paisa and login again.",
+      );
+      err.code = "TOKEN_EXPIRED";
+      throw err;
+    }
+    const fp = await resolveFivepaisaSymbol(orderDetails);
+    if (!fp?.scripCode) {
+      throw new Error("Could not map this contract to a 5paisa ScripCode. Refresh the instrument master and retry.");
+    }
+    const fpProxy = await makeBrokerProxy(userId, "5paisa", FIVEPAISA_API);
+    const svcFp = new FivepaisaService({
+      accessToken: fpCreds.accessToken,
+      appKey: fpCreds.appKey,
+      clientCode: fpCreds.clientCode!,
+      proxy: fpProxy,
+    });
+    try {
+      const res = await svcFp.placeOrder({
+        scripCode: fp.scripCode,
+        scripData: fp.scripData,
+        exchange: fp.exchange,
+        exchangeType: fp.exchangeType,
+        transactionType: String(orderDetails.transactionType || "BUY").toUpperCase() as "BUY" | "SELL",
+        quantity: Math.max(1, Number(orderDetails.quantity) || 0),
+        isIntraday: fivepaisaIntradayFromDhan(orderDetails.productType),
+        orderType: "MARKET",
+      });
+      return {
+        success: !!res.orderId,
+        orderId: res.orderId,
+        exchangeOrderId: res.exchangeOrderId,
+        remoteOrderId: res.remoteOrderId,
+        orderStatus: res.orderId ? "PLACED" : "REJECTED",
+        broker: "5paisa",
+        routedVia: fpProxy ? "static-ip" : "edge",
+        message: res.orderId ? "Order placed via 5paisa" : "5paisa order rejected",
+        raw: res.raw,
+      };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (e?.code === "TOKEN_EXPIRED" || /token|session|unauthor|expired|invalid session/i.test(msg)) {
+        const err: any = new Error(
+          "TOKEN_EXPIRED:Your 5paisa session has expired (tokens reset at 11:59 PM IST). Connect again from Broker Setup → 5paisa.",
+        );
+        err.code = "TOKEN_EXPIRED";
+        throw err;
+      }
+      throw new Error(msg);
+    }
+  }
+
   // 🔷 ALICEBLUE
   if (broker === "aliceblue") {
     const abCreds = await ensureAliceblueSession(userId);
@@ -1435,6 +1645,16 @@ export async function getPositionsSmart(
   dhanFetch: () => Promise<any[]>,
 ): Promise<any[]> {
   const broker = await getActiveBroker(userId);
+  if (broker === "5paisa") {
+    const fp = await getFivepaisaService(userId);
+    if (!fp) return [];
+    try {
+      return await fp.getPositions();
+    } catch (e) {
+      console.error("[5PAISA] positions failed:", (e as any)?.message || e);
+      return [];
+    }
+  }
   if (broker === "aliceblue") {
     const ab = await getAliceblueService(userId);
     if (!ab) return [];
@@ -1502,6 +1722,16 @@ export async function getFundsSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "5paisa") {
+    const fp = await getFivepaisaService(userId);
+    if (!fp) return null;
+    try {
+      return await fp.getFundLimits();
+    } catch (e) {
+      console.error("[5PAISA] funds failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "aliceblue") {
     const ab = await getAliceblueService(userId);
     if (!ab) return null;
@@ -1570,6 +1800,13 @@ export async function getLtpSmart(
   dhanFetch: () => Promise<number | null>,
 ): Promise<number | null> {
   const broker = await getActiveBroker(userId);
+  if (broker === "5paisa") {
+    const fp = await getFivepaisaService(userId);
+    if (!fp) return null;
+    const rfp = await resolveFivepaisaSymbol(order);
+    if (!rfp) return null;
+    return await fp.getLastPrice(rfp.exchange, rfp.exchangeType, rfp.scripCode);
+  }
   if (broker === "aliceblue") {
     const ab = await getAliceblueService(userId);
     if (!ab) return null;
@@ -1620,6 +1857,33 @@ export async function getOrderStatusSmart(
   dhanFetch: () => Promise<any>,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  if (broker === "5paisa") {
+    const fp = await getFivepaisaService(userId);
+    if (!fp) return null;
+    try {
+      const st = await fp.getOrderStatus(orderId);
+      const raw = String(st?.OrderStatus || st?.Status || "").toUpperCase();
+      const norm = raw.includes("FULLY") || raw === "COMPLETE" || raw === "EXECUTED"
+        ? "COMPLETE"
+        : raw.includes("REJECT")
+          ? "REJECTED"
+          : raw.includes("CANCEL")
+            ? "CANCELLED"
+            : raw || "PENDING";
+      return {
+        orderId: String(st?.BrokerOrderId ?? st?.BrokerOrderID ?? orderId),
+        exchangeOrderId: st?.ExchOrderID ? String(st.ExchOrderID) : null,
+        orderStatus: norm,
+        tradedQuantity: Number(st?.TradedQty ?? st?.Qty ?? 0) - Number(st?.PendingQty ?? 0),
+        averageTradedPrice: Number(st?.AveragePrice ?? st?.Rate ?? 0),
+        broker: "5paisa",
+        raw: st,
+      };
+    } catch (e) {
+      console.error("[5PAISA] order status failed:", (e as any)?.message || e);
+      return null;
+    }
+  }
   if (broker === "aliceblue") {
     const ab = await getAliceblueService(userId);
     if (!ab) return null;
@@ -1737,6 +2001,11 @@ export async function cancelOrderSmart(
   dhanCancel: () => Promise<boolean>,
 ): Promise<boolean> {
   const broker = await getActiveBroker(userId);
+  if (broker === "5paisa") {
+    const fp = await getFivepaisaService(userId);
+    if (!fp) return false;
+    return await fp.cancelOrder(orderId);
+  }
   if (broker === "aliceblue") {
     const ab = await getAliceblueService(userId);
     if (!ab) return false;

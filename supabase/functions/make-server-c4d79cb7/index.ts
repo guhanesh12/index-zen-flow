@@ -40,6 +40,8 @@ import { AngelOneService, ANGELONE_API, angeloneLogin, angeloneTokenExpiry } fro
 import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
 import { AliceblueService, ALICEBLUE_API, aliceblueVendorSession, aliceblueAuthUrl, aliceblueTokenExpiry } from "./aliceblue_service.tsx";
 import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
+import { FivepaisaService, FIVEPAISA_API, buildFivepaisaLoginUrl, exchangeFivepaisaRequestToken, fivepaisaTokenExpiry } from "./fivepaisa_service.tsx";
+import { syncFivepaisaInstruments, ensureFivepaisaInstruments, getFivepaisaInstrumentStatus } from "./fivepaisa_instruments.tsx";
 
 
 
@@ -2079,6 +2081,10 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const fyers = await BrokerRouter.getFyersService(user.id);
       if (!fyers) return c.json({ error: "Fyers not connected" }, 400);
       funds = await fyers.getFundLimits();
+    } else if (activeBroker === '5paisa') {
+      const fivepaisa = await BrokerRouter.getFivepaisaService(user.id);
+      if (!fivepaisa) return c.json({ error: "5paisa not connected" }, 400);
+      funds = await fivepaisa.getFundLimits();
     } else if (activeBroker === 'aliceblue') {
       const aliceblue = await BrokerRouter.getAliceblueService(user.id);
       if (!aliceblue) return c.json({ error: "Aliceblue not connected" }, 400);
@@ -2295,6 +2301,16 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         });
       }
       positions = await withTimeout(fyers.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === '5paisa') {
+      const fivepaisa = await BrokerRouter.getFivepaisaService(effectiveUserId);
+      if (!fivepaisa) {
+        return c.json({
+          success: true,
+          positions: [],
+          warning: '5paisa session not found. Connect 5paisa again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(fivepaisa.getPositions(), 4500, cachedPositions || []);
     } else if (activeBrokerPos === 'aliceblue') {
       const aliceblue = await BrokerRouter.getAliceblueService(effectiveUserId);
       if (!aliceblue) {
@@ -13635,6 +13651,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const fyers = await BrokerRouter.getFyersCredentials(user.id);
     const angelone = await BrokerRouter.getAngelOneCredentials(user.id);
     const aliceblue = await BrokerRouter.getAliceblueCredentials(user.id);
+    const fivepaisa = await BrokerRouter.getFivepaisaCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
@@ -13646,6 +13663,7 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
       fyers: !!(fyers?.appId && fyers?.accessToken),
       angelone: !!(angelone?.apiKey && angelone?.jwtToken),
       aliceblue: !!(aliceblue?.userId && aliceblue?.sessionId),
+      "5paisa": !!(fivepaisa?.accessToken && fivepaisa?.clientCode),
     };
 
     return c.json({
@@ -13669,8 +13687,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (!["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue"].includes(broker)) {
-      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox', 'fyers', 'angelone' or 'aliceblue'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue", "5paisa"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox', 'fyers', 'angelone', 'aliceblue' or '5paisa'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13696,6 +13714,7 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (broker === "fyers") instrumentSync = await ensureFyersInstruments(false);
     if (broker === "angelone") instrumentSync = await ensureAngelOneInstruments(false);
     if (broker === "aliceblue") instrumentSync = await ensureAliceblueInstruments(false);
+    if (broker === "5paisa") instrumentSync = await ensureFivepaisaInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
@@ -15378,6 +15397,360 @@ ${ok ? `<p><a href="${dashboardUrl}">Open dashboard now →</a></p>` : ""}
 </body></html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 });
+
+
+// ============================================================================
+// 🟡 5PAISA (Xstream Open API) — OAuth login, funds, status, instruments
+// Docs: https://xstream.5paisa.com/dev-docs/user-authentication-system/oauth-login
+// ============================================================================
+
+function fivepaisaRedirectUri() {
+  return brokerRedirectUri("5paisa");
+}
+
+/** Ignore legacy *.supabase.co redirect URIs saved before the api.indexpilotai.com switch. */
+function effectiveFivepaisaRedirect(creds: any) {
+  const saved = String(creds?.redirectUri || "").trim();
+  if (!saved || saved.includes("supabase.co")) return fivepaisaRedirectUri();
+  return saved;
+}
+
+function sanitizeFivepaisa(creds: any) {
+  if (!creds) return null;
+  return {
+    app_key_set: !!creds.appKey,
+    encryption_key_set: !!creds.encryptionKey,
+    user_key_set: !!creds.userKey,
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    redirect_uri: effectiveFivepaisaRedirect(creds),
+    client_code: creds.clientCode || null,
+    client_name: creds.clientName || null,
+    segments: creds.segments || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
+    last_error: creds.lastError || null,
+  };
+}
+
+app.get("/make-server-c4d79cb7/broker/5paisa/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFivepaisaCredentials(user.id);
+    let liveCheck: any = null;
+    const tokenAlive = !!creds?.accessToken &&
+      (!creds?.tokenExpiry || Date.parse(creds.tokenExpiry) > Date.now());
+
+    if (tokenAlive) {
+      const svc = new FivepaisaService({
+        accessToken: creds!.accessToken!,
+        appKey: creds!.appKey,
+        clientCode: creds!.clientCode || "",
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "5paisa", FIVEPAISA_API),
+      });
+      liveCheck = await Promise.race([
+        svc.verify(),
+        new Promise<any>((r) => setTimeout(() => r({ ok: true, skipped: true }), 6000)),
+      ]);
+      await BrokerRouter.saveFivepaisaCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      } as any);
+      await BrokerRouter.mirrorFivepaisaStatus(user.id, {
+        last_status: liveCheck.ok ? "connected" : "token_invalid",
+        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+      });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "5paisa") {
+        await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+      }
+    }
+
+    const refreshed = await BrokerRouter.getFivepaisaCredentials(user.id);
+    return c.json({
+      success: true,
+      fivepaisa: sanitizeFivepaisa(refreshed),
+      connected: tokenAlive && liveCheck?.ok !== false,
+      clientCode: refreshed?.clientCode || null,
+      redirectUri: fivepaisaRedirectUri(),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+      balance: liveCheck?.balance ?? null,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Save the 5paisa API credentials (App Key / Encryption Key / User Key). */
+app.post("/make-server-c4d79cb7/broker/5paisa/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    try { await BrokerRegistry.assertBrokerEnabled("5paisa"); }
+    catch (e: any) { return c.json({ success: false, error: e?.message || "Broker disabled" }, 403); }
+
+    const body = await c.req.json().catch(() => ({}));
+    const appKey = String(body?.appKey || body?.vendorKey || "").trim();
+    const encryptionKey = String(body?.encryptionKey || body?.encryKey || "").trim();
+    const userKey = String(body?.userKey || body?.userId || "").trim();
+    if (appKey.length < 5 || encryptionKey.length < 5 || userKey.length < 3) {
+      return c.json({ error: "5paisa App Key, Encryption Key and User Key are required" }, 400);
+    }
+
+    // one user = one broker
+    if ((await BrokerRouter.getActiveBroker(user.id)) !== "5paisa") {
+      await BrokerRouter.selectBroker(user.id, "5paisa" as any);
+    }
+
+    const creds = await BrokerRouter.saveFivepaisaCredentials(user.id, {
+      appKey,
+      encryptionKey,
+      userKey,
+      redirectUri: (() => {
+        const r = String(body?.redirectUri || "").trim();
+        return r && !r.includes("supabase.co") ? r : fivepaisaRedirectUri();
+      })(),
+      lastStatus: "keys_saved",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorFivepaisaStatus(user.id, { last_status: "keys_saved", last_error: null });
+    await kv.set(`broker_choice:${user.id}`, { broker: "5paisa", at: new Date().toISOString() });
+
+    // Shared contract download — never block the login path on it.
+    const job = ensureFivepaisaInstruments(false);
+    (c.executionCtx as any)?.waitUntil?.(job);
+
+    return c.json({
+      success: true,
+      fivepaisa: sanitizeFivepaisa(creds),
+      redirectUri: fivepaisaRedirectUri(),
+      loginUrl: buildFivepaisaLoginUrl(appKey, effectiveFivepaisaRedirect(creds)),
+      activeBroker: "5paisa",
+      connected: false,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Build the 5paisa OAuth dialog URL. */
+app.get("/make-server-c4d79cb7/broker/5paisa/login-url", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFivepaisaCredentials(user.id);
+    if (!creds?.appKey) return c.json({ error: "Save your 5paisa App Key, Encryption Key and User Key first" }, 400);
+    const state = crypto.randomUUID();
+    await kv.set(`fivepaisa_oauth_state:${state}`, { userId: user.id, at: Date.now() });
+    await kv.set("fivepaisa_oauth_last", { userId: user.id, at: Date.now() });
+    const redirectUri = effectiveFivepaisaRedirect(creds);
+    return c.json({
+      success: true,
+      url: buildFivepaisaLoginUrl(creds.appKey, redirectUri, state),
+      redirectUri,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Shared: persist a fresh 5paisa session and light everything up. */
+async function finalizeFivepaisaConnection(appUserId: string, tok: any) {
+  await BrokerRouter.saveFivepaisaCredentials(appUserId, {
+    accessToken: tok.accessToken,
+    clientCode: tok.clientCode,
+    clientName: tok.clientName,
+    segments: tok.segments,
+    tokenExpiry: fivepaisaTokenExpiry(),
+    lastStatus: "connected",
+    lastError: null,
+  } as any);
+  await BrokerRouter.mirrorFivepaisaStatus(appUserId, { last_status: "connected", last_error: null });
+  if ((await BrokerRouter.getActiveBroker(appUserId)) === "5paisa") {
+    await BrokerRouter.setBrokerConnected(appUserId, true);
+  }
+
+  const svc = await BrokerRouter.getFivepaisaService(appUserId);
+  let balance: number | null = null;
+  if (svc) {
+    const check = await svc.verify();
+    if (check.ok && typeof check.balance === "number") {
+      balance = check.balance;
+      await kv.set(`broker_funds:${appUserId}`, {
+        availableBalance: balance,
+        sodLimit: balance,
+        collateralAmount: 0,
+        utilizationAmount: 0,
+        blockedPayinAmount: 0,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+  }
+  return balance;
+}
+
+/** 5paisa redirects the browser here with ?RequestToken=&State= — public by design. */
+app.get("/make-server-c4d79cb7/broker/5paisa/callback", async (c) => {
+  const page = (title: string, color: string, msg: string) =>
+    c.html(`<!doctype html><html><head><meta charset="utf-8"><title>5paisa</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:460px"><h2 style="color:${color}">${title}</h2>
+<p style="color:#94a3b8">${msg}</p></div>
+<script>try{window.opener&&window.opener.postMessage({source:'5paisa',ok:${color === "#34d399"}},'*');setTimeout(()=>window.close(),2500);}catch(e){}</script>
+</body></html>`);
+  try {
+    const q = c.req.query();
+    const requestToken = String(q.RequestToken || q.requestToken || q.request_token || "").trim();
+    const state = String(q.State || q.state || "").trim();
+    if (!requestToken) {
+      return page(
+        "5paisa redirect URL is live",
+        "#38bdf8",
+        `Register this exact URL in the 5paisa developer portal, then connect from IndexPilot &rarr; Broker Setup.<br><br>
+         <code style="color:#22d3ee;word-break:break-all">${fivepaisaRedirectUri()}</code>`,
+      );
+    }
+
+    let st = state ? await kv.get(`fivepaisa_oauth_state:${state}`) : null;
+    if (!st?.userId) {
+      const last = (await kv.get("fivepaisa_oauth_last")) as any;
+      if (last?.userId && Date.now() - Number(last.at || 0) < 20 * 60_000) st = last;
+    }
+    if (!st?.userId) {
+      return page("5paisa login failed", "#f87171", "This login link has expired. Start again from Broker Setup &rarr; 5paisa.");
+    }
+    if (state) await kv.del(`fivepaisa_oauth_state:${state}`).catch(() => {});
+
+    const creds = await BrokerRouter.getFivepaisaCredentials(st.userId);
+    if (!creds?.appKey || !creds?.encryptionKey || !creds?.userKey) {
+      return page("5paisa login failed", "#f87171", "App Key / Encryption Key / User Key missing. Save them again in Broker Setup.");
+    }
+
+    const tok = await exchangeFivepaisaRequestToken({
+      appKey: creds.appKey,
+      encryptionKey: creds.encryptionKey,
+      userKey: creds.userKey,
+      requestToken,
+    });
+    await finalizeFivepaisaConnection(st.userId, tok);
+
+    const job = ensureFivepaisaInstruments(false);
+    (c.executionCtx as any)?.waitUntil?.(job);
+
+    return page("5paisa connected ✅", "#34d399", "Your 5paisa account is linked. Funds, positions and orders now route through 5paisa. You can close this window.");
+  } catch (err: any) {
+    const raw = String(err?.message || err);
+    const low = raw.toLowerCase();
+    let hint = raw;
+    if (low.includes("segment") || low.includes("not activated")) {
+      hint = "Your 5paisa account works, but the F&O (Derivatives) segment is not activated. Enable it in the 5paisa app, then login again.";
+    } else if (low.includes("redirect") || low.includes("responseurl")) {
+      hint = `The redirect URL registered in your 5paisa app does not match. Register exactly:<br>
+        <code style="color:#22d3ee;word-break:break-all">${fivepaisaRedirectUri()}</code>`;
+    } else if (low.includes("key") || low.includes("invalid")) {
+      hint = "App Key, Encryption Key or User Key is wrong. Re-copy them from the 5paisa developer portal and save again.";
+    }
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>5paisa</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:460px"><h2 style="color:#f87171">5paisa login failed</h2>
+<p style="color:#94a3b8">${hint}</p>
+<p style="color:#475569;font-size:12px">Redirect URI used: ${fivepaisaRedirectUri()}</p></div>
+</body></html>`);
+  }
+});
+
+/** Fallback — paste the RequestToken from the redirect URL manually. */
+app.post("/make-server-c4d79cb7/broker/5paisa/exchange", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const requestToken = String(body?.requestToken || "").trim();
+    if (requestToken.length < 10) return c.json({ success: false, error: "Paste the RequestToken from the redirect URL" }, 400);
+    const creds = await BrokerRouter.getFivepaisaCredentials(user.id);
+    if (!creds?.appKey || !creds?.encryptionKey || !creds?.userKey) {
+      return c.json({ success: false, error: "Save your 5paisa App Key, Encryption Key and User Key first" }, 400);
+    }
+    const tok = await exchangeFivepaisaRequestToken({
+      appKey: creds.appKey,
+      encryptionKey: creds.encryptionKey,
+      userKey: creds.userKey,
+      requestToken,
+    });
+    const balance = await finalizeFivepaisaConnection(user.id, tok);
+    const job = ensureFivepaisaInstruments(false);
+    (c.executionCtx as any)?.waitUntil?.(job);
+    return c.json({ success: true, connected: true, clientCode: tok.clientCode, balance });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/5paisa/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getFivepaisaService(user.id);
+    if (!svc) return c.json({ success: false, connected: false, error: "5paisa is not connected" }, 400);
+    const check = await svc.verify();
+    await BrokerRouter.saveFivepaisaCredentials(user.id, {
+      lastStatus: check.ok ? "connected" : "token_invalid",
+      lastError: check.ok ? null : check.error,
+    } as any);
+    await BrokerRouter.mirrorFivepaisaStatus(user.id, {
+      last_status: check.ok ? "connected" : "token_invalid",
+      last_error: check.ok ? null : String(check.error || "").slice(0, 400),
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "5paisa") {
+      await BrokerRouter.setBrokerConnected(user.id, !!check.ok);
+    }
+    return c.json({ success: check.ok, connected: check.ok, ...check });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/5paisa/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearFivepaisaCredentials(user.id);
+    await BrokerRouter.mirrorFivepaisaStatus(user.id, { last_status: "disconnected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "5paisa") {
+      await BrokerRouter.setBrokerConnected(user.id, false);
+    }
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/5paisa/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getFivepaisaInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/5paisa/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const job = syncFivepaisaInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    }).catch((e) => console.error("[FIVEPAISA_INSTRUMENTS] sync failed:", e?.message || e));
+    (c.executionCtx as any)?.waitUntil?.(job);
+    return c.json({ success: true, started: true, message: "5paisa instrument sync started" }, 202);
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
 
 const FUNCTION_ROUTE_PREFIX = "/make-server-c4d79cb7";
 const SUPABASE_FUNCTIONS_PREFIX = `/functions/v1${FUNCTION_ROUTE_PREFIX}`;
