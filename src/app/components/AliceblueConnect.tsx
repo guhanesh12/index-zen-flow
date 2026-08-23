@@ -110,18 +110,19 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
 
   /** Step 1 — save App Code + API secret, then open the Aliceblue login page. */
   const connect = async () => {
-    if (!userId.trim() || !appCode.trim() || apiSecret.trim().length < 5) {
-      return toast.error('Enter your Aliceblue User ID, App Code and API secret');
+    if (!appCode.trim() || apiSecret.trim().length < 5) {
+      return toast.error('Enter your Aliceblue App Code and API secret');
     }
     try {
       setBusy(true);
       const { res, data } = await call('/broker/aliceblue/vendor-start', {
         method: 'POST',
         body: JSON.stringify({
-          userId: userId.trim().toUpperCase(),
+          ...(userId.trim() ? { userId: userId.trim().toUpperCase() } : {}),
           appCode: appCode.trim(),
           apiSecret: apiSecret.trim(),
         }),
+
       });
       if (!res.ok || !data?.success || !data?.loginUrl) throw new Error(data?.error || 'Could not start Aliceblue login');
       setAwaitingLogin(true);
