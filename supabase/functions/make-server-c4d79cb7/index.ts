@@ -15018,8 +15018,8 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAliceblueCredentials(user.id);
-    if (!creds?.userId || !(creds?.apiKey || (creds?.apiSecret && creds?.authCode))) {
-      return c.json({ success: false, error: "No saved Aliceblue login. Connect once with your User ID + ANT API key, or use an approved Vendor App Code." }, 400);
+    if (!creds?.userId || !(creds?.apiSecret && creds?.authCode)) {
+      return c.json({ success: false, error: "No valid Aliceblue v2 login. Connect with an approved App Code and API secret." }, 400);
     }
     const refreshed = await BrokerRouter.ensureAliceblueSession(user.id, { force: true });
     if (!refreshed?.sessionId) {
