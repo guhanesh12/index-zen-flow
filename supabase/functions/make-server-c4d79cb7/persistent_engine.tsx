@@ -420,8 +420,11 @@ async function loadEngineCredentials(
               : broker === "angelone"
                 ? !!(await BrokerRouter.getAngelOneCredentials(userId))?.jwtToken
                 : broker === "aliceblue"
-                  ? !!(await BrokerRouter.getAliceblueCredentials(userId))?.apiKey
-                  : false;
+                  ? !!(await BrokerRouter.getAliceblueCredentials(userId))?.sessionId
+                  : broker === "5paisa"
+                    ? !!(await BrokerRouter.getFivepaisaCredentials(userId))?.accessToken
+                    : false;
+
     if (!connected) return null;
 
     const central = await getCentralCredentials();
