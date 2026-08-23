@@ -419,7 +419,10 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
     
     return () => {
       clearInterval(walletInterval);
+      clearInterval(brokerInterval);
+      window.removeEventListener('focus', onFocus);
     };
+
   }, [accessToken]); // Add accessToken as dependency
 
   const fetchWalletBalance = async () => {
