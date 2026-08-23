@@ -1201,9 +1201,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                     serverUrl={serverUrl} 
                     accessToken={accessToken}
                     onSettingsSaved={() => {
-                      checkCredentials();
-                      fetchActiveBroker();
+                      refreshBrokerStatus();
                     }}
+
                     onGoToStaticIp={() => setBrokerTab('static-ip')}
                   />
                 </div>
