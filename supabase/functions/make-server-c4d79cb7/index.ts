@@ -14952,8 +14952,9 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
       authMethod: "vendor",
       sessionId: session.sessionId,
     });
-    await kv.del(`aliceblue_pending:${abUserId}`).catch?.(() => {});
+    try { await kv.del(`aliceblue_pending:${abUserId}`); } catch { /* ignore */ }
     try { await kv.del("aliceblue_pending_last"); } catch { /* ignore */ }
+
     return c.html(abPage("Aliceblue connected", "#34d399", "You can close this window and return to IndexPilot."));
   } catch (e: any) {
     return c.html(abPage("Aliceblue login failed", "#f87171", String(e?.message || e)));
