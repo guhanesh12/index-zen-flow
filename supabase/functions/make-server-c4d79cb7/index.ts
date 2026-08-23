@@ -14783,7 +14783,7 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAliceblueCredentials(user.id);
-    const savedCredentials = !!(creds?.userId && (creds?.apiKey || (creds?.apiSecret && creds?.authCode)));
+    const savedCredentials = !!(creds?.apiSecret && (creds?.appCode || creds?.authCode) && creds?.userId);
     let liveCheck: any = null;
 
     if (savedCredentials) {
