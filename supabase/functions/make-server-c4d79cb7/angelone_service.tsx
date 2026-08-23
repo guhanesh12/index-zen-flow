@@ -94,14 +94,14 @@ export async function angeloneTotp(secretBase32: string, atMs = Date.now()): Pro
   return String(bin % 1_000_000).padStart(6, "0");
 }
 
-function baseHeaders(apiKey: string) {
+function baseHeaders(apiKey: string, publicIp?: string) {
   return {
     "Content-Type": "application/json",
     Accept: "application/json",
     "X-UserType": "USER",
     "X-SourceID": "WEB",
     "X-ClientLocalIP": "127.0.0.1",
-    "X-ClientPublicIP": "127.0.0.1",
+    "X-ClientPublicIP": publicIp || "127.0.0.1",
     "X-MACAddress": "00:00:00:00:00:00",
     "X-PrivateKey": apiKey,
   };
@@ -117,37 +117,49 @@ export async function angeloneLogin(opts: {
   password: string;
   totpSecret?: string;
   totp?: string;
+  publicIp?: string;
+  proxy?: BrokerProxy;
 }): Promise<{ jwtToken: string; refreshToken?: string; feedToken?: string; raw: any }> {
   const totp = opts.totp || (opts.totpSecret ? await angeloneTotp(opts.totpSecret) : "");
   if (!totp) throw new Error("Angel One TOTP is required (add the TOTP secret from SmartAPI → TOTP)");
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12_000);
-  let resp: Response;
+  let status = 0;
+  let text = "";
   try {
-    resp = await fetch(`${ANGELONE_API}/rest/auth/angelbroking/user/v1/loginByPassword`, {
-      method: "POST",
-      headers: baseHeaders(opts.apiKey),
-      signal: ctrl.signal,
-      body: JSON.stringify({
+    const path = "/rest/auth/angelbroking/user/v1/loginByPassword";
+    const body = JSON.stringify({
         clientcode: String(opts.clientCode).toUpperCase(),
         password: String(opts.password),
         totp,
         state: "indexpilot",
-      }),
     });
+    const headers = baseHeaders(opts.apiKey, opts.publicIp);
+    const proxied = opts.proxy ? await opts.proxy({ method: "POST", path, headers, body }) : null;
+    if (proxied) {
+      status = proxied.status;
+      text = proxied.text;
+    } else {
+      const resp = await fetch(`${ANGELONE_API}${path}`, { method: "POST", headers, signal: ctrl.signal, body });
+      status = resp.status;
+      text = await resp.text();
+    }
   } catch (error: any) {
     if (error?.name === "AbortError") throw new Error("Angel One login timed out. Check SmartAPI availability and try again.");
     throw error;
   } finally {
     clearTimeout(timer);
   }
-  const text = await resp.text();
   let json: any = {};
   try { json = JSON.parse(text); } catch { json = { raw: text }; }
   const jwt = json?.data?.jwtToken;
-  if (!resp.ok || json?.status === false || !jwt) {
-    throw new Error(json?.message || `Angel One login failed (${resp.status}): ${text.slice(0, 200)}`);
+  if (status >= 400 || json?.status === false || !jwt) {
+    const code = String(json?.errorcode || json?.errorCode || "");
+    const guidance = code === "AB1050" ? " Check that your TOTP secret and device time are correct."
+      : code === "AB1004" ? " Check the Trading API key and whitelist your assigned static IP in SmartAPI."
+      : code === "AB1000" ? " Check your Client Code and MPIN." : "";
+    throw new Error(`${json?.message || `Angel One login failed (${status})`}${code ? ` [${code}]` : ""}${guidance}`);
   }
   return {
     jwtToken: String(jwt).replace(/^Bearer\s+/i, ""),
@@ -157,20 +169,33 @@ export async function angeloneLogin(opts: {
   };
 }
 
+export function angeloneTokenExpiry(jwtToken: string): string | null {
+  try {
+    const payload = String(jwtToken).split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")));
+    const exp = Number(decoded?.exp);
+    return Number.isFinite(exp) ? new Date(exp * 1000).toISOString() : null;
+  } catch { return null; }
+}
+
 export class AngelOneService {
   private apiKey: string;
   private jwtToken: string;
   private proxy?: BrokerProxy;
+  private publicIp?: string;
 
-  constructor(creds: { apiKey: string; jwtToken: string; proxy?: BrokerProxy }) {
+  constructor(creds: { apiKey: string; jwtToken: string; proxy?: BrokerProxy; publicIp?: string }) {
     this.apiKey = creds.apiKey;
     this.jwtToken = creds.jwtToken;
     this.proxy = creds.proxy;
+    this.publicIp = creds.publicIp;
   }
 
   private headers(extra: Record<string, string> = {}) {
     return {
-      ...baseHeaders(this.apiKey),
+      ...baseHeaders(this.apiKey, this.publicIp),
       Authorization: `Bearer ${this.jwtToken}`,
       ...extra,
     };

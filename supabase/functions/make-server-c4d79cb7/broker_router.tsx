@@ -46,6 +46,7 @@ import {
   angeloneExchangeFromSegment,
   angeloneProductFromDhan,
   angeloneLogin,
+  angeloneTokenExpiry,
 } from "./angelone_service.tsx";
 import { ensureAngelOneInstruments } from "./angelone_instruments.tsx";
 import {
@@ -53,8 +54,8 @@ import {
   ALICEBLUE_API,
   aliceblueExchangeFromSegment,
   aliceblueProductFromDhan,
-  aliceblueLogin,
   aliceblueVendorSession,
+  aliceblueTokenExpiry,
 } from "./aliceblue_service.tsx";
 import { ensureAliceblueInstruments } from "./aliceblue_instruments.tsx";
 
@@ -205,12 +206,14 @@ export async function ensureAngelOneSession(
       clientCode: creds.clientCode,
       password: creds.password,
       totpSecret: creds.totpSecret,
+      proxy: await makeBrokerProxy(userId, "angelone", ANGELONE_API),
+      publicIp: await getUserOrderPlacementIP(userId).then((v) => v.ipAddress).catch(() => undefined),
     });
     return await saveAngelOneCredentials(userId, {
       jwtToken: session.jwtToken,
       refreshToken: session.refreshToken,
       feedToken: session.feedToken,
-      tokenExpiry: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+      tokenExpiry: angeloneTokenExpiry(session.jwtToken),
       lastStatus: "connected",
       lastError: null,
     });
@@ -226,7 +229,8 @@ export async function getAngelOneService(userId: string): Promise<AngelOneServic
   const creds = await ensureAngelOneSession(userId);
   if (!creds?.jwtToken || !creds?.apiKey) return null;
   const proxy = await makeBrokerProxy(userId, "angelone", ANGELONE_API);
-  return new AngelOneService({ apiKey: creds.apiKey, jwtToken: creds.jwtToken, proxy });
+  const publicIp = await getUserOrderPlacementIP(userId).then((v) => v.ipAddress).catch(() => undefined);
+  return new AngelOneService({ apiKey: creds.apiKey, jwtToken: creds.jwtToken, proxy, publicIp });
 }
 
 /** Non-secret mirror so the Broker screen can show Angel One status. */
@@ -323,7 +327,8 @@ export interface AliceblueStoredCreds {
   authCode?: string;           // last authCode returned on the redirect
   sessionId?: string;          // session / userSession (bearer token)
   sessionDate?: string;        // IST date the session was minted for
-  authMethod?: "vendor" | "api-key";
+  authMethod?: "vendor";
+  tokenExpiry?: string | null;
   aliceblueName?: string;
   lastStatus?: string;
   lastError?: string | null;
@@ -364,10 +369,10 @@ export async function ensureAliceblueSession(
   if (!creds?.userId) return null;
 
   const vendor = !!(creds.apiSecret && creds.authCode);
-  if (!vendor && !creds.apiKey) return creds.sessionId ? creds : null;
+  if (!vendor) return null;
 
-  // Vendor sessions live for weeks — only re-exchange when forced or missing.
-  if (creds.sessionId && !opts.force && (vendor || creds.sessionDate === istToday())) return creds;
+  const expired = creds.tokenExpiry ? Date.parse(creds.tokenExpiry) <= Date.now() + 60_000 : false;
+  if (creds.sessionId && !expired && !opts.force) return creds;
 
   try {
     if (vendor) {
@@ -378,20 +383,14 @@ export async function ensureAliceblueSession(
       });
       return await saveAliceblueCredentials(userId, {
         sessionId: session.sessionId,
+        tokenExpiry: aliceblueTokenExpiry(session.sessionId),
         sessionDate: istToday(),
         authMethod: "vendor",
         lastStatus: "connected",
         lastError: null,
       });
     }
-    const session = await aliceblueLogin({ userId: creds.userId, apiKey: creds.apiKey! });
-    return await saveAliceblueCredentials(userId, {
-      sessionId: session.sessionId,
-      sessionDate: istToday(),
-      authMethod: "api-key",
-      lastStatus: "connected",
-      lastError: null,
-    });
+    return null;
   } catch (e: any) {
     const msg = e?.message || String(e);
     console.error("[ALICEBLUE] auto re-login failed:", msg);
@@ -417,7 +416,7 @@ export async function mirrorAliceblueStatus(userId: string, patch: Record<string
       .eq("user_id", userId)
       .eq("broker", "aliceblue")
       .maybeSingle();
-    const payload = { user_id: userId, broker: "aliceblue", auth_method: "api-key", ...patch };
+    const payload = { user_id: userId, broker: "aliceblue", auth_method: "vendor", ...patch };
     if (existing?.id) {
       await supabaseAdmin.from("broker_credentials").update(payload).eq("id", existing.id);
     } else {
@@ -526,6 +525,7 @@ export async function clearFyersCredentials(userId: string) {
 export async function getFyersService(userId: string): Promise<FyersService | null> {
   const creds = await getFyersCredentials(userId);
   if (!creds?.accessToken || !creds?.appId) return null;
+  if (creds.tokenExpiry && Date.parse(creds.tokenExpiry) <= Date.now() + 60_000) return null;
   const proxy = await makeBrokerProxy(userId, "fyers");
   return new FyersService({ appId: creds.appId, accessToken: creds.accessToken, proxy });
 }

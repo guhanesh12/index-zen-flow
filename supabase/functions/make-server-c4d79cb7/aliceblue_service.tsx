@@ -11,14 +11,12 @@
  *
  * ADDITIVE ONLY — Dhan / Zerodha / Groww / Upstox / Fyers / Angel One untouched.
  *
- * Auth model (NOT OAuth): User ID + API key →
- *   1. POST /api/customer/getAPIEncpkey  { userId }          → encKey
- *   2. userData = SHA256(userId + apiKey + encKey)
- *   3. POST /api/customer/getUserSID     { userId, userData } → sessionID (daily)
- * Every call carries:  Authorization: Bearer <userId> <sessionID>
+ * Auth model: approved App Code + API secret → Aliceblue login → authCode →
+ * vendor/getUserDetails → userSession. Every v2 API call carries that session
+ * as a standard Bearer token.
  */
 
-export const ALICEBLUE_API = "https://ant.aliceblueonline.com/rest/AliceBlueAPIService";
+export const ALICEBLUE_API = "https://a3.aliceblueonline.com/open-api/od/v1";
 
 /** Vendor / partner (open-api) host used by the App Code + API Secret login flow. */
 export const ALICEBLUE_VENDOR_API = "https://a3.aliceblueonline.com/open-api/od/v1";
@@ -31,7 +29,7 @@ export interface AliceblueOrderRequest {
   exchange: "NFO" | "BFO";
   transactionType: "BUY" | "SELL";
   quantity: number;                  // units (lots × lot size), same as Dhan
-  product?: "MIS" | "NRML";
+  product?: "INTRADAY" | "LONGTERM";
   orderType?: "MARKET" | "LIMIT";
   price?: number;
   validity?: "DAY" | "IOC";
@@ -50,9 +48,9 @@ export function aliceblueExchangeFromSegment(segment?: string): "NFO" | "BFO" {
 }
 
 /** Dhan productType → Aliceblue product code. */
-export function aliceblueProductFromDhan(productType?: string): "MIS" | "NRML" {
+export function aliceblueProductFromDhan(productType?: string): "INTRADAY" | "LONGTERM" {
   const p = String(productType || "").toUpperCase();
-  return p === "MIS" || p === "INTRADAY" ? "MIS" : "NRML";
+  return p === "MIS" || p === "INTRADAY" ? "INTRADAY" : "LONGTERM";
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -62,51 +60,20 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-/**
- * Daily session login. Returns the sessionID used as the bearer token.
- * https://v2api.aliceblueonline.com/Authentication/
- */
-export async function aliceblueLogin(opts: {
-  userId: string;
-  apiKey: string;
-  timeoutMs?: number;
-}): Promise<{ sessionId: string; raw: any }> {
-  const userId = String(opts.userId || "").trim().toUpperCase();
-  const apiKey = String(opts.apiKey || "").trim();
-  if (!userId || !apiKey) throw new Error("Aliceblue User ID and API key are required");
-
-  const timeoutMs = opts.timeoutMs ?? 12000;
-  const post = async (path: string, body: any) => {
-    const resp = await fetch(`${ALICEBLUE_API}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const text = await resp.text();
-    let json: any = {};
-    try { json = JSON.parse(text); } catch { json = { raw: text }; }
-    return { status: resp.status, json, text };
-  };
-
-  const enc = await post("/api/customer/getAPIEncpkey", { userId });
-  const encKey = enc.json?.encKey;
-  if (!encKey) {
-    throw new Error(enc.json?.emsg || `Aliceblue rejected this User ID (${enc.status}). Check the ID from the ANT web terminal.`);
-  }
-
-  const userData = await sha256Hex(`${userId}${apiKey}${encKey}`);
-  const sid = await post("/api/customer/getUserSID", { userId, userData });
-  const sessionId = sid.json?.sessionID || sid.json?.sessionId;
-  if (!sessionId || String(sid.json?.stat || "Ok").toLowerCase() === "not_ok") {
-    throw new Error(sid.json?.emsg || `Aliceblue login failed (${sid.status}). Regenerate the API key in ANT → Apps and try again.`);
-  }
-  return { sessionId: String(sessionId), raw: sid.json };
-}
-
 /** Login URL the user must visit: https://ant.aliceblueonline.com/?appcode=<APP_CODE> */
 export function aliceblueAuthUrl(appCode: string): string {
   return `${ALICEBLUE_LOGIN_BASE}${encodeURIComponent(String(appCode || "").trim())}`;
+}
+
+export function aliceblueTokenExpiry(sessionId: string): string | null {
+  try {
+    const payload = String(sessionId).split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")));
+    const exp = Number(decoded?.exp);
+    return Number.isFinite(exp) ? new Date(exp * 1000).toISOString() : null;
+  } catch { return null; }
 }
 
 /**
@@ -129,19 +96,29 @@ export async function aliceblueVendorSession(opts: {
   }
 
   const checkSum = await sha256Hex(`${userId}${authCode}${apiSecret}`);
-  const resp = await fetch(`${ALICEBLUE_VENDOR_API}/vendor/getUserDetails`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ checkSum }),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 15000),
-  });
-  const text = await resp.text();
+  const body = JSON.stringify({ checkSum });
+  const endpoints = [
+    `${ALICEBLUE_VENDOR_API}/vendor/getUserDetails`,
+    "https://ant.aliceblueonline.com/rest/AliceBlueAPIService/sso/getUserDetails",
+  ];
+  let resp: Response | null = null;
+  let text = "";
   let json: any = {};
-  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  for (const endpoint of endpoints) {
+    resp = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body,
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 15000),
+    });
+    text = await resp.text();
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    if (resp.ok && (json?.userSession || json?.sessionID)) break;
+  }
 
   const sessionId = json?.userSession || json?.sessionID;
   if (!sessionId || String(json?.stat || "Ok").toLowerCase() === "not_ok") {
-    throw new Error(json?.emsg || `Aliceblue session exchange failed (${resp.status}). Login again from the Aliceblue page.`);
+    throw new Error(json?.emsg || json?.message || `Aliceblue session exchange failed (${resp?.status || 0}). Confirm that App Code vendor access and the IndexPilot redirect URL are enabled by Aliceblue.`);
   }
   return { sessionId: String(sessionId), clientId: String(json?.clientId || userId), raw: json };
 }
@@ -149,19 +126,17 @@ export async function aliceblueVendorSession(opts: {
 
 
 export class AliceblueService {
-  private userId: string;
   private sessionId: string;
   private proxy?: BrokerProxy;
 
   constructor(creds: { userId: string; sessionId: string; proxy?: BrokerProxy }) {
-    this.userId = String(creds.userId || "").toUpperCase();
     this.sessionId = creds.sessionId;
     this.proxy = creds.proxy;
   }
 
   private headers(extra: Record<string, string> = {}) {
     return {
-      Authorization: `Bearer ${this.userId} ${this.sessionId}`,
+      Authorization: `Bearer ${this.sessionId}`,
       Accept: "application/json",
       ...extra,
     };
@@ -204,9 +179,9 @@ export class AliceblueService {
     try { json = JSON.parse(text); } catch { json = { raw: text }; }
 
     const first = Array.isArray(json) ? json[0] : json;
-    const notOk = String(first?.stat || "").toLowerCase() === "not_ok";
+    const notOk = String(first?.stat || first?.status || "").toLowerCase() === "not_ok" || first?.status === false;
     if (status >= 400 || notOk) {
-      const err: any = new Error(first?.emsg || `Aliceblue ${status}: ${text.slice(0, 250)}`);
+      const err: any = new Error(first?.emsg || first?.message || `Aliceblue ${status}: ${text.slice(0, 250)}`);
       err.status = status;
       throw err;
     }
@@ -214,10 +189,10 @@ export class AliceblueService {
   }
 
   // ── FUNDS ───────────────────────────────────────────────────
-  /** https://v2api.aliceblueonline.com/Funds/ (GET /api/limits/getRmsLimits) */
+  /** Current ANT v2 funds endpoint. */
   async getFundLimits(): Promise<any> {
-    const d = await this.request("/api/limits/getRmsLimits");
-    const rows: any[] = Array.isArray(d) ? d : [d];
+    const d = await this.request("/limits/");
+    const rows: any[] = Array.isArray(d?.result) ? d.result : [];
     const r = rows[0] || {};
     const num = (...keys: string[]) => {
       for (const k of keys) {
@@ -226,12 +201,12 @@ export class AliceblueService {
       }
       return 0;
     };
-    const available = num("net", "cashmarginavailable", "netcashavailable", "payinamt");
+    const available = num("tradingLimit", "availableCash", "availableBalance");
     return {
       availableBalance: available,
-      sodLimit: num("branchAdhoc", "adhocMargin", "payinamt") || available,
-      collateralAmount: num("collateralvalue", "directcollateralvalue"),
-      utilizationAmount: num("debits", "marginused", "grexpo"),
+      sodLimit: num("openingCashLimit") || available,
+      collateralAmount: num("collateralValue", "collateralAmount"),
+      utilizationAmount: num("utilizedAmount", "marginUsed"),
       blockedPayinAmount: 0,
       blockedPayoutAmount: 0,
       raw: d,
@@ -249,64 +224,51 @@ export class AliceblueService {
   }
 
   // ── ORDERS ──────────────────────────────────────────────────
-  /** https://v2api.aliceblueonline.com/orders%20Management/ (POST /api/placeOrder/executePlaceOrder) */
+  /** Current ANT v2 order placement endpoint. */
   async placeOrder(req: AliceblueOrderRequest): Promise<{ orderId: string | null; raw: any }> {
-    const payload = [{
-      complexty: "regular",
-      discqty: "0",
-      exch: req.exchange,
-      pCode: req.product || "NRML",
-      prctyp: req.orderType === "LIMIT" ? "L" : "MKT",
-      price: req.orderType === "LIMIT" ? String(Number(req.price ?? 0)) : "0",
-      qty: Math.max(1, Number(req.quantity) || 0),
-      ret: req.validity || "DAY",
-      symbol_id: String(req.symbolToken),
-      trading_symbol: req.tradingSymbol,
-      transtype: String(req.transactionType).toUpperCase() === "SELL" ? "SELL" : "BUY",
-      trigPrice: "0",
-      orderTag: "indexpilot",
-      deviceNumber: "indexpilot",
-    }];
+    const payload = {
+      instrumentId: String(req.symbolToken),
+      exchange: req.exchange,
+      transactionType: String(req.transactionType).toUpperCase() === "SELL" ? "SELL" : "BUY",
+      product: req.product || "LONGTERM",
+      orderComplexity: "REGULAR",
+      orderType: req.orderType === "LIMIT" ? "LIMIT" : "MARKET",
+      quantity: Math.max(1, Number(req.quantity) || 0),
+      price: req.orderType === "LIMIT" ? Number(req.price ?? 0) : 0,
+      triggerPrice: 0,
+      validity: req.validity || "DAY",
+      tradingSymbol: req.tradingSymbol,
+    };
 
-    const data = await this.request("/api/placeOrder/executePlaceOrder", {
+    const data = await this.request("/orders/placeorder", {
       method: "POST",
       headers: this.headers({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
     });
-    const first = Array.isArray(data) ? data[0] : data;
-    const orderId = first?.NOrdNo || first?.nestOrderNumber || first?.orderNumber || null;
+    const first = Array.isArray(data?.result) ? data.result[0] : data?.result || data;
+    const orderId = first?.brokerOrderId || first?.orderId || null;
     return { orderId: orderId ? String(orderId) : null, raw: data };
   }
 
-  /** POST /api/placeOrder/orderHistory { nestOrderNumber } */
   async getOrderStatus(orderId: string): Promise<any> {
-    const d = await this.request("/api/placeOrder/orderHistory", {
-      method: "POST",
-      headers: this.headers({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ nestOrderNumber: String(orderId) }),
-    });
-    const list: any[] = Array.isArray(d) ? d : [d];
-    return list[list.length - 1] || d;
+    const orders = await this.getOrders();
+    return orders.find((row: any) => String(row?.brokerOrderId || row?.orderId) === String(orderId)) || null;
   }
 
   async cancelOrder(orderId: string, extra: { exchange?: string; tradingSymbol?: string } = {}): Promise<boolean> {
     try {
-      await this.request("/api/placeOrder/cancelOrder", {
+      await this.request("/orders/cancel", {
         method: "POST",
         headers: this.headers({ "Content-Type": "application/json" }),
-        body: JSON.stringify({
-          exch: extra.exchange || "NFO",
-          nestOrderNumber: String(orderId),
-          trading_symbol: extra.tradingSymbol || "",
-        }),
+        body: JSON.stringify({ brokerOrderId: String(orderId) }),
       });
       return true;
     } catch { return false; }
   }
 
   async getOrders(): Promise<any[]> {
-    const d = await this.request("/api/placeOrder/fetchOrderBook");
-    return Array.isArray(d) ? d : [];
+    const d = await this.request("/orders/book");
+    return Array.isArray(d?.result) ? d.result : [];
   }
 
   // ── PORTFOLIO ───────────────────────────────────────────────
@@ -315,32 +277,28 @@ export class AliceblueService {
    * Mapped into the SAME shape the Dhan pipeline (position monitor / UI) expects.
    */
   async getPositions(): Promise<any[]> {
-    const d = await this.request("/api/positionAndHoldings/positionBook", {
-      method: "POST",
-      headers: this.headers({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ ret: "NET" }),
-    });
-    const list: any[] = Array.isArray(d) ? d : [];
+    const d = await this.request("/orders/positions");
+    const list: any[] = Array.isArray(d?.result) ? d.result : [];
     return list
       .map((p) => {
-        const netQty = Number(p.Netqty ?? p.netQty ?? 0);
-        const buyQty = Number(p.Buyqty ?? (netQty > 0 ? netQty : 0));
-        const sellQty = Number(p.Sellqty ?? (netQty < 0 ? -netQty : 0));
-        const buyAvg = Number(p.NetBuyavgprc ?? p.Buyavgprc ?? 0);
-        const sellAvg = Number(p.NetSellavgprc ?? p.Sellavgprc ?? 0);
+        const netQty = Number(p.netQuantity ?? 0);
+        const buyQty = Number(p.buyQuantity ?? (netQty > 0 ? netQty : 0));
+        const sellQty = Number(p.sellQuantity ?? (netQty < 0 ? -netQty : 0));
+        const buyAvg = Number(p.buyAveragePrice ?? p.netAveragePrice ?? 0);
+        const sellAvg = Number(p.sellAveragePrice ?? p.netAveragePrice ?? 0);
         const avgPrice = netQty >= 0 ? buyAvg || sellAvg : sellAvg || buyAvg;
-        const ltp = Number(p.LTP ?? p.Ltp ?? 0);
-        const exch = String(p.Exchange || p.Exchangeseg || "NFO").toUpperCase();
-        const tsym = String(p.Tsym || p.Symbol || p.Tradsym || "");
+        const ltp = Number(p.lastTradedPrice ?? p.ltp ?? 0);
+        const exch = String(p.exchange || "NFO").toUpperCase();
+        const tsym = String(p.tradingSymbol || p.symbol || "");
         return {
-          securityId: String(p.Token || p.token || tsym),
-          instrumentKey: String(p.Token || tsym),
+          securityId: String(p.instrumentId || tsym),
+          instrumentKey: String(p.instrumentId || tsym),
           tradingsymbol: tsym,
           tradingSymbol: tsym,
-          aliceblueToken: String(p.Token || ""),
+          aliceblueToken: String(p.instrumentId || ""),
           exchangeSegment: exch.startsWith("B") ? "BSE_FNO" : "NSE_FNO",
           positionType: netQty > 0 ? "LONG" : netQty < 0 ? "SHORT" : "CLOSED",
-          productType: String(p.Pcode || "NRML"),
+          productType: String(p.product || "LONGTERM"),
           netQty,
           buyQty,
           sellQty,
@@ -348,9 +306,9 @@ export class AliceblueService {
           sellAvg,
           costPrice: avgPrice,
           ltp,
-          realizedProfit: Number(p.realisedprofitloss ?? p.realisedPNL ?? 0),
+          realizedProfit: Number(p.realizedProfitLoss ?? p.realizedPnl ?? 0),
           unrealizedProfit: Number(
-            p.unrealisedprofitloss ?? (netQty !== 0 && ltp > 0 ? (ltp - avgPrice) * netQty : 0),
+            p.unrealizedProfitLoss ?? p.unrealizedPnl ?? (netQty !== 0 && ltp > 0 ? (ltp - avgPrice) * netQty : 0),
           ),
           multiplier: 1,
           broker: "aliceblue",
@@ -360,20 +318,10 @@ export class AliceblueService {
       .filter((p) => p.netQty !== 0 || p.buyQty > 0);
   }
 
-  // ── LIVE DATA ───────────────────────────────────────────────
-  /** LTP for one contract token (POST /api/ScripDetails/getScripQuoteDetails). */
+  // Live prices are supplied by IndexPilot's centralized market-data service.
   async getLastPrice(exchange: string, symbolToken: string): Promise<number | null> {
-    try {
-      const d = await this.request("/api/ScripDetails/getScripQuoteDetails", {
-        method: "POST",
-        headers: this.headers({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ exch: exchange || "NFO", symbol: String(symbolToken) }),
-      });
-      const row = Array.isArray(d) ? d[0] : d;
-      const n = Number(row?.LTP ?? row?.Ltp ?? row?.ltp);
-      return isFinite(n) && n > 0 ? n : null;
-    } catch {
-      return null;
-    }
+    void exchange;
+    void symbolToken;
+    return null;
   }
 }

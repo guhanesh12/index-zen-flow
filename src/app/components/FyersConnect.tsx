@@ -53,6 +53,20 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
 
   useEffect(() => { load(); }, [serverUrl]);
 
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin && event.origin !== 'https://api.indexpilotai.com') return;
+      if (event.data?.source !== 'fyers') return;
+      if (event.data?.ok) {
+        toast.success('Fyers connected');
+        load();
+        onConnected?.();
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [serverUrl]);
+
   const saveKeys = async () => {
     if (appId.trim().length < 5 || appSecret.trim().length < 5) {
       return toast.error('Enter your Fyers App ID and Secret ID');
@@ -86,8 +100,9 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
       const res = await fetchWithAuth(`${serverUrl}/broker/fyers/login-url`, { headers: { Authorization: `Bearer ${t}` } });
       const data = await res.json();
       if (!res.ok || !data?.url) throw new Error(data?.error || 'Could not build Fyers login URL');
-      window.open(data.url, '_blank', 'width=520,height=720');
-      toast.info('Complete the Fyers login in the new window, then press Verify');
+      const popup = window.open(data.url, 'fyers-login', 'width=520,height=720');
+      if (!popup) throw new Error('Popup blocked. Allow popups for IndexPilot and try again.');
+      toast.info('Complete the Fyers login in the new window');
     } catch (e: any) {
       toast.error(e.message || 'Fyers login failed');
     } finally {

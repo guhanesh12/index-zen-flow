@@ -18,15 +18,13 @@ interface AliceblueConnectProps {
 /**
  * 🔷 Aliceblue connect card (ANT API v2).
  * Docs: https://v2api.aliceblueonline.com/
- * Login is User ID + API key (no OAuth) — credentials are stored once and the
- * daily session is minted automatically every morning.
+ * Login uses Aliceblue's current App Code vendor authorization flow.
  */
 export function AliceblueConnect({ serverUrl, accessToken, onConnected }: AliceblueConnectProps) {
   const [userId, setUserId] = useState('');
   const [appCode, setAppCode] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [authCode, setAuthCode] = useState('');
-  const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState<any>(null);
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -136,6 +134,7 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
     }
   };
 
+
   /** Fallback — paste the authCode from the redirect URL manually. */
   const exchange = async () => {
     if (authCode.trim().length < 5) return toast.error('Paste the authCode from the redirect URL');
@@ -203,9 +202,7 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
           )}
         </CardTitle>
         <CardDescription className="text-zinc-400">
-          Create an app in the Aliceblue developer portal, set the Redirect URL below, then enter your
-          User ID, App Code and API secret. You log in on Aliceblue and we exchange the authCode for a
-          session — orders, funds and positions route from your static IP.
+          Connect with an Aliceblue-approved App Code and API secret. Funds, positions, and orders use the current ANT v2 API.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -232,17 +229,13 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
           ))}
         </div>
 
+        <div className="space-y-2">
+          <Label htmlFor="ab-userid" className="text-zinc-300">Aliceblue User ID</Label>
+          <Input id="ab-userid" value={userId} onChange={(e) => setUserId(e.target.value.toUpperCase())}
+            placeholder="e.g. AB1234" className="bg-zinc-950 border-zinc-800" />
+        </div>
+
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="ab-userid" className="text-zinc-300">Aliceblue User ID</Label>
-            <Input
-              id="ab-userid"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              placeholder="e.g. AB1234"
-              className="bg-zinc-950 border-zinc-800"
-            />
-          </div>
           <div className="space-y-2">
             <Label htmlFor="ab-appcode" className="text-zinc-300">App Code</Label>
             <Input

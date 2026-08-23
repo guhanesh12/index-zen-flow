@@ -33,11 +33,11 @@ import { GrowwService } from "./groww_service.tsx";
 import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
 import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox_service.tsx";
 import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
-import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode } from "./fyers_service.tsx";
+import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode, fyersTokenExpiry } from "./fyers_service.tsx";
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
-import { AngelOneService, ANGELONE_API, angeloneLogin } from "./angelone_service.tsx";
+import { AngelOneService, ANGELONE_API, angeloneLogin, angeloneTokenExpiry } from "./angelone_service.tsx";
 import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
-import { AliceblueService, ALICEBLUE_API, aliceblueLogin, aliceblueVendorSession, aliceblueAuthUrl } from "./aliceblue_service.tsx";
+import { AliceblueService, ALICEBLUE_API, aliceblueVendorSession, aliceblueAuthUrl, aliceblueTokenExpiry } from "./aliceblue_service.tsx";
 import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
 
 
@@ -14379,7 +14379,10 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     const state = c.req.query("state") || "";
     if (!authCode || !state) return html("Fyers login failed", "Missing authorization code.", false);
     const st = await kv.get(`fyers_oauth_state:${state}`);
-    if (!st?.userId) return html("Fyers login failed", "This login link has expired. Try again.", false);
+    if (!st?.userId || Date.now() - Number(st.at || 0) > 10 * 60_000) {
+      await kv.del(`fyers_oauth_state:${state}`);
+      return html("Fyers login failed", "This login link has expired. Try again.", false);
+    }
     await kv.del(`fyers_oauth_state:${state}`);
 
     const creds = await BrokerRouter.getFyersCredentials(st.userId);
@@ -14396,7 +14399,7 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     await BrokerRouter.saveFyersCredentials(st.userId, {
       accessToken: tok.accessToken,
       refreshToken: tok.refreshToken,
-      tokenExpiry: new Date(new Date().setHours(24 + 6, 0, 0, 0)).toISOString(),
+      tokenExpiry: fyersTokenExpiry(tok.accessToken),
       lastStatus: "connected",
       lastError: null,
     } as any);
@@ -14406,7 +14409,10 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     }
     await ensureFyersInstruments(false);
 
-    return html("Fyers connected ✅", "Your Fyers account is linked. Funds, positions and orders now route through Fyers.", true);
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Fyers connected</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:420px"><h2 style="color:#34d399">Fyers connected</h2><p style="color:#94a3b8">Funds, positions and orders now route through Fyers.</p></div>
+<script>try{window.opener&&window.opener.postMessage({source:'fyers',ok:true},'*');setTimeout(function(){window.close()},1200)}catch(e){}</script></body></html>`);
   } catch (err: any) {
     const raw = String(err?.message || err);
     const low = raw.toLowerCase();
@@ -14592,7 +14598,15 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
 
     let session;
     try {
-      session = await angeloneLogin({ apiKey, clientCode, password, totpSecret, totp });
+      session = await angeloneLogin({
+        apiKey,
+        clientCode,
+        password,
+        totpSecret,
+        totp,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "angelone", ANGELONE_API),
+        publicIp: await getUserOrderPlacementIP(user.id).then((v) => v.ipAddress).catch(() => undefined),
+      });
     } catch (e: any) {
       const msg = e?.message || String(e);
       await BrokerRouter.saveAngelOneCredentials(user.id, { lastStatus: "login_failed", lastError: msg });
@@ -14607,7 +14621,7 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
       jwtToken: session.jwtToken,
       refreshToken: session.refreshToken,
       feedToken: session.feedToken,
-      tokenExpiry: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+      tokenExpiry: angeloneTokenExpiry(session.jwtToken),
       lastStatus: "connected",
       lastError: null,
     });
@@ -14793,22 +14807,18 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
       savedCredentials,
       hasSession: !!refreshedCreds?.sessionId,
       clientCode: refreshedCreds?.userId || null,
-      apiKeyMasked: refreshedCreds?.apiKey
-        ? `${String(refreshedCreds.apiKey).slice(0, 4)}••••${String(refreshedCreds.apiKey).slice(-2)}`
-        : null,
       appCode: refreshedCreds?.appCode || null,
       apiSecretMasked: refreshedCreds?.apiSecret
         ? `${String(refreshedCreds.apiSecret).slice(0, 4)}••••${String(refreshedCreds.apiSecret).slice(-2)}`
         : null,
-      authMethod: refreshedCreds?.authMethod || (refreshedCreds?.apiKey ? "api-key" : "vendor"),
+      authMethod: "vendor",
       loginUrl: refreshedCreds?.appCode ? aliceblueAuthUrl(refreshedCreds.appCode) : null,
       balance: liveCheck?.balance ?? null,
       lastStatus: refreshedCreds?.lastStatus || null,
       lastError: liveCheck?.ok ? null : (liveCheck?.error || refreshedCreds?.lastError || null),
       activeBroker: await BrokerRouter.getActiveBroker(user.id),
 
-      // The ANT "Create App" form asks for a redirect URL + the static IP even
-      // though login itself is User ID + API key (no OAuth code exchange).
+      // The ANT "Create App" form requires this redirect URL and static IP.
       redirectUri: brokerRedirectUri("aliceblue"),
       postbackUrl: `${PUBLIC_API_BASE}/functions/v1/make-server-c4d79cb7/broker/aliceblue/postback`,
       staticIp: await (async () => {
@@ -14835,6 +14845,7 @@ async function finalizeAliceblueConnection(appUserId: string, abUserId: string, 
   await BrokerRouter.saveAliceblueCredentials(appUserId, {
     userId: abUserId,
     sessionDate: new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10),
+    tokenExpiry: patch?.sessionId ? aliceblueTokenExpiry(String(patch.sessionId)) : null,
     lastStatus: "connected",
     lastError: null,
     ...patch,
@@ -14842,8 +14853,14 @@ async function finalizeAliceblueConnection(appUserId: string, abUserId: string, 
   await kv.set(`broker_choice:${appUserId}`, { broker: "aliceblue", at: new Date().toISOString() });
 
   const svc = await BrokerRouter.getAliceblueService(appUserId);
-  let funds: any = null;
-  try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+  if (!svc) throw new Error("Aliceblue session could not be created");
+  const verification = await svc.verify();
+  if (!verification.ok) {
+    await BrokerRouter.setBrokerConnected(appUserId, false);
+    await BrokerRouter.saveAliceblueCredentials(appUserId, { lastStatus: "token_invalid", lastError: verification.error });
+    throw new Error(verification.error || "Aliceblue rejected the session");
+  }
+  const funds = await svc.getFundLimits();
   if (funds) {
     await kv.set(`broker_funds:${appUserId}`, {
       availableBalance: funds.availableBalance,
@@ -14977,51 +14994,14 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/exchange", async (c) => {
 });
 
 /**
- * Connect handler.
- *  • App Code + API secret  → vendor OAuth flow (returns loginUrl)
- *  • User ID + API key      → legacy direct ANT login
+ * Connect handler. Aliceblue's current v2 API requires the approved vendor
+ * App Code flow; the deprecated retail getAPIEncpkey flow is not offered.
  */
 const aliceblueLoginHandler = async (c: any) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    if (String(body?.apiSecret || "").trim() && String(body?.appCode || "").trim()) {
-      return await aliceblueVendorStart(c, body);
-    }
-
-
-    const { user, error } = await validateAuth(c);
-    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
-    try { await BrokerRegistry.assertBrokerEnabled("aliceblue"); }
-    catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
-
-    const abUserId = String(body?.userId || body?.clientCode || "").trim().toUpperCase();
-    const apiKey = String(body?.apiKey || "").trim();
-    if (!abUserId || !apiKey) {
-      return c.json({ error: "Enter your Aliceblue User ID with either the App Code + API secret (recommended) or the ANT API key" }, 400);
-    }
-
-    let session;
-    try {
-      session = await aliceblueLogin({ userId: abUserId, apiKey });
-    } catch (e: any) {
-      const msg = e?.message || String(e);
-      await BrokerRouter.saveAliceblueCredentials(user.id, {
-        userId: abUserId, apiKey, lastStatus: "login_failed", lastError: msg,
-      });
-      return c.json({ success: false, error: msg }, 400);
-    }
-
-    const funds = await finalizeAliceblueConnection(user.id, abUserId, {
-      apiKey, authMethod: "api-key", sessionId: session.sessionId,
-    });
-
-    return c.json({
-      success: true,
-      connected: true,
-      clientCode: abUserId,
-      funds,
-      instrumentSync: { started: true },
-    });
+    if (String(body?.apiSecret || "").trim() && String(body?.appCode || "").trim()) return await aliceblueVendorStart(c, body);
+    return c.json({ success: false, error: "Aliceblue v2 requires an approved App Code and API secret. The old retail API-key login is no longer supported by Aliceblue." }, 400);
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
@@ -15038,8 +15018,8 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAliceblueCredentials(user.id);
-    if (!creds?.userId || !(creds?.apiKey || (creds?.apiSecret && creds?.authCode))) {
-      return c.json({ success: false, error: "No saved Aliceblue login. Connect once with your App Code + API secret." }, 400);
+    if (!creds?.userId || !(creds?.apiSecret && creds?.authCode)) {
+      return c.json({ success: false, error: "No valid Aliceblue v2 login. Connect with an approved App Code and API secret." }, 400);
     }
     const refreshed = await BrokerRouter.ensureAliceblueSession(user.id, { force: true });
     if (!refreshed?.sessionId) {
@@ -15050,8 +15030,10 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
       await BrokerRouter.saveAliceblueCredentials(user.id, refreshed);
     }
     const svc = await BrokerRouter.getAliceblueService(user.id);
-    let funds: any = null;
-    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+    if (!svc) return c.json({ success: false, error: "Aliceblue session unavailable" }, 400);
+    const check = await svc.verify();
+    if (!check.ok) return c.json({ success: false, error: check.error || "Aliceblue session is invalid" }, 400);
+    const funds = await svc.getFundLimits();
     await BrokerRouter.setBrokerConnected(user.id, true);
     await BrokerRouter.mirrorAliceblueStatus(user.id, {
       status: "connected",
