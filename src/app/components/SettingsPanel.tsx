@@ -23,6 +23,8 @@ import { FivepaisaConnect } from "./FivepaisaConnect";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
+import { BrokerLogo } from "../brokerLogos";
+
 
 interface SettingsPanelProps {
   serverUrl: string;
@@ -573,38 +575,46 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
                 type="button"
                 disabled={switchingBroker}
                 onClick={() => chooseBroker(b.id)}
-                className="text-left rounded-xl border border-zinc-800 hover:border-emerald-600 bg-zinc-950 p-4 transition-colors disabled:opacity-60"
+                className="group text-left rounded-2xl border border-zinc-800 hover:border-emerald-600 hover:shadow-[0_0_0_1px_rgba(16,185,129,0.25)] bg-zinc-950 p-4 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60"
               >
-                <div className="flex items-center gap-2">
-                  <span className="size-2.5 rounded-full" style={{ backgroundColor: b.color }} />
-                  <span className="font-semibold text-zinc-100">{b.name}</span>
+                <div className="flex items-center gap-3">
+                  <BrokerLogo id={b.id} name={b.name} color={b.color} size={44} />
+                  <div className="min-w-0">
+                    <span className="font-semibold text-zinc-100 block truncate">{b.name}</span>
+                    <p className="text-xs text-zinc-400 mt-0.5 capitalize truncate">
+                      {(b.features || []).join(' · ').replace(/-/g, ' ')}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs text-zinc-400 mt-1 capitalize">
-                  {(b.features || []).join(' · ').replace(/-/g, ' ')}
-                </p>
               </button>
             ))}
           </CardContent>
         </Card>
       ) : (
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-zinc-900 border-zinc-800 overflow-hidden">
           <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Shield className="w-4 h-4 text-emerald-500" />
-              <span className="text-zinc-400">Your broker:</span>
-              <span className="font-semibold text-zinc-100">
-                {enabledBrokers.find((b: any) => b.id === activeBroker)?.name || activeBroker}
-              </span>
-              {brokerAvailability?.[activeBroker] ? (
-
-                <span className="text-emerald-400 text-xs flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> connected
-                </span>
-              ) : (
-                <span className="text-amber-400 text-xs flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" /> not connected yet
-                </span>
-              )}
+            <div className="flex items-center gap-3 min-w-0">
+              <BrokerLogo
+                id={activeBroker}
+                name={enabledBrokers.find((b: any) => b.id === activeBroker)?.name}
+                color={enabledBrokers.find((b: any) => b.id === activeBroker)?.color}
+                size={48}
+              />
+              <div className="min-w-0">
+                <div className="text-xs text-zinc-400">Your broker</div>
+                <div className="font-semibold text-zinc-100 truncate">
+                  {enabledBrokers.find((b: any) => b.id === activeBroker)?.name || activeBroker}
+                </div>
+                {brokerAvailability?.[activeBroker] ? (
+                  <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[11px] text-emerald-400">
+                    <CheckCircle2 className="w-3 h-3" /> Connected
+                  </span>
+                ) : (
+                  <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[11px] text-amber-400">
+                    <AlertTriangle className="w-3 h-3" /> Not connected yet
+                  </span>
+                )}
+              </div>
             </div>
             {enabledBrokers.length > 1 && (
               <Button
@@ -621,7 +631,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       )}
 
       <Dialog open={showSwitchDialog} onOpenChange={setShowSwitchDialog}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Switch broker?</DialogTitle>
             <DialogDescription className="text-zinc-400">
@@ -633,24 +643,31 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
               longer be monitored by this app.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             {enabledBrokers
               .filter((b: any) => b.id !== activeBroker)
               .map((b: any) => (
-                <Button
+                <button
                   key={b.id}
-                  className="bg-rose-600 hover:bg-rose-500 justify-start"
+                  type="button"
                   disabled={switchingBroker}
                   onClick={() => chooseBroker(b.id)}
+                  className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-left transition-all hover:border-rose-500/60 hover:-translate-y-0.5 disabled:opacity-60"
                 >
-                  <span className="size-2.5 rounded-full mr-2" style={{ backgroundColor: b.color }} />
-                  {switchingBroker ? 'Switching…' : `Switch to ${b.name}`}
-                </Button>
+                  <BrokerLogo id={b.id} name={b.name} color={b.color} size={36} />
+                  <span className="min-w-0">
+                    <span className="block font-medium text-zinc-100 truncate">{b.name}</span>
+                    <span className="block text-[11px] text-zinc-500">
+                      {switchingBroker ? 'Switching…' : 'Tap to switch'}
+                    </span>
+                  </span>
+                </button>
               ))}
-            <Button variant="ghost" onClick={() => setShowSwitchDialog(false)}>Cancel</Button>
           </div>
+          <Button variant="ghost" onClick={() => setShowSwitchDialog(false)}>Cancel</Button>
         </DialogContent>
       </Dialog>
+
 
       {activeBroker === 'zerodha' && (
         <ZerodhaConnect
