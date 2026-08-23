@@ -15590,7 +15590,23 @@ async function finalizeFivepaisaConnection(appUserId: string, tok: any) {
 }
 
 /** 5paisa redirects the browser here with ?RequestToken=&State= — public by design. */
-app.get("/make-server-c4d79cb7/broker/5paisa/callback", async (c) => {
+/** Pull a RequestToken out of a raw token, a full redirect URL, or a query string. */
+function extractFivepaisaRequestToken(input: string): string {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (!/[?&=]/.test(raw)) return raw;
+  try {
+    const qs = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : raw;
+    const p = new URLSearchParams(qs);
+    return String(
+      p.get("RequestToken") || p.get("requestToken") || p.get("request_token") || "",
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+const fivepaisaCallbackHandler = async (c: any) => {
   const page = (title: string, color: string, msg: string) =>
     c.html(`<!doctype html><html><head><meta charset="utf-8"><title>5paisa</title></head>
 <body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
@@ -15600,8 +15616,17 @@ app.get("/make-server-c4d79cb7/broker/5paisa/callback", async (c) => {
 </body></html>`);
   try {
     const q = c.req.query();
-    const requestToken = String(q.RequestToken || q.requestToken || q.request_token || "").trim();
-    const state = String(q.State || q.state || "").trim();
+    // 5paisa sends the token as a query param, but some vendor apps POST a form body.
+    let form: Record<string, any> = {};
+    if (c.req.method === "POST") {
+      form = await c.req.parseBody().catch(() => ({}));
+    }
+    const requestToken = String(
+      q.RequestToken || q.requestToken || q.request_token ||
+      form.RequestToken || form.requestToken || form.request_token || "",
+    ).trim();
+
+    const state = String(q.State || q.state || form.State || form.state || "").trim();
     if (!requestToken) {
       return page(
         "5paisa redirect URL is live",
@@ -15657,16 +15682,24 @@ app.get("/make-server-c4d79cb7/broker/5paisa/callback", async (c) => {
 <p style="color:#475569;font-size:12px">Redirect URI used: ${fivepaisaRedirectUri()}</p></div>
 </body></html>`);
   }
-});
+};
 
-/** Fallback — paste the RequestToken from the redirect URL manually. */
+app.get("/make-server-c4d79cb7/broker/5paisa/callback", fivepaisaCallbackHandler);
+app.post("/make-server-c4d79cb7/broker/5paisa/callback", fivepaisaCallbackHandler);
+
+/** Fallback — paste the RequestToken (or the whole redirect URL) manually. */
 app.post("/make-server-c4d79cb7/broker/5paisa/exchange", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
-    const requestToken = String(body?.requestToken || "").trim();
-    if (requestToken.length < 10) return c.json({ success: false, error: "Paste the RequestToken from the redirect URL" }, 400);
+    const requestToken = extractFivepaisaRequestToken(body?.requestToken || body?.url || "");
+    if (requestToken.length < 10) {
+      return c.json({
+        success: false,
+        error: "Paste the RequestToken (or the full redirect URL containing ?RequestToken=…) from the 5paisa login redirect",
+      }, 400);
+    }
     const creds = await BrokerRouter.getFivepaisaCredentials(user.id);
     if (!creds?.appKey || !creds?.encryptionKey || !creds?.userKey) {
       return c.json({ success: false, error: "Save your 5paisa App Key, Encryption Key and User Key first" }, 400);
