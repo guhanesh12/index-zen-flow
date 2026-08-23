@@ -10,17 +10,17 @@ Everything else below is already written so nothing has to be explained again.
 ```
 Integrate a new broker into IndexPilot exactly like Dhan / Zerodha / Groww / Upstox.
 
-BROKER NAME: <<ANGELONE>>
-BROKER ID (lowercase, no spaces): <<angelone>>
+BROKER NAME: <<5paisa>>
+BROKER ID (lowercase, no spaces): <<5paisa>>
 BRAND COLOUR (optional): <<#hex>>
 
 DOCUMENTATION URLS
-- Authentication / login / token: <<https://smartapi.angelbroking.com/docs/User>>
-- Funds / margin / limits:        <<https://smartapi.angelbroking.com/docs/User>>
-- Place order:                    <<https://smartapi.angelbroking.com/docs/Orders>>
-- Order book / order status / cancel: <<https://smartapi.angelbroking.com/docs/Orders>>
-- Positions:                      <<https://smartapi.angelbroking.com/docs/Portfolio>>
-- Instruments / contract master:  <<https://smartapi.angelbroking.com/docs/Instruments>>
+- Authentication / login / token: <<https://xstream.5paisa.com/dev-docs/user-authentication-system/oauth-login>>
+- Funds / margin / limits:        <<https://xstream.5paisa.com/dev-docs/funds-management-system/margin>>
+- Place order:                    <<https://xstream.5paisa.com/dev-docs/order-management-system/place-order>>
+- Order book / order status / cancel: <<hhttps://xstream.5paisa.com/dev-docs/order-management-system/place-order>>
+- Positions:                      <<https://xstream.5paisa.com/dev-docs/portfolio-management-system/netwise-positions>
+- Instruments / contract master:  <<https://xstream.5paisa.com/dev-docs/docFundamentals/scrip-master>>
 - (optional) LTP / quotes:        <<url>>
 
 Follow docs/BROKER_INTEGRATION_PLAYBOOK.md exactly and do ALL of the following,
