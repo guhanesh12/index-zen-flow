@@ -31,27 +31,57 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
 
   const tok = async () => (await getAccessToken()) || accessToken;
 
-  const load = async () => {
+  const [serverConnected, setServerConnected] = useState<boolean | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = async (opts: { quick?: boolean; silent?: boolean } = {}) => {
     try {
-      setLoading(true);
+      if (!opts.silent) setLoading(true);
       const t = await tok();
+      const qs = opts.quick ? '?quick=1' : '';
       const [s, i] = await Promise.all([
-        fetchWithAuth(`${serverUrl}/broker/fyers/status`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
-        fetchWithAuth(`${serverUrl}/broker/fyers/instruments/status`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
+        fetchWithAuth(`${serverUrl}/broker/fyers/status${qs}`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
+        fetchWithAuth(`${serverUrl}/broker/fyers/instruments/status`, { headers: { Authorization: `Bearer ${t}` } })
+          .then((r) => r.json())
+          .catch(() => null),
       ]);
       setStatus(s?.fyers || null);
+      setServerConnected(typeof s?.connected === 'boolean' ? s.connected : null);
       setRedirectUri(s?.redirectUri || s?.fyers?.redirect_uri || '');
-      setInstruments(i || null);
+      if (i) setInstruments(i);
       const bal = s?.liveCheck?.balance ?? s?.balance;
       setBalance(typeof bal === 'number' ? bal : null);
-    } catch (e) {
+      setLoadError(null);
+      return s;
+    } catch (e: any) {
       console.error('fyers status failed', e);
+      setLoadError('Could not reach the broker service. Retrying…');
+      // Retry once with the fast (no live probe) status so a slow broker API
+      // never makes a real connection look disconnected.
+      if (!opts.quick) {
+        try { return await load({ quick: true, silent: true }); } catch { /* ignore */ }
+      }
+      return null;
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
   useEffect(() => { load(); }, [serverUrl]);
+
+  // Poll for a short while after the login window opens, so the card flips to
+  // "connected" even when the callback tab could not message us back.
+  const pollAfterLogin = () => {
+    let tries = 0;
+    const id = setInterval(async () => {
+      tries += 1;
+      const s = await load({ silent: true });
+      if (s?.connected || tries >= 30) {
+        clearInterval(id);
+        if (s?.connected) { toast.success('Fyers connected'); onConnected?.(); }
+      }
+    }, 4000);
+  };
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -64,8 +94,14 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
       }
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    const onFocus = () => load({ silent: true });
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [serverUrl]);
+
 
   const saveKeys = async () => {
     if (appId.trim().length < 5 || appSecret.trim().length < 5) {
@@ -102,7 +138,9 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
       if (!res.ok || !data?.url) throw new Error(data?.error || 'Could not build Fyers login URL');
       const popup = window.open(data.url, 'fyers-login', 'width=520,height=720');
       if (!popup) throw new Error('Popup blocked. Allow popups for IndexPilot and try again.');
-      toast.info('Complete the Fyers login in the new window');
+      toast.info('Complete the Fyers login in the new window — this card updates automatically');
+      pollAfterLogin();
+
     } catch (e: any) {
       toast.error(e.message || 'Fyers login failed');
     } finally {
@@ -131,7 +169,10 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
     }
   };
 
-  const connected = !!status?.access_token_set && status?.last_status === 'connected';
+  const connected =
+    serverConnected === true ||
+    (!!status?.access_token_set && status?.last_status === 'connected');
+
 
   return (
     <Card className="bg-zinc-900 border-zinc-800">
@@ -155,11 +196,27 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {status?.last_error && (
+        {connected && (
+          <Alert className="bg-emerald-950/40 border-emerald-900">
+            <AlertDescription className="text-emerald-300 text-sm">
+              Fyers login is active — funds, positions and orders route through Fyers.
+              {status?.access_token_expiry ? ` Token valid till ${new Date(status.access_token_expiry).toLocaleString('en-IN')}.` : ''}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!connected && loadError && (
+          <Alert className="bg-amber-950/40 border-amber-900">
+            <AlertDescription className="text-amber-300 text-sm">{loadError}</AlertDescription>
+          </Alert>
+        )}
+
+        {!connected && status?.last_error && (
           <Alert className="bg-rose-950/40 border-rose-900">
             <AlertDescription className="text-rose-300 text-sm">{status.last_error}</AlertDescription>
           </Alert>
         )}
+
 
         {redirectUri && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">

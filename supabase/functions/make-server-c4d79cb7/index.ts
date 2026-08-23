@@ -14244,30 +14244,41 @@ app.get("/make-server-c4d79cb7/broker/fyers/status", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getFyersCredentials(user.id);
+    const quick = String(c.req.query("quick") || "") === "1";
     let liveCheck: any = null;
-    if (creds?.accessToken && creds?.appId) {
+    if (!quick && creds?.accessToken && creds?.appId) {
       const svc = new FyersService({
         appId: creds.appId,
         accessToken: creds.accessToken,
         proxy: await BrokerRouter.makeBrokerProxy(user.id, "fyers"),
       });
-      liveCheck = await svc.verify();
-      await BrokerRouter.saveFyersCredentials(user.id, {
-        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
-        lastError: liveCheck.ok ? null : liveCheck.error,
-      } as any);
-      await BrokerRouter.mirrorFyersStatus(user.id, {
-        last_status: liveCheck.ok ? "connected" : "token_invalid",
-        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
-      });
-      if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
-        await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+      // Never let a slow broker/proxy call hang the status request — the UI
+      // would abort and wrongly show "not connected".
+      liveCheck = await withTimeout(svc.verify(), 6000, { ok: null, error: "timeout" } as any);
+      if (liveCheck?.ok !== null) {
+        await BrokerRouter.saveFyersCredentials(user.id, {
+          lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+          lastError: liveCheck.ok ? null : liveCheck.error,
+        } as any);
+        await BrokerRouter.mirrorFyersStatus(user.id, {
+          last_status: liveCheck.ok ? "connected" : "token_invalid",
+          last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+        });
+        if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+          await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+        }
       }
     }
     const refreshed = await BrokerRouter.getFyersCredentials(user.id);
+    const expiry = refreshed?.tokenExpiry ? Date.parse(refreshed.tokenExpiry) : NaN;
+    const tokenValid = !!refreshed?.accessToken && (!Number.isFinite(expiry) || expiry > Date.now());
     return c.json({
       success: true,
       fyers: sanitizeFyers(refreshed),
+      // A saved, unexpired token means the OAuth login succeeded even when the
+      // live probe could not complete in time.
+      connected: liveCheck?.ok === true || (liveCheck?.ok !== false && tokenValid),
+      tokenValid,
       redirectUri: fyersRedirectUri(),
       liveCheck,
       activeBroker: await BrokerRouter.getActiveBroker(user.id),
@@ -14277,6 +14288,7 @@ app.get("/make-server-c4d79cb7/broker/fyers/status", async (c) => {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
 });
+
 
 /** Save the Fyers app id + secret (from myapi.fyers.in → Create App). */
 app.post("/make-server-c4d79cb7/broker/fyers/save-keys", async (c) => {
@@ -14412,7 +14424,7 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
     return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Fyers connected</title></head>
 <body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
 <div style="text-align:center;max-width:420px"><h2 style="color:#34d399">Fyers connected</h2><p style="color:#94a3b8">Funds, positions and orders now route through Fyers.</p></div>
-<script>try{window.opener&&window.opener.postMessage({source:'fyers',ok:true},'*');setTimeout(function(){window.close()},1200)}catch(e){}</script></body></html>`);
+<script>try{if(window.opener){window.opener.postMessage({source:'fyers',ok:true},'*');setTimeout(function(){window.close()},1200)}else{try{localStorage.setItem('fyers_connected_at',String(Date.now()))}catch(e){}setTimeout(function(){window.location.replace('https://indexpilotai.com/dashboard?broker=fyers&connected=1')},1500)}}catch(e){}</script></body></html>`);
   } catch (err: any) {
     const raw = String(err?.message || err);
     const low = raw.toLowerCase();
