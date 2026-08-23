@@ -1,46 +1,40 @@
-# Cost estimate: adding one more broker (full integration)
+# Repair Fyers, Angel One, and Aliceblue integrations
 
-## What "one broker, fully done" means here
+## Goal
+Make each broker authenticate through its supported official flow and provide the same core experience as Dhan: connection status, funds, positions, instrument mapping, order placement, exits, and active-broker routing. Existing Dhan behavior will remain unchanged.
 
-Based on how Zerodha Kite was built, a complete broker means all of this:
+## Implementation
 
-1. Broker service module (login/session, profile, funds, place order, order status, cancel, positions, LTP/quotes)
-2. Router wiring (order / funds / positions / exit / LTP routed by the user's active broker)
-3. Instrument sync (download the broker's contract dump, map NIFTY / BANKNIFTY / SENSEX near expiries into `instrument_master`)
-4. Registry entry + admin ON/OFF toggle + landing page auto-listing
-5. VPS static-IP order path (broker-specific endpoint or the generic `/broker-request` proxy)
-6. UI: broker chooser, login/connect card, connected status, funds/positions on dashboard
-7. Testing, error handling, token-expiry alerts, redeploy
+1. **Fyers OAuth v3**
+   - Correct the authorize URL, callback parameter handling, app ID formatting, token exchange payload, redirect URI matching, and popup completion messaging.
+   - Validate the token against the profile/funds API before marking the broker connected.
+   - Handle daily token expiry clearly and preserve saved app credentials for the next login.
+   - Verify funds, positions, instrument symbols, order placement/status/cancel, and static-IP proxy routing use the correct Fyers v3 host and authorization format.
 
-## Reference: how big Zerodha actually was
+2. **Angel One SmartAPI**
+   - Correct Client Code + MPIN + TOTP authentication, including normalized Base32 TOTP secrets, broker error parsing, and required SmartAPI headers.
+   - Derive token validity from the returned JWT rather than assuming a fixed lifetime; refresh/re-login only when needed.
+   - Verify funds, positions, orders, instrument tokens, and static-IP routing against the SmartAPI endpoints.
+   - Improve UI validation and display exact actionable errors without exposing secrets.
 
-- `kite_service.tsx` — 340 lines
-- `broker_router.tsx` — 493 lines (shared, now reusable)
-- `kite_instruments.tsx` — 223 lines
-- `broker_registry.tsx` — 133 lines (shared, now reusable)
-- ~106 Kite-related lines in `index.ts`, plus UI changes in Settings, Dashboard, Admin, Landing
+3. **Aliceblue ANT API**
+   - Restore the normal retail User ID + API Key login as the primary path.
+   - Keep vendor App Code authentication as a separate optional flow so retail API keys are never sent as vendor keys.
+   - Correct session creation, authorization headers, status persistence, funds, positions, order payloads, and static-IP routing.
+   - Update the broker card to clearly separate Retail API Key and Vendor App login modes.
 
-## Credit estimate for the NEXT broker
+4. **Shared broker behavior**
+   - Ensure selecting any of the three brokers does not destroy credentials needed to finish its login flow.
+   - Mark a broker connected only after a live broker API check succeeds.
+   - Keep active broker, dashboard funds/positions, instrument sync, engine order placement, manual exits, and disconnect state consistent.
+   - Add safe callback/popup notifications and useful status errors for all three integrations.
 
-The heavy shared plumbing (router, registry, VPS proxy, broker-agnostic UI, RN contract) already exists, so broker #3 is cheaper than Zerodha was.
+5. **Verification**
+   - Run focused tests for URL generation, auth exchanges/error parsing, token validity, broker routing, and order payload mapping using mocked broker responses.
+   - Check the build, edge-function tests, and browser UI for all three connection cards.
+   - No real order will be placed during verification; live credential acceptance still requires valid credentials and matching redirect/static-IP settings in each broker portal.
 
-| Phase | Work | Credits |
-|---|---|---|
-| 1 | Broker service module (auth + funds + orders + positions + quotes) | 8 – 12 |
-| 2 | Router + endpoint wiring + registry/catalog entry | 4 – 6 |
-| 3 | Instrument sync + DB mapping migration | 5 – 8 |
-| 4 | VPS static-IP order path support | 3 – 5 |
-| 5 | UI (connect card, status, funds/positions, admin toggle, landing) | 4 – 6 |
-| 6 | Live testing, error/token-expiry handling, fixes, redeploys | 6 – 10 |
-
-**Total: roughly 30 – 47 credits, typical ~35.**
-
-Notes on the range:
-- Low end (~30): broker has clean REST docs and a Kite/Dhan-style token flow.
-- High end (~47+): OAuth quirks, binary/websocket-only feeds, odd tradingsymbol format, or an instrument dump needing custom parsing.
-- Debugging against a live broker account during market hours is the least predictable part — it is usually where the extra credits go.
-- If the same broker also needs RN app doc updates, add 2 – 3 credits.
-
-## Next step
-
-If you tell me which broker is next (Angel One, Upstox, Fyers, 5paisa, ICICI Direct...), I will read its API docs and give a tighter number plus a build plan for that specific broker.
+## Technical notes
+- Credentials and tokens remain server-side in the existing encrypted/project credential store; the browser only sends them to authenticated edge routes.
+- Official authentication flows differ: Fyers uses OAuth authorization code, Angel One uses MPIN plus TOTP, and Aliceblue retail uses User ID plus API Key while its vendor flow requires an approved vendor App Code.
+- Changes are limited to these three broker integrations and shared routing needed for them; Dhan and other broker implementations will not be refactored.
