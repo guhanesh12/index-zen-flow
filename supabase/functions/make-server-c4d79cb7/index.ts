@@ -14783,7 +14783,7 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const creds = await BrokerRouter.getAliceblueCredentials(user.id);
-    const savedCredentials = !!(creds?.userId && (creds?.apiKey || (creds?.apiSecret && creds?.authCode)));
+    const savedCredentials = !!(creds?.apiSecret && (creds?.appCode || creds?.authCode) && creds?.userId);
     let liveCheck: any = null;
 
     if (savedCredentials) {
@@ -14925,16 +14925,24 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
   }
 
   try {
-    const pending = (await kv.get(`aliceblue_pending:${abUserId}`)) as any;
+    // Aliceblue only issues an App Code + API secret; the userId arrives here on
+    // the redirect. Resolve the pending login by userId when we already know it,
+    // otherwise fall back to the most recent pending login (20 min window).
+    let pending = (await kv.get(`aliceblue_pending:${abUserId}`)) as any;
+    if (!pending?.appUserId) {
+      const last = (await kv.get("aliceblue_pending_last")) as any;
+      if (last?.appUserId && Date.now() - new Date(last.at || 0).getTime() < 20 * 60_000) pending = last;
+    }
     if (!pending?.appUserId) {
       return c.html(abPage("Login session not found", "#f87171",
         "Start the connection again from IndexPilot &rarr; Broker Setup &rarr; Aliceblue."));
     }
     const creds = await BrokerRouter.getAliceblueCredentials(pending.appUserId);
-    const apiSecret = String(creds?.apiSecret || pending.apiSecret || "");
+    const apiSecret = String(pending.apiSecret || creds?.apiSecret || "");
     if (!apiSecret) {
       return c.html(abPage("API secret missing", "#f87171", "Re-enter your App Code and API secret in IndexPilot and try again."));
     }
+
 
     const session = await aliceblueVendorSession({ userId: abUserId, authCode, apiSecret });
     await finalizeAliceblueConnection(pending.appUserId, session.clientId || abUserId, {
@@ -14944,7 +14952,9 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
       authMethod: "vendor",
       sessionId: session.sessionId,
     });
-    await kv.del(`aliceblue_pending:${abUserId}`);
+    try { await kv.del(`aliceblue_pending:${abUserId}`); } catch { /* ignore */ }
+    try { await kv.del("aliceblue_pending_last"); } catch { /* ignore */ }
+
     return c.html(abPage("Aliceblue connected", "#34d399", "You can close this window and return to IndexPilot."));
   } catch (e: any) {
     return c.html(abPage("Aliceblue login failed", "#f87171", String(e?.message || e)));
@@ -14954,6 +14964,9 @@ app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
 /**
  * Start the vendor login: saves App Code + API secret and returns the Aliceblue
  * login URL (https://ant.aliceblueonline.com/?appcode=...).
+ *
+ * Per the ANT docs the trader only receives an App Code + API secret; the
+ * Aliceblue User ID comes back on the redirect, so it is optional here.
  */
 const aliceblueVendorStart = async (c: any, preBody?: any) => {
   const { user, error } = await validateAuth(c);
@@ -14965,16 +14978,18 @@ const aliceblueVendorStart = async (c: any, preBody?: any) => {
   const abUserId = String(body?.userId || body?.clientCode || "").trim().toUpperCase();
   const appCode = String(body?.appCode || "").trim();
   const apiSecret = String(body?.apiSecret || "").trim();
-  if (!abUserId || !appCode || !apiSecret) {
-    return c.json({ success: false, error: "Aliceblue User ID, App Code and API secret are required" }, 400);
+  if (!appCode || !apiSecret) {
+    return c.json({ success: false, error: "Aliceblue App Code and API secret are required" }, 400);
   }
 
   await BrokerRouter.saveAliceblueCredentials(user.id, {
-    userId: abUserId, appCode, apiSecret, authMethod: "vendor", lastStatus: "pending_login", lastError: null,
+    ...(abUserId ? { userId: abUserId } : {}),
+    appCode, apiSecret, authMethod: "vendor", lastStatus: "pending_login", lastError: null,
   });
-  await kv.set(`aliceblue_pending:${abUserId}`, {
-    appUserId: user.id, appCode, apiSecret, at: new Date().toISOString(),
-  });
+  const pending = { appUserId: user.id, appCode, apiSecret, at: new Date().toISOString() };
+  if (abUserId) await kv.set(`aliceblue_pending:${abUserId}`, pending);
+  await kv.set("aliceblue_pending_last", pending);
+
 
   return c.json({ success: true, loginUrl: aliceblueAuthUrl(appCode), requiresLogin: true });
 };

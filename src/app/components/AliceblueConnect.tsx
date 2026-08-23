@@ -110,18 +110,19 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
 
   /** Step 1 — save App Code + API secret, then open the Aliceblue login page. */
   const connect = async () => {
-    if (!userId.trim() || !appCode.trim() || apiSecret.trim().length < 5) {
-      return toast.error('Enter your Aliceblue User ID, App Code and API secret');
+    if (!appCode.trim() || apiSecret.trim().length < 5) {
+      return toast.error('Enter your Aliceblue App Code and API secret');
     }
     try {
       setBusy(true);
       const { res, data } = await call('/broker/aliceblue/vendor-start', {
         method: 'POST',
         body: JSON.stringify({
-          userId: userId.trim().toUpperCase(),
+          ...(userId.trim() ? { userId: userId.trim().toUpperCase() } : {}),
           appCode: appCode.trim(),
           apiSecret: apiSecret.trim(),
         }),
+
       });
       if (!res.ok || !data?.success || !data?.loginUrl) throw new Error(data?.error || 'Could not start Aliceblue login');
       setAwaitingLogin(true);
@@ -230,10 +231,11 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="ab-userid" className="text-zinc-300">Aliceblue User ID</Label>
+          <Label htmlFor="ab-userid" className="text-zinc-300">Aliceblue User ID (optional)</Label>
           <Input id="ab-userid" value={userId} onChange={(e) => setUserId(e.target.value.toUpperCase())}
-            placeholder="e.g. AB1234" className="bg-zinc-950 border-zinc-800" />
+            placeholder="auto-filled after login (e.g. AB1234)" className="bg-zinc-950 border-zinc-800" />
         </div>
+
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
