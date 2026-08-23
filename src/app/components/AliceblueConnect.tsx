@@ -231,10 +231,11 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="ab-userid" className="text-zinc-300">Aliceblue User ID</Label>
+          <Label htmlFor="ab-userid" className="text-zinc-300">Aliceblue User ID (optional)</Label>
           <Input id="ab-userid" value={userId} onChange={(e) => setUserId(e.target.value.toUpperCase())}
-            placeholder="e.g. AB1234" className="bg-zinc-950 border-zinc-800" />
+            placeholder="auto-filled after login (e.g. AB1234)" className="bg-zinc-950 border-zinc-800" />
         </div>
+
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
