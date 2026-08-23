@@ -676,6 +676,10 @@ export type Database = {
           angelone_tradingsymbol: string | null
           exchange_segment: string
           expiry_date: string
+          fivepaisa_exchange: string | null
+          fivepaisa_scrip_code: string | null
+          fivepaisa_scrip_data: string | null
+          fivepaisa_synced_at: string | null
           fyers_exchange: string | null
           fyers_symbol: string | null
           fyers_synced_at: string | null
@@ -713,6 +717,10 @@ export type Database = {
           angelone_tradingsymbol?: string | null
           exchange_segment: string
           expiry_date: string
+          fivepaisa_exchange?: string | null
+          fivepaisa_scrip_code?: string | null
+          fivepaisa_scrip_data?: string | null
+          fivepaisa_synced_at?: string | null
           fyers_exchange?: string | null
           fyers_symbol?: string | null
           fyers_synced_at?: string | null
@@ -750,6 +758,10 @@ export type Database = {
           angelone_tradingsymbol?: string | null
           exchange_segment?: string
           expiry_date?: string
+          fivepaisa_exchange?: string | null
+          fivepaisa_scrip_code?: string | null
+          fivepaisa_scrip_data?: string | null
+          fivepaisa_synced_at?: string | null
           fyers_exchange?: string | null
           fyers_symbol?: string | null
           fyers_synced_at?: string | null
@@ -1807,6 +1819,13 @@ export type Database = {
         }[]
       }
       apply_angelone_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
+      apply_fivepaisa_instruments: {
         Args: { _rows: Json }
         Returns: {
           inserted_count: number
