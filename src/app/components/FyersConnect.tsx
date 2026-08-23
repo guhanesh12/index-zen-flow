@@ -31,27 +31,57 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
 
   const tok = async () => (await getAccessToken()) || accessToken;
 
-  const load = async () => {
+  const [serverConnected, setServerConnected] = useState<boolean | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = async (opts: { quick?: boolean; silent?: boolean } = {}) => {
     try {
-      setLoading(true);
+      if (!opts.silent) setLoading(true);
       const t = await tok();
+      const qs = opts.quick ? '?quick=1' : '';
       const [s, i] = await Promise.all([
-        fetchWithAuth(`${serverUrl}/broker/fyers/status`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
-        fetchWithAuth(`${serverUrl}/broker/fyers/instruments/status`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
+        fetchWithAuth(`${serverUrl}/broker/fyers/status${qs}`, { headers: { Authorization: `Bearer ${t}` } }).then((r) => r.json()),
+        fetchWithAuth(`${serverUrl}/broker/fyers/instruments/status`, { headers: { Authorization: `Bearer ${t}` } })
+          .then((r) => r.json())
+          .catch(() => null),
       ]);
       setStatus(s?.fyers || null);
+      setServerConnected(typeof s?.connected === 'boolean' ? s.connected : null);
       setRedirectUri(s?.redirectUri || s?.fyers?.redirect_uri || '');
-      setInstruments(i || null);
+      if (i) setInstruments(i);
       const bal = s?.liveCheck?.balance ?? s?.balance;
       setBalance(typeof bal === 'number' ? bal : null);
-    } catch (e) {
+      setLoadError(null);
+      return s;
+    } catch (e: any) {
       console.error('fyers status failed', e);
+      setLoadError('Could not reach the broker service. Retrying…');
+      // Retry once with the fast (no live probe) status so a slow broker API
+      // never makes a real connection look disconnected.
+      if (!opts.quick) {
+        try { return await load({ quick: true, silent: true }); } catch { /* ignore */ }
+      }
+      return null;
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   };
 
   useEffect(() => { load(); }, [serverUrl]);
+
+  // Poll for a short while after the login window opens, so the card flips to
+  // "connected" even when the callback tab could not message us back.
+  const pollAfterLogin = () => {
+    let tries = 0;
+    const id = setInterval(async () => {
+      tries += 1;
+      const s = await load({ silent: true });
+      if (s?.connected || tries >= 30) {
+        clearInterval(id);
+        if (s?.connected) { toast.success('Fyers connected'); onConnected?.(); }
+      }
+    }, 4000);
+  };
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -64,8 +94,14 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
       }
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    const onFocus = () => load({ silent: true });
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [serverUrl]);
+
 
   const saveKeys = async () => {
     if (appId.trim().length < 5 || appSecret.trim().length < 5) {
