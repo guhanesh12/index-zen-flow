@@ -169,7 +169,10 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
     }
   };
 
-  const connected = !!status?.access_token_set && status?.last_status === 'connected';
+  const connected =
+    serverConnected === true ||
+    (!!status?.access_token_set && status?.last_status === 'connected');
+
 
   return (
     <Card className="bg-zinc-900 border-zinc-800">
