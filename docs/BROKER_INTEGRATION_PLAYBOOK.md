@@ -238,3 +238,40 @@ via `apply_aliceblue_instruments()`, cached once per IST day. Sync always runs t
 `loadEngineCredentials()` + `getPositionsSmart()` / `placeOrderSmart()`.
 
 **Endpoints** — `/broker/aliceblue/{status,login,save-keys,reconnect,verify,disconnect,callback,postback,instruments/status,instruments/sync}`.
+
+---
+
+## 5paisa — what is live now
+
+**Broker ID:** `5paisa` (user-facing + `profiles.active_broker` + KV).
+**Internal SQL prefix:** `fivepaisa_` — Postgres identifiers cannot start with a digit.
+
+| Piece | Location |
+| --- | --- |
+| DB mapping | `instrument_master.fivepaisa_scrip_code / fivepaisa_scrip_data / fivepaisa_exchange / fivepaisa_synced_at` |
+| Merge RPC | `public.apply_fivepaisa_instruments(_rows jsonb)` (service_role only) |
+| Service | `supabase/functions/make-server-c4d79cb7/fivepaisa_service.tsx` |
+| Instruments | `supabase/functions/make-server-c4d79cb7/fivepaisa_instruments.tsx` |
+| Router | `broker_router.tsx` — `fivepaisa_credentials:<userId>` in KV, `getFivepaisaService()`, `resolveFivepaisaSymbol()`, branches in all `*Smart` helpers |
+| Registry | `broker_registry.tsx` → `{ id: "5paisa", status: "live", color: "#e11d48" }` |
+| Endpoints | `/broker/5paisa/status · save-keys · login-url · callback · exchange · verify · disconnect · instruments/status · instruments/sync` |
+| UI | `src/app/components/FivepaisaConnect.tsx`, rendered by `SettingsPanel.tsx` |
+
+**Auth (Xstream OAuth):** save App Key (Vendor Key) + Encryption Key + User Key →
+`https://dev-openapi.5paisa.com/WebVendorLogin/VLogin/Index?VendorKey=…&ResponseURL=…&State=…`
+→ redirect carries `?RequestToken=` → `POST /GetAccessToken { head:{Key}, body:{RequestToken, EncryKey, UserId} }`
+→ daily bearer token that expires at **11:59 PM IST**.
+
+**Redirect URI (register this exact string in the 5paisa developer portal):**
+`https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/5paisa/callback`
+
+**APIs used:** `/V4/Margin` (funds), `/V1/PlaceOrderRequest` (MARKET + DAY, `OrderType` B/S,
+`IsIntraday` from the Dhan product type, `RemoteOrderID` generated per order), `/V3/OrderStatus`
+and `/V3/OrderBook` (status), `/V1/CancelOrderRequest` (by `ExchOrderID`), `/V3/NetPositionNetWise`
+(positions mapped into the Dhan shape), `/MarketFeed` (LTP fallback),
+`ScripMaster/segment/{nse_fo|bse_fo}` (daily contract dump, streamed, NIFTY/BANKNIFTY/SENSEX,
+nearest 2 expiries, cached once per IST day for all users).
+
+Every call goes through `makeBrokerProxy(userId, "5paisa", FIVEPAISA_API)` (the user's static-IP
+VPS `/broker-request`) with a direct-API fallback. `persistent_engine.tsx` falls back to the
+central market-data credentials for candles/LTP when 5paisa is the active broker.
