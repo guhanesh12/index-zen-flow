@@ -229,7 +229,8 @@ export async function getAngelOneService(userId: string): Promise<AngelOneServic
   const creds = await ensureAngelOneSession(userId);
   if (!creds?.jwtToken || !creds?.apiKey) return null;
   const proxy = await makeBrokerProxy(userId, "angelone", ANGELONE_API);
-  return new AngelOneService({ apiKey: creds.apiKey, jwtToken: creds.jwtToken, proxy });
+  const publicIp = await getUserOrderPlacementIP(userId).then((v) => v.ipAddress).catch(() => undefined);
+  return new AngelOneService({ apiKey: creds.apiKey, jwtToken: creds.jwtToken, proxy, publicIp });
 }
 
 /** Non-secret mirror so the Broker screen can show Angel One status. */
