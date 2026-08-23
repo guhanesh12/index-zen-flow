@@ -65,6 +65,17 @@ export function aliceblueAuthUrl(appCode: string): string {
   return `${ALICEBLUE_LOGIN_BASE}${encodeURIComponent(String(appCode || "").trim())}`;
 }
 
+export function aliceblueTokenExpiry(sessionId: string): string | null {
+  try {
+    const payload = String(sessionId).split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")));
+    const exp = Number(decoded?.exp);
+    return Number.isFinite(exp) ? new Date(exp * 1000).toISOString() : null;
+  } catch { return null; }
+}
+
 /**
  * Vendor (App Code) session exchange.
  *   checkSum = SHA256(userId + authCode + apiSecret)
@@ -307,20 +318,10 @@ export class AliceblueService {
       .filter((p) => p.netQty !== 0 || p.buyQty > 0);
   }
 
-  // ── LIVE DATA ───────────────────────────────────────────────
-  /** LTP for one contract token (POST /api/ScripDetails/getScripQuoteDetails). */
+  // Live prices are supplied by IndexPilot's centralized market-data service.
   async getLastPrice(exchange: string, symbolToken: string): Promise<number | null> {
-    try {
-      const d = await this.request("/api/ScripDetails/getScripQuoteDetails", {
-        method: "POST",
-        headers: this.headers({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ exch: exchange || "NFO", symbol: String(symbolToken) }),
-      });
-      const row = Array.isArray(d) ? d[0] : d;
-      const n = Number(row?.LTP ?? row?.Ltp ?? row?.ltp);
-      return isFinite(n) && n > 0 ? n : null;
-    } catch {
-      return null;
-    }
+    void exchange;
+    void symbolToken;
+    return null;
   }
 }

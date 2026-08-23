@@ -37,7 +37,7 @@ import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode, fyersTokenExpi
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
 import { AngelOneService, ANGELONE_API, angeloneLogin, angeloneTokenExpiry } from "./angelone_service.tsx";
 import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
-import { AliceblueService, ALICEBLUE_API, aliceblueLogin, aliceblueVendorSession, aliceblueAuthUrl } from "./aliceblue_service.tsx";
+import { AliceblueService, ALICEBLUE_API, aliceblueVendorSession, aliceblueAuthUrl, aliceblueTokenExpiry } from "./aliceblue_service.tsx";
 import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
 
 
@@ -14849,6 +14849,7 @@ async function finalizeAliceblueConnection(appUserId: string, abUserId: string, 
   await BrokerRouter.saveAliceblueCredentials(appUserId, {
     userId: abUserId,
     sessionDate: new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10),
+    tokenExpiry: patch?.sessionId ? aliceblueTokenExpiry(String(patch.sessionId)) : null,
     lastStatus: "connected",
     lastError: null,
     ...patch,
@@ -14997,51 +14998,14 @@ app.post("/make-server-c4d79cb7/broker/aliceblue/exchange", async (c) => {
 });
 
 /**
- * Connect handler.
- *  • App Code + API secret  → vendor OAuth flow (returns loginUrl)
- *  • User ID + API key      → legacy direct ANT login
+ * Connect handler. Aliceblue's current v2 API requires the approved vendor
+ * App Code flow; the deprecated retail getAPIEncpkey flow is not offered.
  */
 const aliceblueLoginHandler = async (c: any) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    if (String(body?.apiSecret || "").trim() && String(body?.appCode || "").trim()) {
-      return await aliceblueVendorStart(c, body);
-    }
-
-
-    const { user, error } = await validateAuth(c);
-    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
-    try { await BrokerRegistry.assertBrokerEnabled("aliceblue"); }
-    catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
-
-    const abUserId = String(body?.userId || body?.clientCode || "").trim().toUpperCase();
-    const apiKey = String(body?.apiKey || "").trim();
-    if (!abUserId || !apiKey) {
-      return c.json({ error: "Enter your Aliceblue User ID with either the App Code + API secret (recommended) or the ANT API key" }, 400);
-    }
-
-    let session;
-    try {
-      session = await aliceblueLogin({ userId: abUserId, apiKey });
-    } catch (e: any) {
-      const msg = e?.message || String(e);
-      await BrokerRouter.saveAliceblueCredentials(user.id, {
-        userId: abUserId, apiKey, lastStatus: "login_failed", lastError: msg,
-      });
-      return c.json({ success: false, error: msg }, 400);
-    }
-
-    const funds = await finalizeAliceblueConnection(user.id, abUserId, {
-      apiKey, authMethod: "api-key", sessionId: session.sessionId,
-    });
-
-    return c.json({
-      success: true,
-      connected: true,
-      clientCode: abUserId,
-      funds,
-      instrumentSync: { started: true },
-    });
+    if (String(body?.apiSecret || "").trim() && String(body?.appCode || "").trim()) return await aliceblueVendorStart(c, body);
+    return c.json({ success: false, error: "Aliceblue v2 requires an approved App Code and API secret. The old retail API-key login is no longer supported by Aliceblue." }, 400);
   } catch (err: any) {
     return c.json({ success: false, error: err?.message || String(err) }, 500);
   }

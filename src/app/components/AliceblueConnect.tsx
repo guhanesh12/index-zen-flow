@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from './ui/alert';
 import { CheckCircle2, AlertTriangle, RefreshCw, Key, Download, Copy, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchWithAuth, getAccessToken } from '../utils/apiClient';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 interface AliceblueConnectProps {
   serverUrl: string;
@@ -19,21 +18,18 @@ interface AliceblueConnectProps {
 /**
  * 🔷 Aliceblue connect card (ANT API v2).
  * Docs: https://v2api.aliceblueonline.com/
- * Login is User ID + API key (no OAuth) — credentials are stored once and the
- * daily session is minted automatically every morning.
+ * Login uses Aliceblue's current App Code vendor authorization flow.
  */
 export function AliceblueConnect({ serverUrl, accessToken, onConnected }: AliceblueConnectProps) {
   const [userId, setUserId] = useState('');
   const [appCode, setAppCode] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [authCode, setAuthCode] = useState('');
-  const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState<any>(null);
   const [instruments, setInstruments] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [awaitingLogin, setAwaitingLogin] = useState(false);
-  const [authMode, setAuthMode] = useState<'retail' | 'vendor'>('retail');
   const pollRef = useRef<any>(null);
 
   const tok = async () => {
@@ -138,27 +134,6 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
     }
   };
 
-  const connectRetail = async () => {
-    if (!userId.trim() || apiKey.trim().length < 5) {
-      return toast.error('Enter your Aliceblue User ID and ANT API key');
-    }
-    try {
-      setBusy(true);
-      const { res, data } = await call('/broker/aliceblue/login', {
-        method: 'POST',
-        body: JSON.stringify({ userId: userId.trim().toUpperCase(), apiKey: apiKey.trim() }),
-      });
-      if (!res.ok || !data?.success) throw new Error(data?.error || 'Aliceblue login failed');
-      setApiKey('');
-      toast.success('Aliceblue connected');
-      await load();
-      onConnected?.();
-    } catch (e: any) {
-      toast.error(e?.name === 'AbortError' ? 'Aliceblue did not respond in time. Try again.' : (e.message || 'Aliceblue login failed'));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   /** Fallback — paste the authCode from the redirect URL manually. */
   const exchange = async () => {
@@ -227,7 +202,7 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
           )}
         </CardTitle>
         <CardDescription className="text-zinc-400">
-          Retail users connect with User ID + ANT API key. Approved Aliceblue vendors can use the separate App Code flow.
+          Connect with an Aliceblue-approved App Code and API secret. Funds, positions, and orders use the current ANT v2 API.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -260,24 +235,6 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
             placeholder="e.g. AB1234" className="bg-zinc-950 border-zinc-800" />
         </div>
 
-        <Tabs value={authMode} onValueChange={(value) => setAuthMode(value as 'retail' | 'vendor')}>
-          <TabsList className="grid grid-cols-2">
-            <TabsTrigger value="retail">Retail API key</TabsTrigger>
-            <TabsTrigger value="vendor">Vendor App Code</TabsTrigger>
-          </TabsList>
-          <TabsContent value="retail" className="space-y-3 pt-2">
-            <div className="space-y-2">
-              <Label htmlFor="ab-apikey" className="text-zinc-300">ANT API Key</Label>
-              <Input id="ab-apikey" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-                placeholder={status?.apiKeyMasked ? `saved ${status.apiKeyMasked}` : 'API key from ANT Apps'}
-                className="bg-zinc-950 border-zinc-800" autoComplete="new-password" />
-            </div>
-            <Button onClick={connectRetail} disabled={busy} className="bg-blue-600 hover:bg-blue-500">
-              {busy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Key className="w-4 h-4 mr-2" />}
-              Connect Aliceblue
-            </Button>
-          </TabsContent>
-          <TabsContent value="vendor" className="space-y-3 pt-2">
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="ab-appcode" className="text-zinc-300">App Code</Label>
@@ -352,8 +309,6 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
             </Button>
           )}
         </div>
-          </TabsContent>
-        </Tabs>
 
         {connected && typeof status?.balance === 'number' && (
           <Alert className="bg-emerald-950/40 border-emerald-900">

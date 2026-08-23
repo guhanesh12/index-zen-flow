@@ -54,8 +54,8 @@ import {
   ALICEBLUE_API,
   aliceblueExchangeFromSegment,
   aliceblueProductFromDhan,
-  aliceblueLogin,
   aliceblueVendorSession,
+  aliceblueTokenExpiry,
 } from "./aliceblue_service.tsx";
 import { ensureAliceblueInstruments } from "./aliceblue_instruments.tsx";
 
@@ -328,6 +328,7 @@ export interface AliceblueStoredCreds {
   sessionId?: string;          // session / userSession (bearer token)
   sessionDate?: string;        // IST date the session was minted for
   authMethod?: "vendor" | "api-key";
+  tokenExpiry?: string | null;
   aliceblueName?: string;
   lastStatus?: string;
   lastError?: string | null;
@@ -368,10 +369,10 @@ export async function ensureAliceblueSession(
   if (!creds?.userId) return null;
 
   const vendor = !!(creds.apiSecret && creds.authCode);
-  if (!vendor && !creds.apiKey) return creds.sessionId ? creds : null;
+  if (!vendor) return null;
 
-  // Vendor sessions live for weeks — only re-exchange when forced or missing.
-  if (creds.sessionId && !opts.force && (vendor || creds.sessionDate === istToday())) return creds;
+  const expired = creds.tokenExpiry ? Date.parse(creds.tokenExpiry) <= Date.now() + 60_000 : false;
+  if (creds.sessionId && !expired && !opts.force) return creds;
 
   try {
     if (vendor) {
@@ -382,20 +383,14 @@ export async function ensureAliceblueSession(
       });
       return await saveAliceblueCredentials(userId, {
         sessionId: session.sessionId,
+        tokenExpiry: aliceblueTokenExpiry(session.sessionId),
         sessionDate: istToday(),
         authMethod: "vendor",
         lastStatus: "connected",
         lastError: null,
       });
     }
-    const session = await aliceblueLogin({ userId: creds.userId, apiKey: creds.apiKey! });
-    return await saveAliceblueCredentials(userId, {
-      sessionId: session.sessionId,
-      sessionDate: istToday(),
-      authMethod: "api-key",
-      lastStatus: "connected",
-      lastError: null,
-    });
+    return null;
   } catch (e: any) {
     const msg = e?.message || String(e);
     console.error("[ALICEBLUE] auto re-login failed:", msg);
