@@ -4,6 +4,7 @@ declare const EdgeRuntime: { waitUntil?: (promise: Promise<any>) => void } | und
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
+import { z } from "npm:zod@3.25.76";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { DhanService } from "./dhan_service.tsx";
@@ -14589,7 +14590,7 @@ app.post("/make-server-c4d79cb7/broker/angelone/postback", async (c) => {
   return c.json({ status: "ok" });
 });
 
-// --- POST angelone login (apiKey + clientCode + mpin + totp secret) --------
+// --- POST angelone login (apiKey + clientCode + mpin + TOTP code/secret) ----
 app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
   try {
     const { user, error } = await validateAuth(c);
@@ -14598,15 +14599,27 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
     catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
 
     const body = await c.req.json().catch(() => ({}));
-    const apiKey = String(body?.apiKey || "").trim();
-    const clientCode = String(body?.clientCode || "").trim().toUpperCase();
-    const password = String(body?.password ?? body?.mpin ?? "").trim();
-    const totpSecret = String(body?.totpSecret || "").replace(/\s+/g, "").toUpperCase();
-    const totp = String(body?.totp || "").trim();
-
-    if (!apiKey || !clientCode || !password || (!totpSecret && !totp)) {
-      return c.json({ error: "apiKey, clientCode, mpin/password and totpSecret (or totp) are required" }, 400);
+    const loginSchema = z.object({
+      apiKey: z.string().trim().min(5, "Enter your SmartAPI Trading API Key").max(128),
+      clientCode: z.string().trim().min(3, "Enter your Angel One Client Code").max(32).regex(/^[A-Za-z0-9]+$/, "Angel One Client Code contains invalid characters"),
+      password: z.string().trim().min(4, "Enter your Angel One MPIN / password").max(128),
+      totp: z.string().max(32).optional().default("").transform((value) => value.replace(/\s+/g, "")),
+      totpSecret: z.string().max(128).optional().default("").transform((value) => value.toUpperCase().replace(/[\s=-]/g, "")),
+    }).superRefine((value, ctx) => {
+      if (!value.totp && !value.totpSecret) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totp"], message: "Enter the current 6-digit TOTP code or your Base32 TOTP secret" });
+      } else if (value.totp && !/^\d{6}$/.test(value.totp)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totp"], message: "TOTP code must contain exactly 6 digits" });
+      } else if (value.totpSecret && (value.totpSecret.length < 8 || !/^[A-Z2-7]+$/.test(value.totpSecret))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totpSecret"], message: "TOTP secret must be a valid Base32 key from SmartAPI" });
+      }
+    });
+    const parsed = loginSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ success: false, error: parsed.error.issues[0]?.message || "Invalid Angel One login details" }, 400);
     }
+    const { apiKey, password, totp, totpSecret } = parsed.data;
+    const clientCode = parsed.data.clientCode.toUpperCase();
 
     let session;
     try {
