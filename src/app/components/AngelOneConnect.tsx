@@ -361,7 +361,6 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
               value={totpValue}
               onChange={(e) => setTotpValue(e.target.value)}
               placeholder="6-digit code or Base32 secret"
-              inputMode="numeric"
               autoComplete="new-password"
             />
           </div>

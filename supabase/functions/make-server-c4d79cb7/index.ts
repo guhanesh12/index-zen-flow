@@ -14603,8 +14603,8 @@ app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
       apiKey: z.string().trim().min(5, "Enter your SmartAPI Trading API Key").max(128),
       clientCode: z.string().trim().min(3, "Enter your Angel One Client Code").max(32).regex(/^[A-Za-z0-9]+$/, "Angel One Client Code contains invalid characters"),
       password: z.string().trim().min(4, "Enter your Angel One MPIN / password").max(128),
-      totp: z.string().optional().default("").transform((value) => value.replace(/\s+/g, "")),
-      totpSecret: z.string().optional().default("").transform((value) => value.toUpperCase().replace(/[\s=-]/g, "")),
+      totp: z.string().max(32).optional().default("").transform((value) => value.replace(/\s+/g, "")),
+      totpSecret: z.string().max(128).optional().default("").transform((value) => value.toUpperCase().replace(/[\s=-]/g, "")),
     }).superRefine((value, ctx) => {
       if (!value.totp && !value.totpSecret) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totp"], message: "Enter the current 6-digit TOTP code or your Base32 TOTP secret" });
