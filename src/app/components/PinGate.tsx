@@ -55,7 +55,7 @@ async function pinCall(path: string, method: 'GET' | 'POST', body?: any) {
     res = await doFetch(refreshed);
     if (res.status === 401) {
       const j = await res.json().catch(() => ({}));
-      // Only a真 auth failure (no PIN payload) means the session is dead.
+      // Only a real auth failure (no PIN payload) means the session is dead.
       if (!j || j.message === 'Unauthorized') throw new Error('SESSION_LOST');
       return { status: 401, ...j };
     }
