@@ -111,12 +111,27 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   const { funds: dhanFunds, loading: fundsLoading, error: fundsError } = useFundLimits(serverUrl, accessToken, activeBroker);
   const { positions: dhanPositions, loading: positionsLoading } = usePositions(serverUrl, accessToken, activeBroker);
 
-  const realPositionsPnL = (dhanPositions || []).reduce(
-    (s: number, p: any) => s + Number(p.unrealizedProfit ?? p.pnl ?? p.unrealisedProfit ?? 0), 0
-  );
-  const realOpenTrades = (dhanPositions || []).filter(
-    (p: any) => Number(p.netQty ?? p.quantity ?? 0) !== 0
-  ).length;
+  // 🌐 Broker-agnostic P&L / qty readers (Dhan, Kite, Groww, Upstox, Fyers, Angel One, Aliceblue, 5paisa)
+  const posQty = (p: any) =>
+    Number(
+      p.netQty ?? p.net_quantity ?? p.netQuantity ?? p.quantity ?? p.qty ?? p.netTradedQuantity ?? 0
+    );
+  const posPnL = (p: any) => {
+    const direct =
+      p.pnl ?? p.PnL ?? p.profitAndLoss ?? p.unrealizedProfit ?? p.unrealisedProfit ?? p.unrealised_pnl;
+    if (direct !== undefined && direct !== null && direct !== '') return Number(direct) || 0;
+    const un = Number(p.unrealizedPnl ?? p.unrealisedPnl ?? p.unrealized_pnl ?? 0) || 0;
+    const re = Number(p.realizedPnl ?? p.realisedPnl ?? p.realized_pnl ?? p.realisedProfit ?? 0) || 0;
+    return un + re;
+  };
+
+  const openPositions = (dhanPositions || []).filter((p: any) => posQty(p) !== 0);
+  const closedPositions = (dhanPositions || []).filter((p: any) => posQty(p) === 0);
+  const realPositionsPnL = (dhanPositions || []).reduce((s: number, p: any) => s + posPnL(p), 0);
+  const openPositionsPnL = openPositions.reduce((s: number, p: any) => s + posPnL(p), 0);
+  const closedPositionsPnL = closedPositions.reduce((s: number, p: any) => s + posPnL(p), 0);
+  const realOpenTrades = openPositions.length;
+
   const realAccountBalance = Number(dhanFunds?.availableBalance ?? 0);
   const realMarginUsed = Number(dhanFunds?.utilizationAmount ?? 0);
 
