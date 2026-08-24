@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/utils-ext/supabase/client';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
+import { SessionManager } from '@/utils-ext/security/SecurityHardening';
+
 import { Loader2, Lock, ShieldCheck, KeyRound, ArrowLeft } from 'lucide-react';
 
 const BASE = 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin';
