@@ -213,7 +213,14 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
-  const unlock = () => { sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); setScreen('ok'); setInfo(''); reset(); };
+  const unlock = () => {
+    sessionStorage.setItem(UNLOCK_KEY, String(Date.now()));
+    // Restart the idle-timeout clock so unlocking counts as fresh activity and the
+    // user lands on the dashboard instead of being bounced out again.
+    try { SessionManager.extend(); } catch {}
+    setScreen('ok'); setInfo(''); reset();
+  };
+
 
   const lockedRemaining = lockedUntil ? new Date(lockedUntil).getTime() - now : 0;
   const isLocked = lockedRemaining > 0;
