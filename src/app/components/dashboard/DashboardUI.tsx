@@ -72,18 +72,34 @@ export function useLiveIndices(serverUrl?: string, accessToken?: string) {
 export function useFundLimits(serverUrl?: string, accessToken?: string, brokerKey?: string) {
   const [funds, setFunds] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!serverUrl || !accessToken) return;
     let alive = true;
+    // Broker changed → drop the previous broker's numbers immediately.
+    setFunds(null);
+    setError(null);
+    setLoading(true);
     const load = async () => {
       try {
         const res = await fetchWithAuth(`${serverUrl}/fund-limits`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         const json = await res.json();
-        if (alive && json?.success) setFunds(json.funds);
-      } catch {} finally { if (alive) setLoading(false); }
+        if (!alive) return;
+        // Ignore a late response that belongs to a different broker.
+        if (json?.broker && brokerKey && String(json.broker) !== String(brokerKey)) return;
+        if (json?.success) {
+          setFunds(json.funds);
+          setError(null);
+        } else {
+          setFunds(null);
+          setError(json?.error || 'Funds unavailable for this broker');
+        }
+      } catch {
+        if (alive) { setFunds(null); setError('Funds unavailable'); }
+      } finally { if (alive) setLoading(false); }
     };
     load();
     const t = setInterval(load, 60000);
@@ -91,24 +107,33 @@ export function useFundLimits(serverUrl?: string, accessToken?: string, brokerKe
   }, [serverUrl, accessToken, brokerKey]);
 
 
-  return { funds, loading };
+  return { funds, loading, error };
 }
 
 export function usePositions(serverUrl?: string, accessToken?: string, brokerKey?: string) {
   const [positions, setPositions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!serverUrl || !accessToken) return;
     let alive = true;
+    setPositions([]);
+    setError(null);
+    setLoading(true);
     const load = async () => {
       try {
         const res = await fetchWithAuth(`${serverUrl}/positions`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         const json = await res.json();
-        if (alive) setPositions(json?.positions || json?.data || []);
-      } catch {} finally { if (alive) setLoading(false); }
+        if (!alive) return;
+        if (json?.broker && brokerKey && String(json.broker) !== String(brokerKey)) return;
+        setPositions(json?.positions || json?.data || []);
+        setError(json?.warning || json?.error || null);
+      } catch {
+        if (alive) { setPositions([]); setError('Positions unavailable'); }
+      } finally { if (alive) setLoading(false); }
     };
     load();
     const t = setInterval(load, 15000);
@@ -116,8 +141,9 @@ export function usePositions(serverUrl?: string, accessToken?: string, brokerKey
   }, [serverUrl, accessToken, brokerKey]);
 
 
-  return { positions, loading };
+  return { positions, loading, error };
 }
+
 
 /* ──────────────────────────────────────────────────────────────────── */
 /* Animated number counter                                              */
