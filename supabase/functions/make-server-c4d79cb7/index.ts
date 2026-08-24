@@ -9340,17 +9340,24 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     const { candleInterval, symbols } = body;
     const activeSymbols = Array.isArray(symbols) ? symbols : [];
 
-    // Get user credentials
-    const userCredentials = await kv.get(`api_credentials:${user.id}`);
-    if (!userCredentials) {
-      return c.json({ error: 'API credentials not configured' }, 400);
+    // Credentials are broker-aware: only Dhan uses the legacy api_credentials KV.
+    // Any other active broker (Fyers, Zerodha, Groww, Upstox, Angel One, Aliceblue, 5paisa)
+    // authenticates through broker_credentials via the BrokerRouter.
+    const engineBroker = await BrokerRouter.getActiveBroker(user.id);
+    const userCredentials = (await kv.get(`api_credentials:${user.id}`)) as any;
+    const credentials = (userCredentials || {}) as any;
+
+    if (engineBroker === 'dhan') {
+      if (!credentials.dhanClientId || !credentials.dhanAccessToken) {
+        return c.json({ error: 'Dhan API credentials not configured. Connect Dhan in Broker Setup.' }, 400);
+      }
+    } else {
+      const connected = await BrokerRouter.isBrokerConnected(user.id, engineBroker).catch(() => true);
+      if (connected === false) {
+        return c.json({ error: `${engineBroker} is not connected. Please connect it in Broker Setup.` }, 400);
+      }
     }
 
-    const credentials = userCredentials as any;
-    
-    if (!credentials.dhanClientId || !credentials.dhanAccessToken) {
-      return c.json({ error: 'Dhan credentials not configured' }, 400);
-    }
 
     console.log(`\n🚀 ============ START PERSISTENT ENGINE ============`);
     console.log(`   User: ${user.id}`);

@@ -103,6 +103,23 @@ export async function getActiveBroker(userId: string): Promise<BrokerId> {
   }
 }
 
+/** True when the user has stored credentials for the given broker. */
+export async function isBrokerConnected(userId: string, broker: BrokerId): Promise<boolean> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("broker_credentials")
+      .select("id, access_token_encrypted")
+      .eq("user_id", userId)
+      .eq("broker", broker)
+      .maybeSingle();
+    return Boolean(data?.access_token_encrypted);
+  } catch {
+    // Never block engine start on a lookup failure.
+    return true;
+  }
+}
+
+
 export async function setActiveBroker(userId: string, broker: BrokerId): Promise<void> {
   const { error } = await supabaseAdmin
     .from("profiles")
