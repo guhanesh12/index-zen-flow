@@ -1648,6 +1648,7 @@ class PersistentTradingEngine {
               { dhanClientId, dhanAccessToken },
               {
                 securityId: reversalPosition.securityId,
+                symbol: reversalPosition.symbolName,
                 transactionType: "SELL",
                 exchangeSegment:
                   reversalPosition.exchangeSegment || (reversalPosition.index === "SENSEX" ? "BSE_FNO" : "NSE_FNO"),
@@ -1964,6 +1965,7 @@ class PersistentTradingEngine {
                 { dhanClientId, dhanAccessToken },
                 {
                   securityId: sameIndexPosition.securityId,
+                  symbol: sameIndexPosition.symbolName,
                   transactionType: "SELL",
                   exchangeSegment:
                     sameIndexPosition.exchangeSegment || (sameIndexPosition.index === "SENSEX" ? "BSE_FNO" : "NSE_FNO"),
@@ -3023,6 +3025,7 @@ class PersistentTradingEngine {
 
           const exitParams = {
             securityId: position.securityId,
+            symbol: position.symbolName,
             transactionType: "SELL",
             exchangeSegment: position.exchangeSegment || (position.index === "SENSEX" ? "BSE_FNO" : "NSE_FNO"),
             productType: "INTRADAY",
@@ -3343,6 +3346,7 @@ class PersistentTradingEngine {
         exchange_segment: normalizedExchangeSegment,
         symbol_id: String(symbol.securityId || symbol.symbolId || symbol.symbol_id || "") || null,
         status: status,
+        broker: String(orderResult?.broker || (await BrokerRouter.getActiveBroker(userId)) || "dhan"),
         error_message: orderResult.error || null,
         raw_response: orderResult || {},
       });

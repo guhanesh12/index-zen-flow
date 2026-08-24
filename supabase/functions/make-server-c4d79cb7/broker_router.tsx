@@ -26,17 +26,20 @@ import {
 import { ensureKiteInstruments } from "./kite_instruments.tsx";
 import {
   GrowwService,
+  GROWW_API,
   growwExchangeFromSegment,
   growwProductFromDhan,
 } from "./groww_service.tsx";
 import { ensureGrowwInstruments } from "./groww_instruments.tsx";
 import {
   UpstoxService,
+  UPSTOX_API,
   upstoxProductFromDhan,
 } from "./upstox_service.tsx";
 import { ensureUpstoxInstruments } from "./upstox_instruments.tsx";
 import {
   FyersService,
+  FYERS_API,
   fyersProductFromDhan,
 } from "./fyers_service.tsx";
 import { ensureFyersInstruments } from "./fyers_instruments.tsx";
@@ -734,7 +737,7 @@ export async function getFyersService(userId: string): Promise<FyersService | nu
   const creds = await getFyersCredentials(userId);
   if (!creds?.accessToken || !creds?.appId) return null;
   if (creds.tokenExpiry && Date.parse(creds.tokenExpiry) <= Date.now() + 60_000) return null;
-  const proxy = await makeBrokerProxy(userId, "fyers");
+  const proxy = await makeBrokerProxy(userId, "fyers", FYERS_API);
   return new FyersService({ appId: creds.appId, accessToken: creds.accessToken, proxy });
 }
 
@@ -852,7 +855,7 @@ export async function clearUpstoxCredentials(userId: string) {
 export async function getUpstoxService(userId: string): Promise<UpstoxService | null> {
   const creds = await getUpstoxCredentials(userId);
   if (!creds?.accessToken) return null;
-  const proxy = await makeBrokerProxy(userId, "upstox");
+  const proxy = await makeBrokerProxy(userId, "upstox", UPSTOX_API);
   return new UpstoxService({ accessToken: creds.accessToken, proxy });
 }
 
@@ -1005,7 +1008,7 @@ export async function makeBrokerProxy(userId: string, broker: string, baseUrl?: 
 export async function getGrowwService(userId: string): Promise<GrowwService | null> {
   const creds = await getGrowwCredentials(userId);
   if (!creds?.accessToken) return null;
-  const proxy = await makeBrokerProxy(userId, "groww");
+  const proxy = await makeBrokerProxy(userId, "groww", GROWW_API);
   return new GrowwService({ accessToken: creds.accessToken, proxy });
 }
 
@@ -1495,7 +1498,7 @@ export async function placeOrderSmart(
     if (!f?.fyersSymbol) {
       throw new Error("Could not map this contract to a Fyers symbol. Refresh the instrument master and retry.");
     }
-    const fProxy = await makeBrokerProxy(userId, "fyers");
+    const fProxy = await makeBrokerProxy(userId, "fyers", FYERS_API);
     const svcF = new FyersService({ appId: fCreds.appId, accessToken: fCreds.accessToken, proxy: fProxy });
     try {
       const res = await svcF.placeOrder({
@@ -1542,7 +1545,7 @@ export async function placeOrderSmart(
     if (!u?.instrumentKey) {
       throw new Error("Could not map this contract to an Upstox instrument key. Refresh the instrument master and retry.");
     }
-    const uProxy = await makeBrokerProxy(userId, "upstox");
+    const uProxy = await makeBrokerProxy(userId, "upstox", UPSTOX_API);
     const svcU = new UpstoxService({ accessToken: uCreds.accessToken, proxy: uProxy });
     try {
       const res = await svcU.placeOrder({
@@ -1591,7 +1594,7 @@ export async function placeOrderSmart(
       throw new Error("Could not map this contract to a Groww trading symbol. Refresh the instrument master and retry.");
     }
     // Orders go out through the user's dedicated static IP (same VPS as Dhan).
-    const gProxy = await makeBrokerProxy(userId, "groww");
+    const gProxy = await makeBrokerProxy(userId, "groww", GROWW_API);
     const svcG = new GrowwService({ accessToken: gCreds.accessToken, proxy: gProxy });
     try {
       const res = await svcG.placeOrder({

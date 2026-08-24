@@ -1509,6 +1509,7 @@ export type Database = {
       }
       trading_orders: {
         Row: {
+          broker: string
           created_at: string
           dhan_order_id: string | null
           error_message: string | null
@@ -1528,6 +1529,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          broker?: string
           created_at?: string
           dhan_order_id?: string | null
           error_message?: string | null
@@ -1547,6 +1549,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          broker?: string
           created_at?: string
           dhan_order_id?: string | null
           error_message?: string | null
