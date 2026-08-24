@@ -153,7 +153,7 @@ export class FyersService {
       }
       // 2️⃣ Fallback: direct API from the edge.
       if (!status) {
-        const resp = await fetch(`${FYERS_API}${path}`, { ...init, headers, signal: ctrl.signal });
+        const resp = await fetch(`${FYERS_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
         status = resp.status;
         text = await resp.text();
       }

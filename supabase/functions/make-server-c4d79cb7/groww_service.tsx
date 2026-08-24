@@ -94,7 +94,7 @@ export class GrowwService {
         }
       }
       if (!status) {
-        const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: ctrl.signal });
+        const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
         status = resp.status;
         text = await resp.text();
       }

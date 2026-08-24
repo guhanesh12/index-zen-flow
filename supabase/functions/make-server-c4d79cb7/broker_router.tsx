@@ -934,7 +934,7 @@ export async function makeBrokerProxy(userId: string, broker: string, baseUrl?: 
           headers: r.headers,
           body: r.body,
         }),
-        signal: AbortSignal.timeout(9000),
+        signal: AbortSignal.timeout(4500),
       });
       if (resp.status === 404 || resp.status === 400) return null; // old image / unknown broker → direct
       const text = await resp.text();
