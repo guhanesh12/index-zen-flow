@@ -782,8 +782,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 <BarChart3 className={`size-4 shrink-0 ${realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}`} />
                 <div className="leading-tight">
                   <div className="text-[10px] uppercase tracking-wide text-zinc-500">
-                    Positions ({realOpenTrades})
+                    Positions ({positionsLoading && realOpenTrades === 0 ? '…' : realOpenTrades})
                   </div>
+
                   <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${
                     realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-300'
                   }`}>
