@@ -103,19 +103,56 @@ export async function getActiveBroker(userId: string): Promise<BrokerId> {
   }
 }
 
-/** True when the user has stored credentials for the given broker. */
+function hasUsableToken(token: unknown, expiry?: unknown): boolean {
+  if (!String(token || "").trim()) return false;
+  if (!expiry) return true;
+  const expiresAt = Date.parse(String(expiry));
+  return !Number.isFinite(expiresAt) || expiresAt > Date.now() + 60_000;
+}
+
+/**
+ * True when the broker's real KV session is usable.
+ * `broker_credentials` is only a non-secret UI/status mirror, so it must never
+ * be used as the source of truth for engine authentication.
+ */
 export async function isBrokerConnected(userId: string, broker: BrokerId): Promise<boolean> {
   try {
-    const { data } = await supabaseAdmin
-      .from("broker_credentials")
-      .select("id, access_token_encrypted")
-      .eq("user_id", userId)
-      .eq("broker", broker)
-      .maybeSingle();
-    return Boolean(data?.access_token_encrypted);
-  } catch {
-    // Never block engine start on a lookup failure.
-    return true;
+    if (broker === "dhan") {
+      const creds = (await kv.get(`api_credentials:${userId}`)) as any;
+      return Boolean(creds?.dhanClientId && creds?.dhanAccessToken);
+    }
+    if (broker === "zerodha") {
+      const creds = await getKiteCredentials(userId);
+      return Boolean(creds?.apiKey && hasUsableToken(creds?.accessToken, creds?.tokenExpiry));
+    }
+    if (broker === "groww") {
+      const creds = await getGrowwCredentials(userId);
+      return hasUsableToken(creds?.accessToken, creds?.tokenExpiry);
+    }
+    if (broker === "upstox") {
+      const creds = await getUpstoxCredentials(userId);
+      return hasUsableToken(creds?.accessToken, creds?.tokenExpiry);
+    }
+    if (broker === "fyers") {
+      const creds = await getFyersCredentials(userId);
+      return Boolean(creds?.appId && hasUsableToken(creds?.accessToken, creds?.tokenExpiry));
+    }
+    if (broker === "angelone") {
+      const creds = await ensureAngelOneSession(userId);
+      return Boolean(creds?.apiKey && hasUsableToken(creds?.jwtToken, creds?.tokenExpiry));
+    }
+    if (broker === "aliceblue") {
+      const creds = await ensureAliceblueSession(userId);
+      return Boolean(creds?.userId && hasUsableToken(creds?.sessionId, creds?.tokenExpiry));
+    }
+    if (broker === "5paisa") {
+      const creds = await ensureFivepaisaSession(userId);
+      return Boolean(creds?.appKey && creds?.clientCode && hasUsableToken(creds?.accessToken, creds?.tokenExpiry));
+    }
+    return false;
+  } catch (error) {
+    console.error(`[BROKER] ${broker} connection validation failed:`, (error as any)?.message || error);
+    return false;
   }
 }
 
