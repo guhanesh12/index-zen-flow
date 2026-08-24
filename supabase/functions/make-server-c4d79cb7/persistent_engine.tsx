@@ -2968,57 +2968,53 @@ class PersistentTradingEngine {
         const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
         const _withinGrace = _ageMs < 45_000;
 
-        // 1) PROFIT PROTECTION — exit only when trend has ACTUALLY reversed against us with
-        //    meaningful give-back. Skip if market bias is still aligned (let winners run).
-        //    Prevents premature exits on short-term P&L wiggles inside a trending move.
-        const _bearishAgainstUs =
-          !!currentSignal && !_alignedNow && momentumStrength >= 3; // market bias flipped against us
+        // 🔒 Direction-flip gate: predictive exits only fire when the AI emits the OPPOSITE
+        // option-type signal. Sideways / WAIT / neutral market NEVER closes a running position.
+        const _oppActionNow = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
+        const _flipSignalNow = !!currentSignal && currentSignal.action === _oppActionNow;
+
+        // 1) PROFIT PROTECTION — only on a confirmed direction flip with heavy give-back.
         if (
           !shouldExit &&
           !_withinGrace &&
+          _flipSignalNow &&
           (position.highestPnl || 0) > 0 &&
           pnl > 0 &&
-          !_strongWith &&
-          _bearishAgainstUs // require market to have actually turned, not just P&L blip
+          !_strongWith
         ) {
           const peak = position.highestPnl || 0;
           const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.6 : Math.max(300, peak * 0.6);
           const inProfitZone = peak >= profitFloor;
-          const heavyGiveBack = giveBackPct >= 70; // was 55 — too eager
+          const heavyGiveBack = giveBackPct >= 70;
           const reversingMomentum = momentumScore < 0;
           if (inProfitZone && heavyGiveBack && reversingMomentum) {
             shouldExit = true;
-            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, market flipped ${marketMomentum})`;
+            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, signal flipped ${currentSignal?.action})`;
           }
         }
 
-        // 2) EARLY LOSS CUT — exit before full SL when market is strongly against us.
-        if (!shouldExit && !_withinGrace && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
+        // 2) EARLY LOSS CUT — only when the signal has actually flipped to the opposite side.
+        if (!shouldExit && !_withinGrace && _flipSignalNow && pnl < 0 && _baseSLForCalc > 0 && momentumScore < 0) {
           const lossPct = Math.abs(pnl) / _baseSLForCalc;
           if (lossPct >= 0.45) {
             shouldExit = true;
-            exitReason = `Early Reversal Cut (${marketMomentum} strongly against ${_posDir}, Loss ₹${pnl.toFixed(2)} = ${(lossPct * 100).toFixed(0)}% of SL)`;
+            exitReason = `Early Reversal Cut (signal flipped to ${currentSignal?.action}, Loss ₹${pnl.toFixed(2)} = ${(lossPct * 100).toFixed(0)}% of SL)`;
           }
         }
 
-        // 3) AI REVERSAL CONFIRMED — lower confidence required when momentum strongly confirms.
-        if (!shouldExit && !_withinGrace && currentSignal) {
-          const opp = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
+        // 3) AI REVERSAL CONFIRMED — opposite-direction signal.
+        if (!shouldExit && !_withinGrace && _flipSignalNow) {
           const conf = Number(currentSignal.confidence || 0);
-          if (currentSignal.action === opp && conf >= 75 && _strongAgainst) {
-            shouldExit = true;
-            exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%, momentum ${momentumStrength}/6 against)`;
-          }
+          shouldExit = true;
+          exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%)`;
         }
 
-        // 4) Original strong-reversal signal-based exit (90%+ conf) — kept as final safety net.
+        // 4) Signal-flip exit from the monitor block (final safety net).
         if (!shouldExit && !_withinGrace && signalShouldExit) {
-          // Suppress if strongly with trend AND in healthy profit (let winners run)
-          if (!(_strongWith && pnl > 0 && giveBackPct < 40)) {
-            shouldExit = true;
-            exitReason = signalExitReason;
-          }
+          shouldExit = true;
+          exitReason = signalExitReason;
         }
+
 
         (position as any).monitorDecision = shouldExit ? "EXIT" : monitorDecision;
 
