@@ -2837,22 +2837,18 @@ class PersistentTradingEngine {
           const isAlignedWithMarket = positionDirection === marketMomentum;
           marketFavorable = isAlignedWithMarket && momentumStrength >= 3;
 
-          if (
-            (normalizeOptionType(position.optionType || position.symbolName) === "CE" &&
-              currentSignal.action === "BUY_PUT" &&
-              Number(currentSignal.confidence || 0) >= 90) ||
-            (normalizeOptionType(position.optionType || position.symbolName) === "PE" &&
-              currentSignal.action === "BUY_CALL" &&
-              Number(currentSignal.confidence || 0) >= 90)
-          ) {
+          // 🔒 RULE: a running position is only closed when the AI emits the OPPOSITE
+          // option-type signal (CE → PE or PE → CE). Sideways / WAIT / neutral market
+          // never closes the position — it keeps running (Target / SL / trailing still apply).
+          const _oppositeAction =
+            normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BUY_PUT" : "BUY_CALL";
+          const _isOppositeSignal = currentSignal.action === _oppositeAction;
+
+          if (_isOppositeSignal) {
             signalShouldExit = true;
-            signalExitReason = `Strong Market Reversal (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence)`;
-          } else if (!isAlignedWithMarket && momentumStrength >= 4 && pnl < -Math.max(300, Number(position.stopLossAmount || 0) * 0.5)) {
-            // Only exit on "Market Not Favorable" when market is STRONGLY against (4/6 indicators)
-            // AND we're already in meaningful loss (>= 50% of SL). Prevents exiting on transient blips.
-            signalShouldExit = true;
-            signalExitReason = `Market Strongly Against (${marketMomentum} ${momentumStrength}/6 vs ${positionDirection}, P&L ₹${pnl.toFixed(2)})`;
+            signalExitReason = `Signal Flip (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence)`;
           } else if (isAlignedWithMarket && momentumStrength >= 3) {
+
             monitorReasoning = `✅ HOLD - ${marketMomentum} momentum matches ${positionDirection} position (${momentumStrength}/6 confirmations)`;
           } else {
             monitorReasoning = `⚠️ WATCH - Market ${marketMomentum}, AI ${currentSignal.action} (${currentSignal.confidence || 0}%), P&L ₹${pnl.toFixed(2)}`;
