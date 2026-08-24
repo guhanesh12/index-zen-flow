@@ -1638,9 +1638,10 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          const reversalPnl = Number(reversalPosition?.pnl || 0);
-          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
-          if (reversalPosition && confidence >= 90 && reversalPnl <= -reversalSL) {
+          // 🔄 SIGNAL FLIP: any opposite-direction signal on the same index closes the
+          // running position immediately and the new order is placed right after.
+          // (No confidence / P&L gate — direction change alone is enough.)
+          if (reversalPosition) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await BrokerRouter.placeOrderSmart(
               userId,
