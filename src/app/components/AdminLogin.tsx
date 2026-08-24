@@ -202,8 +202,17 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
         },
         body: JSON.stringify({ challengeToken, code: otpCode }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({} as any));
       if (!res.ok || !data.success || !data.accessToken || !data.admin) {
+        // 401 = the login challenge expired / was consumed. Send the admin back
+        // to the credentials step instead of leaving a dead 2FA screen.
+        if (res.status === 401) {
+          setChallengeToken('');
+          setOtpCode('');
+          setStep('credentials');
+          setError(data.message || 'Session expired. Please log in again.');
+          return;
+        }
         setError(data.message || 'Invalid verification code');
         setOtpCode('');
         otpInputRefs[0].current?.focus();
