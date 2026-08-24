@@ -324,6 +324,29 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   // Tab scroll ref for mobile
   const tabsScrollRef = useRef<HTMLDivElement | null>(null);
 
+  // ⚡ HEADER ENGINE STATUS — synced from backend (same source as the engine card)
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const res = await fetch(`${serverUrl}/engine/db-status`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data?.success) return;
+        setEngineRunning(Boolean(data.engine?.isRunning));
+      } catch {
+        /* transient network error — keep last known status */
+      }
+    };
+    pull();
+    const id = setInterval(pull, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [serverUrl, accessToken]);
+
+
   // ⚡ LOAD TRADING SYMBOLS FOR PERSISTENT ENGINE
   useEffect(() => {
     const loadSymbols = () => {
