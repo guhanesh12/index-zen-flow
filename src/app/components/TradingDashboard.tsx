@@ -107,9 +107,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   const [activeBroker, setActiveBroker] = useState<string>('dhan');
   const [activeBrokerName, setActiveBrokerName] = useState<string>('Dhan');
 
-  // 🔴 REAL DATA — Dhan account fund limits & positions
-  const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken, activeBroker);
-  const { positions: dhanPositions } = usePositions(serverUrl, accessToken, activeBroker);
+  // 🔴 REAL DATA — active broker fund limits & positions (auto-refetch on broker switch)
+  const { funds: dhanFunds, loading: fundsLoading, error: fundsError } = useFundLimits(serverUrl, accessToken, activeBroker);
+  const { positions: dhanPositions, loading: positionsLoading } = usePositions(serverUrl, accessToken, activeBroker);
 
   const realPositionsPnL = (dhanPositions || []).reduce(
     (s: number, p: any) => s + Number(p.unrealizedProfit ?? p.pnl ?? p.unrealisedProfit ?? 0), 0
@@ -763,10 +763,11 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-blue-600/10 to-zinc-900/70 border border-blue-500/25 hover:border-blue-400/50 transition-all duration-300">
                 <DollarSign className="size-4 text-blue-400 shrink-0" />
                 <div className="leading-tight">
-                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Funds</div>
-                  <div className="text-sm font-bold text-blue-300 tabular-nums whitespace-nowrap">
-                    ₹{realAccountBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Funds · {activeBrokerName}</div>
+                  <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${fundsError ? 'text-amber-400' : 'text-blue-300'}`}>
+                    {fundsLoading && !dhanFunds ? '…' : fundsError ? 'Not available' : `₹${realAccountBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
                   </div>
+
                 </div>
               </div>
 
@@ -781,8 +782,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 <BarChart3 className={`size-4 shrink-0 ${realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}`} />
                 <div className="leading-tight">
                   <div className="text-[10px] uppercase tracking-wide text-zinc-500">
-                    Positions ({realOpenTrades})
+                    Positions ({positionsLoading && realOpenTrades === 0 ? '…' : realOpenTrades})
                   </div>
+
                   <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${
                     realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-300'
                   }`}>
