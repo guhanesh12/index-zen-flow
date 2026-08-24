@@ -107,9 +107,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   const [activeBroker, setActiveBroker] = useState<string>('dhan');
   const [activeBrokerName, setActiveBrokerName] = useState<string>('Dhan');
 
-  // 🔴 REAL DATA — Dhan account fund limits & positions
-  const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken, activeBroker);
-  const { positions: dhanPositions } = usePositions(serverUrl, accessToken, activeBroker);
+  // 🔴 REAL DATA — active broker fund limits & positions (auto-refetch on broker switch)
+  const { funds: dhanFunds, loading: fundsLoading, error: fundsError } = useFundLimits(serverUrl, accessToken, activeBroker);
+  const { positions: dhanPositions, loading: positionsLoading } = usePositions(serverUrl, accessToken, activeBroker);
 
   const realPositionsPnL = (dhanPositions || []).reduce(
     (s: number, p: any) => s + Number(p.unrealizedProfit ?? p.pnl ?? p.unrealisedProfit ?? 0), 0
