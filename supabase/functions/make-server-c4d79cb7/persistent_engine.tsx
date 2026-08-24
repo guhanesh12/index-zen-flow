@@ -2032,7 +2032,7 @@ class PersistentTradingEngine {
               );
               const activeOptionType = normalizeOptionType(activePosition?.optionType || activePosition?.symbolName);
               console.log(
-                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${activePosition?.symbolName || symbol.name}, ${activeOptionType || "UNKNOWN"}). Skipping ${action}; same-index reversal requires 90% confidence.`,
+                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${activePosition?.symbolName || symbol.name}, ${activeOptionType || "UNKNOWN"}). Skipping ${action}; same-direction signal (opposite direction auto-flips).`,
               );
               await this.appendSharedLog(userId, {
                 type: "SKIP",
