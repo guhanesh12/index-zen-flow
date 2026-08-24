@@ -151,6 +151,17 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
 
   const reset = () => { setPin(''); setConfirmPin(''); setOtp(''); setError(''); };
 
+  // Session is really gone (refresh token rejected) → send the user to login
+  // instead of showing a dead "Unauthorized" PIN screen.
+  const handleSessionLost = useCallback(async (e: any) => {
+    if (String(e?.message || e) !== 'SESSION_LOST') return false;
+    try { await supabase.auth.signOut(); } catch {}
+    sessionStorage.removeItem(UNLOCK_KEY);
+    if (onLogout) onLogout();
+    else window.location.href = '/login';
+    return true;
+  }, [onLogout]);
+
   const refreshStatus = useCallback(async () => {
     try {
       const r = await PinApi.status();
@@ -160,10 +171,11 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       // Always ask for the PIN on a fresh app load / login — no silent grace period.
       sessionStorage.removeItem(UNLOCK_KEY);
       setScreen('enter');
-    } catch {
+    } catch (e: any) {
+      if (String(e?.message || e) === 'SESSION_LOST') { await handleSessionLost(e); return; }
       setScreen('ok');
     }
-  }, []);
+  }, [handleSessionLost]);
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
@@ -173,6 +185,14 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [lockedUntil]);
+
+  // Keep the Supabase session alive while the PIN screen is open, so the
+  // token can't silently expire between login and PIN verification.
+  useEffect(() => {
+    if (screen === 'ok' || screen === 'loading') return;
+    const t = setInterval(() => { supabase.auth.refreshSession().catch(() => {}); }, 4 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [screen]);
 
   // re-lock when the tab has been hidden for > 2 min
   useEffect(() => {
@@ -198,7 +218,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     try {
       const r = await PinApi.set(pin, confirmPin);
       if (r.status === 200) unlock(); else setError(r.message || 'Could not save PIN');
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) { if (!(await handleSessionLost(e))) setError(e.message); } finally { setBusy(false); }
   };
 
   const doVerify = async () => {
@@ -209,8 +229,9 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       else if (r.status === 404) setScreen('create');
       else if (r.status === 423) { setLockedUntil(r.lockedUntil); setError('Too many attempts. PIN locked.'); setPin(''); }
       else { setError(`${r.message || 'Incorrect PIN'}${r.attemptsLeft != null ? ` — ${r.attemptsLeft} attempts left` : ''}`); setPin(''); }
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) { if (!(await handleSessionLost(e))) setError(e.message); } finally { setBusy(false); }
   };
+
 
   const doForgot = async () => {
     setError(''); setInfo(''); setBusy(true);
