@@ -763,10 +763,11 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-blue-600/10 to-zinc-900/70 border border-blue-500/25 hover:border-blue-400/50 transition-all duration-300">
                 <DollarSign className="size-4 text-blue-400 shrink-0" />
                 <div className="leading-tight">
-                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Funds</div>
-                  <div className="text-sm font-bold text-blue-300 tabular-nums whitespace-nowrap">
-                    ₹{realAccountBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Funds · {activeBrokerName}</div>
+                  <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${fundsError ? 'text-amber-400' : 'text-blue-300'}`}>
+                    {fundsLoading && !dhanFunds ? '…' : fundsError ? 'Not available' : `₹${realAccountBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
                   </div>
+
                 </div>
               </div>
 
