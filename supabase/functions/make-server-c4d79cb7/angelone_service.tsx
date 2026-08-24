@@ -147,7 +147,7 @@ export async function angeloneLogin(opts: {
       status = proxied.status;
       text = proxied.text;
     } else {
-      const resp = await fetch(`${ANGELONE_API}${path}`, { method: "POST", headers, signal: AbortSignal.timeout(timeoutMs), body });
+      const resp = await fetch(`${ANGELONE_API}${path}`, { method: "POST", headers, signal: AbortSignal.timeout(12_000), body });
       status = resp.status;
       text = await resp.text();
     }
