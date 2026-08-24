@@ -809,7 +809,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 </div>
               </div>
 
-              {/* Positions P&L */}
+              {/* Positions P&L — running + closed, per active broker */}
               <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-zinc-900/70 to-zinc-900/70 border transition-all duration-300 ${
                 realPositionsPnL > 0
                   ? 'border-emerald-500/30 hover:border-emerald-400/60'
@@ -819,8 +819,8 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               }`}>
                 <BarChart3 className={`size-4 shrink-0 ${realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}`} />
                 <div className="leading-tight">
-                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">
-                    Positions ({positionsLoading && realOpenTrades === 0 ? '…' : realOpenTrades})
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500 whitespace-nowrap">
+                    Positions · {activeBrokerName} ({positionsLoading && (dhanPositions || []).length === 0 ? '…' : (dhanPositions || []).length})
                   </div>
 
                   <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${
@@ -828,8 +828,24 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                   }`}>
                     {realPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(realPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                   </div>
+                  <div className="flex items-center gap-2 text-[10px] whitespace-nowrap mt-0.5">
+                    <span className="text-zinc-500">
+                      Running {realOpenTrades}{' '}
+                      <span className={openPositionsPnL > 0 ? 'text-emerald-400' : openPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}>
+                        {openPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(openPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </span>
+                    </span>
+                    <span className="text-zinc-700">|</span>
+                    <span className="text-zinc-500">
+                      Closed {closedPositions.length}{' '}
+                      <span className={closedPositionsPnL > 0 ? 'text-emerald-400' : closedPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}>
+                        {closedPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(closedPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </span>
+                    </span>
+                  </div>
                 </div>
               </div>
+
 
               {/* Engine status */}
               <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all duration-300 ${
