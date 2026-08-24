@@ -2111,24 +2111,28 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       funds = await dhanService.getFundLimits();
     }
     
-    // ✅ FIX: Save broker funds to KV store for admin panel display
+    // ✅ FIX: Save broker funds to KV store for admin panel display (per-broker + legacy key)
     if (funds && funds.availableBalance !== undefined) {
       try {
-        await kv.set(`broker_funds:${user.id}`, {
+        const snapshot = {
+          broker: activeBroker,
           availableBalance: funds.availableBalance,
           sodLimit: funds.sodLimit || 0,
           collateralAmount: funds.collateralAmount || 0,
           utilizationAmount: funds.utilizationAmount || 0,
           blockedPayinAmount: funds.blockedPayinAmount || 0,
           lastUpdated: new Date().toISOString()
-        });
-        console.log(`✅ Saved broker funds for user ${user.id}: ₹${funds.availableBalance}`);
+        };
+        await kv.set(`broker_funds:${activeBroker}:${user.id}`, snapshot);
+        await kv.set(`broker_funds:${user.id}`, snapshot);
+        console.log(`✅ Saved ${activeBroker} funds for user ${user.id}: ₹${funds.availableBalance}`);
       } catch (err: any) {
         console.error(`❌ Error saving broker funds for ${user.id}:`, err.message);
       }
     }
     
-    return c.json({ success: true, funds });
+    return c.json({ success: true, broker: activeBroker, brokerName: BrokerRegistry.brokerLabel(activeBroker), funds });
+
   } catch (error) {
     console.log(`Fund limits error: ${error}`);
     
