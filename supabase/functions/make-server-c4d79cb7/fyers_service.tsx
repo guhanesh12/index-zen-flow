@@ -16,7 +16,7 @@
  * Every call carries:  Authorization: <appId>:<access_token>
  */
 
-const FYERS_API = "https://api-t1.fyers.in";
+export const FYERS_API = "https://api-t1.fyers.in";
 
 export interface FyersOrderRequest {
   symbol: string;                    // e.g. "NSE:NIFTY25AUG24200CE"

@@ -17,7 +17,7 @@
  *    X-API-VERSION: 1.0
  */
 
-const GROWW_API = "https://api.groww.in";
+export const GROWW_API = "https://api.groww.in";
 
 export interface GrowwOrderRequest {
   tradingSymbol: string;

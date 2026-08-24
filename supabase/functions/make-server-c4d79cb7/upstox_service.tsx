@@ -16,7 +16,7 @@
  * Every call carries:  Authorization: Bearer <access_token>
  */
 
-const UPSTOX_API = "https://api.upstox.com";
+export const UPSTOX_API = "https://api.upstox.com";
 
 export interface UpstoxOrderRequest {
   instrumentToken: string; // e.g. "NSE_FO|43812"
