@@ -153,7 +153,7 @@ export class FyersService {
       }
       // 2️⃣ Fallback: direct API from the edge.
       if (!status) {
-        const resp = await fetch(`${FYERS_API}${path}`, { ...init, headers, signal: ctrl.signal });
+        const resp = await fetch(`${FYERS_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
         status = resp.status;
         text = await resp.text();
       }
@@ -180,24 +180,33 @@ export class FyersService {
   // ── MARGIN / FUNDS ──────────────────────────────────────────
   /** https://myapi.fyers.in/docsv3#tag/Margin-Calculator (GET /api/v3/funds) */
   async getFundLimits(): Promise<any> {
-    const d = await this.request("/api/v3/funds");
+    const d = await this.request("/api/v3/funds", {}, 10_000);
     const rows: any[] = Array.isArray(d?.fund_limit) ? d.fund_limit : [];
-    const pick = (needle: string) =>
-      Number(
-        rows.find((r) => String(r?.title || "").toLowerCase().includes(needle))?.equityAmount ?? 0,
-      );
+    const amount = (r: any) => Number(r?.equityAmount ?? r?.equity_amount ?? r?.commodityAmount ?? 0);
+    const byTitle = (needle: string) => {
+      const r = rows.find((x) => String(x?.title || "").toLowerCase().includes(needle));
+      return r ? amount(r) : NaN;
+    };
+    // Fyers fund_limit ids: 1 Total Balance · 2 Utilized · 3 Realized P&L · 4 Realized P&L
+    // 5 Unrealized P&L · 6 Withdrawable · 7 Collaterals · 9 Receivables · 10 Available Balance
+    const byId = (id: number) => {
+      const r = rows.find((x) => Number(x?.id) === id);
+      return r ? amount(r) : NaN;
+    };
+    const first = (...vals: number[]) => vals.find((v) => Number.isFinite(v)) ?? 0;
 
-    const available = pick("available balance") || pick("clear balance") || pick("total balance") || pick("balance");
+    const available = first(byId(10), byTitle("available balance"), byId(6), byTitle("withdrawable"), byId(1), byTitle("total balance"), byTitle("clear balance"), byTitle("balance"));
     return {
       availableBalance: available,
-      sodLimit: pick("total balance") || available,
-      collateralAmount: pick("collaterals"),
-      utilizationAmount: pick("utilized"),
+      sodLimit: first(byId(1), byTitle("total balance"), available),
+      collateralAmount: first(byId(7), byTitle("collateral"), 0),
+      utilizationAmount: first(byId(2), byTitle("utilized"), 0),
       blockedPayinAmount: 0,
       blockedPayoutAmount: 0,
       raw: d,
     };
   }
+
 
   /** Cheap credential check for the UI status card. */
   async verify(): Promise<{ ok: boolean; balance?: number; error?: string }> {

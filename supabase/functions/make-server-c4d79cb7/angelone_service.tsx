@@ -147,7 +147,7 @@ export async function angeloneLogin(opts: {
       status = proxied.status;
       text = proxied.text;
     } else {
-      const resp = await fetch(`${ANGELONE_API}${path}`, { method: "POST", headers, signal: ctrl.signal, body });
+      const resp = await fetch(`${ANGELONE_API}${path}`, { method: "POST", headers, signal: AbortSignal.timeout(12_000), body });
       status = resp.status;
       text = await resp.text();
     }
@@ -233,7 +233,7 @@ export class AngelOneService {
       }
       // 2️⃣ Fallback: direct API from the edge.
       if (!status) {
-        const resp = await fetch(`${ANGELONE_API}${path}`, { ...init, headers, signal: ctrl.signal });
+        const resp = await fetch(`${ANGELONE_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
         status = resp.status;
         text = await resp.text();
       }
