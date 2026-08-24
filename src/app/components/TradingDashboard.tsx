@@ -32,6 +32,8 @@ import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, I
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 import { WelcomeOnboarding } from "./WelcomeOnboarding";
 import { AIAssistantBot } from "./AIAssistantBot";
+import { BrokerLogo } from "../brokerLogos";
+
 
 interface TradingDashboardProps {
   accessToken: string;
