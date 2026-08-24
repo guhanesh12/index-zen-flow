@@ -151,16 +151,21 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
 
   const reset = () => { setPin(''); setConfirmPin(''); setOtp(''); setError(''); };
 
-  // Session is really gone (refresh token rejected) → send the user to login
-  // instead of showing a dead "Unauthorized" PIN screen.
+  // Session is really gone (refresh token rejected) → send the user back to the
+  // LOGIN page (never the public landing page), so signing in returns to the dashboard.
   const handleSessionLost = useCallback(async (e: any) => {
     if (String(e?.message || e) !== 'SESSION_LOST') return false;
+    // One last recovery attempt before giving up — avoids bouncing out on a blip.
+    try {
+      const { data } = await supabase.auth.refreshSession();
+      if (data?.session?.access_token) { setError('Session refreshed — please enter your PIN again.'); return true; }
+    } catch {}
     try { await supabase.auth.signOut(); } catch {}
     sessionStorage.removeItem(UNLOCK_KEY);
-    if (onLogout) onLogout();
-    else window.location.href = '/login';
+    window.location.replace('/login');
     return true;
-  }, [onLogout]);
+  }, []);
+
 
   const refreshStatus = useCallback(async () => {
     try {
