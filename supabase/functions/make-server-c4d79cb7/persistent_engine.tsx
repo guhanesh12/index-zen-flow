@@ -1951,12 +1951,10 @@ class PersistentTradingEngine {
             const sameIndexPosition = state.activePositions.find(
               (p: any) => p.status === "ACTIVE" && p.index && indexName && p.index === indexName,
             );
-            const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
-            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.5);
+            // 🔄 SIGNAL FLIP (CE → PE / PE → CE): close the running position on any
+            // opposite-direction signal, then continue to place the new order.
             if (
               sameIndexPosition &&
-              confidence >= 90 &&
-              sameIndexPnl <= -sameIndexSL &&
               targetOptionType &&
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
