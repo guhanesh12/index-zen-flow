@@ -1638,9 +1638,10 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          const reversalPnl = Number(reversalPosition?.pnl || 0);
-          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
-          if (reversalPosition && confidence >= 90 && reversalPnl <= -reversalSL) {
+          // 🔄 SIGNAL FLIP: any opposite-direction signal on the same index closes the
+          // running position immediately and the new order is placed right after.
+          // (No confidence / P&L gate — direction change alone is enough.)
+          if (reversalPosition) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await BrokerRouter.placeOrderSmart(
               userId,
@@ -1950,12 +1951,10 @@ class PersistentTradingEngine {
             const sameIndexPosition = state.activePositions.find(
               (p: any) => p.status === "ACTIVE" && p.index && indexName && p.index === indexName,
             );
-            const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
-            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.5);
+            // 🔄 SIGNAL FLIP (CE → PE / PE → CE): close the running position on any
+            // opposite-direction signal, then continue to place the new order.
             if (
               sameIndexPosition &&
-              confidence >= 90 &&
-              sameIndexPnl <= -sameIndexSL &&
               targetOptionType &&
               normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
@@ -2033,7 +2032,7 @@ class PersistentTradingEngine {
               );
               const activeOptionType = normalizeOptionType(activePosition?.optionType || activePosition?.symbolName);
               console.log(
-                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${activePosition?.symbolName || symbol.name}, ${activeOptionType || "UNKNOWN"}). Skipping ${action}; same-index reversal requires 90% confidence.`,
+                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${activePosition?.symbolName || symbol.name}, ${activeOptionType || "UNKNOWN"}). Skipping ${action}; same-direction signal (opposite direction auto-flips).`,
               );
               await this.appendSharedLog(userId, {
                 type: "SKIP",
