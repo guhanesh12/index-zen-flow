@@ -2272,7 +2272,9 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
 
     // 🔀 Broker-aware positions (Zerodha → Kite portfolio, Dhan → unchanged)
     const activeBrokerPos = await BrokerRouter.getActiveBroker(effectiveUserId);
-    const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
+    // 🔒 Cache is per-broker — never fall back to another broker's positions.
+    const positionsCacheKey = `last_positions:${activeBrokerPos}:${effectiveUserId}`;
+    const cachedPositions = await safeKVGet(positionsCacheKey, []);
     let positions: any[] = [];
 
     if (activeBrokerPos === 'zerodha') {
@@ -2281,6 +2283,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Zerodha (Kite) session not found. Login again from Broker Setup.'
         });
       }
@@ -2291,6 +2294,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Groww session not found. Connect Groww again from Broker Setup.'
         });
       }
@@ -2301,6 +2305,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Fyers session not found. Connect Fyers again from Broker Setup.'
         });
       }
@@ -2311,6 +2316,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: '5paisa session not found. Connect 5paisa again from Broker Setup.'
         });
       }
@@ -2321,6 +2327,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Aliceblue session not found. Connect Aliceblue again from Broker Setup.'
         });
       }
@@ -2331,6 +2338,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Angel One session not found. Login again from Broker Setup → Angel One.'
         });
       }
@@ -2341,6 +2349,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Upstox session not found. Connect Upstox again from Broker Setup.'
         });
       }
@@ -2352,6 +2361,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({ 
           success: true, 
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Dhan credentials not configured. Please configure in Settings tab.'
         });
       }
@@ -2364,6 +2374,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
       positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
     }
     if (positions && positions !== cachedPositions) {
+      runBackgroundTask(kv.set(positionsCacheKey, positions));
       runBackgroundTask(kv.set(`last_positions:${effectiveUserId}`, positions));
     }
     
@@ -2385,7 +2396,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
     console.log('💰 Total P&L:', (totalRealized + totalUnrealized).toFixed(2));
     console.log('=======================================================');
     
-    return c.json({ success: true, positions });
+    return c.json({ success: true, broker: activeBrokerPos, brokerName: BrokerRegistry.brokerLabel(activeBrokerPos), positions });
   } catch (error) {
     console.log(`Positions error: ${error}`);
     
