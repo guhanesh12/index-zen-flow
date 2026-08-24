@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/utils-ext/supabase/client';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
+import { SessionManager } from '@/utils-ext/security/SecurityHardening';
+
 import { Loader2, Lock, ShieldCheck, KeyRound, ArrowLeft } from 'lucide-react';
 
 const BASE = 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin';
@@ -151,16 +153,21 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
 
   const reset = () => { setPin(''); setConfirmPin(''); setOtp(''); setError(''); };
 
-  // Session is really gone (refresh token rejected) → send the user to login
-  // instead of showing a dead "Unauthorized" PIN screen.
+  // Session is really gone (refresh token rejected) → send the user back to the
+  // LOGIN page (never the public landing page), so signing in returns to the dashboard.
   const handleSessionLost = useCallback(async (e: any) => {
     if (String(e?.message || e) !== 'SESSION_LOST') return false;
+    // One last recovery attempt before giving up — avoids bouncing out on a blip.
+    try {
+      const { data } = await supabase.auth.refreshSession();
+      if (data?.session?.access_token) { setError('Session refreshed — please enter your PIN again.'); return true; }
+    } catch {}
     try { await supabase.auth.signOut(); } catch {}
     sessionStorage.removeItem(UNLOCK_KEY);
-    if (onLogout) onLogout();
-    else window.location.href = '/login';
+    window.location.replace('/login');
     return true;
-  }, [onLogout]);
+  }, []);
+
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -208,7 +215,14 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
-  const unlock = () => { sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); setScreen('ok'); setInfo(''); reset(); };
+  const unlock = () => {
+    sessionStorage.setItem(UNLOCK_KEY, String(Date.now()));
+    // Restart the idle-timeout clock so unlocking counts as fresh activity and the
+    // user lands on the dashboard instead of being bounced out again.
+    try { SessionManager.extend(); } catch {}
+    setScreen('ok'); setInfo(''); reset();
+  };
+
 
   const lockedRemaining = lockedUntil ? new Date(lockedUntil).getTime() - now : 0;
   const isLocked = lockedRemaining > 0;
