@@ -20,21 +20,50 @@ const BASE = 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin';
 const UNLOCK_KEY = 'ip_pin_unlocked_at';
 const RELOCK_MS = 2 * 60 * 1000;
 
-async function pinCall(path: string, method: 'GET' | 'POST', body?: any) {
+async function getFreshToken(forceRefresh = false): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      apikey: publicAnonKey,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const expSec = Number(session?.expires_at || 0);
+  const expiringSoon = expSec > 0 && expSec * 1000 - Date.now() < 120_000;
+  if (!session?.access_token || forceRefresh || expiringSoon) {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (!error && data?.session?.access_token) return data.session.access_token;
+    return session?.access_token || null;
+  }
+  return session.access_token;
+}
+
+async function pinCall(path: string, method: 'GET' | 'POST', body?: any) {
+  const doFetch = async (token: string) =>
+    fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: publicAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+  let token = await getFreshToken();
+  if (!token) throw new Error('SESSION_LOST');
+
+  let res = await doFetch(token);
+  // Expired / rotated JWT → refresh once and retry before surfacing "Unauthorized".
+  if (res.status === 401) {
+    const refreshed = await getFreshToken(true);
+    if (!refreshed) throw new Error('SESSION_LOST');
+    res = await doFetch(refreshed);
+    if (res.status === 401) {
+      const j = await res.json().catch(() => ({}));
+      // Only a真 auth failure (no PIN payload) means the session is dead.
+      if (!j || j.message === 'Unauthorized') throw new Error('SESSION_LOST');
+      return { status: 401, ...j };
+    }
+  }
   const json = await res.json().catch(() => ({}));
   return { status: res.status, ...json };
 }
+
 
 export const PinApi = {
   status: () => pinCall('/status', 'GET'),
