@@ -161,3 +161,7 @@
 .ticker-track {
   animation: ticker-scroll 40s linear infinite;
 }
+
+/* Horizontal scroll rail without a visible scrollbar */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

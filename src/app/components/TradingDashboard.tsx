@@ -32,6 +32,8 @@ import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, I
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 import { WelcomeOnboarding } from "./WelcomeOnboarding";
 import { AIAssistantBot } from "./AIAssistantBot";
+import { BrokerLogo } from "../brokerLogos";
+
 
 interface TradingDashboardProps {
   accessToken: string;
@@ -106,8 +108,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   const [activeBrokerName, setActiveBrokerName] = useState<string>('Dhan');
 
   // 🔴 REAL DATA — Dhan account fund limits & positions
-  const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken);
-  const { positions: dhanPositions } = usePositions(serverUrl, accessToken);
+  const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken, activeBroker);
+  const { positions: dhanPositions } = usePositions(serverUrl, accessToken, activeBroker);
+
   const realPositionsPnL = (dhanPositions || []).reduce(
     (s: number, p: any) => s + Number(p.unrealizedProfit ?? p.pnl ?? p.unrealisedProfit ?? 0), 0
   );
@@ -737,7 +740,78 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               </div>
             )}
           </div>
+
+          {/* ══ LIVE STATUS RAIL — broker · funds · positions P&L · engine ══ */}
+          <div className="mt-3 -mx-1 px-1 overflow-x-auto no-scrollbar">
+            <div className="flex items-stretch gap-2 sm:gap-3 min-w-max sm:min-w-0">
+              {/* Active broker */}
+              <div className="group flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-zinc-800/70 to-zinc-900/70 border border-zinc-700/60 hover:border-cyan-500/40 transition-all duration-300">
+                <BrokerLogo id={activeBroker} name={activeBrokerName} size={28} className="shrink-0 transition-transform duration-300 group-hover:scale-110" />
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Broker</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold text-white whitespace-nowrap">{activeBrokerName}</span>
+                    <span className={`size-1.5 rounded-full ${credentialsConfigured ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`} />
+                    <span className={`text-[10px] font-medium ${credentialsConfigured ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {credentialsConfigured ? 'Live' : 'Off'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Available funds */}
+              <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-blue-600/10 to-zinc-900/70 border border-blue-500/25 hover:border-blue-400/50 transition-all duration-300">
+                <DollarSign className="size-4 text-blue-400 shrink-0" />
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Funds</div>
+                  <div className="text-sm font-bold text-blue-300 tabular-nums whitespace-nowrap">
+                    ₹{realAccountBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Positions P&L */}
+              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-zinc-900/70 to-zinc-900/70 border transition-all duration-300 ${
+                realPositionsPnL > 0
+                  ? 'border-emerald-500/30 hover:border-emerald-400/60'
+                  : realPositionsPnL < 0
+                    ? 'border-red-500/30 hover:border-red-400/60'
+                    : 'border-zinc-700/60'
+              }`}>
+                <BarChart3 className={`size-4 shrink-0 ${realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}`} />
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+                    Positions ({realOpenTrades})
+                  </div>
+                  <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${
+                    realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-300'
+                  }`}>
+                    {realPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(realPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Engine status */}
+              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all duration-300 ${
+                engineRunning
+                  ? 'bg-gradient-to-br from-emerald-600/15 to-zinc-900/70 border-emerald-500/40 shadow-[0_0_18px_-6px_rgba(16,185,129,0.6)]'
+                  : 'bg-zinc-800/50 border-zinc-700/60'
+              }`}>
+                <span className="relative flex size-2.5 shrink-0">
+                  {engineRunning && <span className="absolute inline-flex size-full rounded-full bg-emerald-400 opacity-70 animate-ping" />}
+                  <span className={`relative inline-flex size-2.5 rounded-full ${engineRunning ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                </span>
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Engine</div>
+                  <div className={`text-sm font-semibold whitespace-nowrap ${engineRunning ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                    {engineRunning ? 'Running' : 'Stopped'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+
 
         {/* Mobile Menu Dropdown */}
         {(isMobile || isTablet) && mobileMenuOpen && (

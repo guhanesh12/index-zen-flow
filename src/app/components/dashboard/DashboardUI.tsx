@@ -69,7 +69,7 @@ export function useLiveIndices(serverUrl?: string, accessToken?: string) {
   return { data, loading, reload: load };
 }
 
-export function useFundLimits(serverUrl?: string, accessToken?: string) {
+export function useFundLimits(serverUrl?: string, accessToken?: string, brokerKey?: string) {
   const [funds, setFunds] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -88,12 +88,13 @@ export function useFundLimits(serverUrl?: string, accessToken?: string) {
     load();
     const t = setInterval(load, 60000);
     return () => { alive = false; clearInterval(t); };
-  }, [serverUrl, accessToken]);
+  }, [serverUrl, accessToken, brokerKey]);
+
 
   return { funds, loading };
 }
 
-export function usePositions(serverUrl?: string, accessToken?: string) {
+export function usePositions(serverUrl?: string, accessToken?: string, brokerKey?: string) {
   const [positions, setPositions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -112,7 +113,8 @@ export function usePositions(serverUrl?: string, accessToken?: string) {
     load();
     const t = setInterval(load, 15000);
     return () => { alive = false; clearInterval(t); };
-  }, [serverUrl, accessToken]);
+  }, [serverUrl, accessToken, brokerKey]);
+
 
   return { positions, loading };
 }
