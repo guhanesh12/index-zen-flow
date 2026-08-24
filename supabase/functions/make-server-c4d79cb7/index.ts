@@ -10095,7 +10095,7 @@ app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
 
 const ADMIN_2FA_ENROLLED_PREFIX = 'admin_2fa_enrolled:';
 const ADMIN_2FA_CHALLENGE_PREFIX = 'admin_2fa_challenge:';
-const ADMIN_2FA_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const ADMIN_2FA_CHALLENGE_TTL_MS = 15 * 60 * 1000; // 15 minutes (enough time to scan QR + set up authenticator)
 const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
 
 const ADMIN_ROLE_KEYS = [
