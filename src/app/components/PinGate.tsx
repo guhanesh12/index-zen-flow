@@ -50,21 +50,27 @@ async function pinCall(path: string, method: 'GET' | 'POST', body?: any) {
   if (!token) throw new Error('SESSION_LOST');
 
   let res = await doFetch(token);
-  // Expired / rotated JWT → refresh once and retry before surfacing "Unauthorized".
+  // Expired / rotated JWT → refresh once and retry. IMPORTANT: only retry when the
+  // 401 is a real auth failure, never for "Incorrect PIN"/"Incorrect OTP" — retrying
+  // those would double-count failed attempts and lock users out early.
   if (res.status === 401) {
+    const j = await res.json().catch(() => ({}));
+    const isAuthFailure = !j || Object.keys(j).length === 0 || j.message === 'Unauthorized';
+    if (!isAuthFailure) return { status: 401, ...j };
+
     const refreshed = await getFreshToken(true);
     if (!refreshed) throw new Error('SESSION_LOST');
     res = await doFetch(refreshed);
     if (res.status === 401) {
-      const j = await res.json().catch(() => ({}));
-      // Only a real auth failure (no PIN payload) means the session is dead.
-      if (!j || j.message === 'Unauthorized') throw new Error('SESSION_LOST');
-      return { status: 401, ...j };
+      const j2 = await res.json().catch(() => ({}));
+      if (!j2 || Object.keys(j2).length === 0 || j2.message === 'Unauthorized') throw new Error('SESSION_LOST');
+      return { status: 401, ...j2 };
     }
   }
   const json = await res.json().catch(() => ({}));
   return { status: res.status, ...json };
 }
+
 
 
 export const PinApi = {
