@@ -4,7 +4,7 @@
 // - Wallet is charged ONLY for signal / position / chart ANALYSIS questions
 // - Can place an order for an actionable signal, or exit a running position
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
-import { ownBrain, brainIsBillable } from "./brain.ts";
+import { ownBrain, brainIsBillable, signalIndexOf } from "./brain.ts";
 import {
   analyseIndices,
   analysePositionOption,
@@ -1052,7 +1052,11 @@ Deno.serve(async (req) => {
       const sig: any = context.latest_signal;
       const fresh = sig && (Date.now() - new Date(sig.created_at).getTime()) / 60000 <= 15;
       const hasFreeSlot = (context.auto_slots || []).some((s: any) => s.enabled);
-      if (context.market_open && fresh && hasFreeSlot && context.open_positions.length < (context.auto_slots || []).filter((s: any) => s.enabled).length) {
+      // the button must belong to the index the user actually asked about
+      const askedIndex = signalIndexOf({ symbol: String(message || "") });
+      const sigIndex = signalIndexOf(sig);
+      const indexMatches = !askedIndex || !sigIndex || askedIndex === sigIndex;
+      if (context.market_open && fresh && indexMatches && hasFreeSlot && context.open_positions.length < (context.auto_slots || []).filter((s: any) => s.enabled).length) {
         answer.action = {
           type: "place_order",
           label: `Place ${sig.option_type || ""} order — ${sig.symbol}`,
@@ -1062,6 +1066,9 @@ Deno.serve(async (req) => {
         };
       } else {
         answer.verdict = "WAIT";
+        if (askedIndex && sigIndex && askedIndex !== sigIndex) {
+          answer.risk = `No fresh ${askedIndex} signal — the last engine signal was on ${sigIndex}, so no ${askedIndex} order can be placed yet.`;
+        }
       }
     } else if (a?.type === "exit_position") {
       const oid = String(a.orderId || "");
