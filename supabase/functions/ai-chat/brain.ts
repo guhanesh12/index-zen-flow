@@ -114,7 +114,20 @@ export function brainIsBillable(msg: string) {
 }
 
 // ---------------------------------------------------------------- entities
+// Resolve which index a signal/order row belongs to (BANKNIFTY must win over NIFTY)
+export function signalIndexOf(sig: any): string | null {
+  const raw = String(sig?.index_name || sig?.symbol || "").toUpperCase().replace(/\s+/g, "");
+  if (!raw) return null;
+  if (raw.includes("BANKNIFTY")) return "BANKNIFTY";
+  if (raw.includes("FINNIFTY")) return "FINNIFTY";
+  if (raw.includes("MIDCPNIFTY")) return "MIDCPNIFTY";
+  if (raw.includes("SENSEX")) return "SENSEX";
+  if (raw.includes("NIFTY")) return "NIFTY";
+  return null;
+}
+
 function extractEntities(m: string) {
+
   const idx = /bank\s*nifty|banknifty/.test(m)
     ? "BANKNIFTY"
     : /fin\s*nifty|finnifty/.test(m)
