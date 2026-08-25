@@ -492,7 +492,11 @@ export function ownBrain(message: string, ctx: any): BrainAnswer {
     case "market": {
       const read = bestRead(ctx, ent.index);
       const conf = confluence(read);
-      const fresh = sig && minsAgo(sig.created_at) <= 15;
+      const sigIndex = signalIndexOf(sig);
+      // the pending signal must belong to the SAME index we are analysing,
+      // otherwise a SENSEX signal would offer an order button on a BANKNIFTY question
+      const sigMatches = !!read && !!sigIndex && sigIndex === String(read.name).toUpperCase();
+      const fresh = !!sig && minsAgo(sig.created_at) <= 15 && sigMatches;
       const slotFree = enabledSlots.length > an.open.length;
       const a = base(intent === "market" ? "Market Analysis" : "Signal Analysis", "WAIT", "");
 
@@ -506,7 +510,7 @@ export function ownBrain(message: string, ctx: any): BrainAnswer {
           heading: "Signal & capacity",
           points: [
             sig
-              ? `Last signal ${sig.symbol || "—"} ${sig.option_type || ""} @ ${sig.price ?? "—"} · confidence ${sig.confidence ?? "—"} · ${ago(sig.created_at)} (${fresh ? "FRESH" : "stale > 15 min"})`
+              ? `Last signal ${sig.symbol || "—"} ${sig.option_type || ""} @ ${sig.price ?? "—"} · confidence ${sig.confidence ?? "—"} · ${ago(sig.created_at)} (${minsAgo(sig.created_at) <= 15 ? "FRESH" : "stale > 15 min"})${read && sigIndex && !sigMatches ? ` · belongs to ${sigIndex}, not ${read.name}` : ""}`
               : "No signal generated for your account yet today.",
             `Slots ${enabledSlots.length} enabled · ${an.open.length} in use · ${Math.max(0, enabledSlots.length - an.open.length)} free`,
             `Engine ${eng.is_running ? "RUNNING" : "STOPPED — it will not auto-place orders"} · Broker ${br.connected && !br.access_token_expired ? "ready" : "NOT ready"}`,
@@ -528,11 +532,13 @@ export function ownBrain(message: string, ctx: any): BrainAnswer {
         a.confidence = Math.min(95, 50 + Math.round(conf.score * 0.45));
         a.risk = conf.score >= 75 ? "Strong setup — still respect the slot SL, no averaging." : "Moderate setup — keep a strict SL and single lot exposure.";
         if (a.verdict === "PLACE" && sig) {
-          a.action = { type: "place_order", signalId: sig.id, reason: `Fresh ${sig.option_type || read.bias} aligned with ${read.name} ${read.trend} (confluence ${conf.score})` };
+          a.action = { type: "place_order", signalId: sig.id, index: read.name, reason: `Fresh ${sig.option_type || read.bias} aligned with ${read.name} ${read.trend} (confluence ${conf.score})` };
         } else if (!eng.is_running) a.risk = "Engine is STOPPED — start it (or place manually) before this setup expires.";
         else if (!slotFree) a.risk = "All enabled slots are busy — free a slot or enable another to take this trade.";
-        else if (!fresh) a.risk = "No fresh (<15 min) signal — wait for the engine's next confirmed entry rather than chasing.";
+        else if (sig && sigIndex && !sigMatches) a.risk = `No ${read.name} signal yet — the last engine signal was on ${sigIndex}, so there is nothing to execute on ${read.name}.`;
+        else if (!fresh) a.risk = `No fresh (<15 min) ${read.name} signal — wait for the engine's next confirmed entry rather than chasing.`;
       } else {
+
         a.verdict = "WAIT";
         a.summary = read
           ? `${read.name} is not tradable right now — ${regimeOf(read)} with confluence only ${conf.score}/100 (ADX ${read.adx14}, RSI ${read.rsi14}). A clean break with ADX ≥ 22 and VWAP alignment is needed.`
