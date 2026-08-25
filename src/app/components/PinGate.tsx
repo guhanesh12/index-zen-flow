@@ -54,19 +54,28 @@ async function pinCall(path: string, method: 'GET' | 'POST', body?: any) {
   // 401 is a real auth failure, never for "Incorrect PIN"/"Incorrect OTP" — retrying
   // those would double-count failed attempts and lock users out early.
   if (res.status === 401) {
-    const j = await res.json().catch(() => ({}));
-    const isAuthFailure = !j || Object.keys(j).length === 0 || j.message === 'Unauthorized';
-    if (!isAuthFailure) return { status: 401, ...j };
+    const j: any = await res.json().catch(() => ({}));
+    // A wrong PIN/OTP from our own function must NOT be retried (it would burn two
+    // attempts). Anything else (gateway "Invalid JWT", expired/rotated token, empty
+    // body) is a token problem → refresh once and retry.
+    const isCredentialFailure =
+      typeof j?.attemptsLeft === 'number' ||
+      /incorrect (pin|otp)/i.test(String(j?.message || ''));
+    if (isCredentialFailure) return { status: 401, ...j };
 
     const refreshed = await getFreshToken(true);
     if (!refreshed) throw new Error('SESSION_LOST');
     res = await doFetch(refreshed);
     if (res.status === 401) {
-      const j2 = await res.json().catch(() => ({}));
-      if (!j2 || Object.keys(j2).length === 0 || j2.message === 'Unauthorized') throw new Error('SESSION_LOST');
+      const j2: any = await res.json().catch(() => ({}));
+      const cred2 =
+        typeof j2?.attemptsLeft === 'number' ||
+        /incorrect (pin|otp)/i.test(String(j2?.message || ''));
+      if (!cred2) throw new Error('SESSION_LOST');
       return { status: 401, ...j2 };
     }
   }
+
   const json = await res.json().catch(() => ({}));
   return { status: res.status, ...json };
 }
