@@ -117,12 +117,25 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
 
     try {
       console.log('🔐 Attempting login...');
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
+      // Never let the button spin forever if the auth service is slow/unreachable
+      const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+        Promise.race([
+          p,
+          new Promise<T>((_, reject) =>
+            setTimeout(() => reject(new Error('AUTH_TIMEOUT')), ms)
+          ),
+        ]);
+
+      const { data: signInData, error: signInError } = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: data.email,
+          password: data.password,
+        }),
+        25000
+      );
 
       if (signInError) throw signInError;
+
 
       if (!signInData.session) {
         throw new Error('Failed to create session');
