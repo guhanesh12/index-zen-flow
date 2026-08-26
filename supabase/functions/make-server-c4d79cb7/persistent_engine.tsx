@@ -470,6 +470,51 @@ interface EngineConfig {
  * ⚡ SINGLETON PATTERN - ONE ENGINE PER USER
  */
 class PersistentTradingEngine {
+  /**
+   * A broker accepting an exit request does not mean the position was closed.
+   * Wait for the exit order to be fully filled before mutating monitor state or
+   * sending a "Position Closed" notification.
+   */
+  private async confirmExitFilled(
+    userId: string,
+    exitResult: any,
+    position: any,
+    dhanService: any,
+  ): Promise<{ confirmed: boolean; error?: string }> {
+    const exitOrderId = String(exitResult?.orderId || "").trim();
+    if (!exitOrderId) return { confirmed: false, error: exitResult?.error || "Broker did not return an exit order ID" };
+
+    const expectedQuantity = Math.abs(Number(position?.quantity || 0));
+    const filledStatuses = new Set(["COMPLETE", "COMPLETED", "FILLED", "EXECUTED", "TRADED", "SUCCESS"]);
+    const failedStatuses = new Set(["REJECTED", "CANCELLED", "CANCELED", "FAILED", "ERROR"]);
+    let lastStatus = "PENDING";
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750));
+      const status = await BrokerRouter.getOrderStatusSmart(
+        userId,
+        exitOrderId,
+        () => dhanService.getOrderStatus(exitOrderId),
+      ).catch(() => null);
+      const rawStatus = String(
+        status?.orderStatus || status?.order_status || status?.status || status?.raw?.orderStatus || "PENDING",
+      ).toUpperCase();
+      lastStatus = rawStatus;
+      const tradedQuantity = Math.abs(Number(
+        status?.tradedQuantity ?? status?.filledQty ?? status?.filled_quantity ?? status?.quantity ?? 0,
+      ));
+
+      if (failedStatuses.has(rawStatus)) {
+        return { confirmed: false, error: `Exit order ${rawStatus}` };
+      }
+      if (filledStatuses.has(rawStatus) && (expectedQuantity === 0 || tradedQuantity === 0 || tradedQuantity >= expectedQuantity)) {
+        return { confirmed: true };
+      }
+    }
+
+    return { confirmed: false, error: `Exit order not filled (last status: ${lastStatus})` };
+  }
+
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
   private static activeLoops: Set<string> = new Set();
@@ -1663,7 +1708,8 @@ class PersistentTradingEngine {
                 amoTime: "",
               },
             );
-            if (exitResult.orderId || exitResult.success) {
+            const exitConfirmation = await this.confirmExitFilled(userId, exitResult, reversalPosition, dhanService);
+            if (exitConfirmation.confirmed) {
               reversalPosition.status = "CLOSED";
               await supabaseAdmin
                 .from("position_monitor_state")
@@ -1692,7 +1738,14 @@ class PersistentTradingEngine {
               }).catch((e) => console.error("FCM push (close) failed:", e));
               state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
             } else {
-              console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${exitResult.error}`);
+              const failure = exitConfirmation.error || exitResult.error || "Exit was not confirmed";
+              console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${failure}`);
+              sendPushToUser(userId, {
+                title: `⚠️ Exit not confirmed: ${reversalPosition.symbolName}`,
+                body: `${failure}. Position monitoring remains active; check your broker immediately.`,
+                targetUrl: "/dashboard",
+                data: { type: "EXIT_FAILED", symbol: String(reversalPosition.symbolName || "") },
+              }).catch((e) => console.error("FCM push (exit failure) failed:", e));
               return;
             }
           }
@@ -1980,7 +2033,8 @@ class PersistentTradingEngine {
                   amoTime: "",
                 },
               );
-              if (exitResult.orderId || exitResult.success) {
+              const exitConfirmation = await this.confirmExitFilled(userId, exitResult, sameIndexPosition, dhanService);
+              if (exitConfirmation.confirmed) {
                 sameIndexPosition.status = "CLOSED";
                 await supabaseAdmin
                   .from("position_monitor_state")
@@ -2011,7 +2065,8 @@ class PersistentTradingEngine {
                 }
                 state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
               } else {
-                console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
+                const failure = exitConfirmation.error || exitResult.error || "Exit was not confirmed";
+                console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${failure}`);
                 return;
               }
             }
@@ -2477,7 +2532,20 @@ class PersistentTradingEngine {
         );
 
         // Check if position is closed
-        if (!dhanPos || dhanPos.netQty === 0) {
+        if (!dhanPos) {
+          const missingCount = Number((position as any).missingBrokerPositionCount || 0) + 1;
+          (position as any).missingBrokerPositionCount = missingCount;
+          // Position APIs can briefly return an empty/stale snapshot. Never declare a live
+          // trade closed from one response; require ten consecutive successful monitor ticks.
+          if (missingCount < 10) {
+            console.warn(`⚠️ ${position.symbolName} absent from broker positions (${missingCount}/10); keeping monitor active`);
+            continue;
+          }
+        } else {
+          (position as any).missingBrokerPositionCount = 0;
+        }
+
+        if (!dhanPos || Number(dhanPos.netQty ?? dhanPos.quantity ?? 0) === 0) {
           // Try to read realized P&L from Dhan so we can record it
           const realizedPnl = parseFloat(
             dhanPos?.realizedProfit || dhanPos?.realizedPnl || dhanPos?.realizedPnL || position.pnl || 0,
@@ -3048,7 +3116,8 @@ class PersistentTradingEngine {
             exitParams,
           );
 
-          if (exitResult.orderId || exitResult.success) {
+          const exitConfirmation = await this.confirmExitFilled(userId, exitResult, position, dhanService);
+          if (exitConfirmation.confirmed) {
             console.log(`✅ EXIT ORDER PLACED! ${exitReason}`);
             position.status = "CLOSED";
             state.stats.totalPnL += pnl;
@@ -3128,7 +3197,21 @@ class PersistentTradingEngine {
               });
             } catch {}
           } else {
-            console.log(`❌ EXIT ORDER FAILED: ${exitResult.error}`);
+            const failure = exitConfirmation.error || exitResult.error || "Exit was not confirmed";
+            console.log(`❌ EXIT ORDER FAILED: ${failure}`);
+            await this.appendSharedLog(userId, {
+              type: "EXIT_FAILED",
+              timestamp: Date.now(),
+              symbol: position.symbolName,
+              message: `⚠️ EXIT NOT CONFIRMED: ${position.symbolName} | ${failure} | Monitoring continues`,
+              reason: failure,
+            });
+            sendPushToUser(userId, {
+              title: `⚠️ Exit not confirmed: ${position.symbolName}`,
+              body: `${failure}. Position monitoring remains active; check your broker immediately.`,
+              targetUrl: "/dashboard",
+              data: { type: "EXIT_FAILED", symbol: String(position.symbolName || "") },
+            }).catch((e) => console.error("FCM push (exit failure) failed:", e));
           }
         }
       }
