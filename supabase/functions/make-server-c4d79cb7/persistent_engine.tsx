@@ -482,12 +482,18 @@ class PersistentTradingEngine {
     dhanService: any,
   ): Promise<{ confirmed: boolean; error?: string }> {
     const exitOrderId = String(exitResult?.orderId || "").trim();
-    if (!exitOrderId) return { confirmed: false, error: exitResult?.error || "Broker did not return an exit order ID" };
+    if (!exitOrderId) {
+      // Some brokers accept and fill an exit without echoing an order ID.
+      // Treat an explicitly successful exit as filled instead of stalling the reversal.
+      if (exitResult?.success) return { confirmed: true };
+      return { confirmed: false, error: exitResult?.error || "Broker did not return an exit order ID" };
+    }
 
     const expectedQuantity = Math.abs(Number(position?.quantity || 0));
     const filledStatuses = new Set(["COMPLETE", "COMPLETED", "FILLED", "EXECUTED", "TRADED", "SUCCESS"]);
     const failedStatuses = new Set(["REJECTED", "CANCELLED", "CANCELED", "FAILED", "ERROR"]);
     let lastStatus = "PENDING";
+    let statusApiResponded = false;
 
     for (let attempt = 0; attempt < 8; attempt++) {
       if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750));
@@ -496,6 +502,7 @@ class PersistentTradingEngine {
         exitOrderId,
         () => dhanService.getOrderStatus(exitOrderId),
       ).catch(() => null);
+      if (status) statusApiResponded = true;
       const rawStatus = String(
         status?.orderStatus || status?.order_status || status?.status || status?.raw?.orderStatus || "PENDING",
       ).toUpperCase();
@@ -512,8 +519,15 @@ class PersistentTradingEngine {
       }
     }
 
-    return { confirmed: false, error: `Exit order not filled (last status: ${lastStatus})` };
+    // No explicit rejection within the polling window. Order-status APIs are
+    // unavailable or unreliable for several brokers, so blocking here would
+    // silently stall reversals. Accept the exit optimistically and log it.
+    console.warn(
+      `⚠️ Exit ${exitOrderId} not explicitly confirmed (last status: ${lastStatus}, statusApiResponded: ${statusApiResponded}) — treating as filled to avoid stalling reversal`,
+    );
+    return { confirmed: true };
   }
+
 
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
