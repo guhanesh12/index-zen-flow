@@ -2555,9 +2555,11 @@ class PersistentTradingEngine {
             `🚪 Position CLOSED externally: ${position.symbolName} | Realized P&L: ₹${realizedPnl.toFixed(2)}`,
           );
           position.status = "CLOSED";
-          state.stats.totalPnL += realizedPnl;
 
-          await supabaseAdmin
+          // Only the monitor invocation that actually transitions this row may
+          // record an external close. A concurrent AI/SL exit may already have
+          // saved the real reason; never overwrite it with the generic label.
+          const { data: externallyClosedRow } = await supabaseAdmin
             .from("position_monitor_state")
             .update({
               is_active: false,
@@ -2566,7 +2568,17 @@ class PersistentTradingEngine {
               pnl: realizedPnl,
             })
             .eq("user_id", userId)
-            .eq("order_id", position.orderId);
+            .eq("order_id", position.orderId)
+            .eq("is_active", true)
+            .select("id")
+            .maybeSingle();
+
+          if (!externallyClosedRow) {
+            console.log(`ℹ️ ${position.symbolName} was already closed by another exit path; preserving its recorded reason`);
+            continue;
+          }
+
+          state.stats.totalPnL += realizedPnl;
 
           // ⚡ Record into signal_stats so wallet auto-debit can read today's profit
           await this.updatePnLStats(userId, realizedPnl);
@@ -2907,16 +2919,21 @@ class PersistentTradingEngine {
           const isAlignedWithMarket = positionDirection === marketMomentum;
           marketFavorable = isAlignedWithMarket && momentumStrength >= 3;
 
-          // 🔒 RULE: a running position is only closed when the AI emits the OPPOSITE
-          // option-type signal (CE → PE or PE → CE). Sideways / WAIT / neutral market
-          // never closes the position — it keeps running (Target / SL / trailing still apply).
+          // 🔒 RULE: a running position is only closed on a STRONG opposite signal.
+          // A single low-confidence flip is market noise and must not close a live
+          // trade that can still recover. Sideways / WAIT / neutral also keep running.
           const _oppositeAction =
             normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BUY_PUT" : "BUY_CALL";
           const _isOppositeSignal = currentSignal.action === _oppositeAction;
 
-          if (_isOppositeSignal) {
+          const _oppositeSignalConfirmed =
+            _isOppositeSignal && Number(currentSignal.confidence || 0) >= 80 && momentumStrength >= 4;
+
+          if (_oppositeSignalConfirmed) {
             signalShouldExit = true;
-            signalExitReason = `Signal Flip (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence)`;
+            signalExitReason = `Strong Signal Flip (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence, momentum ${momentumStrength}/6)`;
+          } else if (_isOppositeSignal) {
+            monitorReasoning = `⚠️ HOLD - Unconfirmed flip ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6); waiting for strong confirmation`;
           } else if (isAlignedWithMarket && momentumStrength >= 3) {
 
             monitorReasoning = `✅ HOLD - ${marketMomentum} momentum matches ${positionDirection} position (${momentumStrength}/6 confirmations)`;
@@ -3038,10 +3055,15 @@ class PersistentTradingEngine {
         const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
         const _withinGrace = _ageMs < 45_000;
 
-        // 🔒 Direction-flip gate: predictive exits only fire when the AI emits the OPPOSITE
-        // option-type signal. Sideways / WAIT / neutral market NEVER closes a running position.
+        // 🔒 Direction-flip gate: predictive exits require an opposite signal with
+        // at least 80% confidence and 4/6 momentum confirmations. This prevents a
+        // temporary counter-move from closing a position just before recovery.
         const _oppActionNow = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
-        const _flipSignalNow = !!currentSignal && currentSignal.action === _oppActionNow;
+        const _flipSignalNow =
+          !!currentSignal &&
+          currentSignal.action === _oppActionNow &&
+          Number(currentSignal.confidence || 0) >= 80 &&
+          momentumStrength >= 4;
 
         // 1) PROFIT PROTECTION — only on a confirmed direction flip with heavy give-back.
         if (
