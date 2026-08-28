@@ -295,6 +295,43 @@ function _inferIndexName(sym: string): string {
   if (s.includes("SENSEX")) return "SENSEX";
   return "NIFTY";
 }
+
+// 🧮 Index option lot sizes. A lot size of 1 is NEVER valid for index options —
+// falling back to 1 made lotCount == raw share quantity (e.g. 195), which
+// multiplied the user's configured Target/SL by ~65-75x so they could never be hit.
+const _INDEX_LOT_SIZE: Record<string, number> = { NIFTY: 65, BANKNIFTY: 30, SENSEX: 20 };
+function _resolveLotSize(indexName: string, ...candidates: any[]): number {
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 1) return n;
+  }
+  return _INDEX_LOT_SIZE[(indexName || "NIFTY").toUpperCase()] || 65;
+}
+
+/**
+ * 🛡️ RISK SANITY CLAMP
+ * An option BUY can never lose more than the premium paid, so a stop-loss larger
+ * than the notional is unreachable (the position then only ever exits via
+ * "closed externally" or an AI reversal). Target is capped at 5x notional.
+ */
+function _sanitizeRisk(
+  target: number,
+  stopLoss: number,
+  entryPrice: number,
+  quantity: number,
+): { target: number; stopLoss: number; clamped: boolean } {
+  const notional = Math.abs(Number(entryPrice) || 0) * Math.abs(Number(quantity) || 0);
+  let t = Number(target) || 0;
+  let s = Number(stopLoss) || 0;
+  if (notional <= 0) return { target: t, stopLoss: s, clamped: false };
+  const maxSL = notional;            // cannot lose more than the premium paid
+  const maxTgt = notional * 5;       // 500% of premium is already extreme
+  let clamped = false;
+  if (s > maxSL) { s = +(notional * 0.5).toFixed(2); clamped = true; }
+  if (t > maxTgt) { t = +(notional * 1.0).toFixed(2); clamped = true; }
+  return { target: t, stopLoss: s, clamped };
+}
+
 async function computeManualLotRisk(
   userId: string,
   indexName: string,
