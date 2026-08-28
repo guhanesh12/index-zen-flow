@@ -2683,20 +2683,38 @@ class PersistentTradingEngine {
         // 🔁 LOT CHANGE DETECTION: user added/removed lots manually in Dhan app.
         // Recompute target/SL/trailing scaled to the new lot count and persist.
         if (brokerQty > 0 && trackedQty > 0 && brokerQty !== trackedQty) {
-          const lotSize = Number(position.lotSize) || Number(dhanPos.lotSize) || Number(dhanPos.lot_size) || 1;
           const idxName = position.index || _inferIndexName(position.symbolName || "");
+          const lotSize = _resolveLotSize(idxName, position.lotSize, dhanPos.lotSize, dhanPos.lot_size);
           const newRisk = await computeManualLotRisk(userId, idxName, brokerQty, lotSize, position.moneyness);
-          const oldLots = Math.max(1, Math.round(trackedQty / Math.max(1, lotSize)));
-          const scale = newRisk.lotCount / oldLots;
+          const oldLots = Math.max(1, Math.round(trackedQty / lotSize));
+          // Derive PER-LOT values from the current totals and re-scale — never multiply the
+          // running totals repeatedly (that compounded into unreachable Target/SL).
+          const perLot = (v: any, fb: number) => {
+            const n = Number(v) || 0;
+            return n > 0 ? n / oldLots : fb / Math.max(1, newRisk.lotCount);
+          };
+          const nextTarget = +(perLot(position.targetAmount, newRisk.targetAmount) * newRisk.lotCount).toFixed(2);
+          const nextSL = +(perLot(position.stopLossAmount, newRisk.stopLossAmount) * newRisk.lotCount).toFixed(2);
+          const safe = _sanitizeRisk(nextTarget, nextSL, entryPrice, brokerQty);
           position.quantity = brokerQty;
-          position.targetAmount = +(Number(position.targetAmount || 0) * scale).toFixed(2) || newRisk.targetAmount;
-          position.stopLossAmount = +(Number(position.stopLossAmount || 0) * scale).toFixed(2) || newRisk.stopLossAmount;
-          position.currentTargetAmount = +(Number(position.currentTargetAmount || position.targetAmount) * scale).toFixed(2);
-          position.currentStopLossAmount = +(Number(position.currentStopLossAmount || position.stopLossAmount) * scale).toFixed(2);
-          position.trailingActivationAmount = +(Number(position.trailingActivationAmount || 0) * scale).toFixed(2) || newRisk.trailingActivationAmount;
-          position.targetJumpAmount = +(Number(position.targetJumpAmount || 0) * scale).toFixed(2) || newRisk.targetJumpAmount;
-          position.stopLossJumpAmount = +(Number(position.stopLossJumpAmount || 0) * scale).toFixed(2) || newRisk.stopLossJumpAmount;
+          position.targetAmount = safe.target || newRisk.targetAmount;
+          position.stopLossAmount = safe.stopLoss || newRisk.stopLossAmount;
+          position.currentTargetAmount = position.targetAmount;
+          position.currentStopLossAmount = position.stopLossAmount;
+          position.trailingActivationAmount = Math.min(
+            +(perLot(position.trailingActivationAmount, newRisk.trailingActivationAmount) * newRisk.lotCount).toFixed(2) || newRisk.trailingActivationAmount,
+            Math.max(1, position.targetAmount * 0.8),
+          );
+          position.targetJumpAmount = Math.min(
+            +(perLot(position.targetJumpAmount, newRisk.targetJumpAmount) * newRisk.lotCount).toFixed(2) || newRisk.targetJumpAmount,
+            Math.max(1, position.targetAmount * 0.5),
+          );
+          position.stopLossJumpAmount = Math.min(
+            +(perLot(position.stopLossJumpAmount, newRisk.stopLossJumpAmount) * newRisk.lotCount).toFixed(2) || newRisk.stopLossJumpAmount,
+            Math.max(1, position.stopLossAmount * 0.5),
+          );
           position.trailingStep = position.stopLossJumpAmount;
+
           console.log(`🔁 [LOT-CHANGE] ${position.symbolName}: qty ${trackedQty}→${brokerQty} (${oldLots}→${newRisk.lotCount} lots) | Tgt ₹${position.targetAmount} SL ₹${position.stopLossAmount} TrailStep ₹${position.stopLossJumpAmount}`);
           await supabaseAdmin.from("position_monitor_state").update({
             quantity: brokerQty,
