@@ -2769,6 +2769,40 @@ class PersistentTradingEngine {
           }
         }
 
+        // 🛡️ RUNTIME RISK CLAMP — repairs already-persisted inflated rows (Aug 20+ bug):
+        // an unreachable SL/Target meant the position could only exit via "closed externally"
+        // or an AI reversal, so profitable moves were never banked.
+        {
+          const safe = _sanitizeRisk(_baseTarget, _baseSL, entryPrice, quantity);
+          if (safe.clamped) {
+            console.warn(
+              `🛡️ [RISK-CLAMP] ${position.symbolName}: stored Tgt ₹${_baseTarget}/SL ₹${_baseSL} > premium notional ₹${(entryPrice * quantity).toFixed(2)} → Tgt ₹${safe.target} SL ₹${safe.stopLoss}`,
+            );
+            _baseTarget = safe.target;
+            _baseSL = safe.stopLoss;
+            position.targetAmount = _baseTarget;
+            position.stopLossAmount = _baseSL;
+            position.currentTargetAmount = Math.min(Number(position.currentTargetAmount || _baseTarget), _baseTarget);
+            position.currentStopLossAmount = Math.min(Number(position.currentStopLossAmount || _baseSL), _baseSL);
+            if (Number(position.trailingActivationAmount) > _baseTarget * 0.8) {
+              position.trailingActivationAmount = +(_baseTarget * 0.5).toFixed(2);
+            }
+            if (Number(position.targetJumpAmount) > _baseTarget * 0.5) {
+              position.targetJumpAmount = +(_baseTarget * 0.25).toFixed(2);
+            }
+            if (Number(position.stopLossJumpAmount) > _baseSL * 0.5) {
+              position.stopLossJumpAmount = +(_baseSL * 0.33).toFixed(2);
+              position.trailingStep = position.stopLossJumpAmount;
+            }
+            await supabaseAdmin.from("position_monitor_state").update({
+              target_amount: _baseTarget,
+              stop_loss_amount: _baseSL,
+              trailing_step: position.stopLossJumpAmount || null,
+            }).eq("user_id", userId).eq("order_id", position.orderId);
+          }
+        }
+
+
         let _activation = Number(position.trailingActivationAmount ?? 0);
         let _slJump = Number(position.stopLossJumpAmount ?? 0);
         let _targetJump = Number(position.targetJumpAmount ?? 0);
