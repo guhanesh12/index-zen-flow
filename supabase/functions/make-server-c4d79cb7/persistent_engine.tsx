@@ -1008,29 +1008,44 @@ class PersistentTradingEngine {
               const cfg =
                 findSymbolConfigForPosition({ ...pos, symbol: sym, securityId: sid }, userConfiguredSymbols) || {};
               const idxName = sym.includes("BANKNIFTY") ? "BANKNIFTY" : sym.includes("SENSEX") ? "SENSEX" : "NIFTY";
-              const lotSize = Number(cfg.lotSize) || Number(pos.lotSize) || Number(pos.lot_size) || 1;
+              const lotSize = _resolveLotSize(idxName, cfg.lotSize, pos.lotSize, pos.lot_size);
 
-              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by lot count from the broker qty
-              // so manual buys in Dhan (e.g., 2 or 3 lots) get proportional SL/Target/Trailing.
+              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by LOT COUNT (never by raw
+              // share quantity) so manual buys in the broker app get proportional SL/Target.
               const autoRisk = await computeManualLotRisk(userId, idxName, qty, lotSize, cfg.moneyness);
-              const cfgTarget = Number(cfg.targetAmount) > 0
-                ? Number(cfg.targetAmount) * autoRisk.lotCount
-                : autoRisk.targetAmount;
-              const cfgStopLoss = Number(cfg.stopLossAmount) > 0
-                ? Number(cfg.stopLossAmount) * autoRisk.lotCount
-                : autoRisk.stopLossAmount;
+              // The user's configured amounts are TOTALS for the lots they configured, so
+              // convert to per-lot first and re-scale to the lots actually held.
+              const cfgLots = Math.max(1, Math.round(Math.abs(Number(cfg.quantity) || lotSize) / lotSize));
+              const rescale = (v: any, fallback: number) => {
+                const n = Number(v);
+                return n > 0 ? +((n / cfgLots) * autoRisk.lotCount).toFixed(2) : fallback;
+              };
+              const rawTarget = rescale(cfg.targetAmount, autoRisk.targetAmount);
+              const rawStopLoss = rescale(cfg.stopLossAmount, autoRisk.stopLossAmount);
+              const _safe = _sanitizeRisk(rawTarget, rawStopLoss, entry, qty);
+              if (_safe.clamped) {
+                console.warn(
+                  `🛡️ [RISK-CLAMP] ${sym}: Tgt ₹${rawTarget}/SL ₹${rawStopLoss} exceeded premium notional (₹${(entry * qty).toFixed(2)}) → Tgt ₹${_safe.target} SL ₹${_safe.stopLoss}`,
+                );
+              }
+              const cfgTarget = _safe.target;
+              const cfgStopLoss = _safe.stopLoss;
               const cfgTrailingEnabled = cfg.trailingEnabled !== undefined
                 ? !!cfg.trailingEnabled
                 : autoRisk.trailingEnabled;
-              const cfgTrailingActivation = Number(cfg.trailingActivationAmount) > 0
-                ? Number(cfg.trailingActivationAmount) * autoRisk.lotCount
-                : autoRisk.trailingActivationAmount;
-              const cfgTargetJump = Number(cfg.targetJumpAmount) > 0
-                ? Number(cfg.targetJumpAmount) * autoRisk.lotCount
-                : autoRisk.targetJumpAmount;
-              const cfgSlJump = Number(cfg.stopLossJumpAmount) > 0
-                ? Number(cfg.stopLossJumpAmount) * autoRisk.lotCount
-                : autoRisk.stopLossJumpAmount;
+              const cfgTrailingActivation = Math.min(
+                rescale(cfg.trailingActivationAmount, autoRisk.trailingActivationAmount),
+                Math.max(1, cfgTarget * 0.8),
+              );
+              const cfgTargetJump = Math.min(
+                rescale(cfg.targetJumpAmount, autoRisk.targetJumpAmount),
+                Math.max(1, cfgTarget * 0.5),
+              );
+              const cfgSlJump = Math.min(
+                rescale(cfg.stopLossJumpAmount, autoRisk.stopLossJumpAmount),
+                Math.max(1, cfgStopLoss * 0.5),
+              );
+
 
               const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || Array.from(keys)[0] || sym}`;
 
