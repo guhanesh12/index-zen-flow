@@ -295,6 +295,43 @@ function _inferIndexName(sym: string): string {
   if (s.includes("SENSEX")) return "SENSEX";
   return "NIFTY";
 }
+
+// 🧮 Index option lot sizes. A lot size of 1 is NEVER valid for index options —
+// falling back to 1 made lotCount == raw share quantity (e.g. 195), which
+// multiplied the user's configured Target/SL by ~65-75x so they could never be hit.
+const _INDEX_LOT_SIZE: Record<string, number> = { NIFTY: 65, BANKNIFTY: 30, SENSEX: 20 };
+function _resolveLotSize(indexName: string, ...candidates: any[]): number {
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 1) return n;
+  }
+  return _INDEX_LOT_SIZE[(indexName || "NIFTY").toUpperCase()] || 65;
+}
+
+/**
+ * 🛡️ RISK SANITY CLAMP
+ * An option BUY can never lose more than the premium paid, so a stop-loss larger
+ * than the notional is unreachable (the position then only ever exits via
+ * "closed externally" or an AI reversal). Target is capped at 5x notional.
+ */
+function _sanitizeRisk(
+  target: number,
+  stopLoss: number,
+  entryPrice: number,
+  quantity: number,
+): { target: number; stopLoss: number; clamped: boolean } {
+  const notional = Math.abs(Number(entryPrice) || 0) * Math.abs(Number(quantity) || 0);
+  let t = Number(target) || 0;
+  let s = Number(stopLoss) || 0;
+  if (notional <= 0) return { target: t, stopLoss: s, clamped: false };
+  const maxSL = notional;            // cannot lose more than the premium paid
+  const maxTgt = notional * 5;       // 500% of premium is already extreme
+  let clamped = false;
+  if (s > maxSL) { s = +(notional * 0.5).toFixed(2); clamped = true; }
+  if (t > maxTgt) { t = +(notional * 1.0).toFixed(2); clamped = true; }
+  return { target: t, stopLoss: s, clamped };
+}
+
 async function computeManualLotRisk(
   userId: string,
   indexName: string,
@@ -971,29 +1008,44 @@ class PersistentTradingEngine {
               const cfg =
                 findSymbolConfigForPosition({ ...pos, symbol: sym, securityId: sid }, userConfiguredSymbols) || {};
               const idxName = sym.includes("BANKNIFTY") ? "BANKNIFTY" : sym.includes("SENSEX") ? "SENSEX" : "NIFTY";
-              const lotSize = Number(cfg.lotSize) || Number(pos.lotSize) || Number(pos.lot_size) || 1;
+              const lotSize = _resolveLotSize(idxName, cfg.lotSize, pos.lotSize, pos.lot_size);
 
-              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by lot count from the broker qty
-              // so manual buys in Dhan (e.g., 2 or 3 lots) get proportional SL/Target/Trailing.
+              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by LOT COUNT (never by raw
+              // share quantity) so manual buys in the broker app get proportional SL/Target.
               const autoRisk = await computeManualLotRisk(userId, idxName, qty, lotSize, cfg.moneyness);
-              const cfgTarget = Number(cfg.targetAmount) > 0
-                ? Number(cfg.targetAmount) * autoRisk.lotCount
-                : autoRisk.targetAmount;
-              const cfgStopLoss = Number(cfg.stopLossAmount) > 0
-                ? Number(cfg.stopLossAmount) * autoRisk.lotCount
-                : autoRisk.stopLossAmount;
+              // The user's configured amounts are TOTALS for the lots they configured, so
+              // convert to per-lot first and re-scale to the lots actually held.
+              const cfgLots = Math.max(1, Math.round(Math.abs(Number(cfg.quantity) || lotSize) / lotSize));
+              const rescale = (v: any, fallback: number) => {
+                const n = Number(v);
+                return n > 0 ? +((n / cfgLots) * autoRisk.lotCount).toFixed(2) : fallback;
+              };
+              const rawTarget = rescale(cfg.targetAmount, autoRisk.targetAmount);
+              const rawStopLoss = rescale(cfg.stopLossAmount, autoRisk.stopLossAmount);
+              const _safe = _sanitizeRisk(rawTarget, rawStopLoss, entry, qty);
+              if (_safe.clamped) {
+                console.warn(
+                  `🛡️ [RISK-CLAMP] ${sym}: Tgt ₹${rawTarget}/SL ₹${rawStopLoss} exceeded premium notional (₹${(entry * qty).toFixed(2)}) → Tgt ₹${_safe.target} SL ₹${_safe.stopLoss}`,
+                );
+              }
+              const cfgTarget = _safe.target;
+              const cfgStopLoss = _safe.stopLoss;
               const cfgTrailingEnabled = cfg.trailingEnabled !== undefined
                 ? !!cfg.trailingEnabled
                 : autoRisk.trailingEnabled;
-              const cfgTrailingActivation = Number(cfg.trailingActivationAmount) > 0
-                ? Number(cfg.trailingActivationAmount) * autoRisk.lotCount
-                : autoRisk.trailingActivationAmount;
-              const cfgTargetJump = Number(cfg.targetJumpAmount) > 0
-                ? Number(cfg.targetJumpAmount) * autoRisk.lotCount
-                : autoRisk.targetJumpAmount;
-              const cfgSlJump = Number(cfg.stopLossJumpAmount) > 0
-                ? Number(cfg.stopLossJumpAmount) * autoRisk.lotCount
-                : autoRisk.stopLossJumpAmount;
+              const cfgTrailingActivation = Math.min(
+                rescale(cfg.trailingActivationAmount, autoRisk.trailingActivationAmount),
+                Math.max(1, cfgTarget * 0.8),
+              );
+              const cfgTargetJump = Math.min(
+                rescale(cfg.targetJumpAmount, autoRisk.targetJumpAmount),
+                Math.max(1, cfgTarget * 0.5),
+              );
+              const cfgSlJump = Math.min(
+                rescale(cfg.stopLossJumpAmount, autoRisk.stopLossJumpAmount),
+                Math.max(1, cfgStopLoss * 0.5),
+              );
+
 
               const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || Array.from(keys)[0] || sym}`;
 
@@ -2631,20 +2683,38 @@ class PersistentTradingEngine {
         // 🔁 LOT CHANGE DETECTION: user added/removed lots manually in Dhan app.
         // Recompute target/SL/trailing scaled to the new lot count and persist.
         if (brokerQty > 0 && trackedQty > 0 && brokerQty !== trackedQty) {
-          const lotSize = Number(position.lotSize) || Number(dhanPos.lotSize) || Number(dhanPos.lot_size) || 1;
           const idxName = position.index || _inferIndexName(position.symbolName || "");
+          const lotSize = _resolveLotSize(idxName, position.lotSize, dhanPos.lotSize, dhanPos.lot_size);
           const newRisk = await computeManualLotRisk(userId, idxName, brokerQty, lotSize, position.moneyness);
-          const oldLots = Math.max(1, Math.round(trackedQty / Math.max(1, lotSize)));
-          const scale = newRisk.lotCount / oldLots;
+          const oldLots = Math.max(1, Math.round(trackedQty / lotSize));
+          // Derive PER-LOT values from the current totals and re-scale — never multiply the
+          // running totals repeatedly (that compounded into unreachable Target/SL).
+          const perLot = (v: any, fb: number) => {
+            const n = Number(v) || 0;
+            return n > 0 ? n / oldLots : fb / Math.max(1, newRisk.lotCount);
+          };
+          const nextTarget = +(perLot(position.targetAmount, newRisk.targetAmount) * newRisk.lotCount).toFixed(2);
+          const nextSL = +(perLot(position.stopLossAmount, newRisk.stopLossAmount) * newRisk.lotCount).toFixed(2);
+          const safe = _sanitizeRisk(nextTarget, nextSL, entryPrice, brokerQty);
           position.quantity = brokerQty;
-          position.targetAmount = +(Number(position.targetAmount || 0) * scale).toFixed(2) || newRisk.targetAmount;
-          position.stopLossAmount = +(Number(position.stopLossAmount || 0) * scale).toFixed(2) || newRisk.stopLossAmount;
-          position.currentTargetAmount = +(Number(position.currentTargetAmount || position.targetAmount) * scale).toFixed(2);
-          position.currentStopLossAmount = +(Number(position.currentStopLossAmount || position.stopLossAmount) * scale).toFixed(2);
-          position.trailingActivationAmount = +(Number(position.trailingActivationAmount || 0) * scale).toFixed(2) || newRisk.trailingActivationAmount;
-          position.targetJumpAmount = +(Number(position.targetJumpAmount || 0) * scale).toFixed(2) || newRisk.targetJumpAmount;
-          position.stopLossJumpAmount = +(Number(position.stopLossJumpAmount || 0) * scale).toFixed(2) || newRisk.stopLossJumpAmount;
+          position.targetAmount = safe.target || newRisk.targetAmount;
+          position.stopLossAmount = safe.stopLoss || newRisk.stopLossAmount;
+          position.currentTargetAmount = position.targetAmount;
+          position.currentStopLossAmount = position.stopLossAmount;
+          position.trailingActivationAmount = Math.min(
+            +(perLot(position.trailingActivationAmount, newRisk.trailingActivationAmount) * newRisk.lotCount).toFixed(2) || newRisk.trailingActivationAmount,
+            Math.max(1, position.targetAmount * 0.8),
+          );
+          position.targetJumpAmount = Math.min(
+            +(perLot(position.targetJumpAmount, newRisk.targetJumpAmount) * newRisk.lotCount).toFixed(2) || newRisk.targetJumpAmount,
+            Math.max(1, position.targetAmount * 0.5),
+          );
+          position.stopLossJumpAmount = Math.min(
+            +(perLot(position.stopLossJumpAmount, newRisk.stopLossJumpAmount) * newRisk.lotCount).toFixed(2) || newRisk.stopLossJumpAmount,
+            Math.max(1, position.stopLossAmount * 0.5),
+          );
           position.trailingStep = position.stopLossJumpAmount;
+
           console.log(`🔁 [LOT-CHANGE] ${position.symbolName}: qty ${trackedQty}→${brokerQty} (${oldLots}→${newRisk.lotCount} lots) | Tgt ₹${position.targetAmount} SL ₹${position.stopLossAmount} TrailStep ₹${position.stopLossJumpAmount}`);
           await supabaseAdmin.from("position_monitor_state").update({
             quantity: brokerQty,
@@ -2698,6 +2768,40 @@ class PersistentTradingEngine {
             position.stopLossJumpAmount = Math.round(_baseSL * 0.35);
           }
         }
+
+        // 🛡️ RUNTIME RISK CLAMP — repairs already-persisted inflated rows (Aug 20+ bug):
+        // an unreachable SL/Target meant the position could only exit via "closed externally"
+        // or an AI reversal, so profitable moves were never banked.
+        {
+          const safe = _sanitizeRisk(_baseTarget, _baseSL, entryPrice, quantity);
+          if (safe.clamped) {
+            console.warn(
+              `🛡️ [RISK-CLAMP] ${position.symbolName}: stored Tgt ₹${_baseTarget}/SL ₹${_baseSL} > premium notional ₹${(entryPrice * quantity).toFixed(2)} → Tgt ₹${safe.target} SL ₹${safe.stopLoss}`,
+            );
+            _baseTarget = safe.target;
+            _baseSL = safe.stopLoss;
+            position.targetAmount = _baseTarget;
+            position.stopLossAmount = _baseSL;
+            position.currentTargetAmount = Math.min(Number(position.currentTargetAmount || _baseTarget), _baseTarget);
+            position.currentStopLossAmount = Math.min(Number(position.currentStopLossAmount || _baseSL), _baseSL);
+            if (Number(position.trailingActivationAmount) > _baseTarget * 0.8) {
+              position.trailingActivationAmount = +(_baseTarget * 0.5).toFixed(2);
+            }
+            if (Number(position.targetJumpAmount) > _baseTarget * 0.5) {
+              position.targetJumpAmount = +(_baseTarget * 0.25).toFixed(2);
+            }
+            if (Number(position.stopLossJumpAmount) > _baseSL * 0.5) {
+              position.stopLossJumpAmount = +(_baseSL * 0.33).toFixed(2);
+              position.trailingStep = position.stopLossJumpAmount;
+            }
+            await supabaseAdmin.from("position_monitor_state").update({
+              target_amount: _baseTarget,
+              stop_loss_amount: _baseSL,
+              trailing_step: position.stopLossJumpAmount || null,
+            }).eq("user_id", userId).eq("order_id", position.orderId);
+          }
+        }
+
 
         let _activation = Number(position.trailingActivationAmount ?? 0);
         let _slJump = Number(position.stopLossJumpAmount ?? 0);
