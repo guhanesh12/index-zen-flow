@@ -520,10 +520,19 @@ class PersistentTradingEngine {
   ): Promise<{ confirmed: boolean; error?: string }> {
     const exitOrderId = String(exitResult?.orderId || "").trim();
     if (!exitOrderId) {
+      if (!exitResult?.success) {
+        return { confirmed: false, error: exitResult?.error || "Broker did not return an exit order ID" };
+      }
       // Some brokers accept and fill an exit without echoing an order ID.
-      // Treat an explicitly successful exit as filled instead of stalling the reversal.
-      if (exitResult?.success) return { confirmed: true };
-      return { confirmed: false, error: exitResult?.error || "Broker did not return an exit order ID" };
+      // Never assume the fill — verify against the broker's live position book.
+      const gone = await this.positionGoneAtBroker(userId, position, dhanService);
+      if (gone === true) return { confirmed: true };
+      return {
+        confirmed: false,
+        error: gone === false
+          ? "Exit accepted but position still open at broker"
+          : "Exit accepted but fill could not be verified (no order ID, position book unavailable)",
+      };
     }
 
     const expectedQuantity = Math.abs(Number(position?.quantity || 0));
@@ -556,14 +565,47 @@ class PersistentTradingEngine {
       }
     }
 
-    // No explicit rejection within the polling window. Order-status APIs are
-    // unavailable or unreliable for several brokers, so blocking here would
-    // silently stall reversals. Accept the exit optimistically and log it.
-    console.warn(
-      `⚠️ Exit ${exitOrderId} not explicitly confirmed (last status: ${lastStatus}, statusApiResponded: ${statusApiResponded}) — treating as filled to avoid stalling reversal`,
-    );
-    return { confirmed: true };
+    // Order-status APIs are unreliable for several brokers, so instead of either
+    // stalling forever or blindly assuming a fill, fall back to the broker's own
+    // position book — that is the source of truth for "is this trade still open?".
+    const gone = await this.positionGoneAtBroker(userId, position, dhanService);
+    if (gone === true) {
+      console.warn(
+        `⚠️ Exit ${exitOrderId} unconfirmed by order status (last: ${lastStatus}) but position is gone from the broker position book — treating as filled`,
+      );
+      return { confirmed: true };
+    }
+
+    const reason = gone === false
+      ? `Exit order not filled (last status: ${lastStatus}) — position still open at broker`
+      : `Exit order not filled (last status: ${lastStatus}, statusApiResponded: ${statusApiResponded}) — could not verify against broker positions`;
+    console.warn(`⚠️ ${reason}`);
+    return { confirmed: false, error: reason };
   }
+
+  /**
+   * Source-of-truth check: is this position still present (non-zero qty) in the
+   * broker's live position book?
+   * @returns true = gone (exit really filled), false = still open, null = unknown
+   */
+  private async positionGoneAtBroker(
+    userId: string,
+    position: any,
+    dhanService: any,
+  ): Promise<boolean | null> {
+    try {
+      const brokerPositions = await BrokerRouter.getPositionsSmart(userId, () => dhanService.getPositions());
+      if (!Array.isArray(brokerPositions)) return null;
+      const stillOpen = brokerPositions.some(
+        (bp: any) => positionsMatch(bp, position) && Math.abs(Number(bp?.netQty ?? bp?.net_qty ?? 0)) > 0,
+      );
+      return !stillOpen;
+    } catch (e) {
+      console.warn(`⚠️ positionGoneAtBroker lookup failed: ${(e as any)?.message || e}`);
+      return null;
+    }
+  }
+
 
 
   private static instances: Map<string, NodeJS.Timeout> = new Map();
