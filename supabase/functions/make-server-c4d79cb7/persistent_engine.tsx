@@ -1280,6 +1280,13 @@ class PersistentTradingEngine {
           this.lastCandleRetryKey = key;
           fires++;
           console.log(`🔁 [CANDLE-WATCH] Safety re-fire at +${msIntoMinute}ms for ${h}:${String(m).padStart(2, "0")}`);
+          // Re-fetch and overwrite the shared signal after the broker's settlement
+          // window. The first +700ms pass may legitimately not contain the just-closed bar.
+          inflight.push(
+            this.publishCentralSignals(istNow, true).catch((e: any) =>
+              console.error(`❌ [CENTRAL-PUB] Retry failed: ${e?.message || e}`)
+            ),
+          );
           inflight.push(
             this.runCronTick(true).catch((e: any) =>
               console.error(`❌ [CANDLE-WATCH] Retry tick failed: ${e?.message || e}`)
@@ -3994,7 +4001,10 @@ class PersistentTradingEngine {
     { name: "SENSEX", securityId: "51" },
   ];
 
-  static async publishCentralSignals(istNow: Date = new Date(Date.now() + 5.5 * 60 * 60 * 1000)) {
+  static async publishCentralSignals(
+    istNow: Date = new Date(Date.now() + 5.5 * 60 * 60 * 1000),
+    forceRefresh = false,
+  ) {
     const minuteOfDay = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
     const tfs = [5, 15].filter((tf) => (minuteOfDay - (9 * 60 + 15)) % tf === 0);
     if (tfs.length === 0) return { published: 0 };
@@ -4008,11 +4018,26 @@ class PersistentTradingEngine {
         this.CENTRAL_PUBLISH_INDEXES.map(async (idx) => {
           try {
             const stamp = this.getCurrentCandleTimestamp(istNow, tf);
-            if (await getCachedCentralSignal(idx.name, tf, stamp)) return;
+            if (!forceRefresh && (await getCachedCentralSignal(idx.name, tf, stamp))) return;
 
-            const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null);
+            const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null, forceRefresh);
             const candles = primary.candles || [];
             if (candles.length < 30) return;
+            const lastTimestamp = Number(candles[candles.length - 1]?.timestamp || 0);
+            const lastTimestampMs = lastTimestamp < 1e12 ? lastTimestamp * 1000 : lastTimestamp;
+            const expectedClosedBoundaryMs = Math.floor(Date.now() / (tf * 60 * 1000)) * tf * 60 * 1000;
+            if (!lastTimestampMs || lastTimestampMs < expectedClosedBoundaryMs) {
+              console.warn(
+                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} not published — latest broker candle is stale`,
+              );
+              return;
+            }
+            if (lastTimestampMs > expectedClosedBoundaryMs) {
+              console.warn(
+                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} not published — latest broker candle is still forming`,
+              );
+              return;
+            }
             const htf =
               tf < 15 ? (await getCentralOHLC(idx.securityId, "15", 100, null)).candles || candles : candles;
 
@@ -4022,7 +4047,7 @@ class PersistentTradingEngine {
               minimumBarsBetweenSignals: 1,
               blockNewEntriesAfterMinutes: 15 * 60 + 15,
             });
-            (sig as any).timestamp = candles[candles.length - 1]?.timestamp || Date.now();
+            (sig as any).timestamp = lastTimestamp || Date.now();
             (sig as any).signalSource = "CENTRAL_DATA";
             await saveCentralSignal(idx.name, tf, stamp, sig);
             published++;

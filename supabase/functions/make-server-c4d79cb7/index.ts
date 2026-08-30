@@ -7024,18 +7024,23 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
                 return;
               }
               const htf = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles : candles;
+              const lastTs = Number(candles[candles.length - 1]?.timestamp || 0);
+              const lastMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
+              const closedBoundaryMs = Math.floor(Date.now() / (tf * 60 * 1000)) * tf * 60 * 1000;
+              if (!lastMs || lastMs !== closedBoundaryMs) {
+                out[idx][`${tf}m`] = null;
+                return;
+              }
               const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
                 higherTimeframeData: htf,
                 timeframeMinutes: tf,
               });
-              const lastTs = candles[candles.length - 1]?.timestamp;
-              const ms = Number(lastTs) < 1e12 ? Number(lastTs) * 1000 : Number(lastTs);
               const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
               const bucket = Math.floor(istNow.getUTCMinutes() / tf) * tf;
               const stamp = `${String(istNow.getUTCHours()).padStart(2, '0')}:${String(bucket).padStart(2, '0')}`;
               await CentralMarketData.saveCentralSignal(idx, tf, stamp, sig).catch(() => {});
               out[idx][`${tf}m`] = shapeCentralSignal(sig, stamp, Date.now(), true);
-              out[idx][`${tf}m`].lastBarAt = new Date(ms).toISOString();
+              out[idx][`${tf}m`].lastBarAt = new Date(lastMs).toISOString();
 
             } catch (e: any) {
               out[idx][`${tf}m`] = { error: e?.message || String(e) };

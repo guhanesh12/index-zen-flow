@@ -94,16 +94,17 @@ export async function getCentralOHLC(
   interval: string,
   count: number,
   fallback?: DhanService | null,
+  forceRefresh = false,
 ): Promise<{ candles: Candle[]; source: "central" | "user" | "none" }> {
   const tf = parseInt(interval, 10) || 15;
   const key = `${securityId}:${tf}:${count}:${boundaryKey(tf)}`;
 
   const mem = memCache.get(key);
-  if (mem && Date.now() - mem.at < MEM_TTL_MS && mem.data.length > 0) {
+  if (!forceRefresh && mem && Date.now() - mem.at < MEM_TTL_MS && mem.data.length > 0) {
     return { candles: mem.data, source: "central" };
   }
 
-  const running = inflight.get(key);
+  const running = forceRefresh ? undefined : inflight.get(key);
   if (running) {
     const candles = await running;
     if (candles.length > 0) return { candles, source: "central" };
@@ -155,8 +156,15 @@ export async function getCentralOHLC(
 // ---------- shared signal cache ----------
 const signalMem = new Map<string, { signal: any; at: number }>();
 
+function istTradingDate(nowMs = Date.now()): string {
+  const ist = new Date(nowMs + 5.5 * 60 * 60 * 1000);
+  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(ist.getUTCDate()).padStart(2, "0")}`;
+}
+
 export function centralSignalKey(indexName: string, tf: number, candleStamp: string) {
-  return `central_signal:${indexName}:${tf}:${candleStamp}`;
+  // A clock stamp such as 09:30 repeats every day. Without the trading date,
+  // yesterday's signal was reused indefinitely for today's matching candle.
+  return `central_signal:${istTradingDate()}:${indexName}:${tf}:${candleStamp}`;
 }
 
 export async function getCachedCentralSignal(indexName: string, tf: number, candleStamp: string) {
@@ -173,13 +181,17 @@ export async function getCachedCentralSignal(indexName: string, tf: number, cand
 
 export async function saveCentralSignal(indexName: string, tf: number, candleStamp: string, signal: any) {
   const key = centralSignalKey(indexName, tf, candleStamp);
-  signalMem.set(key, { signal, at: Date.now() });
-  await kv.set(key, { signal, at: Date.now() }).catch(() => {});
-  await kv.set(`central_signal_latest:${indexName}:${tf}`, { signal, candleStamp, at: Date.now() }).catch(() => {});
+  const at = Date.now();
+  const tradingDate = istTradingDate(at);
+  signalMem.set(key, { signal, at });
+  await kv.set(key, { signal, at, tradingDate }).catch(() => {});
+  await kv.set(`central_signal_latest:${indexName}:${tf}`, { signal, candleStamp, at, tradingDate }).catch(() => {});
 }
 
 export async function getLatestCentralSignal(indexName: string, tf: number) {
-  return await kv.get(`central_signal_latest:${indexName}:${tf}`).catch(() => null);
+  const latest = await kv.get(`central_signal_latest:${indexName}:${tf}`).catch(() => null);
+  if (!latest || latest.tradingDate !== istTradingDate()) return null;
+  return latest;
 }
 
 /** Verify admin data credentials by pulling a small NIFTY candle set. */
