@@ -12302,6 +12302,37 @@ app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
   }
 });
 
+// 🧹 A monitored position can only belong to the CURRENT trading day. Rows left
+// active from an earlier session (engine crash / externally squared-off trade)
+// showed up as a phantom "HOLD" and blocked new entries for that index.
+async function deactivateStalePositionRows(userId: string) {
+  try {
+    const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const istMidnightUtc = new Date(
+      Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - 5.5 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const { data } = await supabase
+      .from('position_monitor_state')
+      .update({
+        is_active: false,
+        exit_reason: 'Auto-cleared: stale position from a previous session',
+        exited_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .lt('created_at', istMidnightUtc)
+      .select('order_id');
+
+    if (data?.length) {
+      console.log(`🧹 [POSITION-MONITOR] Cleared ${data.length} stale position(s) for ${userId}`);
+    }
+  } catch (e: any) {
+    console.warn('⚠️ stale position cleanup failed:', e?.message || e);
+  }
+}
+
 // GET /position-monitor/list  → all active monitored positions for the user
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
@@ -12310,6 +12341,7 @@ app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
     if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const userId = user.id;
 
+    await deactivateStalePositionRows(userId);
 
     const { data, error } = await supabase
       .from('position_monitor_state')
