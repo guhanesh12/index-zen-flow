@@ -42,6 +42,7 @@ const actionTone = (action?: string) => {
 
 
 export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
+  const [view, setView] = useState<'live' | 'history'>('live');
   const [status, setStatus] = useState<any>(null);
   const [signals, setSignals] = useState<any>(null);
   const [feed, setFeed] = useState<any>(null);
