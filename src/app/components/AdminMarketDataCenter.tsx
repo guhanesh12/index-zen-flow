@@ -153,8 +153,24 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
     return <Badge variant="secondary">Unknown</Badge>;
   };
 
+  if (view === 'history') {
+    return (
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setView('live')}>Live Center</Button>
+          <Button size="sm" variant="default">Signal History</Button>
+        </div>
+        <AdminCentralSignalHistory serverUrl={serverUrl} accessToken={accessToken} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex gap-2">
+        <Button size="sm" variant="default">Live Center</Button>
+        <Button size="sm" variant="outline" onClick={() => setView('history')}>Signal History</Button>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
