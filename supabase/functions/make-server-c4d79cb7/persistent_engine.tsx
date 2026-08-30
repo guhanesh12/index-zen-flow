@@ -4020,7 +4020,7 @@ class PersistentTradingEngine {
             const stamp = this.getCurrentCandleTimestamp(istNow, tf);
             if (!forceRefresh && (await getCachedCentralSignal(idx.name, tf, stamp))) return;
 
-            const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null);
+            const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null, forceRefresh);
             const candles = primary.candles || [];
             if (candles.length < 30) return;
             const lastTimestamp = Number(candles[candles.length - 1]?.timestamp || 0);

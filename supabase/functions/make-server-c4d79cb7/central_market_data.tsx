@@ -94,16 +94,17 @@ export async function getCentralOHLC(
   interval: string,
   count: number,
   fallback?: DhanService | null,
+  forceRefresh = false,
 ): Promise<{ candles: Candle[]; source: "central" | "user" | "none" }> {
   const tf = parseInt(interval, 10) || 15;
   const key = `${securityId}:${tf}:${count}:${boundaryKey(tf)}`;
 
   const mem = memCache.get(key);
-  if (mem && Date.now() - mem.at < MEM_TTL_MS && mem.data.length > 0) {
+  if (!forceRefresh && mem && Date.now() - mem.at < MEM_TTL_MS && mem.data.length > 0) {
     return { candles: mem.data, source: "central" };
   }
 
-  const running = inflight.get(key);
+  const running = forceRefresh ? undefined : inflight.get(key);
   if (running) {
     const candles = await running;
     if (candles.length > 0) return { candles, source: "central" };
