@@ -40,6 +40,7 @@ async function sendEmailAsync(template: string, userId: string, data: any = {}) 
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
         apikey: SUPABASE_SERVICE_KEY,
       },
       body: JSON.stringify({ template, userId, data }),
