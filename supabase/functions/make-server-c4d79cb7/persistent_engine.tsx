@@ -1791,10 +1791,19 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          // 🔄 SIGNAL FLIP: any opposite-direction signal on the same index closes the
-          // running position immediately and the new order is placed right after.
-          // (No confidence / P&L gate — direction change alone is enough.)
-          if (reversalPosition) {
+          // Protect open positions from noisy candle-to-candle direction changes.
+          // A reversal is actionable only when the counter-signal is exceptionally
+          // strong and the running trade has already lost at least half its SL.
+          const reversalPnl = Number(reversalPosition?.pnl || 0);
+          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
+          const reversalConfirmed =
+            Boolean(reversalPosition) && confidence >= 90 && reversalPnl <= -reversalSL;
+          if (reversalPosition && !reversalConfirmed) {
+            console.log(
+              `🛡️ ${indexName} reversal ignored — confidence ${confidence}% (need 90%), P&L ₹${reversalPnl.toFixed(2)} (must be ≤ -₹${reversalSL.toFixed(2)})`,
+            );
+          }
+          if (reversalPosition && reversalConfirmed) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await BrokerRouter.placeOrderSmart(
               userId,
@@ -2113,12 +2122,24 @@ class PersistentTradingEngine {
             const sameIndexPosition = state.activePositions.find(
               (p: any) => p.status === "ACTIVE" && p.index && indexName && p.index === indexName,
             );
-            // 🔄 SIGNAL FLIP (CE → PE / PE → CE): close the running position on any
-            // opposite-direction signal, then continue to place the new order.
+            // Apply the same guarded reversal rule used by the central signal path.
+            // This prevents manual/configured symbols from bypassing the protection.
+            const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
+            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.5);
+            const isOppositeSignal =
+              Boolean(sameIndexPosition) &&
+              Boolean(targetOptionType) &&
+              normalizeOptionType(sameIndexPosition?.optionType || sameIndexPosition?.symbolName) !== targetOptionType;
+            const sameIndexReversalConfirmed =
+              isOppositeSignal && confidence >= 90 && sameIndexPnl <= -sameIndexSL;
+            if (isOppositeSignal && !sameIndexReversalConfirmed) {
+              console.log(
+                `🛡️ ${indexName} configured-symbol reversal ignored — confidence ${confidence}% (need 90%), P&L ₹${sameIndexPnl.toFixed(2)} (must be ≤ -₹${sameIndexSL.toFixed(2)})`,
+              );
+            }
             if (
               sameIndexPosition &&
-              targetOptionType &&
-              normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
+              sameIndexReversalConfirmed
             ) {
               const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || "OLD"} → ${targetOptionType})`;
               const exitResult = await BrokerRouter.placeOrderSmart(
