@@ -1870,6 +1870,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      clear_stale_position_monitor_rows: { Args: never; Returns: number }
       decrypt_broker_secret: { Args: { _ciphertext: string }; Returns: string }
       encrypt_broker_secret: { Args: { _plaintext: string }; Returns: string }
       execute_backend_engine: { Args: never; Returns: undefined }

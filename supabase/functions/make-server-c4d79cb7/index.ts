@@ -7017,17 +7017,29 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
               // stale or missing → compute live from the central feed AND publish it so
               // every user engine reuses the exact same signal for this candle.
               const sec = CENTRAL_INDEX_IDS[idx];
+              const tfMs = tf * 60 * 1000;
+              const toMs = (t: any) => {
+                const n = Number(t || 0);
+                return n > 0 && n < 1e12 ? n * 1000 : n;
+              };
+              // Candle timestamps are bar OPEN times: at 09:45 the newly closed 15m
+              // bar is stamped 09:30. Drop the still-forming bar and require the last
+              // closed bar to be the one that just completed.
+              const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
+              const closedStartMs = formingStartMs - tfMs;
               const primary = await CentralMarketData.getCentralOHLC(sec, String(tf), 150, null);
-              const candles = primary.candles || [];
+              const candles = (primary.candles || []).filter((c: any) => toMs(c?.timestamp) < formingStartMs);
               if (candles.length < 30) {
                 out[idx][`${tf}m`] = null;
                 return;
               }
-              const htf = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles : candles;
-              const lastTs = Number(candles[candles.length - 1]?.timestamp || 0);
-              const lastMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
-              const closedBoundaryMs = Math.floor(Date.now() / (tf * 60 * 1000)) * tf * 60 * 1000;
-              if (!lastMs || lastMs !== closedBoundaryMs) {
+              const htfRaw = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles || [] : [];
+              const htfClosed = htfRaw.filter(
+                (c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / (15 * 60 * 1000)) * 15 * 60 * 1000,
+              );
+              const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
+              const lastMs = toMs(candles[candles.length - 1]?.timestamp);
+              if (!lastMs || lastMs < closedStartMs) {
                 out[idx][`${tf}m`] = null;
                 return;
               }
@@ -7062,6 +7074,64 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
     return c.json({ error: e.message }, 500);
   }
 });
+
+// 🗂️ Central signal HISTORY — every published 5m/15m signal, date + time wise.
+// Rows are read from the date-scoped KV keys written by saveCentralSignal():
+//   central_signal:YYYY-MM-DD:INDEX:TF:HH:MM
+app.get("/make-server-c4d79cb7/admin/market-data/signal-history", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const today = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}-${String(istNow.getUTCDate()).padStart(2, '0')}`;
+    const date = String(c.req.query('date') || today).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'date must be YYYY-MM-DD' }, 400);
+
+    const rows = await kv.getByPrefix(`central_signal:${date}:`).catch(() => []);
+    const entries = (rows || [])
+      .map((r: any) => {
+        // key = central_signal:DATE:INDEX:TF:HH:MM
+        const parts = String(r.key || '').split(':');
+        const indexName = parts[3];
+        const tf = Number(parts[4]);
+        const stamp = `${parts[5]}:${parts[6]}`;
+        const sig = r.value?.signal || null;
+        if (!indexName || !tf || !sig) return null;
+        return {
+          date,
+          index: indexName,
+          timeframe: `${tf}m`,
+          tf,
+          candleStamp: stamp,
+          publishedAt: r.value?.at || null,
+          action: sig.action || 'WAIT',
+          confidence: Number(sig.confidence || 0),
+          bias: sig.bias || null,
+          marketState: sig.marketState || sig.market_state || null,
+          reason: sig.reasoning || sig.reason || null,
+          confirmations: {
+            total: sig.confirmations?.total ?? sig.confirmations?.passed?.length ?? 0,
+            required: sig.confirmations?.required ?? 0,
+          },
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => (a.candleStamp < b.candleStamp ? 1 : a.candleStamp > b.candleStamp ? -1 : a.tf - b.tf));
+
+    // Which dates are available (last 30 days that have at least one signal)
+    const allKeys = await kv.getByPrefix('central_signal:').catch(() => []);
+    const dates = Array.from(
+      new Set((allKeys || []).map((r: any) => String(r.key || '').split(':')[1]).filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d))),
+    ).sort().reverse().slice(0, 30);
+
+    return c.json({ success: true, date, dates, count: entries.length, signals: entries });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+
 
 
 // 📊 Live proof that the central feed works: latest 5m + 15m candles per index,
@@ -12232,6 +12302,37 @@ app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
   }
 });
 
+// 🧹 A monitored position can only belong to the CURRENT trading day. Rows left
+// active from an earlier session (engine crash / externally squared-off trade)
+// showed up as a phantom "HOLD" and blocked new entries for that index.
+async function deactivateStalePositionRows(userId: string) {
+  try {
+    const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const istMidnightUtc = new Date(
+      Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - 5.5 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const { data } = await supabase
+      .from('position_monitor_state')
+      .update({
+        is_active: false,
+        exit_reason: 'Auto-cleared: stale position from a previous session',
+        exited_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .lt('created_at', istMidnightUtc)
+      .select('order_id');
+
+    if (data?.length) {
+      console.log(`🧹 [POSITION-MONITOR] Cleared ${data.length} stale position(s) for ${userId}`);
+    }
+  } catch (e: any) {
+    console.warn('⚠️ stale position cleanup failed:', e?.message || e);
+  }
+}
+
 // GET /position-monitor/list  → all active monitored positions for the user
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
@@ -12240,6 +12341,7 @@ app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
     if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const userId = user.id;
 
+    await deactivateStalePositionRows(userId);
 
     const { data, error } = await supabase
       .from('position_monitor_state')
@@ -12261,6 +12363,7 @@ app.get("/make-server-c4d79cb7/positions/monitor/active", async (c) => {
     const { user, error: authErr } = await validateAuth(c);
     if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const userId = user.id;
+    await deactivateStalePositionRows(userId);
 
 
     const { data, error } = await supabase
