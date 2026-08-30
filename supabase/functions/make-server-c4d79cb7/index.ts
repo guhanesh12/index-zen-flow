@@ -770,6 +770,7 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
         body: JSON.stringify({
           template: 'otp',
           to: email,
@@ -1009,6 +1010,7 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
     const emailRes = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+      'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
       body: JSON.stringify({
         template: 'otp',
         to: email,
@@ -5691,6 +5693,7 @@ app.post("/make-server-c4d79cb7/wallet/verify-payment", async (c) => {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
         body: JSON.stringify({
           template: 'wallet_recharge',
           userId: user.id,
@@ -9478,6 +9481,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
           apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
         },
         body: JSON.stringify({
@@ -11183,6 +11187,7 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
         body: JSON.stringify({
           template: 'ticket_created',
           userId: user.id,
@@ -11354,6 +11359,7 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
         body: JSON.stringify({
           template: 'ticket_reply',
           userId: ticket.userId,
@@ -12246,6 +12252,7 @@ app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
         await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+          'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
           body: JSON.stringify({
             template: 'daily_premarket',
             to: p.email,
