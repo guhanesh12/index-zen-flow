@@ -1800,9 +1800,9 @@ class PersistentTradingEngine {
           );
           // Protect open positions from noisy candle-to-candle direction changes.
           // A reversal is actionable only when the counter-signal is exceptionally
-          // strong and the running trade has already lost at least half its SL.
+          // strong and the running trade has already lost at least 70% of its SL.
           const reversalPnl = Number(reversalPosition?.pnl || 0);
-          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
+          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.7);
           const reversalConfirmed =
             Boolean(reversalPosition) && confidence >= 90 && reversalPnl <= -reversalSL;
           if (reversalPosition && !reversalConfirmed) {
