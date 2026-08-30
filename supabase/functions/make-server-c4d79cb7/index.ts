@@ -7017,17 +7017,29 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
               // stale or missing → compute live from the central feed AND publish it so
               // every user engine reuses the exact same signal for this candle.
               const sec = CENTRAL_INDEX_IDS[idx];
+              const tfMs = tf * 60 * 1000;
+              const toMs = (t: any) => {
+                const n = Number(t || 0);
+                return n > 0 && n < 1e12 ? n * 1000 : n;
+              };
+              // Candle timestamps are bar OPEN times: at 09:45 the newly closed 15m
+              // bar is stamped 09:30. Drop the still-forming bar and require the last
+              // closed bar to be the one that just completed.
+              const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
+              const closedStartMs = formingStartMs - tfMs;
               const primary = await CentralMarketData.getCentralOHLC(sec, String(tf), 150, null);
-              const candles = primary.candles || [];
+              const candles = (primary.candles || []).filter((c: any) => toMs(c?.timestamp) < formingStartMs);
               if (candles.length < 30) {
                 out[idx][`${tf}m`] = null;
                 return;
               }
-              const htf = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles : candles;
-              const lastTs = Number(candles[candles.length - 1]?.timestamp || 0);
-              const lastMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
-              const closedBoundaryMs = Math.floor(Date.now() / (tf * 60 * 1000)) * tf * 60 * 1000;
-              if (!lastMs || lastMs !== closedBoundaryMs) {
+              const htfRaw = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles || [] : [];
+              const htfClosed = htfRaw.filter(
+                (c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / (15 * 60 * 1000)) * 15 * 60 * 1000,
+              );
+              const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
+              const lastMs = toMs(candles[candles.length - 1]?.timestamp);
+              if (!lastMs || lastMs < closedStartMs) {
                 out[idx][`${tf}m`] = null;
                 return;
               }
