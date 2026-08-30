@@ -2132,7 +2132,7 @@ class PersistentTradingEngine {
             // Apply the same guarded reversal rule used by the central signal path.
             // This prevents manual/configured symbols from bypassing the protection.
             const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
-            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.5);
+            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.7);
             const isOppositeSignal =
               Boolean(sameIndexPosition) &&
               Boolean(targetOptionType) &&
