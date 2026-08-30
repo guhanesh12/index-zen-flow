@@ -4056,7 +4056,8 @@ class PersistentTradingEngine {
               minimumBarsBetweenSignals: 1,
               blockNewEntriesAfterMinutes: 15 * 60 + 15,
             });
-            (sig as any).timestamp = lastTimestamp || Date.now();
+            (sig as any).timestamp = lastClosedMs || Date.now();
+            (sig as any).barCloseAt = new Date(formingStartMs).toISOString();
             (sig as any).signalSource = "CENTRAL_DATA";
             await saveCentralSignal(idx.name, tf, stamp, sig);
             published++;
