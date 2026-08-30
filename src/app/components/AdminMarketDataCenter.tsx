@@ -8,6 +8,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { Satellite, RefreshCw, ShieldCheck, AlertTriangle, Radio } from 'lucide-react';
+import { AdminCentralSignalHistory } from './AdminCentralSignalHistory';
 
 interface Props {
   serverUrl: string;
