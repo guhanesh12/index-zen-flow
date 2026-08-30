@@ -12363,6 +12363,7 @@ app.get("/make-server-c4d79cb7/positions/monitor/active", async (c) => {
     const { user, error: authErr } = await validateAuth(c);
     if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const userId = user.id;
+    await deactivateStalePositionRows(userId);
 
 
     const { data, error } = await supabase
