@@ -1001,9 +1001,17 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
       return c.json({ error: 'An account with this email already exists. Please sign in instead.' }, 400);
     }
 
+    const otpKey = `email_otp:${email.toLowerCase()}`;
+
+    // 🛡️ Duplicate-send guard: if an OTP was just sent (<60s), don't send again
+    const existing = await kv.get(otpKey);
+    if (existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
+      return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
+    }
+
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
-    await kv.set(`email_otp:${email.toLowerCase()}`, { code, expiresAt, attempts: 0 });
+    await kv.set(otpKey, { code, expiresAt, attempts: 0, lastSentAt: Date.now() });
 
     // Send email via send-email function
     const emailRes = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
