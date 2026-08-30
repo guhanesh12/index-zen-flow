@@ -4020,26 +4020,35 @@ class PersistentTradingEngine {
             const stamp = this.getCurrentCandleTimestamp(istNow, tf);
             if (!forceRefresh && (await getCachedCentralSignal(idx.name, tf, stamp))) return;
 
+            const tfMs = tf * 60 * 1000;
+            const toMs = (t: any) => {
+              const n = Number(t || 0);
+              return n > 0 && n < 1e12 ? n * 1000 : n;
+            };
+            // Broker candle timestamps are the bar's OPEN time. At 09:45 the freshly
+            // closed 15m bar therefore carries 09:30 — the bar stamped 09:45 is still
+            // forming and must never be analysed (that was the source of CE→PE flips).
+            const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
+            const closedStartMs = formingStartMs - tfMs;
+
             const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null, forceRefresh);
-            const candles = primary.candles || [];
+            const rawCandles = primary.candles || [];
+            const candles = rawCandles.filter((c: any) => toMs(c?.timestamp) < formingStartMs);
             if (candles.length < 30) return;
-            const lastTimestamp = Number(candles[candles.length - 1]?.timestamp || 0);
-            const lastTimestampMs = lastTimestamp < 1e12 ? lastTimestamp * 1000 : lastTimestamp;
-            const expectedClosedBoundaryMs = Math.floor(Date.now() / (tf * 60 * 1000)) * tf * 60 * 1000;
-            if (!lastTimestampMs || lastTimestampMs < expectedClosedBoundaryMs) {
+            const lastClosedMs = toMs(candles[candles.length - 1]?.timestamp);
+            if (!lastClosedMs || lastClosedMs < closedStartMs) {
               console.warn(
-                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} not published — latest broker candle is stale`,
+                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} not published — last closed bar ${
+                  new Date(lastClosedMs).toISOString()
+                } is behind ${new Date(closedStartMs).toISOString()}`,
               );
               return;
             }
-            if (lastTimestampMs > expectedClosedBoundaryMs) {
-              console.warn(
-                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} not published — latest broker candle is still forming`,
-              );
-              return;
-            }
-            const htf =
-              tf < 15 ? (await getCentralOHLC(idx.securityId, "15", 100, null)).candles || candles : candles;
+            const htfRaw = tf < 15 ? (await getCentralOHLC(idx.securityId, "15", 100, null)).candles || [] : [];
+            const htfClosed = htfRaw.filter(
+              (c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / (15 * 60 * 1000)) * 15 * 60 * 1000,
+            );
+            const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
 
             const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
               higherTimeframeData: htf,
