@@ -182,7 +182,7 @@ Deno.serve(async (req) => {
       const { data: row } = await admin.from("user_pins").select("*").eq("user_id", user.id).maybeSingle();
       if (!row) return json(404, { success: false, message: "No PIN set", hasPin: false });
       if (row.locked_until && new Date(row.locked_until) > new Date()) {
-        return json(423, { success: false, message: "PIN locked. Try later.", lockedUntil: row.locked_until });
+        return json(200, { success: false, message: "PIN locked. Try later.", lockedUntil: row.locked_until });
       }
       const check = await sha256(`${row.pin_salt}:${pin}`);
       if (check !== row.pin_hash) {
@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
           failed_attempts: lock ? 0 : attempts,
           locked_until: lock,
         }).eq("user_id", user.id);
-        return json(401, { success: false, message: "Incorrect PIN", attemptsLeft: Math.max(0, 5 - attempts), lockedUntil: lock });
+        return json(200, { success: false, message: "Incorrect PIN", attemptsLeft: Math.max(0, 5 - attempts), lockedUntil: lock });
       }
       await admin.from("user_pins").update({ failed_attempts: 0, locked_until: null, last_used_at: new Date().toISOString() }).eq("user_id", user.id);
       return json(200, { success: true, message: "PIN verified" });
@@ -245,7 +245,7 @@ Deno.serve(async (req) => {
       const otp_hash = await sha256(String(otp));
       if (otp_hash !== row.otp_hash) {
         await admin.from("pin_reset_otps").update({ attempts: (row.attempts || 0) + 1 }).eq("id", row.id);
-        return json(401, { success: false, message: "Incorrect OTP" });
+        return json(200, { success: false, message: "Incorrect OTP" });
       }
       await admin.from("pin_reset_otps").update({ verified: true }).eq("id", row.id);
 
