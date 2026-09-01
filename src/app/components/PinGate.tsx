@@ -320,6 +320,21 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
           <button onClick={() => { reset(); setScreen('forgot'); }} className="text-cyan-400 hover:underline">Forgot PIN?</button>
           {onLogout && <button onClick={onLogout} className="text-slate-400 hover:text-white">Use another account</button>}
         </div>
+        <button
+          onClick={async () => {
+            reset(); setBusy(true);
+            try {
+              const r = await PinApi.status();
+              if (r.status === 200 && !r.hasPin) setScreen('create');
+              else setError('A PIN already exists. Use “Forgot PIN?” to reset it.');
+            } catch { setError('Could not check PIN status. Please try again.'); }
+            finally { setBusy(false); }
+          }}
+          className="mt-3 w-full text-xs text-slate-400 hover:text-cyan-400"
+        >
+          No PIN set? Create a new PIN
+        </button>
+
       </Shell>
     );
   }
