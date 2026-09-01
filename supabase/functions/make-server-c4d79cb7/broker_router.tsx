@@ -1375,13 +1375,42 @@ export async function placeOrderSmart(
   }
 }
 
+/**
+ * Make sure the contract we are about to trade exists in the live master.
+ * A stale saved slot (expired contract) is transparently re-mapped to the same
+ * strike/option type on the nearest live expiry, and the Dhan security id +
+ * symbol are refreshed so EVERY broker (including Dhan) receives a valid order.
+ */
+export async function normalizeOrderContract(order: any): Promise<any> {
+  try {
+    const row = await findInstrumentRow(order);
+    if (!row?.security_id) return order;
+    const changed = String(row.security_id) !== String(order?.securityId || "");
+    if (changed) {
+      console.log(`[ORDER] contract re-mapped → ${row.symbol} (${row.security_id})`);
+    }
+    return {
+      ...order,
+      securityId: String(row.security_id),
+      symbol: row.symbol,
+      symbolName: row.symbol,
+      tradingSymbol: row.symbol,
+      exchangeSegment: order?.exchangeSegment || row.exchange_segment,
+      lotSize: Number(order?.lotSize || row.lot_size || 0),
+    };
+  } catch {
+    return order;
+  }
+}
+
 async function placeOrderSmartInner(
 
   userId: string,
   dhanCredentials: { dhanClientId: string; dhanAccessToken: string },
-  orderDetails: any,
+  orderDetailsRaw: any,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  const orderDetails = await normalizeOrderContract(orderDetailsRaw);
 
   // 🟡 5PAISA
   if (broker === "5paisa") {
