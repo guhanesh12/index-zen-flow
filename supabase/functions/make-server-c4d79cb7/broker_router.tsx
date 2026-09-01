@@ -1555,15 +1555,26 @@ async function placeOrderSmartInner(
       };
     } catch (e: any) {
       const msg = String(e?.message || e);
-      if (/token|session|unauthor|expired|invalid/i.test(msg)) {
+      const code = String(e?.errorCode || "").toUpperCase();
+      const status = Number(e?.status || 0);
+      // Only real SmartAPI authentication failures mean the session died.
+      // Business rejections (invalid symbol token, quantity, RMS/margin, market
+      // closed…) must surface verbatim instead of a misleading "token expired".
+      const isAuthError =
+        status === 401 ||
+        status === 403 ||
+        /^AG8001$|^AG8002$|^AB8050$|^AB8051$/.test(code) ||
+        /invalid token|token is invalid|invalid session|session expired|session has expired|unauthor|please login again|jwt/i.test(msg);
+      if (isAuthError) {
         const err: any = new Error(
           "TOKEN_EXPIRED:Your Angel One session has expired (SmartAPI tokens reset daily). Login again from Broker Setup → Angel One.",
         );
         err.code = "TOKEN_EXPIRED";
         throw err;
       }
-      throw new Error(msg);
+      throw new Error(`Angel One rejected the order: ${msg}`);
     }
+
   }
 
   // 🔵 FYERS
