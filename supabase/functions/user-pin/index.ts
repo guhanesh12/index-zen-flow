@@ -146,12 +146,17 @@ Deno.serve(async (req) => {
     if (action === "status" && req.method === "GET") {
       const { data } = await admin.from("user_pins").select("user_id, locked_until").eq("user_id", user.id).maybeSingle();
       const { data: prof } = await admin.from("profiles").select("mobile, email").eq("user_id", user.id).maybeSingle();
-      const locked = data?.locked_until && new Date(data.locked_until) > new Date();
+      // Cap any legacy long lock to a max 30s cooldown
+      let lockedUntil: string | null = null;
+      if (data?.locked_until) {
+        const capped = Math.min(new Date(data.locked_until).getTime(), Date.now() + 30 * 1000);
+        if (capped > Date.now()) lockedUntil = new Date(capped).toISOString();
+      }
       return json(200, {
         success: true,
         hasPin: !!data,
-        locked: !!locked,
-        lockedUntil: data?.locked_until || null,
+        locked: !!lockedUntil,
+        lockedUntil,
         mobile: maskMobile(prof?.mobile || ""),
         email: maskEmail(prof?.email || user.email || ""),
       });
