@@ -20,7 +20,7 @@ import { Loader2, Lock, ShieldCheck, KeyRound, ArrowLeft } from 'lucide-react';
 
 const BASE = 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin';
 const UNLOCK_KEY = 'ip_pin_unlocked_at';
-const RELOCK_MS = 2 * 60 * 1000;
+
 
 async function getFreshToken(forceRefresh = false): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -163,23 +163,17 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
-  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
-
   const reset = () => { setPin(''); setConfirmPin(''); setOtp(''); setError(''); };
 
-  // Session is really gone (refresh token rejected) → send the user back to the
-  // LOGIN page (never the public landing page), so signing in returns to the dashboard.
+  // Never sign the user out from the PIN screen. If the session hiccups we try to
+  // refresh it and let the user retry — no redirect back to /login.
   const handleSessionLost = useCallback(async (e: any) => {
     if (String(e?.message || e) !== 'SESSION_LOST') return false;
-    // One last recovery attempt before giving up — avoids bouncing out on a blip.
     try {
       const { data } = await supabase.auth.refreshSession();
-      if (data?.session?.access_token) { setError('Session refreshed — please enter your PIN again.'); return true; }
+      if (data?.session?.access_token) { setError('Please enter your PIN again.'); return true; }
     } catch {}
-    try { await supabase.auth.signOut(); } catch {}
-    sessionStorage.removeItem(UNLOCK_KEY);
-    window.location.replace('/login');
+    setError('Connection issue — please try again.');
     return true;
   }, []);
 
@@ -188,25 +182,17 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     try {
       const r = await PinApi.status();
       if (r.status !== 200) { setScreen('ok'); return; } // never hard-block on API failure
-      setLockedUntil(r.lockedUntil || null);
       if (!r.hasPin) { setScreen('create'); return; }
-      // Always ask for the PIN on a fresh app load / login — no silent grace period.
-      sessionStorage.removeItem(UNLOCK_KEY);
+      // Ask for the PIN once per app load / login.
+      if (sessionStorage.getItem(UNLOCK_KEY)) { setScreen('ok'); return; }
       setScreen('enter');
     } catch (e: any) {
-      if (String(e?.message || e) === 'SESSION_LOST') { await handleSessionLost(e); return; }
+      if (String(e?.message || e) === 'SESSION_LOST') { await handleSessionLost(e); setScreen('enter'); return; }
       setScreen('ok');
     }
   }, [handleSessionLost]);
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
-
-  // countdown ticker while locked
-  useEffect(() => {
-    if (!lockedUntil) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [lockedUntil]);
 
   // Keep the Supabase session alive while the PIN screen is open, so the
   // token can't silently expire between login and PIN verification.
@@ -216,20 +202,6 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return () => clearInterval(t);
   }, [screen]);
 
-  // re-lock when the tab has been hidden for > 2 min
-  useEffect(() => {
-    let hiddenAt = 0;
-    const onVis = () => {
-      if (document.hidden) hiddenAt = Date.now();
-      else if (hiddenAt && Date.now() - hiddenAt > RELOCK_MS) {
-        sessionStorage.removeItem(UNLOCK_KEY);
-        setScreen((s) => (s === 'ok' ? 'enter' : s));
-      }
-    };
-    document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
-  }, []);
-
   const unlock = () => {
     sessionStorage.setItem(UNLOCK_KEY, String(Date.now()));
     // Restart the idle-timeout clock so unlocking counts as fresh activity and the
@@ -238,9 +210,6 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     setScreen('ok'); setInfo(''); reset();
   };
 
-
-  const lockedRemaining = lockedUntil ? new Date(lockedUntil).getTime() - now : 0;
-  const isLocked = lockedRemaining > 0;
 
   const doSet = async () => {
     setError(''); setBusy(true);
@@ -257,9 +226,9 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       if (r.status === 200 && r.success !== false) unlock();
       else if (r.status === 404) setScreen('create');
       else {
-        if (r.lockedUntil) setLockedUntil(r.lockedUntil);
         setError(r.message || 'Incorrect PIN');
         setPin('');
+
       }
     } catch (e: any) { if (!(await handleSessionLost(e))) setError(e.message); } finally { setBusy(false); }
   };
@@ -284,7 +253,6 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
         // PIN changed — force the user to sign in with the NEW pin.
         sessionStorage.removeItem(UNLOCK_KEY);
         setPin(''); setConfirmPin(''); setOtp(''); setError('');
-        setLockedUntil(null);
         setInfo('PIN reset successful. Please enter your new PIN to continue.');
         setScreen('enter');
       } else setError(r.message || 'Reset failed');
@@ -323,18 +291,14 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   if (screen === 'enter') {
     return (
       <Shell icon={<Lock className="w-7 h-7 text-cyan-400" />} title="Enter your PIN"
-        subtitle={isLocked ? 'Please wait a moment' : 'Unlock to continue to your dashboard'}>
+        subtitle="Unlock to continue to your dashboard">
         {info && <p className="mb-4 text-center text-sm text-emerald-400">{info}</p>}
-        <DigitInput value={pin} onChange={setPin} autoFocus disabled={isLocked} />
-        {isLocked && (
-          <p className="mt-3 text-center text-sm text-amber-400">
-            Try again in {Math.max(1, Math.ceil(lockedRemaining / 1000))}s
-          </p>
-        )}
+        <DigitInput value={pin} onChange={setPin} autoFocus />
         <Err />
-        <button className={btn} disabled={busy || isLocked || pin.length !== 4} onClick={doVerify}>
+        <button className={btn} disabled={busy || pin.length !== 4} onClick={doVerify}>
           {busy ? 'Verifying…' : 'Unlock'}
         </button>
+
         <div className="mt-4 flex items-center justify-between text-xs">
           <button onClick={() => { reset(); setScreen('forgot'); }} className="text-cyan-400 hover:underline">Forgot PIN?</button>
           {onLogout && <button onClick={onLogout} className="text-slate-400 hover:text-white">Use another account</button>}
