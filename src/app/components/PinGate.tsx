@@ -175,6 +175,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const reset = () => { setPin(''); setConfirmPin(''); setOtp(''); setError(''); };
+  const uidRef = useRef<string | null>(null);
 
   // Never sign the user out from the PIN screen. If the session hiccups we try to
   // refresh it and let the user retry — no redirect back to /login.
@@ -191,11 +192,18 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
 
   const refreshStatus = useCallback(async () => {
     const load = async () => {
+      // Resolve the CURRENT account first — the unlock flag is per-user so a
+      // different account always has to enter its own PIN.
+      let uid: string | null = null;
+      try { uid = (await supabase.auth.getUser()).data?.user?.id || null; } catch { uid = null; }
+      if (uidRef.current && uid && uidRef.current !== uid) clearAllUnlocks();
+      uidRef.current = uid;
+
       const r = await PinApi.status();
       if (r.status !== 200) { setScreen('ok'); return; } // never hard-block on API failure
       if (!r.hasPin) { setScreen('create'); return; }
-      // Ask for the PIN once per app load / login.
-      if (sessionStorage.getItem(UNLOCK_KEY)) { setScreen('ok'); return; }
+      // Ask for the PIN once per app load / login, per account.
+      if (uid && sessionStorage.getItem(unlockKeyFor(uid))) { setScreen('ok'); return; }
       setScreen('enter');
     };
     try {
@@ -213,11 +221,35 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
+  // Signing out (or switching accounts) must drop every unlock flag so the next
+  // account is challenged for its own PIN.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      const nextUid = session?.user?.id || null;
+      if (event === 'SIGNED_OUT') {
+        clearAllUnlocks();
+        uidRef.current = null;
+        setScreen('loading');
+        return;
+      }
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        if (uidRef.current && nextUid && uidRef.current !== nextUid) {
+          clearAllUnlocks();
+          uidRef.current = nextUid;
+          reset();
+          setScreen('loading');
+          refreshStatus();
+        }
+      }
+    });
+    return () => sub?.subscription?.unsubscribe();
+  }, [refreshStatus]);
+
   // The app-wide inactivity manager asks for the PIN again but deliberately
   // keeps the authenticated Supabase session alive.
   useEffect(() => {
     const relock = () => {
-      sessionStorage.removeItem(UNLOCK_KEY);
+      clearAllUnlocks();
       reset();
       setInfo('');
       setScreen('enter');
@@ -235,13 +267,20 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     return () => clearInterval(t);
   }, [screen]);
 
-  const unlock = () => {
-    sessionStorage.setItem(UNLOCK_KEY, String(Date.now()));
+  const unlock = async () => {
+    let uid = uidRef.current;
+    if (!uid) {
+      try { uid = (await supabase.auth.getUser()).data?.user?.id || null; } catch { uid = null; }
+      uidRef.current = uid;
+    }
+    clearAllUnlocks();
+    if (uid) sessionStorage.setItem(unlockKeyFor(uid), String(Date.now()));
     // Restart the idle-timeout clock so unlocking counts as fresh activity and the
     // user lands on the dashboard instead of being bounced out again.
     try { SessionManager.extend(); } catch {}
     setScreen('ok'); setInfo(''); reset();
   };
+
 
 
   const doSet = async () => {
