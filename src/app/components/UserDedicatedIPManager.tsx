@@ -152,10 +152,6 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
   const [linkingExisting, setLinkingExisting] = useState(false);
   const [resettingProvisioning, setResettingProvisioning] = useState(false);
   const [recreatingVps, setRecreatingVps] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
-  const [upgradeInfo, setUpgradeInfo] = useState<any>(null);
-  const [upgradeCommand, setUpgradeCommand] = useState<string | null>(null);
-
   const [justCompleted, setJustCompleted] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -562,52 +558,6 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     }
   }
 
-  async function checkUpgrade() {
-    setUpgrading(true);
-    try {
-      const res = await fetch(`${serverUrl}/vps/upgrade-status`, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) throw new Error(data.error || 'Could not read VPS version');
-      setUpgradeInfo(data);
-      toast[data.multiBrokerReady ? 'success' : 'warning'](
-        data.multiBrokerReady ? 'All brokers already route via your static IP' : 'Upgrade needed for non-Dhan brokers',
-      );
-    } catch (err: any) {
-      toast.error(err.message || 'Version check failed');
-    } finally {
-      setUpgrading(false);
-    }
-  }
-
-  async function runUpgrade() {
-    setUpgrading(true);
-    setUpgradeCommand(null);
-    try {
-      const res = await fetch(`${serverUrl}/vps/upgrade`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data?.success) {
-        toast.success(data.message || 'VPS upgraded — all brokers now route via your static IP');
-        await checkUpgrade();
-        return;
-      }
-      if (data?.needsManualRun && data?.command) {
-        setUpgradeCommand(data.command);
-        toast.warning('Run the one-line command shown below in your DigitalOcean console');
-        return;
-      }
-      throw new Error(data?.error || data?.reason || 'Upgrade failed');
-    } catch (err: any) {
-      toast.error(err.message || 'Upgrade failed');
-    } finally {
-      setUpgrading(false);
-    }
-  }
-
-
-
 
   async function copyIP(ip: string) {
     try {
@@ -981,60 +931,6 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                 <li>Generate your access token and save it in API Settings above</li>
               </ol>
             </div>
-
-            {/* ══ MULTI-BROKER ORDER SERVER UPGRADE ══ */}
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-2">
-              <p className="text-[11px] font-semibold text-amber-300">
-                🔧 Multi-broker routing {upgradeInfo ? (upgradeInfo.multiBrokerReady ? '· ready' : '· upgrade needed') : ''}
-              </p>
-              <p className="text-[10px] text-amber-200/80 leading-relaxed">
-                Older VPS images can only send Dhan orders through your static IP. Fyers, Angel One, Aliceblue,
-                Zerodha, Upstox, Groww and 5paisa need order-server v1.4.0+. Run this once.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={checkUpgrade}
-                  disabled={upgrading}
-                  variant="outline"
-                  size="sm"
-                  className="border-amber-700 text-amber-200 hover:bg-amber-900/20 text-xs"
-                >
-                  <RefreshCw className="w-3 h-3 mr-1" /> Check version
-                </Button>
-                <Button
-                  onClick={runUpgrade}
-                  disabled={upgrading}
-                  size="sm"
-                  className="bg-amber-600 hover:bg-amber-500 text-white text-xs"
-                >
-                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Upgrading…</> : 'Upgrade order server'}
-                </Button>
-              </div>
-              {upgradeInfo?.version && (
-                <p className="text-[10px] text-amber-200/70">
-                  Installed: <span className="font-mono">{upgradeInfo.version}</span> · Latest:{' '}
-                  <span className="font-mono">{upgradeInfo.latestVersion || '1.4.0'}</span>
-                </p>
-              )}
-              {upgradeCommand && (
-                <div className="rounded bg-zinc-950 border border-zinc-800 p-2 space-y-1">
-                  <p className="text-[10px] text-zinc-400">
-                    Automatic upgrade is not supported on this image. Open DigitalOcean → your Droplet → Console and paste:
-                  </p>
-                  <code className="block text-[10px] text-emerald-300 break-all">{upgradeCommand}</code>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-zinc-300 text-[10px] h-6 px-2"
-                    onClick={() => { navigator.clipboard.writeText(upgradeCommand); toast.success('Command copied'); }}
-                  >
-                    Copy command
-                  </Button>
-                </div>
-              )}
-            </div>
-
-
 
             {/* Renewal / Cancel buttons */}
             <div className="flex gap-2 pt-1">
