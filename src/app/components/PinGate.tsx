@@ -254,10 +254,13 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     setError(''); setBusy(true);
     try {
       const r = await PinApi.verify(pin);
-      if (r.status === 200) unlock();
+      if (r.status === 200 && r.success !== false) unlock();
       else if (r.status === 404) setScreen('create');
-      else if (r.status === 423) { setLockedUntil(r.lockedUntil); setError('Too many attempts. PIN locked.'); setPin(''); }
-      else { setError(`${r.message || 'Incorrect PIN'}${r.attemptsLeft != null ? ` — ${r.attemptsLeft} attempts left` : ''}`); setPin(''); }
+      else {
+        if (r.lockedUntil) setLockedUntil(r.lockedUntil);
+        setError(r.message || 'Incorrect PIN');
+        setPin('');
+      }
     } catch (e: any) { if (!(await handleSessionLost(e))) setError(e.message); } finally { setBusy(false); }
   };
 
