@@ -292,18 +292,14 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   if (screen === 'enter') {
     return (
       <Shell icon={<Lock className="w-7 h-7 text-cyan-400" />} title="Enter your PIN"
-        subtitle={isLocked ? 'Please wait a moment' : 'Unlock to continue to your dashboard'}>
+        subtitle="Unlock to continue to your dashboard">
         {info && <p className="mb-4 text-center text-sm text-emerald-400">{info}</p>}
-        <DigitInput value={pin} onChange={setPin} autoFocus disabled={isLocked} />
-        {isLocked && (
-          <p className="mt-3 text-center text-sm text-amber-400">
-            Try again in {Math.max(1, Math.ceil(lockedRemaining / 1000))}s
-          </p>
-        )}
+        <DigitInput value={pin} onChange={setPin} autoFocus />
         <Err />
-        <button className={btn} disabled={busy || isLocked || pin.length !== 4} onClick={doVerify}>
+        <button className={btn} disabled={busy || pin.length !== 4} onClick={doVerify}>
           {busy ? 'Verifying…' : 'Unlock'}
         </button>
+
         <div className="mt-4 flex items-center justify-between text-xs">
           <button onClick={() => { reset(); setScreen('forgot'); }} className="text-cyan-400 hover:underline">Forgot PIN?</button>
           {onLogout && <button onClick={onLogout} className="text-slate-400 hover:text-white">Use another account</button>}
