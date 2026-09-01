@@ -402,6 +402,35 @@ export async function mirrorAngelOneStatus(userId: string, patch: Record<string,
   }
 }
 
+/**
+ * Last-resort mapping: take a sibling contract of the SAME index + expiry that
+ * already carries the broker's native symbol and swap the strike/option type.
+ * Works for symbol-based brokers (Fyers, Zerodha, Groww) whose masters follow a
+ * strict pattern, so an order still goes out when one strike is missing.
+ */
+export async function deriveBrokerSymbolFromSibling(row: any, col: string): Promise<string | null> {
+  try {
+    if (!row?.index_name || !row?.expiry_date || row?.strike_price == null || !row?.option_type) return null;
+    const { data } = await supabaseAdmin
+      .from("instrument_master")
+      .select(`${col}, strike_price, option_type`)
+      .eq("index_name", row.index_name)
+      .eq("expiry_date", row.expiry_date)
+      .not(col, "is", null)
+      .limit(1)
+      .maybeSingle();
+    const sample = data?.[col] ? String(data[col]) : "";
+    if (!sample) return null;
+    const needle = `${Number(data!.strike_price)}${String(data!.option_type).toUpperCase()}`;
+    if (!sample.toUpperCase().includes(needle)) return null;
+    const derived = sample.toUpperCase().replace(needle, `${Number(row.strike_price)}${String(row.option_type).toUpperCase()}`);
+    console.log(`[INSTRUMENT] derived ${col} ${derived} from sibling ${sample}`);
+    return derived;
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve a Dhan-style order into an Angel One trading symbol + symbol token. */
 export async function resolveAngelOneSymbol(order: any): Promise<{
   tradingSymbol: string;
@@ -807,6 +836,17 @@ export async function resolveFyersSymbol(order: any): Promise<{
     if (retry?.fyers_symbol) inst = retry;
   }
 
+  if (inst && !inst.fyers_symbol) {
+    const derived = await deriveBrokerSymbolFromSibling(inst, "fyers_symbol");
+    if (derived) {
+      return {
+        fyersSymbol: derived,
+        tradingSymbol: derived.split(":").pop() || derived,
+        lotSize: Number(inst.lot_size || order?.lotSize || 0),
+      };
+    }
+  }
+
   if (!inst?.fyers_symbol) {
     // Position exits carry the Fyers symbol directly from Fyers positions.
     const candidate = /^(NSE|BSE):/i.test(securityId)
@@ -1054,6 +1094,19 @@ export async function resolveGrowwSymbol(order: any): Promise<{
     await ensureGrowwInstruments(!!inst);
     const retry = await lookup();
     if (retry?.groww_trading_symbol) inst = retry;
+  }
+
+  if (inst && !inst.groww_trading_symbol) {
+    const derived = await deriveBrokerSymbolFromSibling(inst, "groww_trading_symbol");
+    if (derived) {
+      const g = growwExchangeFromSegment(inst.exchange_segment || order?.exchangeSegment);
+      return {
+        tradingSymbol: derived,
+        exchange: g.exchange,
+        segment: g.segment,
+        lotSize: Number(inst.lot_size || order?.lotSize || 0),
+      };
+    }
   }
 
   if (!inst?.groww_trading_symbol) {
