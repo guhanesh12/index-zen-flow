@@ -9,7 +9,6 @@ import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity, SessionManager } from '@/utils-ext/security/SecurityHardening';
-import { AuditLogger } from '@/utils-ext/security/AuditLogger';
 import { supabase } from '@/utils-ext/supabase/client';
 
 
