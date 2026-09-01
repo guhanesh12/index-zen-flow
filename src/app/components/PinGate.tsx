@@ -20,7 +20,7 @@ import { Loader2, Lock, ShieldCheck, KeyRound, ArrowLeft } from 'lucide-react';
 
 const BASE = 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin';
 const UNLOCK_KEY = 'ip_pin_unlocked_at';
-const RELOCK_MS = 2 * 60 * 1000;
+
 
 async function getFreshToken(forceRefresh = false): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -253,7 +253,6 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
         // PIN changed — force the user to sign in with the NEW pin.
         sessionStorage.removeItem(UNLOCK_KEY);
         setPin(''); setConfirmPin(''); setOtp(''); setError('');
-        setLockedUntil(null);
         setInfo('PIN reset successful. Please enter your new PIN to continue.');
         setScreen('enter');
       } else setError(r.message || 'Reset failed');
