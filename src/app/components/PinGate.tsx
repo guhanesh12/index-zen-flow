@@ -246,12 +246,17 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   const doForgot = async () => {
     setError(''); setInfo(''); setBusy(true);
     try {
+      // Make sure the token is fresh before asking for an OTP — this endpoint
+      // used to fail with a raw SESSION_LOST error.
+      try { await supabase.auth.refreshSession(); } catch {}
       const r = await PinApi.forgot();
       if (r.status === 200) {
         setInfo(`${r.message}${r.mobile ? ` (${r.mobile})` : ''}${r.email ? ` (${r.email})` : ''}`);
         setScreen('reset'); setPin(''); setConfirmPin(''); setOtp('');
       } else setError(r.message || 'Could not send OTP');
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) {
+      if (!(await handleSessionLost(e))) setError(e?.message || 'Could not send OTP');
+    } finally { setBusy(false); }
   };
 
   const doReset = async () => {
@@ -265,8 +270,11 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
         setInfo('PIN reset successful. Please enter your new PIN to continue.');
         setScreen('enter');
       } else setError(r.message || 'Reset failed');
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) {
+      if (!(await handleSessionLost(e))) setError(e?.message || 'Reset failed');
+    } finally { setBusy(false); }
   };
+
 
 
   const Err = () => error ? <p className="mt-3 text-center text-sm text-red-400">{error}</p> : null;
