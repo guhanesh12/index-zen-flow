@@ -4051,18 +4051,53 @@ class PersistentTradingEngine {
             );
             const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
 
+            // 1h context (same as the pre-central per-user path used)
+            let hourly: any[] = [];
+            try {
+              const h = (await getCentralOHLC(idx.securityId, "60", 40, null)).candles || [];
+              const hourMs = 60 * 60 * 1000;
+              hourly = h.filter((c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / hourMs) * hourMs);
+            } catch (_e) {
+              hourly = [];
+            }
+
+            // 🛡️ ANTI-WHIPSAW STATE (restored): the pre-central path fed the strategy
+            // last-signal / stop-loss cooldown / loss-streak context. Without it the
+            // publisher happily emitted CE then PE on the next candle.
+            const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${idx.name}`)) || 0;
+            const lastSignalDirection = (await kv.get(`central:last_signal_dir:${idx.name}`)) || "WAIT";
+            const lastStopLossTimestamp = (await kv.get(`central:last_sl_ts:${idx.name}`)) || 0;
+            const lastStopLossDirection = (await kv.get(`central:last_sl_dir:${idx.name}`)) || null;
+            const consecutiveLossCount = Number((await kv.get(`central:loss_streak:${idx.name}`)) || 0);
+            const lastLossTimestamp = Number((await kv.get(`central:last_loss_ts:${idx.name}`)) || 0);
+
             const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
               higherTimeframeData: htf,
+              hourlyTimeframeData: hourly,
               timeframeMinutes: tf,
+              lastSignalTimestamp,
+              lastSignalDirection,
+              lastStopLossTimestamp,
+              lastStopLossDirection,
+              stopLossCooldownBars: 2,
+              consecutiveLossCount,
+              lastLossTimestamp,
+              consecutiveLossThreshold: 3,
+              consecutiveLossCooldownMs: 30 * 60 * 1000,
               minimumBarsBetweenSignals: 1,
               blockNewEntriesAfterMinutes: 15 * 60 + 15,
             });
             (sig as any).timestamp = lastClosedMs || Date.now();
             (sig as any).barCloseAt = new Date(formingStartMs).toISOString();
             (sig as any).signalSource = "CENTRAL_DATA";
+            if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
+              await kv.set(`central:last_signal_ts:${idx.name}`, lastClosedMs || Date.now());
+              await kv.set(`central:last_signal_dir:${idx.name}`, sig.action);
+            }
             await saveCentralSignal(idx.name, tf, stamp, sig);
             published++;
             console.log(`🛰️ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} → ${sig.action} (${sig.confidence}%)`);
+
           } catch (e: any) {
             console.error(`❌ [CENTRAL-PUB] ${idx.name} ${tf}m: ${e?.message || e}`);
           }
