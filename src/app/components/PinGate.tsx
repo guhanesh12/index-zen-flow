@@ -9,7 +9,7 @@
  *   4. reset   — enter OTP + new PIN
  *
  * Backend: supabase/functions/user-pin  (status | set | verify | forgot | reset)
- * Re-locks after 2 minutes of the tab being hidden.
+ * Re-locks after the app's inactivity timeout without ending Supabase auth.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/utils-ext/supabase/client';
@@ -202,6 +202,19 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
+  // The app-wide inactivity manager asks for the PIN again but deliberately
+  // keeps the authenticated Supabase session alive.
+  useEffect(() => {
+    const relock = () => {
+      sessionStorage.removeItem(UNLOCK_KEY);
+      reset();
+      setInfo('');
+      setScreen('enter');
+    };
+    window.addEventListener('indexpilot:pin-lock', relock);
+    return () => window.removeEventListener('indexpilot:pin-lock', relock);
+  }, []);
+
 
   // Keep the Supabase session alive while the PIN screen is open, so the
   // token can't silently expire between login and PIN verification.
@@ -263,13 +276,16 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
     setError(''); setBusy(true);
     try {
       const r = await PinApi.reset(otp, pin, confirmPin);
-      if (r.status === 200) {
+      if (r.status === 200 && r.success !== false) {
         // PIN changed — force the user to sign in with the NEW pin.
         sessionStorage.removeItem(UNLOCK_KEY);
         setPin(''); setConfirmPin(''); setOtp(''); setError('');
         setInfo('PIN reset successful. Please enter your new PIN to continue.');
         setScreen('enter');
-      } else setError(r.message || 'Reset failed');
+      } else {
+        setError(r.message || 'Reset failed');
+        if (/incorrect|expired/i.test(String(r.message || ''))) setOtp('');
+      }
     } catch (e: any) {
       if (!(await handleSessionLost(e))) setError(e?.message || 'Reset failed');
     } finally { setBusy(false); }

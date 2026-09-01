@@ -10,7 +10,7 @@ import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity, SessionManager } from '@/utils-ext/security/SecurityHardening';
 import { AuditLogger } from '@/utils-ext/security/AuditLogger';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/utils-ext/supabase/client';
 
 
 // Extend Window interface for hotkey system
@@ -35,13 +35,11 @@ export default function App() {
     // 🔒 Initialize Security System (bank-level hardening)
     initializeSecurity({
       enableDevToolsMonitor: import.meta.env.PROD, // Production only
-      onSessionTimeout: async () => {
-        try {
-          await AuditLogger.log({ action: 'session_timeout', status: 'success' });
-          await supabase.auth.signOut();
-        } catch {}
-        // Hard redirect to clear all in-memory state
-        window.location.href = '/login';
+      onSessionTimeout: () => {
+        // Inactivity locks the dashboard with the PIN; it must never destroy the
+        // valid Supabase login session or send the user back to email/password.
+        sessionStorage.removeItem('ip_pin_unlocked_at');
+        window.dispatchEvent(new CustomEvent('indexpilot:pin-lock'));
       },
       onSessionWarning: () => {
         console.warn('🔒 Session will expire in 5 minutes due to inactivity.');
