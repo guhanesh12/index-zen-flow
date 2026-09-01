@@ -226,7 +226,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       if (r.status === 200 && r.success !== false) unlock();
       else if (r.status === 404) setScreen('create');
       else {
-        if (r.lockedUntil) setLockedUntil(r.lockedUntil);
+        setError(r.message || 'Incorrect PIN');
         setError(r.message || 'Incorrect PIN');
         setPin('');
       }
