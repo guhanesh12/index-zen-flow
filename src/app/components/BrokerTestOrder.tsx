@@ -18,6 +18,8 @@ export function BrokerTestOrder({ serverUrl, accessToken }: BrokerTestOrderProps
   const [quantity, setQuantity] = useState<number>(1);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [slotResults, setSlotResults] = useState<any[]>([]);
+
 
   useEffect(() => {
     (async () => {
