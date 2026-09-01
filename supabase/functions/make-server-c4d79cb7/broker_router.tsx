@@ -410,28 +410,9 @@ export async function resolveAngelOneSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, angelone_tradingsymbol, angelone_symbol_token, angelone_exchange";
+    "angelone_tradingsymbol, angelone_symbol_token, angelone_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},angelone_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.angelone_symbol_token) {
@@ -584,28 +565,9 @@ export async function resolveAliceblueSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, aliceblue_tradingsymbol, aliceblue_token, aliceblue_exchange";
+    "aliceblue_tradingsymbol, aliceblue_token, aliceblue_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},aliceblue_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.aliceblue_token) {
@@ -727,28 +689,9 @@ export async function resolveFivepaisaSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, fivepaisa_scrip_code, fivepaisa_scrip_data, fivepaisa_exchange";
+    "fivepaisa_scrip_code, fivepaisa_scrip_data, fivepaisa_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},fivepaisa_scrip_data.eq.${symbolText}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.fivepaisa_scrip_code) {
@@ -850,28 +793,10 @@ export async function resolveFyersSymbol(order: any): Promise<{
 } | null> {
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
-  const COLS = "lot_size, exchange_segment, fyers_symbol, fyers_tradingsymbol";
+  const COLS =
+    "fyers_symbol, fyers_tradingsymbol";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},fyers_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.fyers_symbol) {
@@ -968,28 +893,10 @@ export async function resolveUpstoxSymbol(order: any): Promise<{
 } | null> {
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
-  const COLS = "lot_size, exchange_segment, upstox_instrument_key, upstox_tradingsymbol";
+  const COLS =
+    "upstox_instrument_key, upstox_tradingsymbol";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},upstox_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.upstox_instrument_key) {
@@ -1136,28 +1043,9 @@ export async function resolveGrowwSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, groww_trading_symbol, groww_exchange, groww_segment";
+    "groww_trading_symbol, groww_exchange, groww_segment";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},groww_trading_symbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.groww_trading_symbol) {
@@ -1257,27 +1145,7 @@ export async function resolveKiteSymbol(order: any): Promise<{
   const COLS =
     "index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment, kite_tradingsymbol, kite_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    // Exits of Kite-native positions carry a tradingsymbol/symbol instead of a Dhan id.
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},kite_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
 
