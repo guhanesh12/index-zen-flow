@@ -6839,82 +6839,40 @@ async function vpsHealthInfo(ip: string): Promise<{ version: string; multiBroker
   return { version, multiBrokerReady, reachable };
 }
 
-/** Destroy this user's droplet(s) and start a fresh provisioning job (expiry preserved). */
-async function autoRecreateVpsForUser(userId: string): Promise<any> {
-  const ipsToPurge = new Set<string>();
-  const assignment = await IPPoolManager.getUserIPAssignment(userId);
-  if (assignment?.ipAddress) ipsToPurge.add(assignment.ipAddress);
-  const existingJob = await VPSProvisioning.getUserProvisioningJob(userId);
-  if (existingJob?.ipAddress) ipsToPurge.add(existingJob.ipAddress);
+/**
+ * Try every in-place deployment channel a VPS image may expose.
+ * NEVER destroys the droplet — the user's whitelisted IP must stay the same.
+ */
+async function deployInPlace(ip: string): Promise<{ ok: boolean; channel?: string; error?: string }> {
+  const apiKey = Deno.env.get("ORDER_SERVER_API_KEY") || "";
+  const script = VPSProvisioning.generateUpgradeScript();
 
-  const preservedExpiresAt =
-    assignment?.expiresAt && new Date(assignment.expiresAt) > new Date()
-      ? assignment.expiresAt
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  // 1) Modern images (>= 1.4.0): POST /self-update
+  const pushed = await VPSProvisioning.pushServerUpdate(ip);
+  if (pushed.success) return { ok: true, channel: "self-update" };
 
-  const DO_API_TOKEN = Deno.env.get("DIGITALOCEAN_API_TOKEN");
-
-  for (const ip of ipsToPurge) {
-    const ipEntry = (await kv.get(`ip_pool:${ip}`)) as any;
-    const dropletId = ipEntry?.metadata?.dropletId || existingJob?.dropletId;
-    if (DO_API_TOKEN && dropletId) {
-      try {
-        await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
-        });
-      } catch (e) {
-        console.warn("⚠️ auto-deploy: droplet delete failed", (e as any)?.message);
-      }
-    }
-  }
-
-  if (DO_API_TOKEN) {
+  // 2) Legacy bootstrap channels that some images expose
+  const attempts: Array<{ url: string; body: string; headers: Record<string, string>; channel: string }> = [
+    {
+      url: `http://${ip}:3000/exec`,
+      body: JSON.stringify({ script }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      channel: "exec",
+    },
+    {
+      url: `http://${ip}:8080/deploy`,
+      body: script,
+      headers: { "Content-Type": "text/plain" },
+      channel: "boot-agent",
+    },
+  ];
+  for (const a of attempts) {
     try {
-      const tagResp = await fetch(`https://api.digitalocean.com/v2/droplets?tag_name=user-${userId}`, {
-        headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
-      });
-      if (tagResp.ok) {
-        const tagData = await tagResp.json();
-        for (const d of tagData.droplets || []) {
-          try {
-            await fetch(`https://api.digitalocean.com/v2/droplets/${d.id}`, {
-              method: "DELETE",
-              headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
-            });
-            const orphanIp = d.networks?.v4?.find((n: any) => n.type === "public")?.ip_address;
-            if (orphanIp) ipsToPurge.add(orphanIp);
-          } catch { /* ignore */ }
-        }
-      }
-    } catch { /* ignore */ }
+      const r = await fetch(a.url, { method: "POST", headers: a.headers, body: a.body, signal: AbortSignal.timeout(8000) });
+      if (r.ok) return { ok: true, channel: a.channel };
+    } catch { /* try next */ }
   }
-
-  for (const ip of ipsToPurge) {
-    try { await kv.del(`ip_pool:${ip}`); } catch {}
-    try { await kv.del(`vps_provisioning:pending:${ip}`); } catch {}
-  }
-  try { await kv.del(`user_ip_assignment:${userId}`); } catch {}
-  try { await kv.del(`ip_assignment:${userId}:dedicated`); } catch {}
-  try { await kv.del(`vps_provisioning:user:${userId}`); } catch {}
-  try { await kv.del(`vps_power:${userId}`); } catch {}
-
-  await kv.set(`ip_recreate_preserve:${userId}`, {
-    expiresAt: preservedExpiresAt,
-    createdAt: new Date().toISOString(),
-  });
-  try {
-    const sub = ((await kv.get(`static_ip_subscription:${userId}`)) as any) || {};
-    await kv.set(`static_ip_subscription:${userId}`, {
-      ...sub,
-      expiresAt: preservedExpiresAt,
-      status: "recreating",
-      recreatedAt: new Date().toISOString(),
-    });
-  } catch {}
-
-  const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(userId);
-  return { ...provisionResult, purgedIps: Array.from(ipsToPurge), preservedExpiresAt };
+  return { ok: false, error: pushed.error || "No in-place update channel available on this VPS image" };
 }
 
 app.post("/make-server-c4d79cb7/vps/auto-deploy", async (c) => {
@@ -6936,51 +6894,48 @@ app.post("/make-server-c4d79cb7/vps/auto-deploy", async (c) => {
       });
     }
 
-    // 1️⃣ In-place push (images ≥ 1.4.0)
-    const pushed = await VPSProvisioning.pushServerUpdate(ip);
-    if (pushed.success) {
-      // verify the restart actually landed on the new version
-      let after = before;
-      for (let i = 0; i < 8; i++) {
+    const deployed = await deployInPlace(ip);
+
+    // Verify the restart actually landed on the multi-broker server
+    let after = before;
+    if (deployed.ok) {
+      for (let i = 0; i < 10; i++) {
         await new Promise((r) => setTimeout(r, 2500));
         after = await vpsHealthInfo(ip);
         if (after.multiBrokerReady) break;
       }
-      if (after.multiBrokerReady) {
-        return c.json({
-          success: true,
-          method: "self-update",
-          ip,
-          version: after.version,
-          message: `VPS updated automatically to v${after.version}. All 8 brokers now place orders from ${ip}.`,
-        });
-      }
     }
 
-    // 2️⃣ Legacy image → destroy + rebuild automatically (no manual command)
-    const recreated = await autoRecreateVpsForUser(user.id);
-    if (!recreated?.success) {
-      return c.json(
-        { success: false, error: recreated?.error || "Automatic rebuild could not be started. Try again in a minute." },
-        500,
-      );
+    if (after.multiBrokerReady) {
+      return c.json({
+        success: true,
+        method: deployed.channel || "self-update",
+        ip,
+        version: after.version,
+        message: `Order server deployed on the SAME IP ${ip} (v${after.version}). All 8 brokers now place orders from this IP — no re-whitelisting needed.`,
+      });
     }
-    return c.json({
-      success: true,
-      method: "auto-recreate",
-      provisioning: true,
-      oldIp: ip,
-      jobId: recreated.jobId,
-      estimatedMinutes: recreated.estimatedMinutes || 8,
-      preservedExpiresAt: recreated.preservedExpiresAt,
-      message:
-        "Your old VPS image was too old to update in place, so it was destroyed and a brand-new VPS with the latest multi-broker server is being built automatically. It takes ~5-8 minutes. You will get a NEW IP — whitelist it in your broker portal when it appears.",
-    });
+
+    // ❌ Never destroy / recreate: the whitelisted IP must never change.
+    return c.json(
+      {
+        success: false,
+        ip,
+        version: before.version,
+        reachable: before.reachable,
+        error: before.reachable
+          ? `Your VPS (${ip}) is running an old image (v${before.version}) that has no automatic update channel. The IP is kept as-is — run the one-time deploy script from the VPS console to bring it to v${VPSProvisioning.ORDER_SERVER_VERSION}.`
+          : `VPS ${ip} is not reachable on port 3000. Power it on, then run Auto deploy again.`,
+        needsManualScript: before.reachable,
+      },
+      502,
+    );
   } catch (e: any) {
     console.error("❌ auto-deploy error:", e);
     return c.json({ success: false, error: e.message }, 500);
   }
 });
+
 
 // ==================== 🧪 BROKER TEST ORDER (restricted) ====================
 const TEST_ORDER_EMAILS = (Deno.env.get("TEST_ORDER_EMAILS") || "guhanesh1234@gmail.com")

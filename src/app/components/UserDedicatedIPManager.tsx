@@ -606,9 +606,9 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     }
   }
 
-  // 🤖 Fully automatic: in-place update, or destroy + rebuild with the latest image.
+  // 🤖 Fully automatic in-place deploy — same VPS, same IP (never recreated).
   async function autoDeploy() {
-    if (!confirm('Automatically deploy the latest order server?\n\n• If your VPS supports live updates it happens in seconds.\n• If the image is too old, the VPS is destroyed and rebuilt automatically (~5-8 min) and you will get a NEW IP to whitelist.\n\nYour subscription expiry is preserved.')) return;
+    if (!confirm('Deploy the latest multi-broker order server on your existing VPS?\n\n• Your IP address stays exactly the same — no re-whitelisting.\n• The VPS is never destroyed or recreated.')) return;
     setUpgrading(true);
     setUpgradeCommand(null);
     try {
@@ -618,13 +618,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       });
       const data = await res.json().catch(() => ({}));
       if (!data?.success) throw new Error(data?.error || 'Automatic deployment failed');
-      toast.success(data.message || 'VPS deployment complete');
-      if (data.provisioning) {
-        prevStatusRef.current = null;
-        setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
-        setProgress(2);
-        startPolling();
-      }
+      toast.success(data.message || 'Order server deployed on the same IP');
       await loadStatus();
       await checkUpgrade();
     } catch (err: any) {
@@ -633,6 +627,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       setUpgrading(false);
     }
   }
+
 
 
 
@@ -1037,7 +1032,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                   size="sm"
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
                 >
-                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Deploying…</> : '🤖 Auto deploy latest (no commands)'}
+                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Deploying…</> : '🤖 Auto deploy (same IP)'}
                 </Button>
                 <Button
                   onClick={runUpgrade}
