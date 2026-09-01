@@ -328,7 +328,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       const r = await PinApi.reset(otp, pin, confirmPin);
       if (r.status === 200 && r.success !== false) {
         // PIN changed — force the user to sign in with the NEW pin.
-        sessionStorage.removeItem(UNLOCK_KEY);
+        clearAllUnlocks();
         setPin(''); setConfirmPin(''); setOtp(''); setError('');
         setInfo('PIN reset successful. Please enter your new PIN to continue.');
         setScreen('enter');
