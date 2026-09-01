@@ -1336,7 +1336,43 @@ async function placeKiteOrderViaStaticIP(
  * Broker-aware order placement.
  * Drop-in replacement for placeOrderViaStaticIP() — same arguments, same shape out.
  */
+/**
+ * Public entry point. Wraps the per-broker logic so IP-whitelist rejections
+ * (order left from the Supabase edge IP because the VPS proxy was unavailable)
+ * come back as one clear, actionable message instead of a raw broker error.
+ */
 export async function placeOrderSmart(
+  userId: string,
+  dhanCredentials: { dhanClientId: string; dhanAccessToken: string },
+  orderDetails: any,
+): Promise<any> {
+  try {
+    const res = await placeOrderSmartInner(userId, dhanCredentials, orderDetails);
+    const msg = String(res?.message || res?.raw?.message || "");
+    if (res && res.success === false && /whitelist/i.test(msg)) {
+      throw new Error(msg);
+    }
+    return res;
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    if (/whitelist/i.test(msg)) {
+      let ip = "your VPS IP";
+      try { ip = (await getUserOrderPlacementIP(userId))?.ipAddress || ip; } catch { /* ignore */ }
+      const err: any = new Error(
+        `VPS_ROUTING:Your broker rejected this order because it did not come from your static IP (${ip}). ` +
+        `Your VPS order server is running an old image that can only proxy Dhan. ` +
+        `Open Static IP / VPS → "Upgrade order server" (or POST /vps/upgrade) and run the upgrade, then retry. Broker said: ${msg}`,
+      );
+      err.code = "VPS_ROUTING";
+      err.vpsIP = ip;
+      throw err;
+    }
+    throw e;
+  }
+}
+
+async function placeOrderSmartInner(
+
   userId: string,
   dhanCredentials: { dhanClientId: string; dhanAccessToken: string },
   orderDetails: any,
