@@ -1032,13 +1032,23 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                   <RefreshCw className="w-3 h-3 mr-1" /> Check version
                 </Button>
                 <Button
+                  onClick={autoDeploy}
+                  disabled={upgrading}
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+                >
+                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Deploying…</> : '🤖 Auto deploy latest (no commands)'}
+                </Button>
+                <Button
                   onClick={runUpgrade}
                   disabled={upgrading}
                   size="sm"
-                  className="bg-amber-600 hover:bg-amber-500 text-white text-xs"
+                  variant="outline"
+                  className="border-amber-700 text-amber-200 hover:bg-amber-900/20 text-xs"
                 >
-                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Upgrading…</> : 'Upgrade order server'}
+                  Manual upgrade
                 </Button>
+
               </div>
               {upgradeInfo?.version && (
                 <p className="text-[10px] text-amber-200/70">
