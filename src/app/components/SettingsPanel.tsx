@@ -754,7 +754,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         />
       )}
 
-
+      <BrokerTestOrder serverUrl={serverUrl} accessToken={accessToken} />
 
 
       {activeBroker === 'dhan' && (
