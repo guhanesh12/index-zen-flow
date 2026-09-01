@@ -3196,6 +3196,7 @@ class PersistentTradingEngine {
           // FIX G: winning exit resets consecutive-loss streak.
           try {
             await kv.set(`loss_streak:${userId}:${position.index}`, 0);
+            await kv.set(`central:loss_streak:${position.index}`, 0);
           } catch (_e) {
             /* non-fatal */
           }
@@ -3206,6 +3207,7 @@ class PersistentTradingEngine {
           exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
           // FIX D: persist last SL hit so AdvancedAI applies the 2-bar revenge-trade cooldown.
           // FIX G: increment consecutive-loss streak for 30-min lockout after 3 in a row.
+          // Mirrored to central:* keys so the shared publisher applies the same cooldown.
           try {
             const slDir =
               position.action === "BUY_CALL" || /CE$/i.test(position.symbolName || "") ? "BUY_CALL" : "BUY_PUT";
@@ -3215,9 +3217,15 @@ class PersistentTradingEngine {
             const prevStreak = Number((await kv.get(`loss_streak:${userId}:${position.index}`)) || 0);
             await kv.set(`loss_streak:${userId}:${position.index}`, prevStreak + 1);
             await kv.set(`last_loss_ts:${userId}:${position.index}`, now);
+            await kv.set(`central:last_sl_ts:${position.index}`, now);
+            await kv.set(`central:last_sl_dir:${position.index}`, slDir);
+            const prevCentral = Number((await kv.get(`central:loss_streak:${position.index}`)) || 0);
+            await kv.set(`central:loss_streak:${position.index}`, prevCentral + 1);
+            await kv.set(`central:last_loss_ts:${position.index}`, now);
           } catch (_e) {
             /* non-fatal */
           }
+
         }
 
         // Profit-lock stop: only valid AFTER trailing actually activated (never on a fresh 0 SL).
@@ -4051,18 +4059,53 @@ class PersistentTradingEngine {
             );
             const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
 
+            // 1h context (same as the pre-central per-user path used)
+            let hourly: any[] = [];
+            try {
+              const h = (await getCentralOHLC(idx.securityId, "60", 40, null)).candles || [];
+              const hourMs = 60 * 60 * 1000;
+              hourly = h.filter((c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / hourMs) * hourMs);
+            } catch (_e) {
+              hourly = [];
+            }
+
+            // 🛡️ ANTI-WHIPSAW STATE (restored): the pre-central path fed the strategy
+            // last-signal / stop-loss cooldown / loss-streak context. Without it the
+            // publisher happily emitted CE then PE on the next candle.
+            const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${idx.name}`)) || 0;
+            const lastSignalDirection = (await kv.get(`central:last_signal_dir:${idx.name}`)) || "WAIT";
+            const lastStopLossTimestamp = (await kv.get(`central:last_sl_ts:${idx.name}`)) || 0;
+            const lastStopLossDirection = (await kv.get(`central:last_sl_dir:${idx.name}`)) || null;
+            const consecutiveLossCount = Number((await kv.get(`central:loss_streak:${idx.name}`)) || 0);
+            const lastLossTimestamp = Number((await kv.get(`central:last_loss_ts:${idx.name}`)) || 0);
+
             const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
               higherTimeframeData: htf,
+              hourlyTimeframeData: hourly,
               timeframeMinutes: tf,
+              lastSignalTimestamp,
+              lastSignalDirection,
+              lastStopLossTimestamp,
+              lastStopLossDirection,
+              stopLossCooldownBars: 2,
+              consecutiveLossCount,
+              lastLossTimestamp,
+              consecutiveLossThreshold: 3,
+              consecutiveLossCooldownMs: 30 * 60 * 1000,
               minimumBarsBetweenSignals: 1,
               blockNewEntriesAfterMinutes: 15 * 60 + 15,
             });
             (sig as any).timestamp = lastClosedMs || Date.now();
             (sig as any).barCloseAt = new Date(formingStartMs).toISOString();
             (sig as any).signalSource = "CENTRAL_DATA";
+            if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
+              await kv.set(`central:last_signal_ts:${idx.name}`, lastClosedMs || Date.now());
+              await kv.set(`central:last_signal_dir:${idx.name}`, sig.action);
+            }
             await saveCentralSignal(idx.name, tf, stamp, sig);
             published++;
             console.log(`🛰️ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} → ${sig.action} (${sig.confidence}%)`);
+
           } catch (e: any) {
             console.error(`❌ [CENTRAL-PUB] ${idx.name} ${tf}m: ${e?.message || e}`);
           }

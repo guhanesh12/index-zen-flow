@@ -7647,6 +7647,8 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
                 out[idx][`${tf}m`] = null;
                 return;
               }
+              // READ-ONLY preview: the admin panel must never publish a signal that
+              // engines will trade — it lacks the anti-whipsaw state the publisher uses.
               const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
                 higherTimeframeData: htf,
                 timeframeMinutes: tf,
@@ -7654,8 +7656,8 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
               const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
               const bucket = Math.floor(istNow.getUTCMinutes() / tf) * tf;
               const stamp = `${String(istNow.getUTCHours()).padStart(2, '0')}:${String(bucket).padStart(2, '0')}`;
-              await CentralMarketData.saveCentralSignal(idx, tf, stamp, sig).catch(() => {});
               out[idx][`${tf}m`] = shapeCentralSignal(sig, stamp, Date.now(), true);
+
               out[idx][`${tf}m`].lastBarAt = new Date(lastMs).toISOString();
 
             } catch (e: any) {
