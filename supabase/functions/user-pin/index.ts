@@ -203,7 +203,16 @@ Deno.serve(async (req) => {
       const otp = String(Math.floor(100000 + Math.random() * 900000));
       const otp_hash = await sha256(otp);
       const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      await admin.from("pin_reset_otps").insert({ user_id: user.id, mobile: mobile || email, otp_hash, expires_at });
+      const { error: otpInsertError } = await admin.from("pin_reset_otps").insert({
+        user_id: user.id,
+        mobile: mobile || email,
+        otp_hash,
+        expires_at,
+      });
+      if (otpInsertError) {
+        console.error("[user-pin] could not save reset OTP", otpInsertError.message);
+        return json(500, { success: false, message: "Could not start PIN reset. Please try again." });
+      }
 
       const sms = hasMobile ? await sendOtpVia2Factor(mobile, otp) : { ok: false, error: "no_mobile" };
       let mail: any = { ok: false };
@@ -244,14 +253,18 @@ Deno.serve(async (req) => {
         await admin.from("pin_reset_otps").update({ attempts: (row.attempts || 0) + 1 }).eq("id", row.id);
         return json(200, { success: false, message: "Incorrect OTP" });
       }
-      await admin.from("pin_reset_otps").update({ verified: true }).eq("id", row.id);
-
       const salt = randomSalt();
       const pin_hash = await sha256(`${salt}:${pin}`);
-      await admin.from("user_pins").upsert({
+      const { error: pinError } = await admin.from("user_pins").upsert({
         user_id: user.id, pin_hash, pin_salt: salt,
         failed_attempts: 0, locked_until: null, updated_at: new Date().toISOString(),
       });
+      if (pinError) {
+        console.error("[user-pin] could not save reset PIN", pinError.message);
+        return json(500, { success: false, message: "Could not save your new PIN. Please try again." });
+      }
+      const { error: verifyError } = await admin.from("pin_reset_otps").update({ verified: true }).eq("id", row.id);
+      if (verifyError) console.error("[user-pin] could not mark OTP verified", verifyError.message);
       return json(200, { success: true, message: "PIN reset successful" });
     }
 
