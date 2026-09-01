@@ -227,8 +227,8 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       else if (r.status === 404) setScreen('create');
       else {
         setError(r.message || 'Incorrect PIN');
-        setError(r.message || 'Incorrect PIN');
         setPin('');
+
       }
     } catch (e: any) { if (!(await handleSessionLost(e))) setError(e.message); } finally { setBusy(false); }
   };
