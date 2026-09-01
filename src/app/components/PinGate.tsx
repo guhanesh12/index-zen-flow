@@ -179,20 +179,29 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
 
 
   const refreshStatus = useCallback(async () => {
-    try {
+    const load = async () => {
       const r = await PinApi.status();
       if (r.status !== 200) { setScreen('ok'); return; } // never hard-block on API failure
       if (!r.hasPin) { setScreen('create'); return; }
       // Ask for the PIN once per app load / login.
       if (sessionStorage.getItem(UNLOCK_KEY)) { setScreen('ok'); return; }
       setScreen('enter');
+    };
+    try {
+      await load();
     } catch (e: any) {
-      if (String(e?.message || e) === 'SESSION_LOST') { await handleSessionLost(e); setScreen('enter'); return; }
+      if (String(e?.message || e) === 'SESSION_LOST') {
+        // Refresh the token and retry once instead of guessing the screen.
+        try { await supabase.auth.refreshSession(); await load(); return; } catch {}
+        setScreen('enter');
+        return;
+      }
       setScreen('ok');
     }
-  }, [handleSessionLost]);
+  }, []);
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
+
 
   // Keep the Supabase session alive while the PIN screen is open, so the
   // token can't silently expire between login and PIN verification.
@@ -237,12 +246,17 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   const doForgot = async () => {
     setError(''); setInfo(''); setBusy(true);
     try {
+      // Make sure the token is fresh before asking for an OTP — this endpoint
+      // used to fail with a raw SESSION_LOST error.
+      try { await supabase.auth.refreshSession(); } catch {}
       const r = await PinApi.forgot();
       if (r.status === 200) {
         setInfo(`${r.message}${r.mobile ? ` (${r.mobile})` : ''}${r.email ? ` (${r.email})` : ''}`);
         setScreen('reset'); setPin(''); setConfirmPin(''); setOtp('');
       } else setError(r.message || 'Could not send OTP');
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) {
+      if (!(await handleSessionLost(e))) setError(e?.message || 'Could not send OTP');
+    } finally { setBusy(false); }
   };
 
   const doReset = async () => {
@@ -256,8 +270,11 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
         setInfo('PIN reset successful. Please enter your new PIN to continue.');
         setScreen('enter');
       } else setError(r.message || 'Reset failed');
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) {
+      if (!(await handleSessionLost(e))) setError(e?.message || 'Reset failed');
+    } finally { setBusy(false); }
   };
+
 
 
   const Err = () => error ? <p className="mt-3 text-center text-sm text-red-400">{error}</p> : null;
@@ -303,6 +320,21 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
           <button onClick={() => { reset(); setScreen('forgot'); }} className="text-cyan-400 hover:underline">Forgot PIN?</button>
           {onLogout && <button onClick={onLogout} className="text-slate-400 hover:text-white">Use another account</button>}
         </div>
+        <button
+          onClick={async () => {
+            reset(); setBusy(true);
+            try {
+              const r = await PinApi.status();
+              if (r.status === 200 && !r.hasPin) setScreen('create');
+              else setError('A PIN already exists. Use “Forgot PIN?” to reset it.');
+            } catch { setError('Could not check PIN status. Please try again.'); }
+            finally { setBusy(false); }
+          }}
+          className="mt-3 w-full text-xs text-slate-400 hover:text-cyan-400"
+        >
+          No PIN set? Create a new PIN
+        </button>
+
       </Shell>
     );
   }
