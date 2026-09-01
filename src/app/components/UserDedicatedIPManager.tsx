@@ -1032,7 +1032,7 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                   size="sm"
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
                 >
-                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Deploying…</> : '🤖 Auto deploy latest (no commands)'}
+                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Deploying…</> : '🤖 Auto deploy (same IP)'}
                 </Button>
                 <Button
                   onClick={runUpgrade}
