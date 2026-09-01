@@ -181,27 +181,10 @@ Deno.serve(async (req) => {
       if (!isValidPin(pin)) return json(400, { success: false, message: "PIN must be 4 digits" });
       const { data: row } = await admin.from("user_pins").select("*").eq("user_id", user.id).maybeSingle();
       if (!row) return json(404, { success: false, message: "No PIN set", hasPin: false });
-      // Short cooldown model: any wrong PIN => 30s lock. Cap legacy long locks at 30s.
-      const LOCK_MS = 30 * 1000;
-      if (row.locked_until) {
-        const until = new Date(row.locked_until).getTime();
-        const capped = Math.min(until, Date.now() + LOCK_MS);
-        if (capped > Date.now()) {
-          return json(200, {
-            success: false,
-            message: "Too many attempts. Try again in a few seconds.",
-            lockedUntil: new Date(capped).toISOString(),
-          });
-        }
-      }
+      // No lockout / cooldown: wrong PIN simply fails, user can retry immediately.
       const check = await sha256(`${row.pin_salt}:${pin}`);
       if (check !== row.pin_hash) {
-        const lock = new Date(Date.now() + LOCK_MS).toISOString();
-        await admin.from("user_pins").update({
-          failed_attempts: 0,
-          locked_until: lock,
-        }).eq("user_id", user.id);
-        return json(200, { success: false, message: "Incorrect PIN", attemptsLeft: null, lockedUntil: lock });
+        return json(200, { success: false, message: "Incorrect PIN", attemptsLeft: null, lockedUntil: null });
       }
       await admin.from("user_pins").update({ failed_attempts: 0, locked_until: null, last_used_at: new Date().toISOString() }).eq("user_id", user.id);
       return json(200, { success: true, message: "PIN verified" });
