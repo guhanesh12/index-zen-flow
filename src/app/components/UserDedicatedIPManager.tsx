@@ -558,6 +558,52 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     }
   }
 
+  async function checkUpgrade() {
+    setUpgrading(true);
+    try {
+      const res = await fetch(`${serverUrl}/vps/upgrade-status`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Could not read VPS version');
+      setUpgradeInfo(data);
+      toast[data.multiBrokerReady ? 'success' : 'warning'](
+        data.multiBrokerReady ? 'All brokers already route via your static IP' : 'Upgrade needed for non-Dhan brokers',
+      );
+    } catch (err: any) {
+      toast.error(err.message || 'Version check failed');
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+  async function runUpgrade() {
+    setUpgrading(true);
+    setUpgradeCommand(null);
+    try {
+      const res = await fetch(`${serverUrl}/vps/upgrade`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        toast.success(data.message || 'VPS upgraded — all brokers now route via your static IP');
+        await checkUpgrade();
+        return;
+      }
+      if (data?.needsManualRun && data?.command) {
+        setUpgradeCommand(data.command);
+        toast.warning('Run the one-line command shown below in your DigitalOcean console');
+        return;
+      }
+      throw new Error(data?.error || data?.reason || 'Upgrade failed');
+    } catch (err: any) {
+      toast.error(err.message || 'Upgrade failed');
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+
+
 
   async function copyIP(ip: string) {
     try {
