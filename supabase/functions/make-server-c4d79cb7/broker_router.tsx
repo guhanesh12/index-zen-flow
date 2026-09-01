@@ -79,6 +79,89 @@ const supabaseAdmin = createClient(
 export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone" | "aliceblue" | "5paisa";
 const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue", "5paisa"];
 
+// ─────────────── universal instrument resolution (all brokers) ───────────────
+
+const KNOWN_INDICES = ["MIDCPNIFTY", "FINNIFTY", "BANKNIFTY", "BANKEX", "SENSEX", "NIFTY"];
+
+/**
+ * Parse any contract label we may receive ("NIFTY-Feb2026-25400-CE",
+ * "NIFTY-SEP2026-25400-CE", "BANKNIFTY 54000 PE", …) into its parts so a stale
+ * or broker-specific label can still be matched against the live master.
+ */
+export function parseContractLabel(text: string): { index: string; strike: number; optionType: "CE" | "PE" } | null {
+  const t = String(text || "").toUpperCase().replace(/\s+/g, "");
+  if (!t) return null;
+  const index = KNOWN_INDICES.find((i) => t.includes(i));
+  if (!index) return null;
+  const optionType = /(^|[^A-Z])(PE|PUT)([^A-Z]|$)/.test(t) || /PE$/.test(t)
+    ? "PE"
+    : (/(^|[^A-Z])(CE|CALL)([^A-Z]|$)/.test(t) || /CE$/.test(t) ? "CE" : null);
+  if (!optionType) return null;
+  // strike = the largest standalone 3-6 digit group that is not a year
+  const groups = (t.match(/\d{3,6}/g) || [])
+    .map((n) => Number(n))
+    .filter((n) => n >= 100 && !(n >= 2000 && n <= 2100));
+  if (!groups.length) return null;
+  const strike = groups.sort((a, b) => b - a)[0];
+  return { index, strike, optionType };
+}
+
+/**
+ * Find the instrument_master row for an order, whatever the caller supplied.
+ *   1. exact security_id (Dhan id used by the engine)
+ *   2. exact symbol / broker-native trading symbol
+ *   3. re-map: same index + strike + option type on the nearest LIVE expiry
+ *      (this rescues stale saved slots such as an expired Feb contract)
+ * Always returns the full row so callers can also pick up the fresh security_id.
+ */
+export async function findInstrumentRow(order: any, extraCols = ""): Promise<any | null> {
+  const base =
+    "security_id, symbol, index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment";
+  const COLS = Array.from(
+    new Set(`${base}${extraCols ? "," + extraCols : ""}`.split(",").map((c) => c.trim()).filter(Boolean)),
+  ).join(", ");
+  const securityId = String(order?.securityId || "").trim();
+  const symbolText = String(order?.symbol || order?.symbolName || order?.tradingSymbol || "").trim();
+
+  if (securityId && /^\d+$/.test(securityId)) {
+    const { data } = await supabaseAdmin
+      .from("instrument_master").select(COLS).eq("security_id", securityId).maybeSingle();
+    if (data) return data;
+  }
+
+  if (symbolText) {
+    const { data } = await supabaseAdmin
+      .from("instrument_master").select(COLS).eq("symbol", symbolText).maybeSingle();
+    if (data) return data;
+    const { data: up } = await supabaseAdmin
+      .from("instrument_master").select(COLS).eq("symbol", symbolText.toUpperCase()).maybeSingle();
+    if (up) return up;
+  }
+
+  // 3) contract re-map onto the nearest live expiry
+  const parsed = parseContractLabel(symbolText) || parseContractLabel(String(order?.index || ""));
+  if (!parsed) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: remap } = await supabaseAdmin
+    .from("instrument_master")
+    .select(COLS)
+    .eq("index_name", parsed.index)
+    .eq("option_type", parsed.optionType)
+    .eq("strike_price", parsed.strike)
+    .gte("expiry_date", today)
+    .order("expiry_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (remap) {
+    console.log(
+      `[INSTRUMENT] re-mapped "${symbolText || securityId}" → ${(remap as any).symbol} (${(remap as any).security_id})`,
+    );
+    return remap;
+  }
+  return null;
+}
+
+
 
 export interface KiteStoredCreds {
   apiKey: string;
@@ -319,6 +402,35 @@ export async function mirrorAngelOneStatus(userId: string, patch: Record<string,
   }
 }
 
+/**
+ * Last-resort mapping: take a sibling contract of the SAME index + expiry that
+ * already carries the broker's native symbol and swap the strike/option type.
+ * Works for symbol-based brokers (Fyers, Zerodha, Groww) whose masters follow a
+ * strict pattern, so an order still goes out when one strike is missing.
+ */
+export async function deriveBrokerSymbolFromSibling(row: any, col: string): Promise<string | null> {
+  try {
+    if (!row?.index_name || !row?.expiry_date || row?.strike_price == null || !row?.option_type) return null;
+    const { data } = await supabaseAdmin
+      .from("instrument_master")
+      .select(`${col}, strike_price, option_type`)
+      .eq("index_name", row.index_name)
+      .eq("expiry_date", row.expiry_date)
+      .not(col, "is", null)
+      .limit(1)
+      .maybeSingle();
+    const sample = data?.[col] ? String(data[col]) : "";
+    if (!sample) return null;
+    const needle = `${Number(data!.strike_price)}${String(data!.option_type).toUpperCase()}`;
+    if (!sample.toUpperCase().includes(needle)) return null;
+    const derived = sample.toUpperCase().replace(needle, `${Number(row.strike_price)}${String(row.option_type).toUpperCase()}`);
+    console.log(`[INSTRUMENT] derived ${col} ${derived} from sibling ${sample}`);
+    return derived;
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve a Dhan-style order into an Angel One trading symbol + symbol token. */
 export async function resolveAngelOneSymbol(order: any): Promise<{
   tradingSymbol: string;
@@ -329,28 +441,9 @@ export async function resolveAngelOneSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, angelone_tradingsymbol, angelone_symbol_token, angelone_exchange";
+    "angelone_tradingsymbol, angelone_symbol_token, angelone_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},angelone_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.angelone_symbol_token) {
@@ -503,28 +596,9 @@ export async function resolveAliceblueSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, aliceblue_tradingsymbol, aliceblue_token, aliceblue_exchange";
+    "aliceblue_tradingsymbol, aliceblue_token, aliceblue_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},aliceblue_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.aliceblue_token) {
@@ -646,28 +720,9 @@ export async function resolveFivepaisaSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, fivepaisa_scrip_code, fivepaisa_scrip_data, fivepaisa_exchange";
+    "fivepaisa_scrip_code, fivepaisa_scrip_data, fivepaisa_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},fivepaisa_scrip_data.eq.${symbolText}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.fivepaisa_scrip_code) {
@@ -769,34 +824,27 @@ export async function resolveFyersSymbol(order: any): Promise<{
 } | null> {
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
-  const COLS = "lot_size, exchange_segment, fyers_symbol, fyers_tradingsymbol";
+  const COLS =
+    "fyers_symbol, fyers_tradingsymbol";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},fyers_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.fyers_symbol) {
     await ensureFyersInstruments(!!inst);
     const retry = await lookup();
     if (retry?.fyers_symbol) inst = retry;
+  }
+
+  if (inst && !inst.fyers_symbol) {
+    const derived = await deriveBrokerSymbolFromSibling(inst, "fyers_symbol");
+    if (derived) {
+      return {
+        fyersSymbol: derived,
+        tradingSymbol: derived.split(":").pop() || derived,
+        lotSize: Number(inst.lot_size || order?.lotSize || 0),
+      };
+    }
   }
 
   if (!inst?.fyers_symbol) {
@@ -887,28 +935,10 @@ export async function resolveUpstoxSymbol(order: any): Promise<{
 } | null> {
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
-  const COLS = "lot_size, exchange_segment, upstox_instrument_key, upstox_tradingsymbol";
+  const COLS =
+    "upstox_instrument_key, upstox_tradingsymbol";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},upstox_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.upstox_instrument_key) {
@@ -1055,34 +1085,28 @@ export async function resolveGrowwSymbol(order: any): Promise<{
   const securityId = String(order?.securityId || "");
   const symbolText = String(order?.symbol || order?.tradingSymbol || "").trim();
   const COLS =
-    "lot_size, exchange_segment, groww_trading_symbol, groww_exchange, groww_segment";
+    "groww_trading_symbol, groww_exchange, groww_segment";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},groww_trading_symbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
   if (!inst?.groww_trading_symbol) {
     await ensureGrowwInstruments(!!inst);
     const retry = await lookup();
     if (retry?.groww_trading_symbol) inst = retry;
+  }
+
+  if (inst && !inst.groww_trading_symbol) {
+    const derived = await deriveBrokerSymbolFromSibling(inst, "groww_trading_symbol");
+    if (derived) {
+      const g = growwExchangeFromSegment(inst.exchange_segment || order?.exchangeSegment);
+      return {
+        tradingSymbol: derived,
+        exchange: g.exchange,
+        segment: g.segment,
+        lotSize: Number(inst.lot_size || order?.lotSize || 0),
+      };
+    }
   }
 
   if (!inst?.groww_trading_symbol) {
@@ -1176,27 +1200,7 @@ export async function resolveKiteSymbol(order: any): Promise<{
   const COLS =
     "index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment, kite_tradingsymbol, kite_exchange";
 
-  const lookup = async (): Promise<any> => {
-    let inst: any = null;
-    if (securityId) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .eq("security_id", securityId)
-        .maybeSingle();
-      inst = data;
-    }
-    // Exits of Kite-native positions carry a tradingsymbol/symbol instead of a Dhan id.
-    if (!inst && symbolText) {
-      const { data } = await supabaseAdmin
-        .from("instrument_master")
-        .select(COLS)
-        .or(`symbol.eq.${symbolText},kite_tradingsymbol.eq.${symbolText.toUpperCase()}`)
-        .maybeSingle();
-      inst = data;
-    }
-    return inst;
-  };
+  const lookup = (): Promise<any> => findInstrumentRow(order, COLS);
 
   let inst = await lookup();
 
@@ -1371,13 +1375,42 @@ export async function placeOrderSmart(
   }
 }
 
+/**
+ * Make sure the contract we are about to trade exists in the live master.
+ * A stale saved slot (expired contract) is transparently re-mapped to the same
+ * strike/option type on the nearest live expiry, and the Dhan security id +
+ * symbol are refreshed so EVERY broker (including Dhan) receives a valid order.
+ */
+export async function normalizeOrderContract(order: any): Promise<any> {
+  try {
+    const row = await findInstrumentRow(order);
+    if (!row?.security_id) return order;
+    const changed = String(row.security_id) !== String(order?.securityId || "");
+    if (changed) {
+      console.log(`[ORDER] contract re-mapped → ${row.symbol} (${row.security_id})`);
+    }
+    return {
+      ...order,
+      securityId: String(row.security_id),
+      symbol: row.symbol,
+      symbolName: row.symbol,
+      tradingSymbol: row.symbol,
+      exchangeSegment: order?.exchangeSegment || row.exchange_segment,
+      lotSize: Number(order?.lotSize || row.lot_size || 0),
+    };
+  } catch {
+    return order;
+  }
+}
+
 async function placeOrderSmartInner(
 
   userId: string,
   dhanCredentials: { dhanClientId: string; dhanAccessToken: string },
-  orderDetails: any,
+  orderDetailsRaw: any,
 ): Promise<any> {
   const broker = await getActiveBroker(userId);
+  const orderDetails = await normalizeOrderContract(orderDetailsRaw);
 
   // 🟡 5PAISA
   if (broker === "5paisa") {
