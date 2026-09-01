@@ -19,7 +19,18 @@ import { SessionManager } from '@/utils-ext/security/SecurityHardening';
 import { Loader2, Lock, ShieldCheck, KeyRound, ArrowLeft } from 'lucide-react';
 
 const BASE = 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin';
-const UNLOCK_KEY = 'ip_pin_unlocked_at';
+const UNLOCK_PREFIX = 'ip_pin_unlocked_at';
+
+/** Unlock flag is per-user: switching accounts must always re-ask for the PIN. */
+const unlockKeyFor = (uid?: string | null) => `${UNLOCK_PREFIX}:${uid || 'anon'}`;
+
+const clearAllUnlocks = () => {
+  try {
+    for (const k of Object.keys(sessionStorage)) {
+      if (k === UNLOCK_PREFIX || k.startsWith(`${UNLOCK_PREFIX}:`)) sessionStorage.removeItem(k);
+    }
+  } catch { /* ignore */ }
+};
 
 
 async function getFreshToken(forceRefresh = false): Promise<string | null> {
