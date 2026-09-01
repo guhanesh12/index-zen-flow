@@ -78,6 +78,37 @@ export function BrokerTestOrder({ serverUrl, accessToken }: BrokerTestOrderProps
     }
   }
 
+  async function runSignalFlow(placeReal: boolean) {
+    if (
+      placeReal &&
+      !confirm(
+        "Place a REAL order using your auto slot (same path a live signal uses)?\n\nThis uses real money. Square it off in your broker app afterwards.",
+      )
+    )
+      return;
+    setBusy(true);
+    setResult(null);
+    setSlotResults([]);
+    try {
+      const res = await fetch(`${serverUrl}/broker/test-order/signal-flow`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ placeReal }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setResult(data);
+      setSlotResults(Array.isArray(data?.slots) ? data.slots : []);
+      if (data?.success) toast.success(data.message || "Auto signal flow OK");
+      else toast.error(data.message || data.error || "Auto signal flow check failed");
+    } catch (err: any) {
+      toast.error(err.message || "Auto signal flow check failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
+
   return (
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader className="pb-3">
