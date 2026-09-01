@@ -606,6 +606,36 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     }
   }
 
+  // 🤖 Fully automatic: in-place update, or destroy + rebuild with the latest image.
+  async function autoDeploy() {
+    if (!confirm('Automatically deploy the latest order server?\n\n• If your VPS supports live updates it happens in seconds.\n• If the image is too old, the VPS is destroyed and rebuilt automatically (~5-8 min) and you will get a NEW IP to whitelist.\n\nYour subscription expiry is preserved.')) return;
+    setUpgrading(true);
+    setUpgradeCommand(null);
+    try {
+      const res = await fetch(`${serverUrl}/vps/auto-deploy`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!data?.success) throw new Error(data?.error || 'Automatic deployment failed');
+      toast.success(data.message || 'VPS deployment complete');
+      if (data.provisioning) {
+        prevStatusRef.current = null;
+        setVps({ status: 'creating', startedAt: new Date().toISOString(), estimatedMinutes: data.estimatedMinutes || 8 });
+        setProgress(2);
+        startPolling();
+      }
+      await loadStatus();
+      await checkUpgrade();
+    } catch (err: any) {
+      toast.error(err.message || 'Automatic deployment failed');
+    } finally {
+      setUpgrading(false);
+    }
+  }
+
+
+
 
 
 
@@ -1002,13 +1032,23 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
                   <RefreshCw className="w-3 h-3 mr-1" /> Check version
                 </Button>
                 <Button
+                  onClick={autoDeploy}
+                  disabled={upgrading}
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+                >
+                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Deploying…</> : '🤖 Auto deploy latest (no commands)'}
+                </Button>
+                <Button
                   onClick={runUpgrade}
                   disabled={upgrading}
                   size="sm"
-                  className="bg-amber-600 hover:bg-amber-500 text-white text-xs"
+                  variant="outline"
+                  className="border-amber-700 text-amber-200 hover:bg-amber-900/20 text-xs"
                 >
-                  {upgrading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Upgrading…</> : 'Upgrade order server'}
+                  Manual upgrade
                 </Button>
+
               </div>
               {upgradeInfo?.version && (
                 <p className="text-[10px] text-amber-200/70">

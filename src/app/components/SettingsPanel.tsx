@@ -13,6 +13,8 @@ import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
 import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
+import { BrokerTestOrder } from "./BrokerTestOrder";
+
 import { ZerodhaConnect } from "./ZerodhaConnect";
 import { GrowwConnect } from "./GrowwConnect";
 import { UpstoxConnect } from "./UpstoxConnect";
@@ -754,7 +756,7 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
         />
       )}
 
-
+      <BrokerTestOrder serverUrl={serverUrl} accessToken={accessToken} />
 
 
       {activeBroker === 'dhan' && (
