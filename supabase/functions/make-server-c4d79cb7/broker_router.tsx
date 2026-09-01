@@ -79,6 +79,87 @@ const supabaseAdmin = createClient(
 export type BrokerId = "dhan" | "zerodha" | "groww" | "upstox" | "fyers" | "angelone" | "aliceblue" | "5paisa";
 const KNOWN_BROKERS: BrokerId[] = ["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue", "5paisa"];
 
+// ─────────────── universal instrument resolution (all brokers) ───────────────
+
+const KNOWN_INDICES = ["MIDCPNIFTY", "FINNIFTY", "BANKNIFTY", "BANKEX", "SENSEX", "NIFTY"];
+
+/**
+ * Parse any contract label we may receive ("NIFTY-Feb2026-25400-CE",
+ * "NIFTY-SEP2026-25400-CE", "BANKNIFTY 54000 PE", …) into its parts so a stale
+ * or broker-specific label can still be matched against the live master.
+ */
+export function parseContractLabel(text: string): { index: string; strike: number; optionType: "CE" | "PE" } | null {
+  const t = String(text || "").toUpperCase().replace(/\s+/g, "");
+  if (!t) return null;
+  const index = KNOWN_INDICES.find((i) => t.includes(i));
+  if (!index) return null;
+  const optionType = /(^|[^A-Z])(PE|PUT)([^A-Z]|$)/.test(t) || /PE$/.test(t)
+    ? "PE"
+    : (/(^|[^A-Z])(CE|CALL)([^A-Z]|$)/.test(t) || /CE$/.test(t) ? "CE" : null);
+  if (!optionType) return null;
+  // strike = the largest standalone 3-6 digit group that is not a year
+  const groups = (t.match(/\d{3,6}/g) || [])
+    .map((n) => Number(n))
+    .filter((n) => n >= 100 && !(n >= 2000 && n <= 2100));
+  if (!groups.length) return null;
+  const strike = groups.sort((a, b) => b - a)[0];
+  return { index, strike, optionType };
+}
+
+/**
+ * Find the instrument_master row for an order, whatever the caller supplied.
+ *   1. exact security_id (Dhan id used by the engine)
+ *   2. exact symbol / broker-native trading symbol
+ *   3. re-map: same index + strike + option type on the nearest LIVE expiry
+ *      (this rescues stale saved slots such as an expired Feb contract)
+ * Always returns the full row so callers can also pick up the fresh security_id.
+ */
+export async function findInstrumentRow(order: any, extraCols = ""): Promise<any | null> {
+  const base =
+    "security_id, symbol, index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment";
+  const COLS = extraCols ? `${base}, ${extraCols}` : base;
+  const securityId = String(order?.securityId || "").trim();
+  const symbolText = String(order?.symbol || order?.symbolName || order?.tradingSymbol || "").trim();
+
+  if (securityId && /^\d+$/.test(securityId)) {
+    const { data } = await supabaseAdmin
+      .from("instrument_master").select(COLS).eq("security_id", securityId).maybeSingle();
+    if (data) return data;
+  }
+
+  if (symbolText) {
+    const { data } = await supabaseAdmin
+      .from("instrument_master").select(COLS).eq("symbol", symbolText).maybeSingle();
+    if (data) return data;
+    const { data: up } = await supabaseAdmin
+      .from("instrument_master").select(COLS).eq("symbol", symbolText.toUpperCase()).maybeSingle();
+    if (up) return up;
+  }
+
+  // 3) contract re-map onto the nearest live expiry
+  const parsed = parseContractLabel(symbolText) || parseContractLabel(String(order?.index || ""));
+  if (!parsed) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: remap } = await supabaseAdmin
+    .from("instrument_master")
+    .select(COLS)
+    .eq("index_name", parsed.index)
+    .eq("option_type", parsed.optionType)
+    .eq("strike_price", parsed.strike)
+    .gte("expiry_date", today)
+    .order("expiry_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (remap) {
+    console.log(
+      `[INSTRUMENT] re-mapped "${symbolText || securityId}" → ${(remap as any).symbol} (${(remap as any).security_id})`,
+    );
+    return remap;
+  }
+  return null;
+}
+
+
 
 export interface KiteStoredCreds {
   apiKey: string;
