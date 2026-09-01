@@ -13,6 +13,8 @@ import { BrokerRequest } from "./BrokerRequest";
 import { StaticIPManager } from "./StaticIPManager";
 import { UserDedicatedIPManager } from "./UserDedicatedIPManager";
 import { BrokerOAuthConnect } from "./BrokerOAuthConnect";
+import { BrokerTestOrder } from "./BrokerTestOrder";
+
 import { ZerodhaConnect } from "./ZerodhaConnect";
 import { GrowwConnect } from "./GrowwConnect";
 import { UpstoxConnect } from "./UpstoxConnect";
