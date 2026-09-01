@@ -3196,6 +3196,7 @@ class PersistentTradingEngine {
           // FIX G: winning exit resets consecutive-loss streak.
           try {
             await kv.set(`loss_streak:${userId}:${position.index}`, 0);
+            await kv.set(`central:loss_streak:${position.index}`, 0);
           } catch (_e) {
             /* non-fatal */
           }
@@ -3206,6 +3207,7 @@ class PersistentTradingEngine {
           exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
           // FIX D: persist last SL hit so AdvancedAI applies the 2-bar revenge-trade cooldown.
           // FIX G: increment consecutive-loss streak for 30-min lockout after 3 in a row.
+          // Mirrored to central:* keys so the shared publisher applies the same cooldown.
           try {
             const slDir =
               position.action === "BUY_CALL" || /CE$/i.test(position.symbolName || "") ? "BUY_CALL" : "BUY_PUT";
@@ -3215,9 +3217,15 @@ class PersistentTradingEngine {
             const prevStreak = Number((await kv.get(`loss_streak:${userId}:${position.index}`)) || 0);
             await kv.set(`loss_streak:${userId}:${position.index}`, prevStreak + 1);
             await kv.set(`last_loss_ts:${userId}:${position.index}`, now);
+            await kv.set(`central:last_sl_ts:${position.index}`, now);
+            await kv.set(`central:last_sl_dir:${position.index}`, slDir);
+            const prevCentral = Number((await kv.get(`central:loss_streak:${position.index}`)) || 0);
+            await kv.set(`central:loss_streak:${position.index}`, prevCentral + 1);
+            await kv.set(`central:last_loss_ts:${position.index}`, now);
           } catch (_e) {
             /* non-fatal */
           }
+
         }
 
         // Profit-lock stop: only valid AFTER trailing actually activated (never on a fresh 0 SL).
