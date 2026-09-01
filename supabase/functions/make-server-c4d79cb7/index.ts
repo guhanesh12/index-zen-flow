@@ -6811,6 +6811,314 @@ app.get("/make-server-c4d79cb7/vps/upgrade-script/:token", async (c) => {
   return c.text(VPSProvisioning.generateUpgradeScript(), 200, { "Content-Type": "text/x-shellscript" });
 });
 
+// ==================== 🤖 FULLY AUTOMATIC VPS DEPLOY ====================
+// No console, no copy-paste command. Tries an in-place push first; if the image
+// is too old to accept it, the droplet is destroyed and re-created automatically
+// with the latest multi-broker order server.
+
+async function vpsHealthInfo(ip: string): Promise<{ version: string; multiBrokerReady: boolean; reachable: boolean }> {
+  let version = "unknown";
+  let reachable = false;
+  let multiBrokerReady = false;
+  try {
+    const h = await fetch(`http://${ip}:3000/health`, { signal: AbortSignal.timeout(4000) });
+    if (h.ok) {
+      reachable = true;
+      version = String((await h.json())?.version || "unknown");
+    }
+  } catch { /* unreachable */ }
+  try {
+    const probe = await fetch(`http://${ip}:3000/broker-request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(4000),
+    });
+    multiBrokerReady = probe.status !== 404;
+  } catch { /* unreachable */ }
+  return { version, multiBrokerReady, reachable };
+}
+
+/** Destroy this user's droplet(s) and start a fresh provisioning job (expiry preserved). */
+async function autoRecreateVpsForUser(userId: string): Promise<any> {
+  const ipsToPurge = new Set<string>();
+  const assignment = await IPPoolManager.getUserIPAssignment(userId);
+  if (assignment?.ipAddress) ipsToPurge.add(assignment.ipAddress);
+  const existingJob = await VPSProvisioning.getUserProvisioningJob(userId);
+  if (existingJob?.ipAddress) ipsToPurge.add(existingJob.ipAddress);
+
+  const preservedExpiresAt =
+    assignment?.expiresAt && new Date(assignment.expiresAt) > new Date()
+      ? assignment.expiresAt
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const DO_API_TOKEN = Deno.env.get("DIGITALOCEAN_API_TOKEN");
+
+  for (const ip of ipsToPurge) {
+    const ipEntry = (await kv.get(`ip_pool:${ip}`)) as any;
+    const dropletId = ipEntry?.metadata?.dropletId || existingJob?.dropletId;
+    if (DO_API_TOKEN && dropletId) {
+      try {
+        await fetch(`https://api.digitalocean.com/v2/droplets/${dropletId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
+        });
+      } catch (e) {
+        console.warn("⚠️ auto-deploy: droplet delete failed", (e as any)?.message);
+      }
+    }
+  }
+
+  if (DO_API_TOKEN) {
+    try {
+      const tagResp = await fetch(`https://api.digitalocean.com/v2/droplets?tag_name=user-${userId}`, {
+        headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
+      });
+      if (tagResp.ok) {
+        const tagData = await tagResp.json();
+        for (const d of tagData.droplets || []) {
+          try {
+            await fetch(`https://api.digitalocean.com/v2/droplets/${d.id}`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${DO_API_TOKEN}` },
+            });
+            const orphanIp = d.networks?.v4?.find((n: any) => n.type === "public")?.ip_address;
+            if (orphanIp) ipsToPurge.add(orphanIp);
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  for (const ip of ipsToPurge) {
+    try { await kv.del(`ip_pool:${ip}`); } catch {}
+    try { await kv.del(`vps_provisioning:pending:${ip}`); } catch {}
+  }
+  try { await kv.del(`user_ip_assignment:${userId}`); } catch {}
+  try { await kv.del(`ip_assignment:${userId}:dedicated`); } catch {}
+  try { await kv.del(`vps_provisioning:user:${userId}`); } catch {}
+  try { await kv.del(`vps_power:${userId}`); } catch {}
+
+  await kv.set(`ip_recreate_preserve:${userId}`, {
+    expiresAt: preservedExpiresAt,
+    createdAt: new Date().toISOString(),
+  });
+  try {
+    const sub = ((await kv.get(`static_ip_subscription:${userId}`)) as any) || {};
+    await kv.set(`static_ip_subscription:${userId}`, {
+      ...sub,
+      expiresAt: preservedExpiresAt,
+      status: "recreating",
+      recreatedAt: new Date().toISOString(),
+    });
+  } catch {}
+
+  const provisionResult: any = await VPSProvisioning.provisionDedicatedIP(userId);
+  return { ...provisionResult, purgedIps: Array.from(ipsToPurge), preservedExpiresAt };
+}
+
+app.post("/make-server-c4d79cb7/vps/auto-deploy", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    if (!ip) return c.json({ success: false, error: "No dedicated VPS found for your account." }, 400);
+
+    const before = await vpsHealthInfo(ip);
+    if (before.multiBrokerReady && before.version === VPSProvisioning.ORDER_SERVER_VERSION) {
+      return c.json({
+        success: true,
+        method: "already-latest",
+        ip,
+        version: before.version,
+        message: `Your VPS already runs v${before.version} — all brokers route through ${ip}.`,
+      });
+    }
+
+    // 1️⃣ In-place push (images ≥ 1.4.0)
+    const pushed = await VPSProvisioning.pushServerUpdate(ip);
+    if (pushed.success) {
+      // verify the restart actually landed on the new version
+      let after = before;
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 2500));
+        after = await vpsHealthInfo(ip);
+        if (after.multiBrokerReady) break;
+      }
+      if (after.multiBrokerReady) {
+        return c.json({
+          success: true,
+          method: "self-update",
+          ip,
+          version: after.version,
+          message: `VPS updated automatically to v${after.version}. All 8 brokers now place orders from ${ip}.`,
+        });
+      }
+    }
+
+    // 2️⃣ Legacy image → destroy + rebuild automatically (no manual command)
+    const recreated = await autoRecreateVpsForUser(user.id);
+    if (!recreated?.success) {
+      return c.json(
+        { success: false, error: recreated?.error || "Automatic rebuild could not be started. Try again in a minute." },
+        500,
+      );
+    }
+    return c.json({
+      success: true,
+      method: "auto-recreate",
+      provisioning: true,
+      oldIp: ip,
+      jobId: recreated.jobId,
+      estimatedMinutes: recreated.estimatedMinutes || 8,
+      preservedExpiresAt: recreated.preservedExpiresAt,
+      message:
+        "Your old VPS image was too old to update in place, so it was destroyed and a brand-new VPS with the latest multi-broker server is being built automatically. It takes ~5-8 minutes. You will get a NEW IP — whitelist it in your broker portal when it appears.",
+    });
+  } catch (e: any) {
+    console.error("❌ auto-deploy error:", e);
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
+// ==================== 🧪 BROKER TEST ORDER (restricted) ====================
+const TEST_ORDER_EMAILS = (Deno.env.get("TEST_ORDER_EMAILS") || "guhanesh1234@gmail.com")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+function isTestOrderAllowed(email?: string | null) {
+  return !!email && TEST_ORDER_EMAILS.includes(String(email).toLowerCase());
+}
+
+app.get("/make-server-c4d79cb7/broker/test-order/eligibility", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    return c.json({ success: true, allowed: isTestOrderAllowed(user.email) });
+  } catch (e: any) {
+    return c.json({ success: false, allowed: false, error: e.message }, 200);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/test-order", async (c) => {
+  const steps: Array<{ step: string; ok: boolean; detail: string }> = [];
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    if (!isTestOrderAllowed(user.email)) {
+      return c.json({ success: false, error: "Test orders are restricted to the approved test account." }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({} as any));
+    const dryRun = body.dryRun !== false && !body.placeReal; // default: connectivity only
+
+    // 1) Active broker + connection
+    const broker = await BrokerRouter.getActiveBroker(user.id);
+    const connected = await BrokerRouter.isBrokerConnected(user.id, broker);
+    steps.push({
+      step: "Broker connection",
+      ok: connected,
+      detail: connected ? `${broker.toUpperCase()} is connected` : `${broker.toUpperCase()} is NOT connected — login again in Broker Setup`,
+    });
+    if (!connected) {
+      return c.json({ success: false, broker, steps, message: `❌ ${broker.toUpperCase()} is not connected.` }, 200);
+    }
+
+    // 2) VPS / static IP
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    const health = ip ? await vpsHealthInfo(ip) : { version: "none", multiBrokerReady: false, reachable: false };
+    steps.push({
+      step: "Static IP VPS",
+      ok: !!ip && health.reachable,
+      detail: !ip
+        ? "No dedicated IP assigned"
+        : health.reachable
+        ? `${ip} online · order-server v${health.version}`
+        : `${ip} is not reachable — power ON the VPS`,
+    });
+    steps.push({
+      step: "Multi-broker routing",
+      ok: health.multiBrokerReady,
+      detail: health.multiBrokerReady
+        ? "All brokers proxy through your static IP"
+        : "Order server is too old (no /broker-request) — run Auto deploy on the VPS card",
+    });
+
+    if (dryRun) {
+      const allOk = steps.every((s) => s.ok);
+      return c.json({
+        success: allOk,
+        broker,
+        ip,
+        steps,
+        message: allOk
+          ? `✅ ${broker.toUpperCase()} is ready — orders will be placed from ${ip}.`
+          : `⚠️ ${broker.toUpperCase()} is not fully ready. Fix the red steps above, then retest.`,
+      });
+    }
+
+    // 3) Real test order
+    if (!body.securityId) {
+      return c.json({ success: false, broker, steps, message: "Pick a symbol before placing a real test order." }, 400);
+    }
+    const credentials = (await kv.get(`api_credentials:${user.id}`)) as any || {};
+    const testOrder = {
+      securityId: String(body.securityId),
+      transactionType: body.transactionType === "SELL" ? "SELL" : "BUY",
+      exchangeSegment: body.exchangeSegment === "NFO" ? "NSE_FNO" : (body.exchangeSegment || "NSE_FNO"),
+      productType: "INTRADAY",
+      orderType: "MARKET",
+      validity: "DAY",
+      quantity: Math.max(1, Number(body.quantity) || 1),
+      disclosedQuantity: 0,
+      price: 0,
+      triggerPrice: 0,
+      afterMarketOrder: false,
+      symbolName: body.symbolName,
+      tradingSymbol: body.symbolName,
+      index: body.index,
+    };
+
+    try {
+      const result = await BrokerRouter.placeOrderSmart(user.id, credentials, testOrder);
+      const orderId = result?.orderId || result?.correlationId;
+      const status = String(result?.orderStatus || result?.status || "").toUpperCase();
+      const ok = !!orderId && result?.success !== false;
+      steps.push({
+        step: "Order placement",
+        ok,
+        detail: ok ? `Order ${orderId} ${status || "PLACED"}` : (result?.message || "Broker rejected the order"),
+      });
+      return c.json({
+        success: ok,
+        broker,
+        ip,
+        orderId,
+        status,
+        raw: result,
+        steps,
+        message: ok
+          ? `✅ TEST ORDER SUCCESS — ${broker.toUpperCase()} order ${orderId} placed from ${ip}. Square it off in your broker app.`
+          : `❌ TEST ORDER FAILED — ${result?.message || result?.error || "broker rejected the order"}`,
+      });
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      steps.push({ step: "Order placement", ok: false, detail: msg });
+      return c.json({
+        success: false,
+        broker,
+        ip,
+        steps,
+        errorCode: e?.code,
+        message: `❌ TEST ORDER FAILED — ${msg.replace(/^[A-Z_]+:/, "").trim()}`,
+      }, 200);
+    }
+  } catch (e: any) {
+    return c.json({ success: false, steps, message: `❌ Test failed — ${e.message}` }, 500);
+  }
+});
 
 
 // CRON: shutdown all (called by pg_cron at 15:31 IST). No auth — internal sync key OR anon.
