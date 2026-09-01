@@ -190,32 +190,37 @@ Deno.serve(async (req) => {
       return json(200, { success: true, message: "PIN verified" });
     }
 
-    // Forgot: send a 6-digit OTP to the registered mobile ONLY (no email)
+    // Forgot: send a 6-digit OTP to the registered mobile, with email fallback
     if (action === "forgot" && req.method === "POST") {
       const { data: prof } = await admin.from("profiles")
         .select("mobile, email, full_name").eq("user_id", user.id).maybeSingle();
       const mobile = (prof?.mobile || "").toString();
+      const email = (prof?.email || user.email || "").toString();
       const hasMobile = mobile.replace(/\D/g, "").length >= 10;
-      if (!hasMobile) {
-        return json(400, { success: false, message: "No registered mobile number. Update your profile first." });
+      if (!hasMobile && !email) {
+        return json(400, { success: false, message: "No registered mobile or email. Update your profile first." });
       }
       const otp = String(Math.floor(100000 + Math.random() * 900000));
       const otp_hash = await sha256(otp);
       const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      await admin.from("pin_reset_otps").insert({ user_id: user.id, mobile, otp_hash, expires_at });
+      await admin.from("pin_reset_otps").insert({ user_id: user.id, mobile: mobile || email, otp_hash, expires_at });
 
-      const sms = await sendOtpVia2Factor(mobile, otp);
-      if (!sms.ok) {
-        return json(502, { success: false, message: sms.error || "OTP send failed" });
+      const sms = hasMobile ? await sendOtpVia2Factor(mobile, otp) : { ok: false, error: "no_mobile" };
+      let mail: any = { ok: false };
+      if (!sms.ok && email) mail = await sendOtpViaEmail(email, prof?.full_name || "", otp);
+
+      if (!sms.ok && !mail.ok) {
+        return json(502, { success: false, message: (sms as any).error || mail.error || "OTP send failed" });
       }
       return json(200, {
         success: true,
-        message: "OTP sent to your registered mobile number",
-        channels: { sms: true, email: false },
-        mobile: maskMobile(mobile),
-        email: null,
+        message: sms.ok ? "OTP sent to your registered mobile number" : "OTP sent to your registered email",
+        channels: { sms: !!sms.ok, email: !!mail.ok },
+        mobile: sms.ok ? maskMobile(mobile) : null,
+        email: mail.ok ? maskEmail(email) : null,
       });
     }
+
 
 
 
