@@ -144,19 +144,14 @@ Deno.serve(async (req) => {
 
     // GET status: does this user have a PIN?
     if (action === "status" && req.method === "GET") {
-      const { data } = await admin.from("user_pins").select("user_id, locked_until").eq("user_id", user.id).maybeSingle();
+      const { data } = await admin.from("user_pins").select("user_id").eq("user_id", user.id).maybeSingle();
       const { data: prof } = await admin.from("profiles").select("mobile, email").eq("user_id", user.id).maybeSingle();
-      // Cap any legacy long lock to a max 30s cooldown
-      let lockedUntil: string | null = null;
-      if (data?.locked_until) {
-        const capped = Math.min(new Date(data.locked_until).getTime(), Date.now() + 30 * 1000);
-        if (capped > Date.now()) lockedUntil = new Date(capped).toISOString();
-      }
+      // No lockout system at all — wrong PIN never blocks the user.
       return json(200, {
         success: true,
         hasPin: !!data,
-        locked: !!lockedUntil,
-        lockedUntil,
+        locked: false,
+        lockedUntil: null,
         mobile: maskMobile(prof?.mobile || ""),
         email: maskEmail(prof?.email || user.email || ""),
       });
