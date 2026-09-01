@@ -117,7 +117,9 @@ export function parseContractLabel(text: string): { index: string; strike: numbe
 export async function findInstrumentRow(order: any, extraCols = ""): Promise<any | null> {
   const base =
     "security_id, symbol, index_name, strike_price, option_type, expiry_date, lot_size, exchange_segment";
-  const COLS = extraCols ? `${base}, ${extraCols}` : base;
+  const COLS = Array.from(
+    new Set(`${base}${extraCols ? "," + extraCols : ""}`.split(",").map((c) => c.trim()).filter(Boolean)),
+  ).join(", ");
   const securityId = String(order?.securityId || "").trim();
   const symbolText = String(order?.symbol || order?.symbolName || order?.tradingSymbol || "").trim();
 
