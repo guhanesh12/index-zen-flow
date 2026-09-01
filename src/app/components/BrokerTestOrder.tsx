@@ -18,6 +18,8 @@ export function BrokerTestOrder({ serverUrl, accessToken }: BrokerTestOrderProps
   const [quantity, setQuantity] = useState<number>(1);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [slotResults, setSlotResults] = useState<any[]>([]);
+
 
   useEffect(() => {
     (async () => {
@@ -76,6 +78,37 @@ export function BrokerTestOrder({ serverUrl, accessToken }: BrokerTestOrderProps
     }
   }
 
+  async function runSignalFlow(placeReal: boolean) {
+    if (
+      placeReal &&
+      !confirm(
+        "Place a REAL order using your auto slot (same path a live signal uses)?\n\nThis uses real money. Square it off in your broker app afterwards.",
+      )
+    )
+      return;
+    setBusy(true);
+    setResult(null);
+    setSlotResults([]);
+    try {
+      const res = await fetch(`${serverUrl}/broker/test-order/signal-flow`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ placeReal }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setResult(data);
+      setSlotResults(Array.isArray(data?.slots) ? data.slots : []);
+      if (data?.success) toast.success(data.message || "Auto signal flow OK");
+      else toast.error(data.message || data.error || "Auto signal flow check failed");
+    } catch (err: any) {
+      toast.error(err.message || "Auto signal flow check failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
+
   return (
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader className="pb-3">
@@ -123,10 +156,52 @@ export function BrokerTestOrder({ serverUrl, accessToken }: BrokerTestOrderProps
           <Button onClick={() => run(false)} disabled={busy} size="sm" variant="outline" className="border-zinc-700 text-zinc-200 text-xs">
             {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Run connection test
           </Button>
+          <Button onClick={() => runSignalFlow(false)} disabled={busy} size="sm" variant="outline" className="border-cyan-700 text-cyan-200 text-xs">
+            {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Check auto signal flow
+          </Button>
           <Button onClick={() => run(true)} disabled={busy || !selected} size="sm" className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs">
             {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Place real test order
           </Button>
+          <Button onClick={() => runSignalFlow(true)} disabled={busy} size="sm" className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs">
+            {busy ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null} Real order via auto slot
+          </Button>
         </div>
+
+        {slotResults.length > 0 && (
+          <div className="space-y-2">
+            {slotResults.map((r: any) => (
+              <div key={r.slot} className="rounded border border-zinc-800 bg-zinc-950 p-2">
+                <div className="flex items-center gap-2 text-[11px] text-zinc-200">
+                  {r.ok ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <XCircle className="w-3.5 h-3.5 text-red-400" />
+                  )}
+                  <span className="font-semibold">
+                    Slot {r.slot} · {r.index} {r.moneyness} · {r.action}
+                  </span>
+                  <span className="text-zinc-400">
+                    {r.symbol ? `${r.symbol} · qty ${r.quantity}` : "not resolved"}
+                  </span>
+                </div>
+                <div className="mt-1 space-y-0.5 pl-5">
+                  {(r.steps || []).map((s: any, i: number) => (
+                    <div key={i} className="flex items-start gap-1.5 text-[10.5px]">
+                      {s.ok ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400 mt-0.5 shrink-0" />
+                      ) : (
+                        <XCircle className="w-3 h-3 text-red-400 mt-0.5 shrink-0" />
+                      )}
+                      <span className="text-zinc-300 font-medium">{s.step}:</span>
+                      <span className="text-zinc-400">{s.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
 
         {result && (
           <div className="space-y-2">
