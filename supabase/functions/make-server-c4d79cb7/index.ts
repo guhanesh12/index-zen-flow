@@ -7075,6 +7075,254 @@ app.post("/make-server-c4d79cb7/broker/test-order", async (c) => {
   }
 });
 
+// ==================== 🤖 AUTO SIGNAL FLOW CHECK (restricted) ====================
+// Replays EXACTLY what the engine does when a signal fires — central signal →
+// auto slot → instrument_master contract → quantity (lots × lot size) →
+// active-broker symbol mapping → (optional) real order. Nothing is placed
+// unless placeReal === true.
+app.post("/make-server-c4d79cb7/broker/test-order/signal-flow", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    if (!isTestOrderAllowed(user.email)) {
+      return c.json({ success: false, error: "Signal-flow tests are restricted to the approved test account." }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({} as any));
+    const placeReal = body.placeReal === true;
+    const forcedAction = body.action === "BUY_PUT" ? "BUY_PUT" : body.action === "BUY_CALL" ? "BUY_CALL" : null;
+
+    const broker = await BrokerRouter.getActiveBroker(user.id);
+    const connected = await BrokerRouter.isBrokerConnected(user.id, broker);
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    const health = ip ? await vpsHealthInfo(ip) : { version: "none", multiBrokerReady: false, reachable: false };
+
+    const env = [
+      { step: "Active broker", ok: connected, detail: connected ? `${broker.toUpperCase()} connected` : `${broker.toUpperCase()} NOT connected — login again in Broker Setup` },
+      { step: "Static IP VPS", ok: !!ip && health.reachable, detail: !ip ? "No dedicated IP assigned" : health.reachable ? `${ip} online · order-server v${health.version}` : `${ip} unreachable — power ON the VPS` },
+      { step: "Multi-broker routing", ok: health.multiBrokerReady, detail: health.multiBrokerReady ? "All brokers proxy through your static IP" : "Order server too old — run Auto deploy" },
+    ];
+
+    // Enabled auto slots (what the engine actually trades)
+    const { data: slots } = await supabase
+      .from("user_symbol_config")
+      .select("slot, index_name, moneyness, lot_count, enabled, target_per_lot, stop_loss_per_lot, trailing_enabled, trailing_activation_per_lot, trailing_step_per_lot")
+      .eq("user_id", user.id)
+      .eq("enabled", true)
+      .order("slot");
+
+    if (!slots || slots.length === 0) {
+      return c.json({
+        success: false,
+        broker,
+        ip,
+        steps: env,
+        slots: [],
+        message: "⚠️ No enabled auto slots found. Add a slot in Symbols → Auto, then retest.",
+      });
+    }
+
+    const INDEX_SECURITY: Record<string, string> = { NIFTY: "13", BANKNIFTY: "25", SENSEX: "51" };
+    const MONEYNESS_MULT: Record<string, { tgt: number; sl: number }> = {
+      ITM2: { tgt: 0.70, sl: 1.30 }, ITM1: { tgt: 0.85, sl: 1.15 }, ATM: { tgt: 1.00, sl: 1.00 },
+      OTM1: { tgt: 1.20, sl: 0.85 }, OTM2: { tgt: 1.50, sl: 0.70 },
+    };
+
+    const spotCache = new Map<string, number>();
+    async function getSpot(index: string): Promise<number> {
+      if (spotCache.has(index)) return spotCache.get(index)!;
+      let px = 0;
+      try {
+        const { candles } = await CentralMarketData.getCentralOHLC(INDEX_SECURITY[index] || "13", "5", 5);
+        px = Number(candles?.[candles.length - 1]?.close) || 0;
+      } catch { /* ignore */ }
+      spotCache.set(index, px);
+      return px;
+    }
+
+    async function mapForBroker(order: any): Promise<{ ok: boolean; detail: string }> {
+      try {
+        switch (broker) {
+          case "dhan":
+            return order.securityId
+              ? { ok: true, detail: `Dhan securityId ${order.securityId}` }
+              : { ok: false, detail: "No Dhan securityId on contract" };
+          case "kite": {
+            const r = await BrokerRouter.resolveKiteSymbol(order);
+            return r?.tradingsymbol ? { ok: true, detail: `Kite ${r.exchange}:${r.tradingsymbol}` } : { ok: false, detail: "No Zerodha tradingsymbol — sync Kite instruments" };
+          }
+          case "groww": {
+            const r = await BrokerRouter.resolveGrowwSymbol(order);
+            return r?.tradingSymbol ? { ok: true, detail: `Groww ${r.tradingSymbol}` } : { ok: false, detail: "No Groww trading symbol — sync Groww instruments" };
+          }
+          case "upstox": {
+            const r = await BrokerRouter.resolveUpstoxSymbol(order);
+            return r?.instrumentKey ? { ok: true, detail: `Upstox ${r.instrumentKey}` } : { ok: false, detail: "No Upstox instrument key — sync Upstox instruments" };
+          }
+          case "fyers": {
+            const r = await BrokerRouter.resolveFyersSymbol(order);
+            return r?.symbol ? { ok: true, detail: `Fyers ${r.symbol}` } : { ok: false, detail: "No Fyers symbol — sync Fyers instruments" };
+          }
+          case "angelone": {
+            const r = await BrokerRouter.resolveAngelOneSymbol(order);
+            return r?.symbolToken ? { ok: true, detail: `Angel One ${r.tradingSymbol} (${r.symbolToken})` } : { ok: false, detail: "No Angel One token — sync Angel One instruments" };
+          }
+          case "aliceblue": {
+            const r = await BrokerRouter.resolveAliceblueSymbol(order);
+            return r?.symbolToken ? { ok: true, detail: `Aliceblue ${r.tradingSymbol} (${r.symbolToken})` } : { ok: false, detail: "No Aliceblue token — sync Aliceblue instruments" };
+          }
+          case "5paisa": {
+            const r = await BrokerRouter.resolveFivepaisaSymbol(order);
+            return r?.scripCode ? { ok: true, detail: `5paisa scrip ${r.scripCode}` } : { ok: false, detail: "No 5paisa ScripCode — sync 5paisa instruments" };
+          }
+          default:
+            return { ok: false, detail: `Unknown broker ${broker}` };
+        }
+      } catch (e: any) {
+        return { ok: false, detail: `Mapping error: ${e?.message || e}` };
+      }
+    }
+
+    const results: any[] = [];
+    for (const slot of slots) {
+      const index = String(slot.index_name || "NIFTY").toUpperCase();
+      const steps: Array<{ step: string; ok: boolean; detail: string }> = [];
+
+      // 1) Signal source (central publisher — same one the engine reads)
+      let action = forcedAction;
+      let signalDetail = "";
+      if (!action) {
+        const s5 = await CentralMarketData.getLatestCentralSignal(index, 5).catch(() => null);
+        const s15 = await CentralMarketData.getLatestCentralSignal(index, 15).catch(() => null);
+        const pick = s5 || s15;
+        const a = String(pick?.signal?.action || "").toUpperCase();
+        if (a === "BUY_CALL" || a === "BUY_PUT") {
+          action = a as any;
+          signalDetail = `Live central signal ${a} @ ${pick?.candleStamp || "?"} (conf ${Math.round(Number(pick?.signal?.confidence) || 0)}%)`;
+        } else {
+          action = "BUY_CALL";
+          signalDetail = "No live signal yet today — simulated BUY_CALL for the check";
+        }
+      } else {
+        signalDetail = `Forced ${action} for the check`;
+      }
+      steps.push({ step: "Signal", ok: true, detail: signalDetail });
+
+      // 2) Spot
+      const spot = await getSpot(index);
+      steps.push({ step: "Spot price", ok: spot > 0, detail: spot > 0 ? `${index} @ ${spot}` : `${index} spot unavailable — engine would skip this slot` });
+
+      let order: any = null;
+      if (spot > 0) {
+        // 3) Contract from instrument master
+        const optionType = action === "BUY_CALL" ? "CE" : "PE";
+        const r = await resolveAutoSymbol({
+          index_name: index as any,
+          ltp: spot,
+          option_type: optionType as any,
+          moneyness: (slot.moneyness || "ATM") as any,
+        }).catch(() => null);
+
+        steps.push({
+          step: "Contract",
+          ok: !!r,
+          detail: r ? `${r.symbol} (id ${r.security_id}, lot ${r.lot_size}, exp ${r.expiry_date})` : `No ${slot.moneyness} ${optionType} contract in instrument_master — refresh instruments`,
+        });
+
+        if (r) {
+          const lotCount = Math.max(1, Number(slot.lot_count) || 1);
+          const quantity = Number(r.lot_size) * lotCount;
+          steps.push({ step: "Quantity", ok: quantity > 0, detail: `${lotCount} lot × ${r.lot_size} = ${quantity} qty` });
+
+          const mm = MONEYNESS_MULT[slot.moneyness] || MONEYNESS_MULT.ATM;
+          const tgtPerLot = Number(slot.target_per_lot) || 6000;
+          const slPerLot = Number(slot.stop_loss_per_lot) || 3000;
+          const target = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
+          const stop = +(slPerLot * lotCount * mm.sl).toFixed(2);
+          steps.push({
+            step: "Risk",
+            ok: target > 0 && stop > 0,
+            detail: `Target ₹${target} · SL ₹${stop} · Trailing ${slot.trailing_enabled ? "ON" : "OFF"}`,
+          });
+
+          order = await BrokerRouter.normalizeOrderContract({
+            securityId: String(r.security_id),
+            transactionType: "BUY",
+            exchangeSegment: r.exchange_segment,
+            productType: "INTRADAY",
+            orderType: "MARKET",
+            validity: "DAY",
+            quantity,
+            price: 0,
+            triggerPrice: 0,
+            symbolName: r.symbol,
+            tradingSymbol: r.symbol,
+            index,
+            lotSize: r.lot_size,
+          });
+
+          // 4) Broker mapping
+          const map = await mapForBroker(order);
+          steps.push({ step: `${broker.toUpperCase()} mapping`, ok: map.ok, detail: map.detail });
+        }
+      }
+
+      const slotOk = steps.every((s) => s.ok);
+      const row: any = {
+        slot: slot.slot,
+        index,
+        moneyness: slot.moneyness,
+        action,
+        lots: Number(slot.lot_count) || 1,
+        symbol: order?.symbolName || null,
+        quantity: order?.quantity || null,
+        ok: slotOk,
+        steps,
+      };
+
+      // 5) Optional real order for this slot
+      if (placeReal && slotOk && order && (!body.slot || Number(body.slot) === Number(slot.slot))) {
+        try {
+          const credentials = ((await kv.get(`api_credentials:${user.id}`)) as any) || {};
+          const res = await BrokerRouter.placeOrderSmart(user.id, credentials, order);
+          const orderId = res?.orderId || res?.correlationId;
+          row.placed = !!orderId && res?.success !== false;
+          row.orderId = orderId;
+          row.steps.push({
+            step: "Real order",
+            ok: !!row.placed,
+            detail: row.placed ? `Order ${orderId} placed from ${ip || "edge"}` : res?.message || "Broker rejected the order",
+          });
+          row.ok = row.placed;
+        } catch (e: any) {
+          const msg = String(e?.message || e).replace(/^[A-Z_]+:/, "").trim();
+          row.steps.push({ step: "Real order", ok: false, detail: msg });
+          row.ok = false;
+        }
+      }
+
+      results.push(row);
+    }
+
+    const envOk = env.every((s) => s.ok);
+    const allOk = envOk && results.every((r) => r.ok);
+    return c.json({
+      success: allOk,
+      broker,
+      ip,
+      steps: env,
+      slots: results,
+      message: allOk
+        ? `✅ Auto signal flow is ready — ${results.length} slot(s) map cleanly to ${broker.toUpperCase()} and would be ordered from ${ip || "edge"}.`
+        : `⚠️ ${results.filter((r) => !r.ok).length} of ${results.length} slot(s) (or the environment) would fail. Fix the red rows and retest.`,
+    });
+  } catch (e: any) {
+    return c.json({ success: false, message: `❌ Signal-flow check failed — ${e.message}` }, 500);
+  }
+});
+
+
+
 
 // CRON: shutdown all (called by pg_cron at 15:31 IST). No auth — internal sync key OR anon.
 app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
