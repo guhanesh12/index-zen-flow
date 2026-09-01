@@ -993,7 +993,20 @@ export async function makeBrokerProxy(userId: string, broker: string, baseUrl?: 
         }),
         signal: AbortSignal.timeout(4500),
       });
-      if (resp.status === 404 || resp.status === 400) return null; // old image / unknown broker → direct
+      if (resp.status === 404 || resp.status === 400) {
+        // Old VPS image (no /broker-request) or unsupported broker → direct.
+        // Flag it + fire a background self-update so the next order routes correctly.
+        if (resp.status === 404) {
+          console.warn(`[${broker.toUpperCase()}] VPS ${ip} has no /broker-request (legacy image) → direct API`);
+          try {
+            await kv.set(`vps_multibroker_unsupported:${ip}`, { at: Date.now(), broker });
+            const { maybeAutoUpgradeVps } = await import("./static_ip_helper.tsx");
+            maybeAutoUpgradeVps(ip, "0.0.0");
+          } catch { /* never block an order */ }
+        }
+        return null;
+      }
+
       const text = await resp.text();
       let json: any = {};
       try { json = JSON.parse(text); } catch { json = { raw: text }; }
