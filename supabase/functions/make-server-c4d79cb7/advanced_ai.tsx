@@ -1783,10 +1783,16 @@ export class AdvancedAI {
       currentSessionCandles.length >= 5
         ? currentSessionCandles
         : ohlcData.slice(-50);
+    // IMPORTANT: never fall back to PREVIOUS-DAY candles here. On a gap day the
+    // prior session high/low sit hundreds of points away, so the first bars of the
+    // new session look like a huge "day breakdown/breakout" and fire the wrong side.
     const priorLevelData =
-      priorSessionCandles.length >= 3
+      priorSessionCandles.length >= 1
         ? priorSessionCandles
         : levelData.slice(0, -1);
+    // Day-range breakout logic is only trustworthy once today's own session has
+    // printed at least 2 completed bars.
+    const dayLevelsReady = priorSessionCandles.length >= 2;
     const swing = this.calculateSwingLevels(levelData, 80, 2, 2);
     // Fallback to extremes if no pivots found yet (early warm-up)
     const sortedHighs = levelData.map((c) => c.high).sort((a, b) => b - a);
