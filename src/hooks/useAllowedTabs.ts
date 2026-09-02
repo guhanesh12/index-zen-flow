@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { TAB_TREE, tabModule, subTabModule } from '@/app/adminTabs';
 
-const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
+const PERMANENT_SUPER_ADMIN_EMAIL = 'guhanesh.v@smilykart.com';
 
 const allTabModules = () => {
   const modules: string[] = [];

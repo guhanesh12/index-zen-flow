@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Shield, TrendingUp, Users, DollarSign, MessageSquare, Globe, Activity,
-  UsersRound, Settings, Gift, Mail, Smartphone, ScrollText, ChevronRight, Bot, LineChart,
+  UsersRound, Settings, Gift, Mail, Smartphone, ScrollText, ChevronRight, Bot, LineChart, Clock,
 } from 'lucide-react';
 import { TAB_TREE } from '@/app/adminTabs';
 import { selectAdminSubTab } from '@/hooks/useAdminSubTabSync';
@@ -23,6 +23,7 @@ const ICONS: Record<string, any> = {
   marketData: LineChart,
   aiChats: Bot,
   audit: ScrollText,
+  sessions: Clock,
 };
 
 interface Props {

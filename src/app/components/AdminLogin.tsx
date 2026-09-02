@@ -27,7 +27,7 @@ interface AdminLoginProps {
 // AdminUser type shape compatibility and is never used for authentication.
 const DEFAULT_ADMIN: AdminUser = {
   id: 'admin_001',
-  email: 'airoboengin@smilykart.com',
+  email: 'guhanesh.v@smilykart.com',
   password: '', // never stored in client — validated server-side
   role: {
     dashboard: true,
@@ -63,7 +63,10 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState<'credentials' | '2fa-setup' | '2fa-verify'>('credentials');
+  const [step, setStep] = useState<'credentials' | 'email-otp' | '2fa-setup' | '2fa-verify'>('credentials');
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [totpSecret, setTotpSecret] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -126,22 +129,31 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
         return;
       }
 
-      // Server no longer returns an access token here. It returns a
-      // challengeToken that must be exchanged for a session at
-      // /admin/2fa/verify AFTER a valid TOTP code is submitted.
+      // Server returns a challengeToken. Step 2 is an email OTP, and only
+      // after that is the Google Authenticator step unlocked.
       if (!data.challengeToken) {
-        setError('Login response missing 2FA challenge');
+        setError('Login response missing verification challenge');
         return;
       }
       setChallengeToken(data.challengeToken);
 
-      // Set up a minimal admin shell for the 2FA screens. The real admin
-      // profile (with access token) is returned by /admin/2fa/verify.
+      // Set up a minimal admin shell for the verification screens. The real
+      // admin profile (with access token) is returned by /admin/2fa/verify.
       const shellAdmin: AdminUser = {
         ...DEFAULT_ADMIN,
         email: email.trim().toLowerCase(),
       };
       setAdminData(shellAdmin);
+
+      if (data.emailOtpRequired) {
+        setMaskedEmail(data.maskedEmail || '');
+        setOtpCode('');
+        setStep('email-otp');
+        if (data.mailed === false) {
+          setError('Could not send the email code. Use Resend, or contact the super admin.');
+        }
+        return;
+      }
 
       if (data.setupRequired) {
         // First-time enrollment: server generated the secret and returned
@@ -169,6 +181,70 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       setError('Login failed. Please try again.');
     }
   };
+
+  // STEP 2 — verify the 6-digit code emailed to the admin, then move on to
+  // Google Authenticator (setup or verify, decided by the server).
+  const submitEmailOtp = async () => {
+    if (otpCode.length !== 6) { setError('Please enter the 6-digit email code'); return; }
+    if (!challengeToken) { setError('Session expired. Please log in again.'); setStep('credentials'); return; }
+    setError('');
+    setBusy(true);
+    try {
+      const res = await fetch(`${SUPABASE_FN_BASE}/admin/email-otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ challengeToken, code: otpCode }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok || !data.success) {
+        if (res.status === 401 || res.status === 429) {
+          setOtpCode('');
+          if (String(data.message || '').includes('log in again')) { setChallengeToken(''); setStep('credentials'); }
+          setError(data.message || 'Invalid email code');
+          return;
+        }
+        setError(data.message || 'Invalid email code');
+        setOtpCode('');
+        otpInputRefs[0].current?.focus();
+        return;
+      }
+      setOtpCode('');
+      if (data.setupRequired) {
+        setTotpSecret(data.secretBase32 || '');
+        if (data.otpauthUrl) {
+          try { setQrCodeUrl(await QRCode.toDataURL(data.otpauthUrl)); } catch { /* ignore */ }
+        }
+        setStep('2fa-setup');
+      } else {
+        setTotpSecret('');
+        setQrCodeUrl('');
+        setStep('2fa-verify');
+      }
+    } catch (e) {
+      setError('Verification failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resendEmailOtp = async () => {
+    if (!challengeToken) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch(`${SUPABASE_FN_BASE}/admin/email-otp/resend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ challengeToken }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!data.success) setError(data.message || 'Could not resend the code');
+      else setError('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
 
   const handleOtpChange = (index: number, value: string) => {
     const digit = value.replace(/\D/g, '');
@@ -251,7 +327,11 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
         twoFactorEnabled: true,
       };
 
+      try {
+        if (data.adminSessionId) sessionStorage.setItem('admin_session_id', data.adminSessionId);
+      } catch { /* ignore */ }
       trackLogin(updatedAdmin.email, 'success', updatedAdmin.id);
+
       onLogin(updatedAdmin, data.accessToken);
     } catch (err: any) {
       console.error('2FA verify error', err);
@@ -408,6 +488,69 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
             </Card>
           </motion.div>
         )}
+
+        {step === 'email-otp' && (
+          <motion.div
+            key="email-otp"
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
+            className="w-full max-w-md"
+          >
+            <Card className="border-blue-500/20 bg-slate-900/80 backdrop-blur-xl shadow-2xl">
+              <CardHeader className="text-center">
+                <div className="mx-auto mb-2 flex size-14 items-center justify-center rounded-2xl bg-blue-500/15">
+                  <Shield className="size-7 text-blue-400" />
+                </div>
+                <CardTitle className="text-white">Email verification</CardTitle>
+                <CardDescription className="text-slate-400">
+                  Step 2 of 3 — we sent a 6-digit code to {maskedEmail || 'your registered email'}.
+                  Google Authenticator comes next.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {error && (
+                  <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+                <div className="flex justify-center gap-2">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <Input
+                      key={i}
+                      ref={otpInputRefs[i]}
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={otpCode[i] || ''}
+                      onChange={(e) => handleOtpChange(i, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(i, e)}
+                      onPaste={handleOtpPaste}
+                      className="size-12 text-center text-lg font-semibold"
+                      aria-label={`Email code digit ${i + 1}`}
+                    />
+                  ))}
+                </div>
+                <Button className="w-full" disabled={busy || otpCode.length !== 6} onClick={() => void submitEmailOtp()}>
+                  {busy ? 'Verifying…' : 'Verify email code'}
+                </Button>
+                <div className="flex items-center justify-between text-xs">
+                  <button type="button" className="text-blue-400 hover:underline" disabled={busy} onClick={() => void resendEmailOtp()}>
+                    Resend code
+                  </button>
+                  <button
+                    type="button"
+                    className="text-slate-400 hover:underline"
+                    onClick={() => { setStep('credentials'); setOtpCode(''); setChallengeToken(''); setError(''); }}
+                  >
+                    Back to login
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
 
         {step === '2fa-setup' && (
           <motion.div
