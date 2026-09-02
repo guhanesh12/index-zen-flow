@@ -10736,6 +10736,50 @@ app.delete("/make-server-c4d79cb7/admin/instruments/delete-all", async (c) => {
 
 // ==================== ADMIN AUTHENTICATION ====================
 
+// 🔐 Hotkey-bound admin access window: after a valid hotkey press, the admin
+// has exactly 60 seconds to log in, and only with the credentials that own
+// that hotkey. Anything else → restricted mode + audit log entry.
+const ADMIN_HOTKEY_WINDOW_MS = 60 * 1000;
+
+function clientIpOf(c: any): string | null {
+  try {
+    const h = c.req.header('x-forwarded-for') || c.req.header('cf-connecting-ip') || '';
+    return h ? String(h).split(',')[0].trim() : null;
+  } catch { return null; }
+}
+
+async function logAdminSecurityEvent(entry: {
+  action: string;
+  email?: string | null;
+  userId?: string | null;
+  status?: 'success' | 'failed' | 'blocked';
+  metadata?: Record<string, any>;
+  c?: any;
+}) {
+  try {
+    await supabase.from('security_audit_log').insert({
+      actor_user_id: entry.userId ?? null,
+      actor_email: entry.email ?? null,
+      action: entry.action,
+      resource: 'admin_panel',
+      ip_address: entry.c ? clientIpOf(entry.c) : null,
+      user_agent: entry.c ? (entry.c.req.header('user-agent') || '').slice(0, 500) : null,
+      status: entry.status ?? 'success',
+      metadata: entry.metadata ?? {},
+    });
+  } catch (err) {
+    console.warn('[ADMIN AUDIT] insert failed:', err);
+  }
+}
+
+// Returns the hotkey that must own the given admin identity.
+async function expectedHotkeyForAdmin(email: string, profile: any): Promise<string> {
+  const fromProfile = String(profile?.hotkey || '').trim().toUpperCase();
+  if (fromProfile) return fromProfile;
+  if (String(email || '').toLowerCase() === PERMANENT_SUPER_ADMIN_EMAIL) return 'GUHAN';
+  return '';
+}
+
 // Generate unique code for admin hotkey access
 app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
   try {
@@ -10755,6 +10799,12 @@ app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
     
     if (!validHotkeys.includes(hotkey.toUpperCase())) {
       console.log(`❌ Invalid hotkey: ${hotkey} | Valid: ${validHotkeys.join(', ')}`);
+      await logAdminSecurityEvent({
+        action: 'admin_hotkey_invalid',
+        status: 'blocked',
+        metadata: { hotkey: String(hotkey || '').toUpperCase() },
+        c,
+      });
       return c.json({
         success: false,
         message: 'Invalid hotkey'
@@ -10766,22 +10816,29 @@ app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
       'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
     ).join('');
     
-    // Store unique code in KV with timestamp (expires in 1 hour)
+    // Store unique code in KV — valid for exactly 1 minute after the press
     const codeData = {
       code: uniqueCode,
       hotkey: hotkey.toUpperCase(),
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
+      expiresAt: new Date(Date.now() + ADMIN_HOTKEY_WINDOW_MS).toISOString(),
       used: false,
     };
     await kv.set(`admin_hotkey_code_${uniqueCode}`, JSON.stringify(codeData));
     
     console.log(`✅ Generated unique code: ${uniqueCode}`);
+
+    await logAdminSecurityEvent({
+      action: 'admin_hotkey_pressed',
+      status: 'success',
+      metadata: { hotkey: hotkey.toUpperCase(), windowSeconds: ADMIN_HOTKEY_WINDOW_MS / 1000 },
+      c,
+    });
     
     return c.json({
       success: true,
       uniqueCode: uniqueCode,
-      expiresIn: 3600, // 1 hour in seconds
+      expiresIn: ADMIN_HOTKEY_WINDOW_MS / 1000,
     });
   } catch (error: any) {
     console.error('Error generating unique code:', error);
@@ -10791,6 +10848,7 @@ app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
     }, 500);
   }
 });
+
 
 // Verify unique code from URL
 app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
