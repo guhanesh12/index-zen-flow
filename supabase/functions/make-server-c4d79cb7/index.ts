@@ -252,23 +252,6 @@ async function requireCronOrAdmin(c: any): Promise<{ ok: boolean }> {
 
 
 
-// ⚡ FAST userId EXTRACTION: Decode JWT payload without signature verification
-// Used for trading endpoints where speed matters and userId is the only requirement.
-// Security: credentials are always fetched from KV store — unknown userIds return 400 not data.
-function extractUserIdFromJwt(token: string): string | null {
-  try {
-    if (!token || token.length < 20) return null;
-    const payloadPart = token.split('.')[1];
-    if (!payloadPart) return null;
-    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const payload = JSON.parse(atob(padded));
-    return payload.sub || null;
-  } catch {
-    return null;
-  }
-}
-
 function parseJwtPayload(token: string): any | null {
   try {
     if (!token || token.length < 20) return null;
@@ -282,10 +265,14 @@ function parseJwtPayload(token: string): any | null {
   }
 }
 
-function getFastUserIdFromRequest(c: any): string | null {
-  const bearerToken = c.req.header('Authorization')?.split(' ')[1] || '';
-  return extractUserIdFromJwt(bearerToken);
+// 🔒 SECURE userId resolution: always verifies the JWT signature via Supabase Auth.
+// Never derive the acting user from an unverified token payload.
+async function getFastUserIdFromRequest(c: any): Promise<string | null> {
+  const { user, error } = await validateAuth(c, 1);
+  if (error || !user?.id) return null;
+  return user.id;
 }
+
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timer: any;
