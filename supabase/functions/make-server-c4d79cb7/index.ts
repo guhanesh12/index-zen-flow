@@ -6920,19 +6920,41 @@ app.post("/make-server-c4d79cb7/vps/auto-deploy", async (c) => {
     }
 
     // ❌ Never destroy / recreate: the whitelisted IP must never change.
+    // Legacy images (< 1.4.0) expose no remote update channel at all, so the only
+    // way to upgrade them in place is one command in the droplet console. Hand it
+    // back ready-to-paste instead of failing with a bare error.
+    if (before.reachable) {
+      const token = crypto.randomUUID().replace(/-/g, "");
+      await kv.set(`vps_upgrade_token:${token}`, { userId: user.id, ip, at: Date.now() });
+      const origin = new URL(c.req.url).origin;
+      const url = `${origin}/functions/v1/make-server-c4d79cb7/vps/upgrade-script/${token}`;
+      return c.json({
+        success: false,
+        needsManualScript: true,
+        ip,
+        version: before.version,
+        reachable: true,
+        command: `curl -sL "${url}" | bash`,
+        instructions: [
+          "DigitalOcean → Droplets → your droplet → Access → Launch Droplet Console",
+          "Paste the command below and press Enter",
+          "Wait for '✅ Upgrade complete', then press 'Check version' here",
+        ],
+        error: `Your VPS (${ip}) runs the old image v${before.version}, which has no remote update channel. Your IP is unchanged — run this one command once and every future update will be fully automatic.`,
+      });
+    }
+
     return c.json(
       {
         success: false,
         ip,
         version: before.version,
-        reachable: before.reachable,
-        error: before.reachable
-          ? `Your VPS (${ip}) is running an old image (v${before.version}) that has no automatic update channel. The IP is kept as-is — run the one-time deploy script from the VPS console to bring it to v${VPSProvisioning.ORDER_SERVER_VERSION}.`
-          : `VPS ${ip} is not reachable on port 3000. Power it on, then run Auto deploy again.`,
-        needsManualScript: before.reachable,
+        reachable: false,
+        error: `VPS ${ip} is not reachable on port 3000. Power it on, then run Auto deploy again.`,
       },
       502,
     );
+
   } catch (e: any) {
     console.error("❌ auto-deploy error:", e);
     return c.json({ success: false, error: e.message }, 500);
