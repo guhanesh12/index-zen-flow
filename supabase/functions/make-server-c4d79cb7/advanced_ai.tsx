@@ -3942,7 +3942,7 @@ export class AdvancedAI {
     // gap-down, which used to approve BUY_PUT even while today's session was rallying to a
     // new day high. Never take a side that fights today's own session direction.
     let intradayVeto: string | null = null;
-    if (action !== "WAIT" && dayLevelsReady) {
+    if (action !== "WAIT" && priorSessionCandles.length >= 1) {
       const sessionHigh = Math.max(...priorSessionCandles.map((c) => c.high));
       const sessionLow = Math.min(...priorSessionCandles.map((c) => c.low));
       const vetoTol = Math.max(atr14 * 0.1, lastCandle.close * 0.0002);
@@ -3950,13 +3950,18 @@ export class AdvancedAI {
         lastCandle.close > sessionHigh - vetoTol && lastCandle.close > lastCandle.open;
       const makingDayLow =
         lastCandle.close < sessionLow + vetoTol && lastCandle.close < lastCandle.open;
-      const aboveSessionVwap = lastCandle.close > vwap;
-      const belowSessionVwap = lastCandle.close < vwap;
+      const vwapTol = Math.max(atr14 * 0.05, lastCandle.close * 0.0001);
+      const aboveSessionVwap = lastCandle.close > vwap + vwapTol;
+      const belowSessionVwap = lastCandle.close < vwap - vwapTol;
 
-      if (action === "BUY_PUT" && makingDayHigh && aboveSessionVwap) {
-        intradayVeto = `⚠️ WAIT: BUY_PUT blocked — candle closed ${lastCandle.close.toFixed(2)} at a NEW DAY HIGH (day high ${sessionHigh.toFixed(2)}) and above session VWAP ${vwap.toFixed(2)}. Today's session is moving UP; multi-day downtrend is stale.`;
-      } else if (action === "BUY_CALL" && makingDayLow && belowSessionVwap) {
-        intradayVeto = `⚠️ WAIT: BUY_CALL blocked — candle closed ${lastCandle.close.toFixed(2)} at a NEW DAY LOW (day low ${sessionLow.toFixed(2)}) and below session VWAP ${vwap.toFixed(2)}. Today's session is moving DOWN.`;
+      if (action === "BUY_PUT" && aboveSessionVwap) {
+        intradayVeto = makingDayHigh
+          ? `⚠️ WAIT: BUY_PUT blocked — candle closed ${lastCandle.close.toFixed(2)} at a NEW DAY HIGH (day high ${sessionHigh.toFixed(2)}) and above session VWAP ${vwap.toFixed(2)}. Today's session is moving UP; multi-day downtrend is stale.`
+          : `⚠️ WAIT: BUY_PUT blocked — price ${lastCandle.close.toFixed(2)} is ABOVE today's session VWAP ${vwap.toFixed(2)}. Puts are only taken below VWAP.`;
+      } else if (action === "BUY_CALL" && belowSessionVwap) {
+        intradayVeto = makingDayLow
+          ? `⚠️ WAIT: BUY_CALL blocked — candle closed ${lastCandle.close.toFixed(2)} at a NEW DAY LOW (day low ${sessionLow.toFixed(2)}) and below session VWAP ${vwap.toFixed(2)}. Today's session is moving DOWN.`
+          : `⚠️ WAIT: BUY_CALL blocked — price ${lastCandle.close.toFixed(2)} is BELOW today's session VWAP ${vwap.toFixed(2)}. Calls are only taken above VWAP.`;
       }
 
       if (intradayVeto) {
