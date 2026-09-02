@@ -53,7 +53,7 @@ function PageViewTracker({ children }: { children: ReactNode }) {
     
     // Send immediate heartbeat to mark visitor as active
     const sendHeartbeat = () => {
-      fetch(`${serverUrl}/analytics/heartbeat`, {
+      fetchWithApiFallback(`/analytics/heartbeat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
