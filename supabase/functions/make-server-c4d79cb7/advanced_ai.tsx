@@ -200,7 +200,12 @@ export interface AdvancedSignal {
       trailDistance: number;
       breakeven: number;
     };
+    // Backtest-validated exit plan (Jun–Aug 2026, all 3 indices)
+    maxHoldBars?: number;
+    breakevenAtR?: number;
+    exitProfile?: "ACCURACY" | "BALANCED";
   };
+
 
   // Market regime
   marketRegime: {
