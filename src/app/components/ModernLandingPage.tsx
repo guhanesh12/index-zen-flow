@@ -643,28 +643,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   ))}
                 </motion.div>
 
-                <motion.div 
-                  className="mt-2 p-4 rounded-2xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30"
-                  variants={itemVariants}
-                  whileHover={{ scale: 1.02, borderColor: 'rgba(249, 115, 22, 0.5)' }}
-                >
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-center sm:text-left">
-                      <p className="text-sm text-orange-400 font-semibold mb-1">Don't have a Dhan account?</p>
-                      <p className="text-xs text-slate-400">Open your trading account in minutes</p>
-                    </div>
-                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                      <Button 
-                        onClick={() => window.open(content.hero.dhanAccountLink || 'https://login.dhan.co/', '_blank')}
-                        size="lg"
-                        className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-base px-8 py-5 shadow-2xl shadow-orange-500/30 font-semibold"
-                      >
-                        Open Dhan Account
-                        <ArrowRight className="ml-2 w-5 h-5" />
-                      </Button>
-                    </motion.div>
-                  </div>
-                </motion.div>
+
+
 
                 <motion.div className="flex items-center gap-6 pt-8" variants={itemVariants}>
                   <div className="flex -space-x-2">
@@ -1051,39 +1031,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
             </div>
           </motion.div>
 
-          {/* Open Dhan Account CTA */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8, delay: 0.8 }}
-            className="mt-12 text-center"
-          >
-            <div className="max-w-2xl mx-auto p-8 rounded-3xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30">
-              <h3 className="text-2xl font-bold text-white mb-3">
-                New to Dhan? Start Trading Today
-              </h3>
-              <p className="text-slate-400 mb-6">
-                Open your Dhan trading account in minutes and start using IndexpilotAI with lightning-fast execution
-              </p>
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Button 
-                  onClick={() => window.open(content.hero.dhanAccountLink || 'https://login.dhan.co/', '_blank')}
-                  size="lg"
-                  className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-lg px-12 py-6 shadow-2xl shadow-orange-500/30 font-bold"
-                >
-                  Open Dhan Account Free
-                  <ArrowRight className="ml-2 w-5 h-5" />
-                </Button>
-              </motion.div>
-              <p className="text-xs text-slate-400 mt-4">
-                ✓ Free account opening  •  ✓ Zero brokerage on delivery  •  ✓ Fast KYC process
-              </p>
-            </div>
-          </motion.div>
+
+
         </div>
       </section>
 
@@ -2120,20 +2069,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 India's most advanced AI-powered options trading platform.
               </p>
               
-              {/* Dhan Account CTA in Footer */}
-              <div className="mb-4">
-                <a
-                  href="https://login.dhan.co/?location=DH_WEB&refer=SMIL56887"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-sm font-semibold transition-all shadow-lg shadow-orange-500/20"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  Open Dhan Account
-                </a>
-              </div>
+
+
 
               {/* Google Play CTA in Footer */}
               <div className="mb-4">
