@@ -7172,6 +7172,7 @@ app.post("/make-server-c4d79cb7/broker/test-order/signal-flow", async (c) => {
             return order.securityId
               ? { ok: true, detail: `Dhan securityId ${order.securityId}` }
               : { ok: false, detail: "No Dhan securityId on contract" };
+          case "zerodha":
           case "kite": {
             const r = await BrokerRouter.resolveKiteSymbol(order);
             return r?.tradingsymbol ? { ok: true, detail: `Kite ${r.exchange}:${r.tradingsymbol}` } : { ok: false, detail: "No Zerodha tradingsymbol — sync Kite instruments" };
