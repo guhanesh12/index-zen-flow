@@ -97,7 +97,13 @@ function PageViewTracker({ children }: { children: ReactNode }) {
 // Landing Page Wrapper with SPA navigation
 function LandingPageWrapper() {
   const navigate = useNavigate();
-  
+
+  // Warm the login/register chunks while the landing page is idle, so those
+  // buttons open instantly instead of downloading a chunk on click.
+  useEffect(() => {
+    preloadOnIdle(ModernLogin.preload, ModernRegistration.preload);
+  }, []);
+
   return (
     <ModernLandingPage 
       onSignInClick={() => {
