@@ -38,6 +38,8 @@ export const TAB_TREE: TabDef[] = [
     { key: 'vps-power',        label: 'VPS Power' },
     { key: 'app-update',       label: 'App Update' },
   ]},
+  { key: 'marketData', label: 'Market Data', subs: [] },
+
   { key: 'referrals', label: 'Referrals', subs: [
     { key: 'settings',    label: 'Settings' },
     { key: 'list',        label: 'Referrals' },
