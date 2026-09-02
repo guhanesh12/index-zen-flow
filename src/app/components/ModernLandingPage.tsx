@@ -774,7 +774,6 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
       <section className="relative py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-black to-slate-950">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
             {(() => {
               const iconMap: Record<string, any> = { TrendingUp, DollarSign, Users, Activity };
               const colorMap: Record<string, { color: string; iconColor: string }> = {
