@@ -52,6 +52,7 @@ export const TAB_TREE: TabDef[] = [
   { key: 'mobile',        label: 'Mobile App',   subs: [] },
   { key: 'aiChats',       label: 'AI Assistant Chats', subs: [] },
   { key: 'audit',         label: 'Audit Log',    subs: [] },
+  { key: 'sessions',      label: 'Admin Sessions', subs: [] },
 
 ];
 

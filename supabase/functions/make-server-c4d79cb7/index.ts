@@ -447,6 +447,126 @@ app.use(
   }),
 );
 
+// ═══════════════════════════════════════════════════════════════
+// 🧾 ADMIN ACTIVITY FOOTPRINT MIDDLEWARE
+// Records EVERY state-changing admin request into admin_audit_events:
+// who (actor), what (action + module), which user (target), which
+// change (sanitised payload), from where (ip / device / browser).
+// ═══════════════════════════════════════════════════════════════
+const AUDIT_SKIP_PATTERNS = [
+  /\/health$/, /\/cron\//, /engine-tick/, /heartbeat/, /market-data\/(quote|ltp|ohlc)/,
+  /\/ai-chat/, /\/push\/subscribe/, /positions\/refresh/,
+];
+const AUDIT_SENSITIVE_KEYS = /pass|secret|token|otp|pin|key|authorization|code/i;
+
+function sanitiseAuditPayload(value: any, depth = 0): any {
+  if (value === null || value === undefined) return value;
+  if (depth > 3) return '…';
+  if (Array.isArray(value)) return value.slice(0, 20).map((v) => sanitiseAuditPayload(v, depth + 1));
+  if (typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value).slice(0, 40)) {
+      out[k] = AUDIT_SENSITIVE_KEYS.test(k) ? '***' : sanitiseAuditPayload(v, depth + 1);
+    }
+    return out;
+  }
+  if (typeof value === 'string') return value.length > 300 ? `${value.slice(0, 300)}…` : value;
+  return value;
+}
+
+function deviceOfUA(ua: string): string {
+  const s = (ua || '').toLowerCase();
+  if (/ipad|tablet/.test(s)) return 'Tablet';
+  if (/iphone|android|mobile/.test(s)) return 'Mobile';
+  if (!s) return 'Unknown';
+  return 'Desktop';
+}
+function browserOfUA(ua: string): string {
+  const s = ua || '';
+  if (/Edg\//.test(s)) return 'Edge';
+  if (/OPR\//.test(s)) return 'Opera';
+  if (/Chrome\//.test(s)) return 'Chrome';
+  if (/Safari\//.test(s)) return 'Safari';
+  if (/Firefox\//.test(s)) return 'Firefox';
+  return 'Unknown';
+}
+
+function auditModuleOfPath(path: string): string {
+  const clean = path.replace('/make-server-c4d79cb7', '');
+  const seg = clean.split('/').filter(Boolean);
+  if (!seg.length) return 'core';
+  if (seg[0] === 'admin' && seg[1]) return `admin:${seg[1]}`;
+  return seg[0];
+}
+
+app.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase();
+  const path = c.req.path || '';
+  const auditable = method !== 'GET' && method !== 'OPTIONS' && !AUDIT_SKIP_PATTERNS.some((r) => r.test(path));
+  let bodyClone: Request | null = null;
+  if (auditable) {
+    try { bodyClone = c.req.raw.clone(); } catch { bodyClone = null; }
+  }
+
+  await next();
+
+  if (!auditable) return;
+  // Fire-and-forget — auditing must never slow down or break a request.
+  (async () => {
+    try {
+      const authHeader = c.req.header('authorization') || '';
+      const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+      const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+      let actorId: string | null = null;
+      let actorEmail: string | null = null;
+      if (token && token !== anonKey) {
+        const { data } = await supabase.auth.getUser(token);
+        actorId = data?.user?.id || null;
+        actorEmail = data?.user?.email || null;
+      }
+
+      // Only log admin actors (or blocked/anonymous attempts on /admin routes).
+      const isAdminPath = path.includes('/admin');
+      let isAdminActor = false;
+      if (actorId) {
+        const { data: prof } = await supabase
+          .from('admin_profiles').select('email, full_name, is_super_admin')
+          .eq('user_id', actorId).maybeSingle();
+        if (prof) { isAdminActor = true; actorEmail = prof.email || actorEmail; }
+      }
+      if (!isAdminActor && !isAdminPath) return;
+
+      let payload: any = null;
+      if (bodyClone) {
+        try { payload = await bodyClone.json(); } catch { payload = null; }
+      }
+      const targetUserId =
+        payload?.target_user_id || payload?.targetUserId || payload?.user_id || payload?.userId || null;
+
+      const ua = c.req.header('user-agent') || '';
+      const status = c.res.status >= 500 ? 'failed' : c.res.status >= 400 ? 'blocked' : 'success';
+
+      await supabase.from('admin_audit_events').insert({
+        actor_user_id: actorId,
+        actor_email: actorEmail,
+        action: `${method} ${path.replace('/make-server-c4d79cb7', '')}`,
+        module: auditModuleOfPath(path),
+        target_user_id: typeof targetUserId === 'string' && /^[0-9a-f-]{36}$/i.test(targetUserId) ? targetUserId : null,
+        target_resource: typeof targetUserId === 'string' ? targetUserId : null,
+        ip_address: clientIpOf(c),
+        user_agent: ua.slice(0, 500),
+        device: deviceOfUA(ua),
+        browser: browserOfUA(ua),
+        status,
+        details: { httpStatus: c.res.status, payload: sanitiseAuditPayload(payload) },
+      });
+    } catch (e) {
+      console.warn('[ADMIN AUDIT MW] failed', e);
+    }
+  })();
+});
+
+
 // ⚡ Health check endpoint (MUST be public, no auth required)
 app.get("/make-server-c4d79cb7/health", (c) => {
   console.log('💚 Health check requested');
@@ -11004,7 +11124,50 @@ app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
 const ADMIN_2FA_ENROLLED_PREFIX = 'admin_2fa_enrolled:';
 const ADMIN_2FA_CHALLENGE_PREFIX = 'admin_2fa_challenge:';
 const ADMIN_2FA_CHALLENGE_TTL_MS = 15 * 60 * 1000; // 15 minutes (enough time to scan QR + set up authenticator)
-const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
+const ADMIN_EMAIL_OTP_TTL_MS = 10 * 60 * 1000; // emailed OTP validity
+const PERMANENT_SUPER_ADMIN_EMAIL = 'guhanesh.v@smilykart.com';
+
+async function sha256Hex(value: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function maskEmail(email: string): string {
+  const [user, domain] = String(email || '').split('@');
+  if (!domain) return '***';
+  const head = user.slice(0, 2);
+  return `${head}${'*'.repeat(Math.max(user.length - 2, 2))}@${domain}`;
+}
+
+// Mails a one-time login code to the admin's registered address.
+async function sendAdminEmailOtp(email: string, name: string, otp: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
+      },
+      body: JSON.stringify({
+        to: email,
+        name,
+        subject: `Admin login code ${otp}`,
+        html: `<p>Hi ${name},</p>
+<p>Your IndexPilot admin login code is:</p>
+<p style="font-size:26px;font-weight:700;letter-spacing:6px">${otp}</p>
+<p>It expires in 10 minutes. After entering it you will still need your Google Authenticator code.</p>
+<p>If you did not start this login, secure your account immediately — the attempt has been logged.</p>`,
+      }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('[ADMIN EMAIL OTP] send failed', e);
+    return false;
+  }
+}
+
 
 const ADMIN_ROLE_KEYS = [
   'dashboard', 'users', 'transactions', 'instruments', 'journals', 'settings',
@@ -11322,69 +11485,147 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       adminProfile.status = 'active';
     }
 
-    // Look up enrolled 2FA secret (server-side only)
-    const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${loginEmail}`);
+    // ── STEP 2 GATE: email OTP ──────────────────────────────────────
+    // The admin must confirm a 6-digit code mailed to their registered
+    // address BEFORE the Google Authenticator step is even offered.
     const challengeToken = newChallengeToken();
+    const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
 
-    if (enrolledSecret) {
-      await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
-        email: loginEmail,
-        userId: adminProfile.user_id || authUser.id,
-        isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
-        hotkey: adminProfile.hotkey || null,
-        fullName: adminProfile.full_name || null,
-        roleLabel: adminProfile.role_label || null,
-        secret: enrolledSecret,
-        pending: false,
-        expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
-      }));
-      return c.json({
-        success: true,
-        requires2fa: true,
-        setupRequired: false,
-        challengeToken,
-      });
-    }
-
-    // First-time setup: generate secret server-side, store pending on challenge only
-    const newSecret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({
-      issuer: 'IndexpilotAI',
-      label: loginEmail,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: newSecret,
-    });
-    const otpauthUrl = totp.toString();
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
       email: loginEmail,
       userId: adminProfile.user_id || authUser.id,
-        isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
-      hotkey: adminProfile.hotkey || null,
+      isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
+      hotkey: adminProfile.hotkey || pressedHotkey || null,
       fullName: adminProfile.full_name || null,
       roleLabel: adminProfile.role_label || null,
-      secret: newSecret.base32,
-      pending: true,
+      emailVerified: false,
+      emailOtpHash: await sha256Hex(emailOtp),
+      emailOtpExpiresAt: Date.now() + ADMIN_EMAIL_OTP_TTL_MS,
+      emailOtpAttempts: 0,
       expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
     }));
 
+    const mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+    await logAdminSecurityEvent({
+      action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
+      status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
+    });
+
     return c.json({
       success: true,
-      requires2fa: true,
-      setupRequired: true,
+      emailOtpRequired: true,
       challengeToken,
-      otpauthUrl,
-      // Secret is returned ONCE for user to type into authenticator manually if
-      // QR scanning fails. It is not usable without also knowing the admin
-      // credentials that produced this challenge.
-      secretBase32: newSecret.base32,
+      maskedEmail: maskEmail(loginEmail),
+      mailed,
     });
   } catch (error: any) {
     console.error('Admin login error:', error);
     return c.json({ success: false, message: error.message || 'Login failed' }, 500);
   }
 });
+
+// Step 2: verify the emailed OTP, then hand out the Google Authenticator step.
+app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
+  try {
+    const { challengeToken, code } = await c.req.json();
+    if (!challengeToken || !code) {
+      return c.json({ success: false, message: 'challengeToken and code required' }, 400);
+    }
+    const key = `${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`;
+    const raw = await kv.get(key);
+    if (!raw) return c.json({ success: false, message: 'Session expired. Please log in again.' }, 401);
+    const ch = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!ch?.email || !ch.expiresAt || ch.expiresAt < Date.now()) {
+      await kv.del(key);
+      return c.json({ success: false, message: 'Session expired. Please log in again.' }, 401);
+    }
+    if (!ch.emailOtpExpiresAt || ch.emailOtpExpiresAt < Date.now()) {
+      return c.json({ success: false, message: 'Email code expired. Request a new one.' }, 401);
+    }
+    if ((ch.emailOtpAttempts || 0) >= 5) {
+      await kv.del(key);
+      await logAdminSecurityEvent({ action: 'admin_login_email_otp_locked', email: ch.email, status: 'blocked', c });
+      return c.json({ success: false, message: 'Too many wrong codes. Please log in again.' }, 429);
+    }
+
+    const ok = (await sha256Hex(String(code).trim())) === ch.emailOtpHash;
+    if (!ok) {
+      ch.emailOtpAttempts = (ch.emailOtpAttempts || 0) + 1;
+      await kv.set(key, JSON.stringify(ch));
+      await logAdminSecurityEvent({
+        action: 'admin_login_email_otp_failed', email: ch.email, status: 'failed',
+        metadata: { attempts: ch.emailOtpAttempts }, c,
+      });
+      return c.json({ success: false, message: 'Invalid email code' }, 401);
+    }
+
+    ch.emailVerified = true;
+    ch.emailOtpHash = null;
+
+    // Now resolve the Google Authenticator step.
+    const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${ch.email}`);
+    let otpauthUrl: string | null = null;
+    let secretBase32: string | null = null;
+    if (enrolledSecret) {
+      ch.secret = enrolledSecret;
+      ch.pending = false;
+    } else {
+      const newSecret = new OTPAuth.Secret({ size: 20 });
+      const totp = new OTPAuth.TOTP({
+        issuer: 'IndexpilotAI', label: ch.email, algorithm: 'SHA1', digits: 6, period: 30, secret: newSecret,
+      });
+      otpauthUrl = totp.toString();
+      secretBase32 = newSecret.base32;
+      ch.secret = newSecret.base32;
+      ch.pending = true;
+    }
+    ch.expiresAt = Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS;
+    await kv.set(key, JSON.stringify(ch));
+
+    await logAdminSecurityEvent({
+      action: 'admin_login_email_otp_verified', email: ch.email, userId: ch.userId, status: 'success', c,
+    });
+
+    return c.json({
+      success: true,
+      requires2fa: true,
+      setupRequired: !enrolledSecret,
+      challengeToken,
+      otpauthUrl,
+      secretBase32,
+    });
+  } catch (error: any) {
+    console.error('Admin email OTP verify error:', error);
+    return c.json({ success: false, message: error.message || 'Verification failed' }, 500);
+  }
+});
+
+// Resend the emailed OTP for an active login challenge.
+app.post("/make-server-c4d79cb7/admin/email-otp/resend", async (c) => {
+  try {
+    const { challengeToken } = await c.req.json();
+    const key = `${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken || ''}`;
+    const raw = challengeToken ? await kv.get(key) : null;
+    if (!raw) return c.json({ success: false, message: 'Session expired. Please log in again.' }, 401);
+    const ch = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (ch.emailVerified) return c.json({ success: false, message: 'Email already verified' }, 400);
+
+    const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
+    ch.emailOtpHash = await sha256Hex(emailOtp);
+    ch.emailOtpExpiresAt = Date.now() + ADMIN_EMAIL_OTP_TTL_MS;
+    ch.emailOtpAttempts = 0;
+    await kv.set(key, JSON.stringify(ch));
+
+    const mailed = await sendAdminEmailOtp(ch.email, ch.fullName || 'Admin', emailOtp);
+    await logAdminSecurityEvent({
+      action: 'admin_login_email_otp_resent', email: ch.email, status: mailed ? 'success' : 'failed', c,
+    });
+    return c.json({ success: true, mailed, maskedEmail: maskEmail(ch.email) });
+  } catch (error: any) {
+    return c.json({ success: false, message: error.message || 'Resend failed' }, 500);
+  }
+});
+
 
 app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
   try {
@@ -11401,6 +11642,10 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       await kv.del(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
       return c.json({ success: false, message: 'Challenge expired. Please log in again.' }, 401);
     }
+    if (!challenge.emailVerified) {
+      return c.json({ success: false, message: 'Email verification required before Google Authenticator.' }, 401);
+    }
+
 
     const ok = verifyTotpServerSide(challenge.secret, String(code), challenge.email);
     if (!ok) {
@@ -11462,6 +11707,29 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       console.warn('[ADMIN 2FA VERIFY] super-admin seed skipped:', seedErr);
     }
 
+    // 🕒 Open an admin session record (check-in). Powers the online/offline
+    // list plus login/logout duration reporting in the admin panel.
+    let adminSessionId: string | null = null;
+    try {
+      const ua = c.req.header('user-agent') || '';
+      const { data: sessRow } = await supabase.from('admin_sessions').insert({
+        admin_user_id: uid,
+        admin_email: challenge.email,
+        admin_name: fullName,
+        hotkey: hotkey || null,
+        login_method: challenge.pending ? 'hotkey+email_otp+totp_setup' : 'hotkey+email_otp+totp',
+        ip_address: clientIpOf(c),
+        user_agent: ua.slice(0, 500),
+        device: deviceOfUA(ua),
+        browser: browserOfUA(ua),
+      }).select('id').maybeSingle();
+      adminSessionId = sessRow?.id || null;
+    } catch (sErr) {
+      console.warn('[ADMIN 2FA VERIFY] session record failed:', sErr);
+    }
+
+
+
     const uniqueCode = Array.from({ length: 8 }, () =>
       'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
     ).join('');
@@ -11481,6 +11749,8 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       success: true,
       accessToken: sessionData.session.access_token,
       uniqueCode,
+      adminSessionId,
+
       admin: {
         id: uid,
         user_id: uid,
@@ -11495,6 +11765,89 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
   } catch (error: any) {
     console.error('Admin 2FA verify error:', error);
     return c.json({ success: false, message: error.message || 'Verification failed' }, 500);
+  }
+});
+
+// 💓 Session heartbeat — keeps the admin marked online.
+app.post("/make-server-c4d79cb7/admin/session/heartbeat", async (c) => {
+  try {
+    const { sessionId } = await c.req.json().catch(() => ({}));
+    const token = (c.req.header('authorization') || '').replace('Bearer ', '').trim();
+    const { data: u } = await supabase.auth.getUser(token);
+    const uid = u?.user?.id;
+    if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
+    const now = new Date().toISOString();
+    if (sessionId) {
+      await supabase.from('admin_sessions').update({ last_seen_at: now }).eq('id', sessionId).is('logout_at', null);
+    } else {
+      await supabase.from('admin_sessions').update({ last_seen_at: now })
+        .eq('admin_user_id', uid).is('logout_at', null);
+    }
+    await supabase.from('admin_profiles').update({ is_online: true, last_seen_at: now }).eq('user_id', uid);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
+  }
+});
+
+// 🚪 Admin logout — closes the session (check-out) and records the reason.
+app.post("/make-server-c4d79cb7/admin/session/logout", async (c) => {
+  try {
+    const { sessionId, reason } = await c.req.json().catch(() => ({}));
+    const token = (c.req.header('authorization') || '').replace('Bearer ', '').trim();
+    const { data: u } = await supabase.auth.getUser(token);
+    const uid = u?.user?.id;
+    if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
+    const now = new Date().toISOString();
+    const q = supabase.from('admin_sessions')
+      .update({ logout_at: now, last_seen_at: now, logout_reason: reason || 'manual' })
+      .is('logout_at', null);
+    if (sessionId) await q.eq('id', sessionId);
+    else await q.eq('admin_user_id', uid);
+
+    await supabase.from('admin_profiles').update({ is_online: false, last_seen_at: now }).eq('user_id', uid);
+    await supabase.from('admin_audit_events').insert({
+      actor_user_id: uid, actor_email: u?.user?.email || null,
+      action: 'admin_logout', module: 'auth', status: 'success',
+      ip_address: clientIpOf(c), user_agent: c.req.header('user-agent') || null,
+      details: { reason: reason || 'manual' },
+    });
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
+  }
+});
+
+// 📋 Admin sessions list (check-in / check-out report) — admins only.
+app.get("/make-server-c4d79cb7/admin/sessions", async (c) => {
+  try {
+    const token = (c.req.header('authorization') || '').replace('Bearer ', '').trim();
+    const { data: u } = await supabase.auth.getUser(token);
+    const uid = u?.user?.id;
+    if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
+    const { data: prof } = await supabase.from('admin_profiles')
+      .select('is_super_admin,status').eq('user_id', uid).maybeSingle();
+    if (!prof || prof.status !== 'active') return c.json({ success: false, message: 'Forbidden' }, 403);
+
+    const from = c.req.query('from');
+    const to = c.req.query('to');
+    let q = supabase.from('admin_sessions').select('*').order('login_at', { ascending: false }).limit(500);
+    if (from) q = q.gte('login_at', from);
+    if (to) q = q.lte('login_at', to);
+    if (!prof.is_super_admin) q = q.eq('admin_user_id', uid);
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const STALE_MS = 3 * 60 * 1000;
+    const sessions = (data || []).map((s: any) => {
+      const start = new Date(s.login_at).getTime();
+      const end = s.logout_at ? new Date(s.logout_at).getTime() : new Date(s.last_seen_at).getTime();
+      const online = !s.logout_at && Date.now() - new Date(s.last_seen_at).getTime() < STALE_MS;
+      return { ...s, online, duration_minutes: Math.max(0, Math.round((end - start) / 60000)) };
+    });
+    return c.json({ success: true, sessions });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
   }
 });
 
