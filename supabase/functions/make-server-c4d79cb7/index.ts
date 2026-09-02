@@ -10882,15 +10882,9 @@ app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
     
     console.log(`🔐 Generating unique code for hotkey: ${hotkey}`);
     
-    // Verify hotkey is valid — check against all stored hotkeys in KV
-    const storedHotkeys = await kv.getByPrefix('admin:hotkey:');
-    const validHotkeys: string[] = [
-      'GUHAN', // permanent default fallback
-      ...storedHotkeys.map((h: any) => {
-        const v = h.value || h;
-        return (typeof v === 'string' ? v : v.hotkey || '').toUpperCase();
-      }).filter(Boolean)
-    ];
+    // Verify hotkey is valid — per-admin hotkeys + legacy KV + permanent fallback
+    const validHotkeys: string[] = (await loadAdminHotkeyOwners()).map((o) => o.hotkey);
+
     
     if (!validHotkeys.includes(hotkey.toUpperCase())) {
       console.log(`❌ Invalid hotkey: ${hotkey} | Valid: ${validHotkeys.join(', ')}`);
