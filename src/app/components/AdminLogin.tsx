@@ -334,6 +334,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                     <Input
                       id="email"
                       type="text"
+                      autoComplete="off"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@example.com or username"
