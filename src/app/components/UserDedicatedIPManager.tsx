@@ -617,8 +617,15 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json().catch(() => ({}));
+      if (!data?.success && data?.needsManualScript && data?.command) {
+        setUpgradeCommand(data.command);
+        await checkUpgrade();
+        toast.warning('This VPS image has no remote update channel — run the one-line command shown below once (IP stays the same).');
+        return;
+      }
       if (!data?.success) throw new Error(data?.error || 'Automatic deployment failed');
       toast.success(data.message || 'Order server deployed on the same IP');
+
       await loadStatus();
       await checkUpgrade();
     } catch (err: any) {
