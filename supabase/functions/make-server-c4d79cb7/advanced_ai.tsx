@@ -2602,15 +2602,27 @@ export class AdvancedAI {
       lastCandle.close > breakoutHigh + anchorBreakTol &&
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
+    // On the very first bar of a session the "prior" levels still come from the
+    // previous day. If the session gapped, comparing today's price with yesterday's
+    // range fabricates a breakout/breakdown in the wrong direction — skip it.
+    const gapVsPriorSession =
+      priorSessionCandles.length === 0 && ohlcData.length > 1
+        ? Math.abs(lastCandle.open - ohlcData[ohlcData.length - 2].close)
+        : 0;
+    const staleGapLevels = gapVsPriorSession > Math.max(atr14 * 0.75, lastCandle.close * 0.0015);
     const bullishBreakoutClose =
+      !staleGapLevels &&
       lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
     const bearishBreakdownClose =
+      !staleGapLevels &&
       lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
     const bullishPriorHighBreakout =
+      !staleGapLevels &&
       lastCandle.close > previousCandleHigh &&
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
     const bearishPriorLowBreakdown =
+      !staleGapLevels &&
       lastCandle.close < previousCandleLow &&
       lastCandle.close < lastCandle.open &&
       breakoutCloseNearLow;
