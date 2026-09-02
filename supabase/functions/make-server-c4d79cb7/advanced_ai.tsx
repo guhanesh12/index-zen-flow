@@ -2615,6 +2615,7 @@ export class AdvancedAI {
       lastCandle.close < lastCandle.open &&
       breakoutCloseNearLow;
     const bullishDayHighBreakout =
+      dayLevelsReady &&
       dayBreakoutHigh > 0 &&
       (lastCandle.close > dayBreakoutHigh ||
         (lastCandle.high > dayBreakoutHigh &&
@@ -2622,6 +2623,7 @@ export class AdvancedAI {
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
     const bearishDayLowBreakdown =
+      dayLevelsReady &&
       dayBreakoutLow > 0 &&
       (lastCandle.close < dayBreakoutLow ||
         (lastCandle.low < dayBreakoutLow &&
