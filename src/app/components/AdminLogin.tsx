@@ -81,7 +81,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       if (raw) {
         const parsed = JSON.parse(raw);
         setHotkeyOwner(parsed);
-        if (parsed?.email) setEmail((prev) => prev || parsed.email);
+        // No autofill — the admin must type their own email/username.
       }
     } catch { /* ignore */ }
   }, []);
@@ -321,13 +321,6 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                         Ctrl/Cmd + Alt + {hotkeyOwner.hotkey}
                       </Badge>
                     </div>
-                    <p className="text-xs text-slate-300">
-                      Authorized admin:{' '}
-                      <span className="font-semibold text-emerald-300">
-                        {hotkeyOwner.username || hotkeyOwner.email || hotkeyOwner.name || '—'}
-                      </span>
-                      {hotkeyOwner.name && hotkeyOwner.username ? ` (${hotkeyOwner.name})` : ''}
-                    </p>
                     <p className="text-[11px] text-amber-300">
                       ⚠️ Use only your own username and password for this hotkey. Any other credentials are blocked
                       (restricted mode) and logged in admin activity. This window is valid for 1 minute.
@@ -341,6 +334,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                     <Input
                       id="email"
                       type="text"
+                      autoComplete="off"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@example.com or username"
