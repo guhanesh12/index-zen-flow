@@ -3344,7 +3344,7 @@ app.post("/make-server-c4d79cb7/get-ai-signal", async (c) => {
     });
 
     // Get market data with 50 candles using cached OHLC
-    const securityId = index === 'NIFTY' ? '13' : '25';
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const marketData = await dhanService.getMarketQuote(securityId, 'IDX_I');
 
     if (!marketData || !marketData.candles || marketData.candles.length < 50) {
@@ -3813,7 +3813,7 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
 
     // ⚡ PARALLEL FETCH (SAVE 200-500ms)
     const fetchStart = performance.now();
-    const securityId = index === 'BANKNIFTY' ? '25' : '13'; // NIFTY = 13, BANKNIFTY = 25
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const candleCount = Math.max(candles || 50, 250) + 1; // enough candles for stable EMA/ADX + running candle
     const candleInterval = interval || '5'; // Default to 5-minute candles
     
@@ -4278,7 +4278,7 @@ app.post("/make-server-c4d79cb7/backend-ai-signal", async (c) => {
       accessToken: credentials.dhanAccessToken 
     });
     
-    const securityId = index === 'NIFTY' ? '13' : index === 'BANKNIFTY' ? '25' : '13';
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 100);
     const dataEnd = performance.now();
     
@@ -4358,7 +4358,7 @@ app.post("/make-server-c4d79cb7/monitor-position", async (c) => {
       clientId: credentials.dhanClientId, 
       accessToken: credentials.dhanAccessToken 
     });
-    const securityId = index === 'NIFTY' ? '13' : index === 'BANKNIFTY' ? '25' : '13';
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 100);
     
     if (!ohlcData || ohlcData.length === 0) {
@@ -4493,6 +4493,45 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
       try {
         const securityId = getSecurityId(idx);
         console.log(`\n📊 Fetching ${idx} data (security ID: ${securityId})...`);
+
+        // The central publisher is the only source of tradable strategy decisions.
+        // This endpoint is also polled by browser UI; independently recomputing here
+        // used per-user candles/state and could show or trigger a different direction.
+        const central = await CentralMarketData.getLatestCentralSignal(idx, Number(interval)).catch(() => null);
+        if (central?.signal) {
+          results.push({
+            index: idx,
+            signal: {
+              ...central.signal,
+              index: idx,
+              timeframe: `${interval}M`,
+              candleClose: central.candleStamp,
+              central: true,
+            },
+            candlesProcessed: Number(central.signal?.candlesAnalyzed || 0),
+            processingTime: Math.round(performance.now() - dataStart),
+            source: 'CENTRAL_SIGNAL',
+          });
+          continue;
+        }
+
+        results.push({
+          index: idx,
+          signal: {
+            action: 'WAIT',
+            confidence: 0,
+            reasoning: `Central ${interval}M signal is not published yet; waiting for the closed candle`,
+            reason: 'Waiting for canonical central signal',
+            index: idx,
+            timeframe: `${interval}M`,
+            confirmations: { total: 0, required: 0, details: [] },
+            central: true,
+          },
+          candlesProcessed: 0,
+          processingTime: Math.round(performance.now() - dataStart),
+          source: 'CENTRAL_SIGNAL_PENDING',
+        });
+        continue;
         
         // ⚡ CRITICAL: Add 500ms delay between requests to avoid Dhan rate limiting (optimized for multi-symbol)
         // Note: Global rate limiter already adds 600ms between ALL Dhan API calls
