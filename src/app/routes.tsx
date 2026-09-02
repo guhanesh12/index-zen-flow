@@ -4,11 +4,12 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 // Landing page stays eager: it is the LCP route for search crawlers/first paint.
 import ModernLandingPage from './components/ModernLandingPage';
+import { lazyWithPreload, preloadOnIdle } from './utils/lazyPreload';
 // Everything else is code-split so the landing bundle stays small.
-const ModernLogin = lazy(() => import('./components/ModernLogin'));
-const PinGate = lazy(() => import('./components/PinGate'));
-const ModernRegistration = lazy(() => import('./components/ModernRegistration'));
-const TradingDashboard = lazy(() => import('./components/TradingDashboard'));
+const ModernLogin = lazyWithPreload(() => import('./components/ModernLogin'));
+const PinGate = lazyWithPreload(() => import('./components/PinGate'));
+const ModernRegistration = lazyWithPreload(() => import('./components/ModernRegistration'));
+const TradingDashboard = lazyWithPreload(() => import('./components/TradingDashboard'));
 const AdminLogin = lazy(() => import('./components/AdminLogin'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const DynamicPage = lazy(() => import('./components/DynamicPage'));
@@ -96,7 +97,13 @@ function PageViewTracker({ children }: { children: ReactNode }) {
 // Landing Page Wrapper with SPA navigation
 function LandingPageWrapper() {
   const navigate = useNavigate();
-  
+
+  // Warm the login/register chunks while the landing page is idle, so those
+  // buttons open instantly instead of downloading a chunk on click.
+  useEffect(() => {
+    preloadOnIdle(ModernLogin.preload, ModernRegistration.preload);
+  }, []);
+
   return (
     <ModernLandingPage 
       onSignInClick={() => {
@@ -121,6 +128,13 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   const [accessToken, setAccessToken] = useState<string>('');
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const navigate = useNavigate();
+
+  // Warm the PIN + dashboard chunks as soon as a protected route mounts, so
+  // unlocking flips straight to the dashboard with no chunk download.
+  useEffect(() => {
+    preloadOnIdle(PinGate.preload, TradingDashboard.preload);
+  }, []);
+  
   
   useEffect(() => {
     let mounted = true;
@@ -241,8 +255,10 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
   
+
   // Render dashboard with access token and logout handler
   console.log('🎯 ProtectedRoute: Rendering TradingDashboard');
+  
   
   const handleLogout = async () => {
     console.log('👋 Logging out...');
@@ -446,7 +462,12 @@ function DynamicPageWrapper() {
 // Wrapper for Login page - SIMPLIFIED - No session check to allow back button
 function LoginPageWrapper() {
   const navigate = useNavigate();
-  
+
+  // While the user types credentials, fetch the PIN + dashboard chunks.
+  useEffect(() => {
+    preloadOnIdle(PinGate.preload, TradingDashboard.preload, ModernRegistration.preload);
+  }, []);
+
   return (
     <ModernLogin 
       onLoginSuccess={(token) => {
@@ -470,7 +491,12 @@ function LoginPageWrapper() {
 // Wrapper for Registration page - SIMPLIFIED - No session check to allow back button
 function RegistrationPageWrapper() {
   const navigate = useNavigate();
-  
+
+  // Warm login + PIN + dashboard chunks while the form is being filled in.
+  useEffect(() => {
+    preloadOnIdle(ModernLogin.preload, PinGate.preload, TradingDashboard.preload);
+  }, []);
+
   return (
     <ModernRegistration 
       onRegistrationSuccess={(token) => {
