@@ -81,7 +81,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       if (raw) {
         const parsed = JSON.parse(raw);
         setHotkeyOwner(parsed);
-        if (parsed?.email) setEmail((prev) => prev || parsed.email);
+        // No autofill — the admin must type their own email/username.
       }
     } catch { /* ignore */ }
   }, []);
