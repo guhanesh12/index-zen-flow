@@ -2134,6 +2134,24 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   Open Dhan Account
                 </a>
               </div>
+
+              {/* Google Play CTA in Footer */}
+              <div className="mb-4">
+                <a
+                  href={content.hero?.playStoreLink || DEFAULT_CONTENT.hero.playStoreLink}
+                  target="_blank"
+                  rel="noopener"
+                  aria-label="Download the IndexpilotAI Android app on Google Play"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black border border-emerald-500/40 hover:border-emerald-400 text-white text-sm font-semibold transition-all"
+                >
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                    <path d="M3.6 1.6c-.4.4-.6 1-.6 1.7v17.4c0 .7.2 1.3.6 1.7l11.3-10.8L3.6 1.6zm12.3 11.2l3.4-3.3-12.4-7.1 9 10.4zm-9 11.2l12.4-7.1-3.4-3.3-9 10.4zm12.9-7.5l3.5-2c.7-.4.7-1.4 0-1.8l-3.4-2-3.6 3.4 3.5 2.4z" />
+                  </svg>
+                  Get it on Google Play
+                </a>
+              </div>
+
+
               
               <div className="flex items-center gap-3">
                 <a href="#" className="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors">
