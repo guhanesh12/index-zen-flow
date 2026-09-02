@@ -308,7 +308,34 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {hotkeyOwner?.hotkey && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-1"
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Key className="size-4 text-emerald-400" />
+                      <span className="text-xs text-emerald-300">Hotkey pressed:</span>
+                      <Badge variant="outline" className="font-mono text-xs border-emerald-500/40 text-emerald-300">
+                        Ctrl/Cmd + Alt + {hotkeyOwner.hotkey}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-slate-300">
+                      Authorized admin:{' '}
+                      <span className="font-semibold text-emerald-300">
+                        {hotkeyOwner.username || hotkeyOwner.email || hotkeyOwner.name || '—'}
+                      </span>
+                      {hotkeyOwner.name && hotkeyOwner.username ? ` (${hotkeyOwner.name})` : ''}
+                    </p>
+                    <p className="text-[11px] text-amber-300">
+                      ⚠️ Use only your own username and password for this hotkey. Any other credentials are blocked
+                      (restricted mode) and logged in admin activity. This window is valid for 1 minute.
+                    </p>
+                  </motion.div>
+                )}
                 <form onSubmit={handleCredentialsSubmit} className="space-y-4">
+
                   <div className="space-y-2">
                     <Label htmlFor="email" className="text-slate-300">Email or Username</Label>
                     <Input
