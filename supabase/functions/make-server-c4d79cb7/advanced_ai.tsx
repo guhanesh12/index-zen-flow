@@ -3937,6 +3937,36 @@ export class AdvancedAI {
       }
     }
 
+    // ⚡ INTRADAY DIRECTION VETO ⚡
+    // Multi-day structure (EMA/RSI/regime) can stay "DOWNTREND" for the whole day after a
+    // gap-down, which used to approve BUY_PUT even while today's session was rallying to a
+    // new day high. Never take a side that fights today's own session direction.
+    let intradayVeto: string | null = null;
+    if (action !== "WAIT" && dayLevelsReady) {
+      const sessionHigh = Math.max(...priorSessionCandles.map((c) => c.high));
+      const sessionLow = Math.min(...priorSessionCandles.map((c) => c.low));
+      const vetoTol = Math.max(atr14 * 0.1, lastCandle.close * 0.0002);
+      const makingDayHigh =
+        lastCandle.close > sessionHigh - vetoTol && lastCandle.close > lastCandle.open;
+      const makingDayLow =
+        lastCandle.close < sessionLow + vetoTol && lastCandle.close < lastCandle.open;
+      const aboveSessionVwap = lastCandle.close > vwap;
+      const belowSessionVwap = lastCandle.close < vwap;
+
+      if (action === "BUY_PUT" && makingDayHigh && aboveSessionVwap) {
+        intradayVeto = `⚠️ WAIT: BUY_PUT blocked — candle closed ${lastCandle.close.toFixed(2)} at a NEW DAY HIGH (day high ${sessionHigh.toFixed(2)}) and above session VWAP ${vwap.toFixed(2)}. Today's session is moving UP; multi-day downtrend is stale.`;
+      } else if (action === "BUY_CALL" && makingDayLow && belowSessionVwap) {
+        intradayVeto = `⚠️ WAIT: BUY_CALL blocked — candle closed ${lastCandle.close.toFixed(2)} at a NEW DAY LOW (day low ${sessionLow.toFixed(2)}) and below session VWAP ${vwap.toFixed(2)}. Today's session is moving DOWN.`;
+      }
+
+      if (intradayVeto) {
+        action = "WAIT";
+        bias = "Neutral";
+        confidence = 35;
+        reasoning = intradayVeto;
+      }
+    }
+
     const executionTime = performance.now() - startTime;
 
     return {
