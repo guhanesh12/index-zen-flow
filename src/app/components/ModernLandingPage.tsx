@@ -775,11 +775,30 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { icon: TrendingUp, value: '68%', label: 'Win Rate', color: 'from-green-500 to-green-600', iconColor: 'text-green-400' },
-              { icon: DollarSign, value: '₹450', label: 'Avg Profit', color: 'from-cyan-500 to-cyan-600', iconColor: 'text-cyan-400' },
-              { icon: Users, value: '500+', label: 'Active Users', color: 'from-purple-500 to-purple-600', iconColor: 'text-purple-400' },
-              { icon: Activity, value: '1000+', label: 'Trades/Day', color: 'from-yellow-500 to-yellow-600', iconColor: 'text-yellow-400' }
-            ].map((stat, index) => (
+            {(() => {
+              const iconMap: Record<string, any> = { TrendingUp, DollarSign, Users, Activity };
+              const colorMap: Record<string, { color: string; iconColor: string }> = {
+                green:  { color: 'from-green-500 to-green-600',   iconColor: 'text-green-400' },
+                cyan:   { color: 'from-cyan-500 to-cyan-600',     iconColor: 'text-cyan-400' },
+                purple: { color: 'from-purple-500 to-purple-600', iconColor: 'text-purple-400' },
+                yellow: { color: 'from-yellow-500 to-yellow-600', iconColor: 'text-yellow-400' },
+              };
+              const fallback = [
+                { value: '89%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
+                { value: '₹3570', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
+                { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
+                { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' },
+              ];
+              const list = (content as any)?.stats?.length ? (content as any).stats : fallback;
+              return list.map((s: any, i: number) => ({
+                icon: iconMap[s.icon] || TrendingUp,
+                value: s.value,
+                label: s.label,
+                ...(colorMap[s.color] || colorMap.green),
+                __i: i,
+              }));
+            })().map((stat, index) => (
+
               <motion.div
                 key={index}
                 initial={{ opacity: 0, y: 30 }}
