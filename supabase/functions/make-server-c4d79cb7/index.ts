@@ -4487,11 +4487,22 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         const securityId = getSecurityId(idx);
         console.log(`\n📊 Fetching ${idx} data (security ID: ${securityId})...`);
 
-        // The central publisher is the only source of tradable strategy decisions.
-        // This endpoint is also polled by browser UI; independently recomputing here
-        // used per-user candles/state and could show or trigger a different direction.
-        const central = await CentralMarketData.getLatestCentralSignal(idx, Number(interval)).catch(() => null);
-        if (central?.signal) {
+        // The central publisher is the canonical source of tradable decisions, but it is
+        // only trusted when it belongs to the candle that just closed (or the one before,
+        // to tolerate settlement lag). A stale or missing central signal must NOT be
+        // served as "live" — we fall back to the local analysis below in that case.
+        const _tfMinutes = Number(interval);
+        const _tfBoundaryMs = _tfMinutes * 60 * 1000;
+        const _istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        const _stampFor = (offsetBoundaries: number) => {
+          const d = new Date(Math.floor(_istNow.getTime() / _tfBoundaryMs) * _tfBoundaryMs - offsetBoundaries * _tfBoundaryMs);
+          return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+        };
+        const _freshStamps = [_stampFor(0), _stampFor(1)];
+
+        const central = await CentralMarketData.getLatestCentralSignal(idx, _tfMinutes).catch(() => null);
+        const centralFresh = !!central?.signal && _freshStamps.includes(String(central.candleStamp));
+        if (centralFresh) {
           results.push({
             index: idx,
             signal: {
@@ -4508,24 +4519,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           continue;
         }
 
-        results.push({
-          index: idx,
-          signal: {
-            action: 'WAIT',
-            confidence: 0,
-            reasoning: `Central ${interval}M signal is not published yet; waiting for the closed candle`,
-            reason: 'Waiting for canonical central signal',
-            index: idx,
-            timeframe: `${interval}M`,
-            confirmations: { total: 0, required: 0, details: [] },
-            central: true,
-          },
-          candlesProcessed: 0,
-          processingTime: Math.round(performance.now() - dataStart),
-          source: 'CENTRAL_SIGNAL_PENDING',
-        });
-        continue;
-        
+        if (central?.signal) {
+          console.log(`⚠️ ${idx}: central ${interval}M signal is stale (candle ${central.candleStamp}, expected ${_freshStamps.join('/')}) — recomputing locally`);
+        } else {
+          console.log(`⚠️ ${idx}: no central ${interval}M signal published — recomputing locally`);
+        }
+
         // ⚡ CRITICAL: Add 500ms delay between requests to avoid Dhan rate limiting (optimized for multi-symbol)
         // Note: Global rate limiter already adds 600ms between ALL Dhan API calls
         if (results.length > 0) {
@@ -4534,7 +4533,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         }
         
         // Professional MTF: entry timeframe + REAL 15m + REAL 1H trend candles.
-        const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 50);
+        // Prefer the shared central data feed so all users analyse identical candles;
+        // the user's own Dhan token is used only as a fallback.
+        const ohlcData = (await CentralMarketData.getCentralOHLC(securityId, interval.toString(), 50, dhanService)
+          .then((r: any) => r.candles)
+          .catch(() => null)) || (await dhanService.getOHLCData(securityId, interval.toString(), 50));
+
         const real15mData = interval === '15' ? ohlcData : await dhanService.getOHLCData(securityId, '15', 80);
         // FIX 3: 1H higher timeframe (best-effort, non-blocking on failure)
         let real1hData: any[] = [];
