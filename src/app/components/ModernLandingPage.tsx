@@ -643,28 +643,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   ))}
                 </motion.div>
 
-                <motion.div 
-                  className="mt-2 p-4 rounded-2xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30"
-                  variants={itemVariants}
-                  whileHover={{ scale: 1.02, borderColor: 'rgba(249, 115, 22, 0.5)' }}
-                >
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-center sm:text-left">
-                      <p className="text-sm text-orange-400 font-semibold mb-1">Don't have a Dhan account?</p>
-                      <p className="text-xs text-slate-400">Open your trading account in minutes</p>
-                    </div>
-                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                      <Button 
-                        onClick={() => window.open(content.hero.dhanAccountLink || 'https://login.dhan.co/', '_blank')}
-                        size="lg"
-                        className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-base px-8 py-5 shadow-2xl shadow-orange-500/30 font-semibold"
-                      >
-                        Open Dhan Account
-                        <ArrowRight className="ml-2 w-5 h-5" />
-                      </Button>
-                    </motion.div>
-                  </div>
-                </motion.div>
+
+
 
                 <motion.div className="flex items-center gap-6 pt-8" variants={itemVariants}>
                   <div className="flex -space-x-2">
