@@ -248,11 +248,6 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
   
-  // Warm the PIN + dashboard chunks as soon as a protected route mounts, so
-  // pressing "unlock" flips straight to the dashboard with no chunk download.
-  useEffect(() => {
-    preloadOnIdle(PinGate.preload, TradingDashboard.preload);
-  }, []);
 
   // Render dashboard with access token and logout handler
   console.log('🎯 ProtectedRoute: Rendering TradingDashboard');
