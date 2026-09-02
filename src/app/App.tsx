@@ -68,24 +68,15 @@ export default function App() {
     });
 
     
-    // Initialize hotkey system
-    window.adminHotkeys = ['GUHAN']; // Default fallback
+    // Initialize hotkey system (matching happens server-side so that every
+    // admin's personal hotkey works without exposing the hotkey list).
+    window.adminHotkeys = [];
     window.adminKeySequence = '';
     window.hotkeyDebugMode = false;
 
-    // Load admin hotkeys from server
-    loadAdminHotkeys();
+    const hotkeyRefreshInterval = 0;
+    const handleHotkeyUpdate = () => {};
 
-    // Auto-refresh hotkeys every 60 seconds
-    const hotkeyRefreshInterval = setInterval(() => {
-      loadAdminHotkeys().catch(() => {});
-    }, 60000);
-
-    // Listen for hotkey updates
-    const handleHotkeyUpdate = () => {
-      loadAdminHotkeys();
-    };
-    window.addEventListener('admin-hotkeys-updated', handleHotkeyUpdate);
 
     // Setup admin hotkey listener
     const handleKeyPress = (e: KeyboardEvent) => {
