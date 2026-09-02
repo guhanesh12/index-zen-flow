@@ -71,6 +71,21 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
   const [challengeToken, setChallengeToken] = useState<string>('');
   const [showHotkeyHint, setShowHotkeyHint] = useState(false);
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
+  // Owner of the hotkey that opened this 1-minute window (set by the global
+  // hotkey listener). Only these credentials are allowed to log in here.
+  const [hotkeyOwner, setHotkeyOwner] = useState<{ hotkey?: string; email?: string; name?: string; username?: string } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('admin_hotkey_owner');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setHotkeyOwner(parsed);
+        if (parsed?.email) setEmail((prev) => prev || parsed.email);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
 
   const otpInputRefs = [
     useRef<HTMLInputElement>(null),
