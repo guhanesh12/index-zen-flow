@@ -31,6 +31,7 @@ import { publicAnonKey } from '@/utils-ext/supabase/info';
 import { supabase } from '@/utils-ext/supabase/client';
 import { trackPageView } from './hooks/useAnalyticsTracking';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
+import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 
 // 🔧 SERVER URL - Using centralized API service
 const serverUrl = getBaseUrl();
@@ -53,7 +54,7 @@ function PageViewTracker({ children }: { children: ReactNode }) {
     
     // Send immediate heartbeat to mark visitor as active
     const sendHeartbeat = () => {
-      fetch(`${serverUrl}/analytics/heartbeat`, {
+      fetchWithApiFallback(`/analytics/heartbeat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

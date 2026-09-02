@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect, useCallback } from 'react';
+import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 import { motion, AnimatePresence } from 'motion/react';
 import { AdminSideNav } from './AdminSideNav';
 
@@ -83,7 +84,7 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
       : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
     const sessionId = sessionStorage.getItem('admin_session_id') || null;
     const beat = () => {
-      fetch(`${base}/admin/session/heartbeat`, {
+      fetchWithApiFallback('/admin/session/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${realAccessToken}` },
         body: JSON.stringify({ sessionId }),
