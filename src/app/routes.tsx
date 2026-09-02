@@ -4,11 +4,12 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 // Landing page stays eager: it is the LCP route for search crawlers/first paint.
 import ModernLandingPage from './components/ModernLandingPage';
+import { lazyWithPreload, preloadOnIdle } from './utils/lazyPreload';
 // Everything else is code-split so the landing bundle stays small.
-const ModernLogin = lazy(() => import('./components/ModernLogin'));
-const PinGate = lazy(() => import('./components/PinGate'));
-const ModernRegistration = lazy(() => import('./components/ModernRegistration'));
-const TradingDashboard = lazy(() => import('./components/TradingDashboard'));
+const ModernLogin = lazyWithPreload(() => import('./components/ModernLogin'));
+const PinGate = lazyWithPreload(() => import('./components/PinGate'));
+const ModernRegistration = lazyWithPreload(() => import('./components/ModernRegistration'));
+const TradingDashboard = lazyWithPreload(() => import('./components/TradingDashboard'));
 const AdminLogin = lazy(() => import('./components/AdminLogin'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const DynamicPage = lazy(() => import('./components/DynamicPage'));
