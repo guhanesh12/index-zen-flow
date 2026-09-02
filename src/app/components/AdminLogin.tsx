@@ -18,6 +18,7 @@ interface AdminLoginProps {
   accessToken: string;
   onClose?: () => void;
   pressedHotkey?: string; // Track which hotkey was pressed to access login
+  uniqueCode?: string; // Hotkey session code (1-minute window, bound to hotkey owner)
 }
 
 // 🔒 SECURITY: Do NOT hardcode admin passwords or hotkey secrets here.
@@ -57,7 +58,7 @@ const SUPABASE_FN_BASE =
     : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
 
 
-export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHotkey }: AdminLoginProps) {
+export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHotkey, uniqueCode }: AdminLoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -91,13 +92,21 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          uniqueCode: uniqueCode || sessionStorage.getItem('admin_unique_code') || '',
+        }),
       });
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        setError(data.message || 'Invalid email or password');
+        setError(
+          data.restricted
+            ? `🚫 ${data.message || 'Restricted mode: access denied.'}`
+            : (data.message || 'Invalid email or password'),
+        );
         trackLogin(email, 'failed');
         return;
       }
