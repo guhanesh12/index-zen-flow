@@ -16,7 +16,7 @@ export function AboutUs() {
         title="About Us - IndexPilotAI"
         description="Learn about IndexPilotAI - a modern algorithmic trading platform providing automated trading tools, broker integrations, and real-time monitoring for Indian stock markets."
         keywords="about IndexPilotAI, algorithmic trading platform, automated trading, broker integration, trading technology"
-        canonical="/about"
+        canonical="https://www.indexpilotai.com/about-us"
       />
       
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -38,9 +38,9 @@ export function AboutUs() {
             <CardHeader className="border-b border-slate-700">
               <div className="flex items-center gap-3 mb-2">
                 <Building2 className="size-8 text-cyan-400" />
-                <CardTitle className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
                   About Us
-                </CardTitle>
+              </h1>
               </div>
               <p className="text-slate-300 text-lg italic">Powering Smart Trading with Technology</p>
             </CardHeader>

@@ -16,7 +16,7 @@ export function Disclaimer() {
         title="Disclaimer - IndexPilotAI"
         description="Important disclaimers and risk warnings for IndexPilotAI algorithmic trading platform. Trading involves high risk. No profit guarantees. Not SEBI registered."
         keywords="trading disclaimer, risk warning, no profit guarantee, investment risk, algorithmic trading risk"
-        canonical="/disclaimer"
+        canonical="https://www.indexpilotai.com/disclaimer"
       />
       
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -38,9 +38,9 @@ export function Disclaimer() {
             <CardHeader className="border-b border-slate-700">
               <div className="flex items-center gap-3 mb-2">
                 <AlertTriangle className="size-8 text-red-400" />
-                <CardTitle className="text-3xl font-bold bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent">
                   Disclaimer
-                </CardTitle>
+              </h1>
               </div>
               <p className="text-sm text-slate-400">Last Updated: 01/04/2026</p>
             </CardHeader>
