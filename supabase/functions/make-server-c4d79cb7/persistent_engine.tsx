@@ -1258,22 +1258,19 @@ class PersistentTradingEngine {
           this.lastCandleFireKey = key;
           // 🛰️ Publish the shared central signal FIRST (independent of any user engine)
           // so every user's tick reuses the exact same signal from cache instantly.
-          inflight.push(
-            this.publishCentralSignals(istNow).catch((e: any) =>
-              console.error(`❌ [CENTRAL-PUB] ${e?.message || e}`)
-            ),
-          );
-
           lastLatencyMs = msIntoMinute;
           fires++;
           console.log(
             `⚡ [CANDLE-WATCH] Minute boundary ${h}:${String(m).padStart(2, "0")} → firing engine tick at +${msIntoMinute}ms`,
           );
-          // Fire immediately (forced: bypass the 1-minute cron lock) and keep polling.
+          // Publish first, then run users. Previously these were started in parallel,
+          // so a fast user tick could miss the shared cache and independently analyse
+          // a different candle set. Keep this chain ordered for one canonical result.
           inflight.push(
-            this.runCronTick(true).catch((e: any) =>
-              console.error(`❌ [CANDLE-WATCH] Tick failed: ${e?.message || e}`)
-            ),
+            this.publishCentralSignals(istNow)
+              .catch((e: any) => console.error(`❌ [CENTRAL-PUB] ${e?.message || e}`))
+              .then(() => this.runCronTick(true))
+              .catch((e: any) => console.error(`❌ [CANDLE-WATCH] Tick failed: ${e?.message || e}`)),
           );
         }
 
@@ -1284,14 +1281,10 @@ class PersistentTradingEngine {
           // Re-fetch and overwrite the shared signal after the broker's settlement
           // window. The first +700ms pass may legitimately not contain the just-closed bar.
           inflight.push(
-            this.publishCentralSignals(istNow, true).catch((e: any) =>
-              console.error(`❌ [CENTRAL-PUB] Retry failed: ${e?.message || e}`)
-            ),
-          );
-          inflight.push(
-            this.runCronTick(true).catch((e: any) =>
-              console.error(`❌ [CANDLE-WATCH] Retry tick failed: ${e?.message || e}`)
-            ),
+            this.publishCentralSignals(istNow, true)
+              .catch((e: any) => console.error(`❌ [CENTRAL-PUB] Retry failed: ${e?.message || e}`))
+              .then(() => this.runCronTick(true))
+              .catch((e: any) => console.error(`❌ [CANDLE-WATCH] Retry tick failed: ${e?.message || e}`)),
           );
         }
 
@@ -1549,16 +1542,18 @@ class PersistentTradingEngine {
             if (primary.source === "user") {
               console.warn(`🟡 [CENTRAL] ${indexName} fell back to user market data (${userId})`);
             }
-            // ⚡ Dhan index candles use close-time timestamps (09:30 means 09:15-09:30 CLOSED).
-            // Keep the latest bar as soon as its timestamp is <= the current closed boundary;
-            // only strip future/actively-forming close timestamps.
+            // Dhan timestamps are bar OPEN times. At 09:45, a bar stamped 09:45 is
+            // forming and only timestamps before 09:45 are safe. This must exactly
+            // match the central publisher or fallback analysis can flip the signal.
             const stripForming = (arr: any[], tfMin: number) => {
               if (!arr || arr.length < 2) return arr;
-              const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
-              const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
               const tfMs = tfMin * 60 * 1000;
-              const currentClosedBoundaryMs = Math.floor(Date.now() / tfMs) * tfMs;
-              return lastTsMs > currentClosedBoundaryMs ? arr.slice(0, -1) : arr;
+              const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
+              return arr.filter((c: any) => {
+                const raw = Number(c?.timestamp || 0);
+                const timestampMs = raw > 0 && raw < 1e12 ? raw * 1000 : raw;
+                return timestampMs > 0 && timestampMs < formingStartMs;
+              });
             };
             // ⚡ BUG FIX 1: Resample primary lower-TF candles into 15m if separate 15m feed is sparse/stale.
             const resampleTo15m = (arr: any[], srcTfMin: number) => {
@@ -1606,8 +1601,11 @@ class PersistentTradingEngine {
               } else {
                 // Cooldown/streak state is GLOBAL (not per-user) so the strategy output is
                 // identical for every user on the same candle.
-                const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${indexName}`)) || 0;
-                const lastSignalDirection = (await kv.get(`central:last_signal_dir:${indexName}`)) || "WAIT";
+                // 5M and 15M are independent strategy streams. Sharing these keys let
+                // a 5M decision suppress/change the simultaneous 15M decision.
+                const signalStateKey = `${indexName}:${tfMin}`;
+                const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${signalStateKey}`)) || 0;
+                const lastSignalDirection = (await kv.get(`central:last_signal_dir:${signalStateKey}`)) || "WAIT";
                 const lastStopLossTimestamp = (await kv.get(`central:last_sl_ts:${indexName}`)) || 0;
                 const lastStopLossDirection = (await kv.get(`central:last_sl_dir:${indexName}`)) || null;
                 const consecutiveLossCount = Number((await kv.get(`central:loss_streak:${indexName}`)) || 0);
@@ -1632,10 +1630,10 @@ class PersistentTradingEngine {
                 (sig as any).signalSource = primary.source === "central" ? "CENTRAL_DATA" : "USER_DATA";
                 if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
                   await kv.set(
-                    `central:last_signal_ts:${indexName}`,
+                    `central:last_signal_ts:${signalStateKey}`,
                     ohlcData[ohlcData.length - 1].timestamp || Date.now(),
                   );
-                  await kv.set(`central:last_signal_dir:${indexName}`, sig.action);
+                  await kv.set(`central:last_signal_dir:${signalStateKey}`, sig.action);
                 }
                 await saveCentralSignal(indexName, tfMin, currentCandleTimestamp, sig);
                 aiSignal = { signal: sig };
@@ -4027,7 +4025,9 @@ class PersistentTradingEngine {
         this.CENTRAL_PUBLISH_INDEXES.map(async (idx) => {
           try {
             const stamp = this.getCurrentCandleTimestamp(istNow, tf);
-            if (!forceRefresh && (await getCachedCentralSignal(idx.name, tf, stamp))) return;
+            // A candle's first published decision is immutable. The +6s retry may fill
+            // a missing candle, but must never replace a signal already traded at +700ms.
+            if (await getCachedCentralSignal(idx.name, tf, stamp)) return;
 
             const tfMs = tf * 60 * 1000;
             const toMs = (t: any) => {
@@ -4072,8 +4072,9 @@ class PersistentTradingEngine {
             // 🛡️ ANTI-WHIPSAW STATE (restored): the pre-central path fed the strategy
             // last-signal / stop-loss cooldown / loss-streak context. Without it the
             // publisher happily emitted CE then PE on the next candle.
-            const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${idx.name}`)) || 0;
-            const lastSignalDirection = (await kv.get(`central:last_signal_dir:${idx.name}`)) || "WAIT";
+            const signalStateKey = `${idx.name}:${tf}`;
+            const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${signalStateKey}`)) || 0;
+            const lastSignalDirection = (await kv.get(`central:last_signal_dir:${signalStateKey}`)) || "WAIT";
             const lastStopLossTimestamp = (await kv.get(`central:last_sl_ts:${idx.name}`)) || 0;
             const lastStopLossDirection = (await kv.get(`central:last_sl_dir:${idx.name}`)) || null;
             const consecutiveLossCount = Number((await kv.get(`central:loss_streak:${idx.name}`)) || 0);
@@ -4099,8 +4100,8 @@ class PersistentTradingEngine {
             (sig as any).barCloseAt = new Date(formingStartMs).toISOString();
             (sig as any).signalSource = "CENTRAL_DATA";
             if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
-              await kv.set(`central:last_signal_ts:${idx.name}`, lastClosedMs || Date.now());
-              await kv.set(`central:last_signal_dir:${idx.name}`, sig.action);
+              await kv.set(`central:last_signal_ts:${signalStateKey}`, lastClosedMs || Date.now());
+              await kv.set(`central:last_signal_dir:${signalStateKey}`, sig.action);
             }
             await saveCentralSignal(idx.name, tf, stamp, sig);
             published++;
