@@ -1051,39 +1051,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
             </div>
           </motion.div>
 
-          {/* Open Dhan Account CTA */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8, delay: 0.8 }}
-            className="mt-12 text-center"
-          >
-            <div className="max-w-2xl mx-auto p-8 rounded-3xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30">
-              <h3 className="text-2xl font-bold text-white mb-3">
-                New to Dhan? Start Trading Today
-              </h3>
-              <p className="text-slate-400 mb-6">
-                Open your Dhan trading account in minutes and start using IndexpilotAI with lightning-fast execution
-              </p>
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Button 
-                  onClick={() => window.open(content.hero.dhanAccountLink || 'https://login.dhan.co/', '_blank')}
-                  size="lg"
-                  className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-lg px-12 py-6 shadow-2xl shadow-orange-500/30 font-bold"
-                >
-                  Open Dhan Account Free
-                  <ArrowRight className="ml-2 w-5 h-5" />
-                </Button>
-              </motion.div>
-              <p className="text-xs text-slate-400 mt-4">
-                ✓ Free account opening  •  ✓ Zero brokerage on delivery  •  ✓ Fast KYC process
-              </p>
-            </div>
-          </motion.div>
+
+
         </div>
       </section>
 
