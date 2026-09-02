@@ -4096,9 +4096,26 @@ class PersistentTradingEngine {
               minimumBarsBetweenSignals: 1,
               blockNewEntriesAfterMinutes: 15 * 60 + 15,
             });
-            (sig as any).timestamp = lastClosedMs || Date.now();
+            const istHHMM = (ms: number) => {
+              const d = new Date(ms + 5.5 * 60 * 60 * 1000);
+              return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+            };
+            // The stamp is the candle CLOSE. Refuse to file a decision under a stamp
+            // that does not match the bar it was actually computed from — that is what
+            // made 15M history read "09:30 PUT" when the PUT really fired at 11:15.
+            const derivedClose = istHHMM(lastClosedMs + tfMs);
+            if (derivedClose !== stamp) {
+              console.warn(
+                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m skipped — bar closes ${derivedClose}, expected stamp ${stamp}`,
+              );
+              return;
+            }
+            (sig as any).timestamp = lastClosedMs;
+            (sig as any).candleOpenIst = istHHMM(lastClosedMs);
+            (sig as any).candleCloseIst = derivedClose;
             (sig as any).barCloseAt = new Date(formingStartMs).toISOString();
             (sig as any).signalSource = "CENTRAL_DATA";
+
             if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
               await kv.set(`central:last_signal_ts:${signalStateKey}`, lastClosedMs || Date.now());
               await kv.set(`central:last_signal_dir:${signalStateKey}`, sig.action);

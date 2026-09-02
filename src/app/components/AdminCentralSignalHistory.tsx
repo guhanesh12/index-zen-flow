@@ -148,6 +148,20 @@ export function AdminCentralSignalHistory({ serverUrl, accessToken }: Props) {
                                 <Badge className={`${tone(s.action)} text-[10px]`}>{s.action}</Badge>
                                 <span className="font-medium">{s.confidence}%</span>
                               </div>
+                              <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+                                {s.barOpen && s.barClose && (
+                                  <Badge variant="secondary" className="text-[10px] font-normal">
+                                    candle {s.barOpen} → {s.barClose}
+                                  </Badge>
+                                )}
+                                {s.publishedIst && <span>published {s.publishedIst}</span>}
+                                {typeof s.delaySec === 'number' && s.delaySec > 90 && (
+                                  <Badge variant="destructive" className="text-[10px]">+{s.delaySec}s late</Badge>
+                                )}
+                                {s.stale && (
+                                  <Badge variant="destructive" className="text-[10px]">stale candle</Badge>
+                                )}
+                              </div>
                               <div className="text-muted-foreground">
                                 {s.bias ? `${s.bias} · ` : ''}
                                 {s.marketState || '—'}
@@ -157,6 +171,7 @@ export function AdminCentralSignalHistory({ serverUrl, accessToken }: Props) {
                               </div>
                               {s.reason && <p className="text-[11px] leading-snug">{s.reason}</p>}
                             </div>
+
                           ))
                       ) : (
                         <div className="rounded-md border border-dashed p-2 text-[11px] text-muted-foreground">

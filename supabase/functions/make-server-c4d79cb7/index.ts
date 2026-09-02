@@ -7707,13 +7707,39 @@ app.get("/make-server-c4d79cb7/admin/market-data/signal-history", async (c) => {
         const stamp = `${parts[4]}:${parts[5]}`;
         const sig = r.value?.signal || null;
         if (!indexName || !tf || !sig) return null;
+
+        // The stamp is the candle CLOSE time. The bar actually analysed is the one
+        // that OPENED tf minutes earlier — surface both so entries can be audited
+        // against the chart without guessing which candle produced the decision.
+        const istHHMM = (ms: number) => {
+          const d = new Date(ms + 5.5 * 60 * 60 * 1000);
+          return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+        };
+        const rawTs = Number(sig.timestamp || 0);
+        const barOpenMs = rawTs > 0 && rawTs < 1e12 ? rawTs * 1000 : rawTs;
+        const barOpen = barOpenMs > 0 ? istHHMM(barOpenMs) : null;
+        const barClose = barOpenMs > 0 ? istHHMM(barOpenMs + tf * 60 * 1000) : null;
+        const publishedAt = r.value?.at || null;
+        const publishedIst = publishedAt ? istHHMM(Number(publishedAt)) : null;
+        // A healthy publish lands within seconds of the bar close. Anything else
+        // means the row was written off a stale or still-forming candle.
+        const stale = !!barClose && barClose !== stamp;
+        const delaySec = publishedAt && barOpenMs > 0
+          ? Math.round((Number(publishedAt) - (barOpenMs + tf * 60 * 1000)) / 1000)
+          : null;
+
         return {
           date,
           index: indexName,
           timeframe: `${tf}m`,
           tf,
           candleStamp: stamp,
-          publishedAt: r.value?.at || null,
+          barOpen,
+          barClose,
+          stale,
+          delaySec,
+          publishedAt,
+          publishedIst,
           action: sig.action || 'WAIT',
           confidence: Number(sig.confidence || 0),
           bias: sig.bias || null,
@@ -7724,6 +7750,7 @@ app.get("/make-server-c4d79cb7/admin/market-data/signal-history", async (c) => {
             required: sig.confirmations?.required ?? 0,
           },
         };
+
       })
       .filter(Boolean)
       .sort((a: any, b: any) => (a.candleStamp < b.candleStamp ? 1 : a.candleStamp > b.candleStamp ? -1 : a.tf - b.tf));
