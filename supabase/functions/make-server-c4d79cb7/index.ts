@@ -312,25 +312,9 @@ async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: an
     return { user, error: null };
   }
 
-  const fallbackUserId = typeof payload?.sub === 'string' ? payload.sub : null;
-  const shouldFallback =
-    !!fallbackUserId &&
-    payload?.role === 'authenticated' &&
-    (!error ||
-      error?.message?.includes('Auth session missing') ||
-      error?.message?.includes('Invalid JWT') ||
-      error?.message?.includes('invalid') ||
-      error?.message?.includes('JWT'));
-
-  if (shouldFallback) {
-    const { data, error: adminError } = await supabase.auth.admin.getUserById(fallbackUserId);
-    if (!adminError && data?.user) {
-      console.log(`✅ Auth fallback succeeded for user ${fallbackUserId}`);
-      return { user: data.user, error: null };
-    }
-  }
-
+  // 🔒 No unverified fallback: a token whose signature cannot be verified is never trusted.
   return { user: null, error: error || { message: 'Invalid or expired JWT token', code: 401 } };
+
 }
 
 // ⚡ AUTH HELPER: Validate access token and return user (WITH RETRY LOGIC)
