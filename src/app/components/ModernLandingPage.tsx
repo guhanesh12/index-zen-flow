@@ -2120,20 +2120,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 India's most advanced AI-powered options trading platform.
               </p>
               
-              {/* Dhan Account CTA in Footer */}
-              <div className="mb-4">
-                <a
-                  href="https://login.dhan.co/?location=DH_WEB&refer=SMIL56887"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-sm font-semibold transition-all shadow-lg shadow-orange-500/20"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  Open Dhan Account
-                </a>
-              </div>
+
+
 
               {/* Google Play CTA in Footer */}
               <div className="mb-4">
