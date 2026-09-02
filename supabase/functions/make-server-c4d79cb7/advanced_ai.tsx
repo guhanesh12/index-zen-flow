@@ -1783,10 +1783,16 @@ export class AdvancedAI {
       currentSessionCandles.length >= 5
         ? currentSessionCandles
         : ohlcData.slice(-50);
+    // IMPORTANT: never fall back to PREVIOUS-DAY candles here. On a gap day the
+    // prior session high/low sit hundreds of points away, so the first bars of the
+    // new session look like a huge "day breakdown/breakout" and fire the wrong side.
     const priorLevelData =
-      priorSessionCandles.length >= 3
+      priorSessionCandles.length >= 1
         ? priorSessionCandles
         : levelData.slice(0, -1);
+    // Day-range breakout logic is only trustworthy once today's own session has
+    // printed at least 2 completed bars.
+    const dayLevelsReady = priorSessionCandles.length >= 2;
     const swing = this.calculateSwingLevels(levelData, 80, 2, 2);
     // Fallback to extremes if no pivots found yet (early warm-up)
     const sortedHighs = levelData.map((c) => c.high).sort((a, b) => b - a);
@@ -2596,19 +2602,32 @@ export class AdvancedAI {
       lastCandle.close > breakoutHigh + anchorBreakTol &&
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
+    // On the very first bar of a session the "prior" levels still come from the
+    // previous day. If the session gapped, comparing today's price with yesterday's
+    // range fabricates a breakout/breakdown in the wrong direction — skip it.
+    const gapVsPriorSession =
+      priorSessionCandles.length === 0 && ohlcData.length > 1
+        ? Math.abs(lastCandle.open - ohlcData[ohlcData.length - 2].close)
+        : 0;
+    const staleGapLevels = gapVsPriorSession > Math.max(atr14 * 0.75, lastCandle.close * 0.0015);
     const bullishBreakoutClose =
+      !staleGapLevels &&
       lastCandle.close > breakoutHigh && lastCandle.close > lastCandle.open;
     const bearishBreakdownClose =
+      !staleGapLevels &&
       lastCandle.close < breakoutLow && lastCandle.close < lastCandle.open;
     const bullishPriorHighBreakout =
+      !staleGapLevels &&
       lastCandle.close > previousCandleHigh &&
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
     const bearishPriorLowBreakdown =
+      !staleGapLevels &&
       lastCandle.close < previousCandleLow &&
       lastCandle.close < lastCandle.open &&
       breakoutCloseNearLow;
     const bullishDayHighBreakout =
+      dayLevelsReady &&
       dayBreakoutHigh > 0 &&
       (lastCandle.close > dayBreakoutHigh ||
         (lastCandle.high > dayBreakoutHigh &&
@@ -2616,6 +2635,7 @@ export class AdvancedAI {
       lastCandle.close > lastCandle.open &&
       breakoutCloseNearHigh;
     const bearishDayLowBreakdown =
+      dayLevelsReady &&
       dayBreakoutLow > 0 &&
       (lastCandle.close < dayBreakoutLow ||
         (lastCandle.low < dayBreakoutLow &&
@@ -4029,6 +4049,9 @@ export class AdvancedAI {
         openingRangeLow: +openingRangeLow.toFixed(2),
         dayHighBreakout: bullishDayHighBreakout,
         dayLowBreakdown: bearishDayLowBreakdown,
+        dayLevelsReady,
+        staleGapLevels,
+        priorSessionBars: priorSessionCandles.length,
         smartMoneyScore:
           smartMoneyBias === "BULLISH"
             ? 75
