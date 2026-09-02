@@ -30,6 +30,8 @@ const BRAND_NAME = 'IndexpilotAI';
 const BRAND_DOMAIN = 'www.indexpilotai.com';
 const BASE_URL = `https://${BRAND_DOMAIN}`;
 const BRAND_LOGO = `${BASE_URL}/icons/icon-512x512.png`;
+// 1200x630 social preview used for og:image / twitter:image on every route.
+const SOCIAL_IMAGE = 'https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/c62e0146-561a-4dfb-bc06-d0bafb152caa';
 const BRAND_COLOR = '#10b981';
 const SITE_VERIFIED = true; // For Google Search Console
 
@@ -85,10 +87,10 @@ export const WEBSITE_SCHEMA = {
 
 export const DEFAULT_SEO: SEOProps = {
   title: `${BRAND_NAME} - AI-Powered Options Trading Platform for India`,
-  description: "India's AI-powered NIFTY & BANKNIFTY options trading platform. Real-time signals, automated Dhan execution and smart risk management for NSE traders.",
+  description: 'IndexpilotAI is an AI-powered algo trading platform for India. Automate NSE options strategies, manage risk and connect your broker for live trading.',
   canonical: BASE_URL,
   ogType: 'website',
-  ogImage: BRAND_LOGO,
+  ogImage: SOCIAL_IMAGE,
   keywords: 'options trading India, AI trading, NSE, BSE, NIFTY, BANK NIFTY, automated trading, algo trading, IndexpilotAI',
   robots: 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1',
 };
@@ -105,7 +107,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   home: {
     title: `${BRAND_NAME} - AI-Powered Options Trading Platform for India`,
-    description: 'Trade NSE & BSE options with AI-powered signals, automated strategies, and real-time Dhan API integration. Advanced risk management for NIFTY & BANK NIFTY options trading.',
+    description: 'AI-powered algo trading platform for India. Automate NIFTY and BANK NIFTY options strategies, manage risk and connect your broker for real-time trading.',
     canonical: BASE_URL,
     keywords: `${BRAND_NAME}, AI options trading India, NSE options, BSE trading, NIFTY options, BANK NIFTY, automated trading, algo trading, Dhan API`,
     ogType: 'website',
@@ -166,7 +168,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
     canonical: `${BASE_URL}/login`,
     keywords: `${BRAND_NAME} login, trading login, options trading login, AI trading dashboard login`,
     ogType: 'website',
-    robots: 'noindex, nofollow', // Login pages shouldn't be indexed
+    robots: 'noindex, follow', // Login pages shouldn't be indexed
     schema: {
       '@context': 'https://schema.org',
       '@type': 'WebPage',
@@ -206,6 +208,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
     title: 'Sign Up',
     description: `Create your ${BRAND_NAME} account - Start AI-powered options trading on NSE & BSE. Free signup with profit-based pricing. Trade NIFTY & BANK NIFTY with automated strategies.`,
     canonical: `${BASE_URL}/register`,
+    robots: 'noindex, follow', // Auth page: crawlable but not indexed
     keywords: `${BRAND_NAME} signup, create account, register, options trading signup, AI trading registration`,
     ogType: 'website',
     schema: {
@@ -410,10 +413,12 @@ export function SEO({
   alternateLanguages = []
 }: SEOProps) {
   
-  const fullTitle = title || DEFAULT_SEO.title;
+  const rawTitle = title || DEFAULT_SEO.title;
+  // Every page keeps the brand in the title without duplicating it.
+  const fullTitle = rawTitle.includes(BRAND_NAME) ? rawTitle : `${rawTitle} | ${BRAND_NAME}`;
   const fullDescription = description || DEFAULT_SEO.description;
   const fullCanonical = canonical || DEFAULT_SEO.canonical;
-  const fullOgImage = ogImage || BRAND_LOGO;
+  const fullOgImage = ogImage || SOCIAL_IMAGE;
   const fullKeywords = keywords || DEFAULT_SEO.keywords;
   const fullRobots = robots || DEFAULT_SEO.robots;
 
@@ -468,9 +473,9 @@ export function SEO({
       <meta property="og:description" content={fullDescription} />
       <meta property="og:image" content={fullOgImage} />
       <meta property="og:image:secure_url" content={fullOgImage} />
-      <meta property="og:image:width" content="512" />
-      <meta property="og:image:height" content="512" />
-      <meta property="og:image:alt" content={`${BRAND_NAME} Logo`} />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
+      <meta property="og:image:alt" content={`${BRAND_NAME} — AI-powered algo trading platform for India`} />
       <meta property="og:site_name" content={BRAND_NAME} />
       <meta property="og:locale" content="en_IN" />
       
@@ -482,38 +487,12 @@ export function SEO({
       <meta name="twitter:title" content={fullTitle} />
       <meta name="twitter:description" content={fullDescription} />
       <meta name="twitter:image" content={fullOgImage} />
-      <meta name="twitter:image:alt" content={`${BRAND_NAME} Logo`} />
+      <meta name="twitter:image:alt" content={`${BRAND_NAME} — AI-powered algo trading platform for India`} />
       
       {/* ═══════════════════════════════════════════════════════ */}
       {/* ADDITIONAL INDEXING SIGNALS FOR GOOGLE */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <meta name="revisit-after" content="1 days" />
       <meta name="rating" content="general" />
-      <meta name="distribution" content="global" />
-      <meta name="coverage" content="Worldwide" />
-      <meta name="target" content="all" />
-      <meta name="audience" content="traders, investors, stock market professionals" />
-      <meta name="category" content="Finance, Trading, Stock Market, Technology" />
-      <meta name="classification" content="Finance, Trading" />
-      <meta name="subject" content="Options Trading, Stock Market, AI Trading" />
-      <meta name="copyright" content={`© 2024-2026 ${BRAND_NAME}. All rights reserved.`} />
-      <meta name="abstract" content={fullDescription} />
-      <meta name="topic" content="Options Trading, AI, Stock Market" />
-      <meta name="summary" content={fullDescription} />
-      <meta name="designer" content={BRAND_NAME} />
-      <meta name="owner" content={BRAND_NAME} />
-      <meta name="url" content={fullCanonical} />
-      <meta name="identifier-URL" content={fullCanonical} />
-      <meta name="directory" content="submission" />
-      <meta name="pagename" content={fullTitle} />
-      <meta name="category" content="Finance" />
-      <meta name="coverage" content="India" />
-      
-      {/* Dublin Core Metadata (Additional SEO Signals) */}
-      <meta name="DC.title" content={fullTitle} />
-      <meta name="DC.description" content={fullDescription} />
-      <meta name="DC.subject" content={fullKeywords} />
-      <meta name="DC.language" content="en-IN" />
       
       {/* ═══════════════════════════════════════════════════════ */}
       {/* SCHEMA.ORG STRUCTURED DATA (JSON-LD) */}
