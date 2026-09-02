@@ -293,6 +293,63 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_sessions: {
+        Row: {
+          admin_email: string | null
+          admin_name: string | null
+          admin_user_id: string | null
+          browser: string | null
+          created_at: string
+          device: string | null
+          hotkey: string | null
+          id: string
+          ip_address: string | null
+          last_seen_at: string
+          login_at: string
+          login_method: string
+          logout_at: string | null
+          logout_reason: string | null
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          admin_email?: string | null
+          admin_name?: string | null
+          admin_user_id?: string | null
+          browser?: string | null
+          created_at?: string
+          device?: string | null
+          hotkey?: string | null
+          id?: string
+          ip_address?: string | null
+          last_seen_at?: string
+          login_at?: string
+          login_method?: string
+          logout_at?: string | null
+          logout_reason?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          admin_email?: string | null
+          admin_name?: string | null
+          admin_user_id?: string | null
+          browser?: string | null
+          created_at?: string
+          device?: string | null
+          hotkey?: string | null
+          id?: string
+          ip_address?: string | null
+          last_seen_at?: string
+          login_at?: string
+          login_method?: string
+          logout_at?: string | null
+          logout_reason?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       admin_totp_secrets: {
         Row: {
           created_at: string
