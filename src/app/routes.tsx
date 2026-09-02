@@ -128,6 +128,13 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   const [accessToken, setAccessToken] = useState<string>('');
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const navigate = useNavigate();
+
+  // Warm the PIN + dashboard chunks as soon as a protected route mounts, so
+  // unlocking flips straight to the dashboard with no chunk download.
+  useEffect(() => {
+    preloadOnIdle(PinGate.preload, TradingDashboard.preload);
+  }, []);
+  
   
   useEffect(() => {
     let mounted = true;
