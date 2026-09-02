@@ -95,10 +95,10 @@ const DEFAULT_CONTENT = {
     playStoreLink: "https://play.google.com/store/apps/details?id=com.indexpilotai.app&pcampaignid=web_share"
   },
   stats: [
-    { value: '68%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
-    { value: '₹450', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
-    { value: '500+', label: 'Active Users', icon: 'Users', color: 'purple' },
-    { value: '1000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
+    { value: '89%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
+    { value: '₹3570', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
+    { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
+    { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
   ],
   dhan: {
     badge: "Powered by Dhan",
