@@ -16,6 +16,7 @@ import { AdminReferrals } from './AdminReferrals';
 import { AdminCommunication } from './AdminCommunication';
 import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
 import { AdminAIChatLogs } from './AdminAIChatLogs';
+import { AdminMarketDataCenter } from './AdminMarketDataCenter';
 import { AdminAuditLogViewer } from './AdminAuditLogViewer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
@@ -48,7 +49,7 @@ export type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
 const ADMIN_MAIN_TAB_KEYS = [
   'dashboard', 'users', 'transactions', 'support', 'landing', 'adminUsers',
-  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'aiChats', 'audit',
+  'adminManagement', 'settings', 'marketData', 'referrals', 'communication', 'mobile', 'aiChats', 'audit',
 ];
 
 export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedHotkey }: AdminDashboardProps) {
@@ -410,6 +411,12 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
                 currentAdmin={currentAdmin}
                 onAdminUpdate={setCurrentAdmin}
               />
+            </TabsContent>
+          )}
+
+          {canAccessTab('marketData') && (
+            <TabsContent value="marketData">
+              <AdminMarketDataCenter serverUrl={serverUrl} accessToken={realAccessToken} />
             </TabsContent>
           )}
 
