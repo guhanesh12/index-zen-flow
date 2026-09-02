@@ -4049,6 +4049,9 @@ export class AdvancedAI {
         openingRangeLow: +openingRangeLow.toFixed(2),
         dayHighBreakout: bullishDayHighBreakout,
         dayLowBreakdown: bearishDayLowBreakdown,
+        dayLevelsReady,
+        staleGapLevels,
+        priorSessionBars: priorSessionCandles.length,
         smartMoneyScore:
           smartMoneyBias === "BULLISH"
             ? 75
