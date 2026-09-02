@@ -10780,22 +10780,111 @@ async function expectedHotkeyForAdmin(email: string, profile: any): Promise<stri
   return '';
 }
 
+// Collects every registered admin hotkey with its owner.
+// Sources: admin_profiles.hotkey (per-admin, created in Admin Management),
+// legacy KV entries, plus the permanent super admin fallback (GUHAN).
+async function loadAdminHotkeyOwners(): Promise<Array<{ hotkey: string; email: string; name: string; username: string }>> {
+  const out: Array<{ hotkey: string; email: string; name: string; username: string }> = [];
+  const push = (hotkey: string, email = '', name = '', username = '') => {
+    const hk = String(hotkey || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!hk) return;
+    if (out.some((o) => o.hotkey === hk)) return;
+    out.push({ hotkey: hk, email, name, username });
+  };
+
+  try {
+    const { data } = await supabase
+      .from('admin_profiles')
+      .select('email, full_name, username, hotkey, status')
+      .not('hotkey', 'is', null);
+    for (const p of data || []) {
+      if (String(p.status || 'active').toLowerCase() !== 'active') continue;
+      push(p.hotkey, p.email || '', p.full_name || '', p.username || '');
+    }
+  } catch (e) {
+    console.warn('[HOTKEY] admin_profiles lookup failed', e);
+  }
+
+  try {
+    const stored = await kv.getByPrefix('admin:hotkey:');
+    for (const h of stored) {
+      const v: any = h.value || h;
+      push(typeof v === 'string' ? v : v.hotkey, v?.email || '', v?.name || '', '');
+    }
+  } catch { /* ignore */ }
+
+  push('GUHAN', PERMANENT_SUPER_ADMIN_EMAIL, 'Super Admin', '');
+  return out;
+}
+
+async function createHotkeyAccessCode(hotkey: string) {
+  const uniqueCode = Array.from({ length: 12 }, () =>
+    'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
+  ).join('');
+  const codeData = {
+    code: uniqueCode,
+    hotkey: hotkey.toUpperCase(),
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + ADMIN_HOTKEY_WINDOW_MS).toISOString(),
+    used: false,
+  };
+  await kv.set(`admin_hotkey_code_${uniqueCode}`, JSON.stringify(codeData));
+  return uniqueCode;
+}
+
+// 🔐 Resolve a typed key sequence WITHOUT ever exposing the hotkey list.
+// The client sends the letters typed so far; the server replies whether it is
+// an exact match (and opens the 1-minute window) or still a valid prefix.
+app.post("/make-server-c4d79cb7/admin/hotkey/resolve", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const sequence = String(body?.sequence || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+    if (!sequence) return c.json({ match: false, prefix: false });
+
+    const owners = await loadAdminHotkeyOwners();
+    const exact = owners.find((o) => o.hotkey === sequence);
+
+    if (!exact) {
+      const prefix = owners.some((o) => o.hotkey.startsWith(sequence));
+      return c.json({ match: false, prefix });
+    }
+
+    const uniqueCode = await createHotkeyAccessCode(exact.hotkey);
+    await logAdminSecurityEvent({
+      action: 'admin_hotkey_pressed',
+      email: exact.email || null,
+      status: 'success',
+      metadata: { hotkey: exact.hotkey, owner: exact.email || null, windowSeconds: ADMIN_HOTKEY_WINDOW_MS / 1000 },
+      c,
+    });
+
+    return c.json({
+      match: true,
+      prefix: false,
+      uniqueCode,
+      hotkey: exact.hotkey,
+      ownerEmail: exact.email || '',
+      ownerName: exact.name || '',
+      ownerUsername: exact.username || '',
+      expiresIn: ADMIN_HOTKEY_WINDOW_MS / 1000,
+    });
+  } catch (error: any) {
+    console.error('[HOTKEY RESOLVE] error', error);
+    return c.json({ match: false, prefix: false }, 200);
+  }
+});
+
 // Generate unique code for admin hotkey access
+
 app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
   try {
     const { hotkey } = await c.req.json();
     
     console.log(`🔐 Generating unique code for hotkey: ${hotkey}`);
     
-    // Verify hotkey is valid — check against all stored hotkeys in KV
-    const storedHotkeys = await kv.getByPrefix('admin:hotkey:');
-    const validHotkeys: string[] = [
-      'GUHAN', // permanent default fallback
-      ...storedHotkeys.map((h: any) => {
-        const v = h.value || h;
-        return (typeof v === 'string' ? v : v.hotkey || '').toUpperCase();
-      }).filter(Boolean)
-    ];
+    // Verify hotkey is valid — per-admin hotkeys + legacy KV + permanent fallback
+    const validHotkeys: string[] = (await loadAdminHotkeyOwners()).map((o) => o.hotkey);
+
     
     if (!validHotkeys.includes(hotkey.toUpperCase())) {
       console.log(`❌ Invalid hotkey: ${hotkey} | Valid: ${validHotkeys.join(', ')}`);
