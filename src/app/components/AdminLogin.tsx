@@ -321,7 +321,14 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                         Ctrl/Cmd + Alt + {hotkeyOwner.hotkey}
                       </Badge>
                     </div>
+                    {hotkeyOwner.name && (
+                      <p className="text-xs text-slate-300">
+                        Authorized admin:{' '}
+                        <span className="font-semibold text-emerald-300">{hotkeyOwner.name}</span>
+                      </p>
+                    )}
                     <p className="text-[11px] text-amber-300">
+
                       ⚠️ Use only your own username and password for this hotkey. Any other credentials are blocked
                       (restricted mode) and logged in admin activity. This window is valid for 1 minute.
                     </p>
