@@ -223,6 +223,19 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
       .eq('role', 'admin')
       .maybeSingle();
     if (roleRow) return { authorized: true };
+
+    // Fallback: an active admin_profiles row is also a valid admin identity
+    // (covers newly created admins / super admin before role sync).
+    const { data: adminProfile } = await supabase
+      .from('admin_profiles')
+      .select('user_id, status')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (adminProfile) {
+      await supabase.from('user_roles').insert({ user_id: user.id, role: 'admin' }).select().maybeSingle();
+      return { authorized: true };
+    }
   } catch (e) {
     console.error('[ADMIN AUTH] role lookup failed', e);
   }
