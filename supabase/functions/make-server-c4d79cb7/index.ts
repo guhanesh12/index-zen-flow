@@ -11107,7 +11107,7 @@ function verifyTotpServerSide(secretBase32: string, code: string, label: string)
 
 app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
-    const { email, password } = await c.req.json();
+    const { email, password, uniqueCode } = await c.req.json();
 
     const DEFAULT_ADMIN_EMAIL = getPermanentSuperAdminEmail();
     const DEFAULT_ADMIN_PASSWORD = getDefaultAdminPassword();
@@ -11118,12 +11118,60 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
 
+    // ── 🔒 RESTRICTED MODE: hotkey-bound access window ────────────────
+    // Admin login is only possible inside the 1-minute window opened by a
+    // valid hotkey press, and only for the admin who owns that hotkey.
+    const code = String(uniqueCode || '').trim().toUpperCase();
+    let pressedHotkey = '';
+    if (!code) {
+      await logAdminSecurityEvent({
+        action: 'admin_login_restricted_no_hotkey', email: identifier, status: 'blocked',
+        metadata: { reason: 'no_hotkey_session' }, c,
+      });
+      return c.json({ success: false, restricted: true, message: 'Restricted mode: admin access requires a valid hotkey press.' }, 403);
+    }
+    {
+      const rawCode = await kv.get(`admin_hotkey_code_${code}`);
+      const codeData = rawCode ? (typeof rawCode === 'string' ? JSON.parse(rawCode) : rawCode) : null;
+      if (!codeData) {
+        await logAdminSecurityEvent({
+          action: 'admin_login_restricted_invalid_code', email: identifier, status: 'blocked',
+          metadata: { code, reason: 'invalid_or_unknown_code' }, c,
+        });
+        return c.json({ success: false, restricted: true, message: 'Restricted mode: hotkey session invalid. Press your hotkey again.' }, 403);
+      }
+      const pressedAt = new Date(codeData.createdAt || 0).getTime();
+      if (!pressedAt || Date.now() - pressedAt > ADMIN_HOTKEY_WINDOW_MS) {
+        await kv.del(`admin_hotkey_code_${code}`);
+        await logAdminSecurityEvent({
+          action: 'admin_login_restricted_window_expired', email: identifier, status: 'blocked',
+          metadata: { code, hotkey: codeData.hotkey, secondsElapsed: Math.round((Date.now() - pressedAt) / 1000) }, c,
+        });
+        return c.json({ success: false, restricted: true, message: 'Restricted mode: 1-minute hotkey window expired. Press your hotkey again.' }, 403);
+      }
+      pressedHotkey = String(codeData.hotkey || '').toUpperCase();
+    }
+
     const profile = await findAdminProfileForLogin(identifier);
     const isDefaultSuperAdminLogin = identifier === DEFAULT_ADMIN_EMAIL && !!DEFAULT_ADMIN_PASSWORD;
     const loginEmail = (profile?.email || (isDefaultSuperAdminLogin ? DEFAULT_ADMIN_EMAIL : '')).trim().toLowerCase();
 
     if (!loginEmail) {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
+    }
+
+    // The hotkey pressed must belong to the account being logged in.
+    const requiredHotkey = await expectedHotkeyForAdmin(loginEmail, profile);
+    if (!requiredHotkey || requiredHotkey !== pressedHotkey) {
+      await logAdminSecurityEvent({
+        action: 'admin_login_restricted_hotkey_mismatch', email: loginEmail, status: 'blocked',
+        metadata: { pressedHotkey, requiredHotkey: requiredHotkey || null }, c,
+      });
+      return c.json({
+        success: false,
+        restricted: true,
+        message: 'Restricted mode: this hotkey is not authorized for these credentials. This attempt has been logged.',
+      }, 403);
     }
 
     let authUser: any = null;
@@ -11133,6 +11181,10 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     } else {
       const valid = await validateAdminPassword(loginEmail, passwordText);
       if (!valid.ok || !valid.user) {
+        await logAdminSecurityEvent({
+          action: 'admin_login_failed', email: loginEmail, status: 'failed',
+          metadata: { pressedHotkey, reason: 'bad_password' }, c,
+        });
         return c.json({ success: false, message: 'Invalid email or password' }, 401);
       }
       authUser = valid.user;
@@ -11146,6 +11198,12 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       console.warn('[ADMIN LOGIN] profile/auth user mismatch', { profileUserId: profile.user_id, authUserId: authUser.id });
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
+
+    await logAdminSecurityEvent({
+      action: 'admin_login_hotkey_verified', email: loginEmail, userId: authUser.id, status: 'success',
+      metadata: { pressedHotkey }, c,
+    });
+
 
     const forcedPermanentSuperAdmin = loginEmail === PERMANENT_SUPER_ADMIN_EMAIL;
     const adminProfile = profile || {
