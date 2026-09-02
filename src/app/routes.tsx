@@ -462,7 +462,12 @@ function DynamicPageWrapper() {
 // Wrapper for Login page - SIMPLIFIED - No session check to allow back button
 function LoginPageWrapper() {
   const navigate = useNavigate();
-  
+
+  // While the user types credentials, fetch the PIN + dashboard chunks.
+  useEffect(() => {
+    preloadOnIdle(PinGate.preload, TradingDashboard.preload, ModernRegistration.preload);
+  }, []);
+
   return (
     <ModernLogin 
       onLoginSuccess={(token) => {
