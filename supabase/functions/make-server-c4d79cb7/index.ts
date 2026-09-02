@@ -7670,9 +7670,9 @@ app.get("/make-server-c4d79cb7/admin/market-data/signal-history", async (c) => {
       .map((r: any) => {
         // key = central_signal:DATE:INDEX:TF:HH:MM
         const parts = String(r.key || '').split(':');
-        const indexName = parts[3];
-        const tf = Number(parts[4]);
-        const stamp = `${parts[5]}:${parts[6]}`;
+        const indexName = parts[2];
+        const tf = Number(parts[3]);
+        const stamp = `${parts[4]}:${parts[5]}`;
         const sig = r.value?.signal || null;
         if (!indexName || !tf || !sig) return null;
         return {
