@@ -4020,8 +4020,8 @@ class PersistentTradingEngine {
     if (!creds) return { published: 0, reason: "no central credentials" };
 
     let published = 0;
-    await Promise.all(
-      tfs.flatMap((tf) =>
+    for (const tf of tfs) {
+      const pending = await Promise.all(
         this.CENTRAL_PUBLISH_INDEXES.map(async (idx) => {
           try {
             const stamp = this.getCurrentCandleTimestamp(istNow, tf);
