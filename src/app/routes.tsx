@@ -402,6 +402,7 @@ function AdminLoginPage() {
           navigate('/', { replace: true });
         }}
         pressedHotkey=""
+        uniqueCode={uniqueCode || ''}
       />
     </AdminRoute>
   );
