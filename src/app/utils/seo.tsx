@@ -107,7 +107,7 @@ export const SEO_CONFIGS: { [key: string]: SEOProps } = {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   home: {
     title: `${BRAND_NAME} - AI-Powered Options Trading Platform for India`,
-    description: 'AI-powered algo trading platform for India. Automate NIFTY and BANK NIFTY options strategies, manage risk and connect your broker for real-time trading.',
+    description: 'IndexpilotAI is an AI-powered algo trading platform for India. Automate NSE options strategies, manage risk and connect your broker for live trading.',
     canonical: BASE_URL,
     keywords: `${BRAND_NAME}, AI options trading India, NSE options, BSE trading, NIFTY options, BANK NIFTY, automated trading, algo trading, Dhan API`,
     ogType: 'website',
