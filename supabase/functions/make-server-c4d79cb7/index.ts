@@ -11250,11 +11250,23 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     }
 
     // The hotkey pressed must belong to the account being logged in.
+    // Accept ANY hotkey registered to this admin (profile hotkey, KV legacy entry,
+    // or the permanent super-admin fallback) — not just one canonical value.
     const requiredHotkey = await expectedHotkeyForAdmin(loginEmail, profile);
-    if (!requiredHotkey || requiredHotkey !== pressedHotkey) {
+    const hotkeyOwners = await loadAdminHotkeyOwners();
+    const pressedOwner = hotkeyOwners.find((o) => o.hotkey === pressedHotkey);
+    const ownerEmail = String(pressedOwner?.email || '').trim().toLowerCase();
+    const ownerUsername = String(pressedOwner?.username || '').trim().toLowerCase();
+    const hotkeyAuthorized =
+      (!!requiredHotkey && requiredHotkey === pressedHotkey) ||
+      (!!ownerEmail && ownerEmail === loginEmail) ||
+      (!!ownerUsername && ownerUsername === identifier) ||
+      (loginEmail === PERMANENT_SUPER_ADMIN_EMAIL && !!pressedOwner);
+
+    if (!hotkeyAuthorized) {
       await logAdminSecurityEvent({
         action: 'admin_login_restricted_hotkey_mismatch', email: loginEmail, status: 'blocked',
-        metadata: { pressedHotkey, requiredHotkey: requiredHotkey || null }, c,
+        metadata: { pressedHotkey, requiredHotkey: requiredHotkey || null, ownerEmail: ownerEmail || null }, c,
       });
       return c.json({
         success: false,
@@ -11262,6 +11274,7 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
         message: 'Restricted mode: this hotkey is not authorized for these credentials. This attempt has been logged.',
       }, 403);
     }
+
 
     let authUser: any = null;
     if (isDefaultSuperAdminLogin && passwordText === DEFAULT_ADMIN_PASSWORD) {
