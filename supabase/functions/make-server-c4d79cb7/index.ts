@@ -4454,22 +4454,15 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
 
     
     // ⚡ FIX: Use user-specific credentials key (same as other endpoints)
-    const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
-    if (!credentials) {
-      console.error('❌ No credentials found for user:', effectiveUserId);
-      return c.json({ error: 'API credentials not configured. Please configure in Settings.' }, 400);
-    }
-    
-    if (!credentials.dhanAccessToken) {
-      console.error('❌ Dhan access token missing');
-      return c.json({ error: 'Dhan access token not configured. Please configure in Settings.' }, 400);
-    }
+    const credentials = (await kv.get(`api_credentials:${effectiveUserId}`)) || {};
     
     console.log(`✅ Credentials loaded for user: ${effectiveUserId}`);
     console.log(`⚡ Using timeframe: ${interval}M (selected by user)`);
     
     // ⚡⚡⚡ MULTI-SYMBOL SUPPORT: Process all active indices ⚡⚡⚡
-    const activeIndices = indices && indices.length > 0 ? indices : [index];
+    const activeIndices = (indices && indices.length > 0 ? indices : [index])
+      .map((value: any) => String(value || '').toUpperCase())
+      .filter((value: string) => ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(value));
     console.log(`\n🎯 Processing ${activeIndices.length} indices: ${activeIndices.join(', ')}`);
     
     const dhanService = new DhanService({ 
