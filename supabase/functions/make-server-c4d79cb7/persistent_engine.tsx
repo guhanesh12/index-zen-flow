@@ -4126,34 +4126,6 @@ class PersistentTradingEngine {
 
       const ready = pending.filter(Boolean) as any[];
 
-      // 🧭 CROSS-INDEX CONSENSUS: NIFTY / BANKNIFTY / SENSEX track the same market.
-      // If one index prints the OPPOSITE side while the other two agree, that lone
-      // index is misreading its own data (this is exactly what produced NIFTY PUT
-      // at 10:30 while BANKNIFTY and SENSEX printed CALL on the same green candle).
-      const directional = ready.filter((r) => r.sig.action === "BUY_CALL" || r.sig.action === "BUY_PUT");
-      if (directional.length >= 3) {
-        for (const r of directional) {
-          const others = directional.filter((o) => o !== r);
-          const allOpposite = others.length >= 2 && others.every((o) => o.sig.action !== r.sig.action) &&
-            new Set(others.map((o) => o.sig.action)).size === 1;
-          if (allOpposite) {
-            const majority = others[0].sig.action;
-            console.warn(
-              `🧭 [CENTRAL-PUB] ${r.idx.name} ${r.tf}m ${r.sig.action} vetoed — ${
-                others.map((o) => o.idx.name).join(" & ")
-              } both ${majority}`,
-            );
-            r.sig.action = "WAIT";
-            r.sig.confidence = 40;
-            (r.sig as any).bias = "Neutral";
-            r.sig.reasoning =
-              `⚠️ WAIT: cross-index conflict — ${r.idx.name} read ${r.sig.action} but ${
-                others.map((o) => o.idx.name).join(" & ")
-              } both read ${majority} on the same candle. Lone contrarian index is not traded.`;
-          }
-        }
-      }
-
       for (const r of ready) {
         if (r.sig.action === "BUY_CALL" || r.sig.action === "BUY_PUT") {
           await kv.set(`central:last_signal_ts:${r.signalStateKey}`, r.lastClosedMs || Date.now());
