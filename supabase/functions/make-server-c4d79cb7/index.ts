@@ -252,23 +252,6 @@ async function requireCronOrAdmin(c: any): Promise<{ ok: boolean }> {
 
 
 
-// ⚡ FAST userId EXTRACTION: Decode JWT payload without signature verification
-// Used for trading endpoints where speed matters and userId is the only requirement.
-// Security: credentials are always fetched from KV store — unknown userIds return 400 not data.
-function extractUserIdFromJwt(token: string): string | null {
-  try {
-    if (!token || token.length < 20) return null;
-    const payloadPart = token.split('.')[1];
-    if (!payloadPart) return null;
-    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const payload = JSON.parse(atob(padded));
-    return payload.sub || null;
-  } catch {
-    return null;
-  }
-}
-
 function parseJwtPayload(token: string): any | null {
   try {
     if (!token || token.length < 20) return null;
@@ -282,10 +265,14 @@ function parseJwtPayload(token: string): any | null {
   }
 }
 
-function getFastUserIdFromRequest(c: any): string | null {
-  const bearerToken = c.req.header('Authorization')?.split(' ')[1] || '';
-  return extractUserIdFromJwt(bearerToken);
+// 🔒 SECURE userId resolution: always verifies the JWT signature via Supabase Auth.
+// Never derive the acting user from an unverified token payload.
+async function getFastUserIdFromRequest(c: any): Promise<string | null> {
+  const { user, error } = await validateAuth(c, 1);
+  if (error || !user?.id) return null;
+  return user.id;
 }
+
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timer: any;
@@ -325,25 +312,9 @@ async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: an
     return { user, error: null };
   }
 
-  const fallbackUserId = typeof payload?.sub === 'string' ? payload.sub : null;
-  const shouldFallback =
-    !!fallbackUserId &&
-    payload?.role === 'authenticated' &&
-    (!error ||
-      error?.message?.includes('Auth session missing') ||
-      error?.message?.includes('Invalid JWT') ||
-      error?.message?.includes('invalid') ||
-      error?.message?.includes('JWT'));
-
-  if (shouldFallback) {
-    const { data, error: adminError } = await supabase.auth.admin.getUserById(fallbackUserId);
-    if (!adminError && data?.user) {
-      console.log(`✅ Auth fallback succeeded for user ${fallbackUserId}`);
-      return { user: data.user, error: null };
-    }
-  }
-
+  // 🔒 No unverified fallback: a token whose signature cannot be verified is never trusted.
   return { user: null, error: error || { message: 'Invalid or expired JWT token', code: 401 } };
+
 }
 
 // ⚡ AUTH HELPER: Validate access token and return user (WITH RETRY LOGIC)
@@ -3231,7 +3202,7 @@ app.post("/make-server-c4d79cb7/ai-analysis", async (c) => {
 // Get logs
 app.get("/make-server-c4d79cb7/logs", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
     const logs = await getMergedUserLogs(userId);
@@ -5513,7 +5484,7 @@ app.post("/make-server-c4d79cb7/wallet/initialize", async (c) => {
 // Get wallet balance
 app.get("/make-server-c4d79cb7/wallet/balance", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ code: 401, message: 'Unauthorized' }, 401);
 
     const wallet = await safeKVGet(`wallet:${userId}`, { balance: 0, totalProfit: 0, totalDeducted: 0 }, 1);
@@ -9823,7 +9794,7 @@ function isSameUserNotification(existing: any, incoming: any) {
 
 app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
 
     const notifications = await safeKVGet(`user_notifications:${userId}`, []);
@@ -13476,7 +13447,7 @@ app.post("/make-server-c4d79cb7/backend-engine/execute", async (c) => {
  */
 app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
     // Get engine state from DB
