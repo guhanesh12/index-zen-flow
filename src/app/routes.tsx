@@ -491,7 +491,12 @@ function LoginPageWrapper() {
 // Wrapper for Registration page - SIMPLIFIED - No session check to allow back button
 function RegistrationPageWrapper() {
   const navigate = useNavigate();
-  
+
+  // Warm login + PIN + dashboard chunks while the form is being filled in.
+  useEffect(() => {
+    preloadOnIdle(ModernLogin.preload, PinGate.preload, TradingDashboard.preload);
+  }, []);
+
   return (
     <ModernRegistration 
       onRegistrationSuccess={(token) => {
