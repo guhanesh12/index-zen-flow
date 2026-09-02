@@ -395,12 +395,13 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                   <p className="text-xs text-blue-300 mb-2">💡 Hotkey Access:</p>
                   <div className="flex gap-2 flex-wrap">
                     <Badge variant="outline" className="text-xs">
-                      Windows: Ctrl + Alt + G
+                      Windows: Ctrl + Alt + {hotkeyOwner?.hotkey || 'YOUR CODE'}
                     </Badge>
                     <Badge variant="outline" className="text-xs">
-                      Mac: Cmd + Option + G
+                      Mac: Cmd + Option + {hotkeyOwner?.hotkey || 'YOUR CODE'}
                     </Badge>
                   </div>
+
                 </div>
               </CardContent>
             </Card>
