@@ -228,13 +228,13 @@ async function replayIndex(
         p.curSL = p.baseSL - jumps * p.slJump;
       }
     }
-    // Live profit protection: once the move has banked 60% of the base target,
-    // never give back more than 40% of the peak profit.
-    if (p.peak >= p.baseTarget * 0.6) {
-      const floor = p.peak * 0.6; // ₹ profit that must stay protected
-      if (-p.curSL < floor) p.curSL = -floor;
+    // Live profit protection: once the move has banked a full base target of
+    // profit, never give the position back to a loss.
+    if (p.peak >= p.baseTarget && -p.curSL < p.peak * 0.5) {
+      p.curSL = -(p.peak * 0.5);
     }
   };
+
 
 
   for (let i = 60; i < candles.length; i++) {
