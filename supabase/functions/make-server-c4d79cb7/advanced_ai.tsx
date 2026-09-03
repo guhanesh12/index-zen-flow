@@ -3678,7 +3678,15 @@ export class AdvancedAI {
       }
     }
 
+    // Set when a signal comes from the self-validating pattern detectors
+    // (breakdown / breakout / slow drift). These carry their own multi-factor
+    // proof (level break + VWAP side + EMA slope + RSI direction + close
+    // position), so the generic ADX floor — which lags badly on orderly,
+    // low-volatility grinds — is relaxed for them only.
+    let patternDetectorEntry = false;
+
     // ===== BREAKDOWN DETECTOR (symmetric to breakout) =====
+
     // If action is still WAIT but the last candle shows a clean breakdown,
     // emit BUY_PUT. Mirrors bullish breakout path so PUT signals aren't
     // dependent on strict ADX+EMA+MACD trio firing simultaneously.
@@ -3715,6 +3723,7 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_PUT";
         bias = "Bearish";
+        patternDetectorEntry = true;
         const brokenLevel = bearishDayLowBreakdown
           ? dayBreakoutLow
           : establishedBearBreak
@@ -3732,6 +3741,7 @@ export class AdvancedAI {
         confidence = Math.min(95, conf);
         action = "BUY_CALL";
         bias = "Bullish";
+        patternDetectorEntry = true;
         const brokenLevel = bullishDayHighBreakout
           ? dayBreakoutHigh
           : establishedBullBreak
@@ -3820,6 +3830,7 @@ export class AdvancedAI {
         confidence = Math.min(88, conf);
         action = "BUY_PUT";
         bias = "Bearish";
+        patternDetectorEntry = true;
         reasoning = `📉 DRIFT BUY_PUT — ${redBars}/5 red bars, ${(closeMinus3 - closeNow).toFixed(2)}pt drop over 3 bars, VWAP${vwapDistance.toFixed(2)}%, EMA9<EMA21 (slope down), RSI ${rsi.toFixed(1)} falling from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       } else if (driftBull) {
         let conf = 72;
@@ -3830,6 +3841,7 @@ export class AdvancedAI {
         confidence = Math.min(88, conf);
         action = "BUY_CALL";
         bias = "Bullish";
+        patternDetectorEntry = true;
         reasoning = `📈 DRIFT BUY_CALL — ${greenBars}/5 green bars, +${(closeNow - closeMinus3).toFixed(2)}pt over 3 bars, VWAP+${vwapDistance.toFixed(2)}%, EMA9>EMA21 (slope up), RSI ${rsi.toFixed(1)} rising from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
@@ -4026,7 +4038,7 @@ export class AdvancedAI {
         (action === "BUY_CALL" && structuredTrendUp) ||
         strongVwapBear ||
         strongVwapBull;
-      const adxFloor = structAligned ? 16 : 20;
+      const adxFloor = patternDetectorEntry ? 14 : structAligned ? 16 : 20;
 
       if (adx < adxFloor) {
         action = "WAIT";
