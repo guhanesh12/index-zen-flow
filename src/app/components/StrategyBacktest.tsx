@@ -40,6 +40,8 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
   const [wallet, setWallet] = useState<number | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [view, setView] = useState<"daily" | "weekly" | "monthly" | "yearly">("monthly");
+  const [progress, setProgress] = useState(0);
+
 
   const headers = useMemo(
     () => ({ "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }),
