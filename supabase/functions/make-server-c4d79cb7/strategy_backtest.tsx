@@ -439,6 +439,9 @@ export async function replaySegment(params: {
   fromDate: string;
   toDate: string;
   capital: number;
+  lots?: number;
+  maxTradesPerDay?: number;
+  minConfidence?: number;
 }): Promise<BTTrade[]> {
   const leadIn = new Date(new Date(`${params.fromDate}T00:00:00Z`).getTime() - 20 * 86400000);
   const candles = await fetchHistoricalCandles(params.index, ymd(leadIn), params.toDate);
@@ -449,9 +452,15 @@ export async function replaySegment(params: {
     candles,
     () => Math.max(params.capital, 10000),
     (t) => { if (t.date >= params.fromDate) out.push(t); },
+    {
+      fixedLots: params.lots,
+      maxTradesPerDay: params.maxTradesPerDay,
+      minConfidence: params.minConfidence,
+    },
   );
   return out;
 }
+
 
 /** Build the full report from an already-computed trade list. */
 export function buildReport(
