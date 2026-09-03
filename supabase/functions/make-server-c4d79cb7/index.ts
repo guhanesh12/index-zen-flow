@@ -11362,8 +11362,8 @@ function verifyTotpServerSide(secretBase32: string, code: string, label: string)
       period: 30,
       secret: OTPAuth.Secret.fromBase32(secretBase32),
     });
-    // window: 1 → tolerate ±30s clock skew
-    return totp.validate({ token: (code || '').trim(), window: 1 }) !== null;
+    // window: 2 → tolerate ±60s clock skew between phone and server
+    return totp.validate({ token: (code || '').replace(/\D/g, '').trim(), window: 2 }) !== null;
   } catch (e) {
     console.error('[ADMIN 2FA] verify error', e);
     return false;
