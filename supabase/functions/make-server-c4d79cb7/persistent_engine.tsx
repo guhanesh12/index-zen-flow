@@ -1797,16 +1797,20 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          // Protect open positions from noisy candle-to-candle direction changes.
-          // A reversal is actionable only when the counter-signal is exceptionally
-          // strong and the running trade has already lost at least 70% of its SL.
+          // Protect open positions from noisy candle-to-candle direction changes,
+          // but do NOT hold a losing trade against a fresh opposite signal.
+          //  • Position already losing  → exit on any decent counter-signal (>=68%).
+          //  • Position in profit/flat  → only a very strong counter-signal (>=90%)
+          //    after 70% of the SL is gone can flip it.
           const reversalPnl = Number(reversalPosition?.pnl || 0);
           const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.7);
           const reversalConfirmed =
-            Boolean(reversalPosition) && confidence >= 90 && reversalPnl <= -reversalSL;
+            Boolean(reversalPosition) &&
+            ((confidence >= 68 && reversalPnl < 0) ||
+              (confidence >= 90 && reversalPnl <= -reversalSL));
           if (reversalPosition && !reversalConfirmed) {
             console.log(
-              `🛡️ ${indexName} reversal ignored — confidence ${confidence}% (need 90%), P&L ₹${reversalPnl.toFixed(2)} (must be ≤ -₹${reversalSL.toFixed(2)})`,
+              `🛡️ ${indexName} reversal ignored — confidence ${confidence}% (need 68% while losing / 90% otherwise), P&L ₹${reversalPnl.toFixed(2)}`,
             );
           }
           if (reversalPosition && reversalConfirmed) {
