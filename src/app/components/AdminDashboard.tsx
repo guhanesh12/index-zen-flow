@@ -18,6 +18,7 @@ import { AdminCommunication } from './AdminCommunication';
 import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
 import { AdminAIChatLogs } from './AdminAIChatLogs';
 import { AdminMarketDataCenter } from './AdminMarketDataCenter';
+import { AdminBacktests } from './AdminBacktests';
 import { AdminAuditLogViewer } from './AdminAuditLogViewer';
 import { AdminSessionsPanel } from './AdminSessionsPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -463,6 +464,12 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
           {canAccessTab('marketData') && (
             <TabsContent value="marketData">
               <AdminMarketDataCenter serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
+
+          {canAccessTab('backtests') && (
+            <TabsContent value="backtests">
+              <AdminBacktests />
             </TabsContent>
           )}
 
