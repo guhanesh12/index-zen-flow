@@ -5470,7 +5470,11 @@ app.post('/make-server-c4d79cb7/backtest/strategy/segment', async (c) => {
       fromDate: from,
       toDate: to,
       capital: state.initialCapital / Math.max(1, (state.indices || []).length),
+      lots: Number(state.lots?.[index] || 0),
+      maxTradesPerDay: Number(state.maxTradesPerDay || 0),
+      minConfidence: Number(state.minConfidence || 0),
     });
+
 
     const cur = (await kv.get(key)) || state;
     await kv.set(key, {
