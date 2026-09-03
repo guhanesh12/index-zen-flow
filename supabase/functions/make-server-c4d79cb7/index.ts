@@ -11667,7 +11667,7 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       // with a fresh QR instead of locking the admin out forever.
       challenge.twoFaAttempts = (challenge.twoFaAttempts || 0) + 1;
       let reset = false;
-      if (!challenge.pending && challenge.twoFaAttempts >= 3) {
+      if (challenge.twoFaAttempts >= 3) {
         await kv.del(`${ADMIN_2FA_ENROLLED_PREFIX}${challenge.email}`);
         await kv.del(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
         reset = true;
@@ -11678,9 +11678,7 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
         success: false,
         reset,
         errorCode: reset ? 'TOTP_RESET' : 'INVALID_TOTP',
-        attemptsRemaining: reset || challenge.pending
-          ? null
-          : Math.max(0, 3 - challenge.twoFaAttempts),
+        attemptsRemaining: reset ? null : Math.max(0, 3 - challenge.twoFaAttempts),
         message: reset
           ? 'Authenticator reset. Please log in again and scan the new QR code.'
           : 'Invalid verification code',
