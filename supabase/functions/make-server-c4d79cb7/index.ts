@@ -5285,8 +5285,7 @@ app.post('/make-server-c4d79cb7/backtest/strategy/run', async (c) => {
       }, 402);
     }
 
-    const report = await runStrategyBacktest({ strategy, indices, initialCapital, fromDate, toDate });
-
+    // debit first so a long run cannot be started twice on the same balance
     const newBalance = Number((balance - BACKTEST_COST).toFixed(2));
     await kv.set(`wallet:${user.id}`, {
       ...wallet,
@@ -5294,6 +5293,22 @@ app.post('/make-server-c4d79cb7/backtest/strategy/run', async (c) => {
       totalDeducted: Number(wallet.totalDeducted || 0) + BACKTEST_COST,
       updatedAt: new Date().toISOString(),
     });
+
+    let report;
+    try {
+      report = await runStrategyBacktest({ strategy, indices, initialCapital, fromDate, toDate });
+    } catch (runErr: any) {
+      // refund on failure
+      const cur = (await kv.get(`wallet:${user.id}`)) || { balance: 0 };
+      await kv.set(`wallet:${user.id}`, {
+        ...cur,
+        balance: Number((Number(cur.balance || 0) + BACKTEST_COST).toFixed(2)),
+        totalDeducted: Math.max(0, Number(cur.totalDeducted || 0) - BACKTEST_COST),
+        updatedAt: new Date().toISOString(),
+      });
+      return c.json({ success: false, error: runErr?.message || 'Backtest failed' }, 500);
+    }
+
     const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
     walletTx.push({
       id: `bt_${Date.now()}`,
@@ -5304,6 +5319,7 @@ app.post('/make-server-c4d79cb7/backtest/strategy/run', async (c) => {
       timestamp: new Date().toISOString(),
     });
     await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
 
     // ---- persist for the user + admin views
     try {
