@@ -69,12 +69,21 @@ export async function fetchHistoricalCandles(
   for (let s = start; s <= end; s += CHUNK + 24 * 60 * 60 * 1000) {
     const cFrom = new Date(s);
     const cTo = new Date(Math.min(s + CHUNK, end));
-    try {
-      const candles = await fetchChunk(key, ymd(cFrom), ymd(cTo));
-      for (const cd of candles) if (isFinite(cd.close) && cd.close > 0) seen.set(cd.timestamp, cd);
-    } catch (e) {
-      console.error(`[BACKTEST] chunk failed ${index} ${ymd(cFrom)}→${ymd(cTo)}:`, (e as any)?.message);
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      try {
+        const candles = await fetchChunk(key, ymd(cFrom), ymd(cTo));
+        for (const cd of candles) if (isFinite(cd.close) && cd.close > 0) seen.set(cd.timestamp, cd);
+        ok = true;
+      } catch (e) {
+        if (attempt === 2) {
+          console.error(`[BACKTEST] chunk failed ${index} ${ymd(cFrom)}→${ymd(cTo)}:`, (e as any)?.message);
+        } else {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        }
+      }
     }
+
   }
   return Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
