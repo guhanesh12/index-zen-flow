@@ -129,8 +129,8 @@ function premiumOf(indexPrice: number) {
 const DELTA = 0.5;
 let SL_ATR = 1.0;
 let TGT_ATR = 1.5;
-const BE_ATR = 0.8; // lock breakeven once price runs this far in favour
 export function setRiskParams(sl: number, tgt: number) { SL_ATR = sl; TGT_ATR = tgt; }
+const RISK_PER_TRADE = 0.02; // risk 2% of capital per trade
 const COST_PER_LOT = 40; // brokerage + taxes + slippage, round trip
 
 interface OpenPos {
@@ -195,14 +195,6 @@ async function replayIndex(
 
     // ---- manage an open position first (intrabar SL / target, then EOD)
     if (pos) {
-      // trailing: lock breakeven once the trade runs in favour
-      if (!pos.beLocked) {
-        const fav = pos.direction === "BUY_CALL" ? bar.high - pos.entryPrice : pos.entryPrice - bar.low;
-        if (fav >= BE_ATR * pos.atr) {
-          pos.sl = pos.entryPrice;
-          pos.beLocked = true;
-        }
-      }
       const hitSL = pos.direction === "BUY_CALL" ? bar.low <= pos.sl : bar.high >= pos.sl;
       const hitTgt = pos.direction === "BUY_CALL" ? bar.high >= pos.target : bar.low <= pos.target;
       if (hitTgt) closePos(bar.timestamp, pos!.target, "TARGET");
@@ -239,7 +231,10 @@ async function replayIndex(
     const premium = premiumOf(entry);
     const capital = getCapital();
     const perLot = premium * lotSize;
-    const lots = Math.max(0, Math.min(10, Math.floor((capital * 0.9) / perLot)));
+    const riskPerLot = SL_ATR * a * DELTA * lotSize + COST_PER_LOT; // ₹ lost if SL hits
+    const byRisk = Math.floor((capital * RISK_PER_TRADE) / Math.max(riskPerLot, 1));
+    const byMargin = Math.floor((capital * 0.35) / perLot);
+    const lots = Math.max(0, Math.min(20, byRisk, byMargin));
     if (lots < 1) continue;
 
     pos = {
