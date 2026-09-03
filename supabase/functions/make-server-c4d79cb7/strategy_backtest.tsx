@@ -294,7 +294,7 @@ async function replayIndex(
       if (p.direction === signal.action) continue; // same side → hold
       const livePnl = pnlAt(p, bar.close);
       const conf = Number(signal.confidence || 0);
-      const canReverse = livePnl < 0 ? conf >= 68 : conf >= 90 && livePnl <= p.baseSL * 0.7;
+      const canReverse = livePnl < 0 ? (conf >= 68 && Math.abs(livePnl) >= p.baseSL * 0.45) : conf >= 90 && livePnl <= p.baseSL * 0.7;
       if (!canReverse) continue;
       closeAtPnl(bar.timestamp, livePnl, "AI_REVERSAL");
     }
