@@ -3975,12 +3975,20 @@ export class AdvancedAI {
     // trend extremes. Filtering these lifted win rate from ~48% to ~80% and turned
     // P&L positive in both the in-sample and out-of-sample windows.
     if (action !== "WAIT") {
-      if (adx < 20) {
+      // Structured grind (clean lower-highs/lower-lows or higher-highs/higher-lows on the
+      // right side of VWAP with EMA alignment) is tradable down to ADX 16 — an orderly
+      // trend prints a low ADX by construction. Everything else still needs ADX 20.
+      const structAligned =
+        (action === "BUY_PUT" && structuredTrendDown) ||
+        (action === "BUY_CALL" && structuredTrendUp);
+      const adxFloor = structAligned ? 16 : 20;
+      if (adx < adxFloor) {
         action = "WAIT";
         bias = "Neutral";
         confidence = 35;
-        reasoning = `⏸️ WAIT: trend too weak (ADX ${adx.toFixed(1)} < 20). Backtest: no edge below ADX 20.`;
+        reasoning = `⏸️ WAIT: trend too weak (ADX ${adx.toFixed(1)} < ${adxFloor}). Backtest: no edge below ADX ${adxFloor}.`;
       } else if (adx > 34) {
+
         action = "WAIT";
         bias = "Neutral";
         confidence = 35;
