@@ -5244,6 +5244,183 @@ app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
 });
 
 // ============================================
+// 🧪 INDEXPILOTAI STRATEGY BACKTEST (wallet-metered)
+// ============================================
+
+app.post('/make-server-c4d79cb7/backtest/strategy/run', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const strategy = String(body.strategy || 'indexpilotai');
+    const requested: string[] = Array.isArray(body.indices) && body.indices.length
+      ? body.indices
+      : ['NIFTY', 'BANKNIFTY', 'SENSEX'];
+    const indices = requested
+      .map((s: string) => String(s).toUpperCase())
+      .filter((s: string) => ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(s)) as any[];
+    const initialCapital = Math.max(10000, Math.min(50000000, Number(body.initialCapital) || 100000));
+    const toDate = String(body.toDate || '').slice(0, 10);
+    const fromDate = String(body.fromDate || '').slice(0, 10);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+      return c.json({ success: false, error: 'Invalid date range' }, 400);
+    }
+    const spanDays = (new Date(`${toDate}T00:00:00Z`).getTime() - new Date(`${fromDate}T00:00:00Z`).getTime()) / 86400000;
+    if (spanDays < 28) return c.json({ success: false, error: 'Minimum duration is 1 month' }, 400);
+    if (spanDays > 370) return c.json({ success: false, error: 'Maximum duration is 1 year' }, 400);
+    if (!indices.length) return c.json({ success: false, error: 'Select at least one index' }, 400);
+
+    // ---- wallet debit (₹5 per run)
+    const wallet = (await kv.get(`wallet:${user.id}`)) || { balance: 0, totalProfit: 0, totalDeducted: 0 };
+    const balance = Number(wallet.balance || 0);
+    if (balance < BACKTEST_COST) {
+      return c.json({
+        success: false,
+        error: `Insufficient wallet balance. Backtest costs ₹${BACKTEST_COST}, available ₹${balance}.`,
+        required: BACKTEST_COST,
+        available: balance,
+      }, 402);
+    }
+
+    const report = await runStrategyBacktest({ strategy, indices, initialCapital, fromDate, toDate });
+
+    const newBalance = Number((balance - BACKTEST_COST).toFixed(2));
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Number(wallet.totalDeducted || 0) + BACKTEST_COST,
+      updatedAt: new Date().toISOString(),
+    });
+    const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
+    walletTx.push({
+      id: `bt_${Date.now()}`,
+      type: 'debit',
+      amount: BACKTEST_COST,
+      description: `Strategy backtest (${strategy}) ${fromDate} → ${toDate}`,
+      balanceAfter: newBalance,
+      timestamp: new Date().toISOString(),
+    });
+    await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
+    // ---- persist for the user + admin views
+    try {
+      const supabaseSrv = createClient(
+        Deno.env.get('SUPABASE_URL') || '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+      );
+      await supabaseSrv.from('strategy_backtests').insert({
+        user_id: user.id,
+        user_email: user.email || null,
+        strategy,
+        indices,
+        initial_capital: initialCapital,
+        from_date: fromDate,
+        to_date: toDate,
+        cost: BACKTEST_COST,
+        summary: report.summary,
+        by_index: report.byIndex,
+        report: {
+          daily: report.daily,
+          weekly: report.weekly,
+          monthly: report.monthly,
+          yearly: report.yearly,
+          equityCurve: report.equityCurve,
+          trades: report.trades.slice(-200),
+        },
+      });
+    } catch (persistErr: any) {
+      console.error('⚠️ backtest persist failed:', persistErr?.message);
+    }
+
+    return c.json({ success: true, walletBalance: newBalance, cost: BACKTEST_COST, report });
+  } catch (e: any) {
+    console.error('❌ strategy backtest error', e);
+    return c.json({ success: false, error: e?.message || 'Backtest failed' }, 500);
+  }
+});
+
+// User's own backtest history
+app.get('/make-server-c4d79cb7/backtest/strategy/history', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const supabaseSrv = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    );
+    const { data, error } = await supabaseSrv
+      .from('strategy_backtests')
+      .select('id, strategy, indices, initial_capital, from_date, to_date, cost, summary, by_index, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    return c.json({ success: true, runs: data || [] });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to load history' }, 500);
+  }
+});
+
+// Single stored run (own or admin)
+app.get('/make-server-c4d79cb7/backtest/strategy/run/:id', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    const admin = await validateAdminAuth(c);
+
+    const supabaseSrv = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    );
+    let q = supabaseSrv.from('strategy_backtests').select('*').eq('id', c.req.param('id'));
+    if (!admin.authorized) q = q.eq('user_id', user.id);
+    const { data, error } = await q.maybeSingle();
+    if (error) throw error;
+    if (!data) return c.json({ success: false, error: 'Not found' }, 404);
+    return c.json({ success: true, run: data });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to load run' }, 500);
+  }
+});
+
+// Admin: user-wise backtest activity
+app.get('/make-server-c4d79cb7/admin/strategy-backtests', async (c) => {
+  try {
+    const admin = await validateAdminAuth(c);
+    if (!admin.authorized) return c.json({ success: false, error: 'Unauthorized' }, admin.error?.code || 403);
+
+    const supabaseSrv = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    );
+    const { data, error } = await supabaseSrv
+      .from('strategy_backtests')
+      .select('id, user_id, user_email, strategy, indices, initial_capital, from_date, to_date, cost, summary, by_index, created_at')
+      .order('created_at', { ascending: false })
+      .limit(300);
+    if (error) throw error;
+
+    const rows = data || [];
+    const ids = Array.from(new Set(rows.map((r: any) => r.user_id).filter(Boolean)));
+    const nameMap: Record<string, string> = {};
+    if (ids.length) {
+      const { data: profs } = await supabaseSrv.from('profiles').select('id, full_name, email').in('id', ids);
+      for (const p of profs || []) nameMap[p.id] = p.full_name || p.email || p.id;
+    }
+
+    const runs = rows.map((r: any) => ({ ...r, user_name: nameMap[r.user_id] || r.user_email || r.user_id }));
+    const revenue = runs.reduce((s: number, r: any) => s + Number(r.cost || 0), 0);
+    return c.json({ success: true, runs, totalRuns: runs.length, revenue });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to load backtests' }, 500);
+  }
+});
+
+
+// ============================================
 // 📊 TRADING JOURNAL ROUTES
 // ============================================
 
