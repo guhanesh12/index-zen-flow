@@ -304,16 +304,23 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       });
       const data = await res.json().catch(() => ({} as any));
       if (!res.ok || !data.success || !data.accessToken || !data.admin) {
-        // 401 = the login challenge expired / was consumed. Send the admin back
-        // to the credentials step instead of leaving a dead 2FA screen.
-        if (res.status === 401) {
+        // A wrong TOTP also returns 401, but its challenge must remain active so
+        // the server can count retries and reset a stale enrollment after three
+        // misses. Restart only when the challenge is actually expired/reset.
+        const challengeEnded = data.reset === true
+          || data.errorCode === 'TOTP_RESET'
+          || String(data.message || '').toLowerCase().includes('expired');
+        if (res.status === 401 && challengeEnded) {
           setChallengeToken('');
           setOtpCode('');
           setStep('credentials');
           setError(data.message || 'Session expired. Please log in again.');
           return;
         }
-        setError(data.message || 'Invalid verification code');
+        const attemptsHint = typeof data.attemptsRemaining === 'number'
+          ? ` (${data.attemptsRemaining} attempt${data.attemptsRemaining === 1 ? '' : 's'} remaining before authenticator reset)`
+          : '';
+        setError(`${data.message || 'Invalid verification code'}${attemptsHint}`);
         setOtpCode('');
         otpInputRefs[0].current?.focus();
         return;
