@@ -69,12 +69,21 @@ export async function fetchHistoricalCandles(
   for (let s = start; s <= end; s += CHUNK + 24 * 60 * 60 * 1000) {
     const cFrom = new Date(s);
     const cTo = new Date(Math.min(s + CHUNK, end));
-    try {
-      const candles = await fetchChunk(key, ymd(cFrom), ymd(cTo));
-      for (const cd of candles) if (isFinite(cd.close) && cd.close > 0) seen.set(cd.timestamp, cd);
-    } catch (e) {
-      console.error(`[BACKTEST] chunk failed ${index} ${ymd(cFrom)}→${ymd(cTo)}:`, (e as any)?.message);
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      try {
+        const candles = await fetchChunk(key, ymd(cFrom), ymd(cTo));
+        for (const cd of candles) if (isFinite(cd.close) && cd.close > 0) seen.set(cd.timestamp, cd);
+        ok = true;
+      } catch (e) {
+        if (attempt === 2) {
+          console.error(`[BACKTEST] chunk failed ${index} ${ymd(cFrom)}→${ymd(cTo)}:`, (e as any)?.message);
+        } else {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        }
+      }
     }
+
   }
   return Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
@@ -127,8 +136,14 @@ function premiumOf(indexPrice: number) {
 }
 
 const DELTA = 0.5;
-const SL_ATR = 2.5;
-const TGT_ATR = 0.4;
+// Live engine money rules: ₹6,000 target / ₹3,000 stop-loss per lot
+let TARGET_PER_LOT = 6000;
+let SL_PER_LOT = 3000;
+export function setRiskParams(targetPerLot: number, slPerLot: number) {
+  TARGET_PER_LOT = targetPerLot;
+  SL_PER_LOT = slPerLot;
+}
+const RISK_PER_TRADE = 0.02; // risk 2% of capital per trade
 const COST_PER_LOT = 40; // brokerage + taxes + slippage, round trip
 
 interface OpenPos {
@@ -142,6 +157,8 @@ interface OpenPos {
   qty: number;
   premiumEntry: number;
   confidence: number;
+  atr: number;
+  beLocked?: boolean;
 }
 
 /**
@@ -227,7 +244,12 @@ async function replayIndex(
     const premium = premiumOf(entry);
     const capital = getCapital();
     const perLot = premium * lotSize;
-    const lots = Math.max(0, Math.min(10, Math.floor((capital * 0.9) / perLot)));
+    // index points equivalent to the ₹ target / stop-loss of one lot
+    const tgtPts = TARGET_PER_LOT / (DELTA * lotSize);
+    const slPts = SL_PER_LOT / (DELTA * lotSize);
+    const byRisk = Math.floor((capital * RISK_PER_TRADE) / (SL_PER_LOT + COST_PER_LOT));
+    const byMargin = Math.floor((capital * 0.35) / perLot);
+    const lots = Math.max(0, Math.min(20, byRisk, byMargin));
     if (lots < 1) continue;
 
     pos = {
@@ -235,12 +257,14 @@ async function replayIndex(
       direction: signal.action,
       entryTs: next.timestamp,
       entryPrice: entry,
-      sl: signal.action === "BUY_CALL" ? entry - SL_ATR * a : entry + SL_ATR * a,
-      target: signal.action === "BUY_CALL" ? entry + TGT_ATR * a : entry - TGT_ATR * a,
+      sl: signal.action === "BUY_CALL" ? entry - slPts : entry + slPts,
+      target: signal.action === "BUY_CALL" ? entry + tgtPts : entry - tgtPts,
       lots,
       qty: lots * lotSize,
       premiumEntry: premium,
       confidence: Math.round(signal.confidence || 0),
+      atr: a,
+      beLocked: false,
     };
     i++; // entry consumed the next bar's open; management starts after it
   }
