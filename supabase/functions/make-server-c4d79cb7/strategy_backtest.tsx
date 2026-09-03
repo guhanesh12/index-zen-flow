@@ -127,9 +127,13 @@ function premiumOf(indexPrice: number) {
 }
 
 const DELTA = 0.5;
-let SL_ATR = 1.0;
-let TGT_ATR = 2.0;
-export function setRiskParams(sl: number, tgt: number) { SL_ATR = sl; TGT_ATR = tgt; }
+// Live engine money rules: ₹6,000 target / ₹3,000 stop-loss per lot
+let TARGET_PER_LOT = 6000;
+let SL_PER_LOT = 3000;
+export function setRiskParams(targetPerLot: number, slPerLot: number) {
+  TARGET_PER_LOT = targetPerLot;
+  SL_PER_LOT = slPerLot;
+}
 const RISK_PER_TRADE = 0.02; // risk 2% of capital per trade
 const COST_PER_LOT = 40; // brokerage + taxes + slippage, round trip
 
@@ -231,8 +235,10 @@ async function replayIndex(
     const premium = premiumOf(entry);
     const capital = getCapital();
     const perLot = premium * lotSize;
-    const riskPerLot = SL_ATR * a * DELTA * lotSize + COST_PER_LOT; // ₹ lost if SL hits
-    const byRisk = Math.floor((capital * RISK_PER_TRADE) / Math.max(riskPerLot, 1));
+    // index points equivalent to the ₹ target / stop-loss of one lot
+    const tgtPts = TARGET_PER_LOT / (DELTA * lotSize);
+    const slPts = SL_PER_LOT / (DELTA * lotSize);
+    const byRisk = Math.floor((capital * RISK_PER_TRADE) / (SL_PER_LOT + COST_PER_LOT));
     const byMargin = Math.floor((capital * 0.35) / perLot);
     const lots = Math.max(0, Math.min(20, byRisk, byMargin));
     if (lots < 1) continue;
@@ -242,8 +248,8 @@ async function replayIndex(
       direction: signal.action,
       entryTs: next.timestamp,
       entryPrice: entry,
-      sl: signal.action === "BUY_CALL" ? entry - SL_ATR * a : entry + SL_ATR * a,
-      target: signal.action === "BUY_CALL" ? entry + TGT_ATR * a : entry - TGT_ATR * a,
+      sl: signal.action === "BUY_CALL" ? entry - slPts : entry + slPts,
+      target: signal.action === "BUY_CALL" ? entry + tgtPts : entry - tgtPts,
       lots,
       qty: lots * lotSize,
       premiumEntry: premium,
