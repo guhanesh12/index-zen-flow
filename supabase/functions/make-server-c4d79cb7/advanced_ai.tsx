@@ -3378,11 +3378,35 @@ export class AdvancedAI {
     const inTrendingRegime =
       marketRegime.type === "TRENDING_UP" ||
       marketRegime.type === "TRENDING_DOWN";
+    // ⚡ STRUCTURED-TREND OVERRIDE (added 2026-09-03):
+    // A slow one-way grind (today's NIFTY: lower highs + lower lows below VWAP, ADX 16)
+    // is NOT a sideways market — it just has a low ADX because the move is orderly.
+    // Detect clean directional structure over the last 4 bars and exempt it from the
+    // sideways block and from the hard ADX floor further below.
+    const structBars = ohlcData.slice(-4);
+    const lowerHighsLows =
+      structBars.length === 4 &&
+      structBars[3].high < structBars[1].high &&
+      structBars[3].low < structBars[1].low &&
+      structBars[3].close < structBars[0].close;
+    const higherHighsLows =
+      structBars.length === 4 &&
+      structBars[3].high > structBars[1].high &&
+      structBars[3].low > structBars[1].low &&
+      structBars[3].close > structBars[0].close;
+    const structuredTrendDown =
+      lowerHighsLows && vwapDistance <= -0.12 && ema9 < ema21 && adx >= 14;
+    const structuredTrendUp =
+      higherHighsLows && vwapDistance >= 0.12 && ema9 > ema21 && adx >= 14;
+    const structuredTrend = structuredTrendDown || structuredTrendUp;
+
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
       !inTrendingRegime &&
+      !structuredTrend &&
       adx < 18 &&
       ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
+
     const sidewaysSignals = [
       adx < 18,
       atrLow,
