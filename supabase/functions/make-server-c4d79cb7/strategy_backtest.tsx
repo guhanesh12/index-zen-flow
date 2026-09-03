@@ -127,8 +127,9 @@ function premiumOf(indexPrice: number) {
 }
 
 const DELTA = 0.5;
-const SL_ATR = 2.5;
-const TGT_ATR = 0.4;
+let SL_ATR = 1.0;
+let TGT_ATR = 0.6;
+export function setRiskParams(sl: number, tgt: number) { SL_ATR = sl; TGT_ATR = tgt; }
 const COST_PER_LOT = 40; // brokerage + taxes + slippage, round trip
 
 interface OpenPos {
