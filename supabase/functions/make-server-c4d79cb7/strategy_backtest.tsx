@@ -128,7 +128,8 @@ function premiumOf(indexPrice: number) {
 
 const DELTA = 0.5;
 let SL_ATR = 1.0;
-let TGT_ATR = 0.6;
+let TGT_ATR = 1.5;
+const BE_ATR = 0.8; // lock breakeven once price runs this far in favour
 export function setRiskParams(sl: number, tgt: number) { SL_ATR = sl; TGT_ATR = tgt; }
 const COST_PER_LOT = 40; // brokerage + taxes + slippage, round trip
 
@@ -143,6 +144,8 @@ interface OpenPos {
   qty: number;
   premiumEntry: number;
   confidence: number;
+  atr: number;
+  beLocked?: boolean;
 }
 
 /**
@@ -192,6 +195,14 @@ async function replayIndex(
 
     // ---- manage an open position first (intrabar SL / target, then EOD)
     if (pos) {
+      // trailing: lock breakeven once the trade runs in favour
+      if (!pos.beLocked) {
+        const fav = pos.direction === "BUY_CALL" ? bar.high - pos.entryPrice : pos.entryPrice - bar.low;
+        if (fav >= BE_ATR * pos.atr) {
+          pos.sl = pos.entryPrice;
+          pos.beLocked = true;
+        }
+      }
       const hitSL = pos.direction === "BUY_CALL" ? bar.low <= pos.sl : bar.high >= pos.sl;
       const hitTgt = pos.direction === "BUY_CALL" ? bar.high >= pos.target : bar.low <= pos.target;
       if (hitTgt) closePos(bar.timestamp, pos!.target, "TARGET");
@@ -242,6 +253,8 @@ async function replayIndex(
       qty: lots * lotSize,
       premiumEntry: premium,
       confidence: Math.round(signal.confidence || 0),
+      atr: a,
+      beLocked: false,
     };
     i++; // entry consumed the next bar's open; management starts after it
   }
