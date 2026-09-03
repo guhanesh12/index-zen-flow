@@ -3995,10 +3995,17 @@ export class AdvancedAI {
       // Structured grind (clean lower-highs/lower-lows or higher-highs/higher-lows on the
       // right side of VWAP with EMA alignment) is tradable down to ADX 16 — an orderly
       // trend prints a low ADX by construction. Everything else still needs ADX 20.
+      const strongVwapBear =
+        action === "BUY_PUT" && vwapDistance <= -0.2 && ema9Slope < 0;
+      const strongVwapBull =
+        action === "BUY_CALL" && vwapDistance >= 0.2 && ema9Slope > 0;
       const structAligned =
         (action === "BUY_PUT" && structuredTrendDown) ||
-        (action === "BUY_CALL" && structuredTrendUp);
+        (action === "BUY_CALL" && structuredTrendUp) ||
+        strongVwapBear ||
+        strongVwapBull;
       const adxFloor = structAligned ? 16 : 20;
+
       if (adx < adxFloor) {
         action = "WAIT";
         bias = "Neutral";
