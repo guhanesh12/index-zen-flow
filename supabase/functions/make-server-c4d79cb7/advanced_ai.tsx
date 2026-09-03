@@ -2762,11 +2762,33 @@ export class AdvancedAI {
     const earlyOpeningSession =
       istMinutes >= 9 * 60 + 15 && istMinutes <= 10 * 60 + 30;
     const openingRelief = earlyOpeningSession ? 1 : 0;
+    // ⚡ STRUCTURE RELIEF (added 2026-09-03): an orderly one-way grind (clean
+    // lower-highs/lower-lows or higher-highs/higher-lows on the correct side of VWAP
+    // with EMA9 sloping the same way) prints a LOW ADX by construction. Requiring 6
+    // confirmations there kept NIFTY/SENSEX stuck on WAIT through obvious trend days,
+    // so such structures need one confirmation less (never below the hard floor of 3).
+    const _sb = ohlcData.slice(-4);
+    const _cleanDown =
+      _sb.length === 4 &&
+      _sb[3].high < _sb[1].high &&
+      _sb[3].low < _sb[1].low &&
+      _sb[3].close < _sb[0].close &&
+      vwapDistance <= -0.1 &&
+      ema9Slope < 0;
+    const _cleanUp =
+      _sb.length === 4 &&
+      _sb[3].high > _sb[1].high &&
+      _sb[3].low > _sb[1].low &&
+      _sb[3].close > _sb[0].close &&
+      vwapDistance >= 0.1 &&
+      ema9Slope > 0;
+    const structureRelief = _cleanDown || _cleanUp ? 1 : 0;
     const requiredConfirmations = Math.max(
       3,
       (adx > 35 ? 4 : adx >= 22 ? 5 : 6) +
         lunchExtraConfirmation -
-        openingRelief,
+        openingRelief -
+        structureRelief,
     );
     confirmations.required = requiredConfirmations;
     const strongConfirmationScore = [
