@@ -175,6 +175,15 @@ interface OpenPos {
   steps: number;
 }
 
+export interface ReplayOptions {
+  /** Fixed lots per trade for this index (0/undefined → auto risk sizing). */
+  fixedLots?: number;
+  /** Max entries allowed per trading day for this index (0 → unlimited). */
+  maxTradesPerDay?: number;
+  /** Ignore signals weaker than this confidence (quality filter). */
+  minConfidence?: number;
+}
+
 /**
  * Replay the strategy for one index, mirroring the LIVE position monitor:
  * per-lot ₹ target / ₹ stop-loss, ratchet trailing (activation → target/SL
@@ -185,11 +194,17 @@ async function replayIndex(
   candles: OHLCCandle[],
   getCapital: () => number,
   onTrade: (t: BTTrade) => void,
+  opts: ReplayOptions = {},
 ) {
   const lotSize = LOT_SIZES[index];
+  const maxPerDay = Math.max(0, Math.floor(opts.maxTradesPerDay || 0));
+  const minConf = Math.max(0, Number(opts.minConfidence || 0));
+  const fixedLots = Math.max(0, Math.floor(opts.fixedLots || 0));
+  const entriesByDay = new Map<string, number>();
   let pos: OpenPos | null = null;
   let lastSignalTs = 0;
   let lastDir: "BUY_CALL" | "BUY_PUT" | "WAIT" = "WAIT";
+
 
   /** ₹ P&L of the open position if the index trades at `price`. */
   const pnlAt = (p: OpenPos, price: number) =>
