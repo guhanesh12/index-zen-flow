@@ -39,6 +39,7 @@ export const TAB_TREE: TabDef[] = [
     { key: 'app-update',       label: 'App Update' },
   ]},
   { key: 'marketData', label: 'Market Data', subs: [] },
+  { key: 'backtests', label: 'User Backtests', subs: [] },
 
   { key: 'referrals', label: 'Referrals', subs: [
     { key: 'settings',    label: 'Settings' },
