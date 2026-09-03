@@ -323,28 +323,41 @@ export interface BacktestResult {
   trades: BTTrade[];
 }
 
-export async function runStrategyBacktest(params: {
-  strategy?: string;
-  indices?: IndexName[];
-  initialCapital: number;
+/**
+ * Replay ONE index over ONE date slice. Used by the segmented (low-CPU) run
+ * flow so a long backtest never exceeds the edge-function CPU budget.
+ * A lead-in window before `fromDate` is fetched for indicator warm-up; trades
+ * entered before `fromDate` are discarded.
+ */
+export async function replaySegment(params: {
+  index: IndexName;
   fromDate: string;
   toDate: string;
-}): Promise<BacktestResult> {
-  const indices = (params.indices?.length ? params.indices : (["NIFTY", "BANKNIFTY", "SENSEX"] as IndexName[]));
+  capital: number;
+}): Promise<BTTrade[]> {
+  const leadIn = new Date(new Date(`${params.fromDate}T00:00:00Z`).getTime() - 20 * 86400000);
+  const candles = await fetchHistoricalCandles(params.index, ymd(leadIn), params.toDate);
+  if (candles.length < 80) return [];
+  const out: BTTrade[] = [];
+  await replayIndex(
+    params.index,
+    candles,
+    () => Math.max(params.capital, 10000),
+    (t) => { if (t.date >= params.fromDate) out.push(t); },
+  );
+  return out;
+}
+
+/** Build the full report from an already-computed trade list. */
+export function buildReport(
+  trades: BTTrade[],
+  params: { strategy?: string; indices: IndexName[]; initialCapital: number; fromDate: string; toDate: string },
+): BacktestResult {
+  const indices = params.indices;
   const initialCapital = Math.max(10000, params.initialCapital || 100000);
-
+  trades = trades.slice().sort((a, b) => (a.entryTime < b.entryTime ? -1 : 1));
   let capital = initialCapital;
-  const trades: BTTrade[] = [];
 
-  for (const idx of indices) {
-    const candles = await fetchHistoricalCandles(idx, params.fromDate, params.toDate);
-    if (candles.length < 80) continue;
-    await replayIndex(idx, candles, () => Math.max(capital / indices.length, 10000), (t) => {
-      trades.push(t);
-    });
-  }
-
-  trades.sort((a, b) => (a.entryTime < b.entryTime ? -1 : 1));
 
   // running equity (all indices share the same wallet)
   let equity = initialCapital;
@@ -456,4 +469,27 @@ export async function runStrategyBacktest(params: {
     equityCurve,
     trades: trades.slice(-500),
   };
+}
+
+/** Full run in one shot (used by internal/admin tooling and short ranges). */
+export async function runStrategyBacktest(params: {
+  strategy?: string;
+  indices?: IndexName[];
+  initialCapital: number;
+  fromDate: string;
+  toDate: string;
+}): Promise<BacktestResult> {
+  const indices = (params.indices?.length ? params.indices : (["NIFTY", "BANKNIFTY", "SENSEX"] as IndexName[]));
+  const initialCapital = Math.max(10000, params.initialCapital || 100000);
+  const trades: BTTrade[] = [];
+  for (const idx of indices) {
+    const t = await replaySegment({
+      index: idx,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+      capital: initialCapital / indices.length,
+    });
+    trades.push(...t);
+  }
+  return buildReport(trades, { ...params, indices, initialCapital });
 }

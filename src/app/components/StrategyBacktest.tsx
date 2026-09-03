@@ -40,6 +40,8 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
   const [wallet, setWallet] = useState<number | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [view, setView] = useState<"daily" | "weekly" | "monthly" | "yearly">("monthly");
+  const [progress, setProgress] = useState(0);
+
 
   const headers = useMemo(
     () => ({ "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }),
@@ -70,30 +72,57 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
 
   const run = async () => {
     if (!selected.length) { setError("Select at least one index"); return; }
-    setLoading(true); setError(""); setReport(null);
+    setLoading(true); setError(""); setReport(null); setProgress(0);
     try {
-      const res = await fetch(`${getBaseUrl()}/backtest/strategy/run`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          strategy,
-          indices: selected,
-          initialCapital: capital,
-          fromDate: isoDaysAgo(duration),
-          toDate: isoDaysAgo(1),
-        }),
+      const post = async (path: string, payload: any) => {
+        const res = await fetch(`${getBaseUrl()}${path}`, {
+          method: "POST", headers, body: JSON.stringify(payload),
+        });
+        const text = await res.text();
+        let data: any = {};
+        try { data = JSON.parse(text); } catch { /* non json */ }
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `Backtest failed (HTTP ${res.status})`);
+        }
+        return data;
+      };
+
+      const begin = await post("/backtest/strategy/begin", {
+        strategy,
+        indices: selected,
+        initialCapital: capital,
+        fromDate: isoDaysAgo(duration),
+        toDate: isoDaysAgo(1),
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Backtest failed");
-      setReport(data.report);
-      if (typeof data.walletBalance === "number") setWallet(data.walletBalance);
+      if (typeof begin.walletBalance === "number") setWallet(begin.walletBalance);
+
+      const tasks: any[] = begin.tasks || [];
+      // run segments with a small concurrency so each request stays light
+      let done = 0;
+      const queue = tasks.slice();
+      const worker = async () => {
+        while (queue.length) {
+          const t = queue.shift();
+          if (!t) break;
+          await post("/backtest/strategy/segment", { runId: begin.runId, ...t });
+          done += 1;
+          setProgress(Math.round((done / tasks.length) * 100));
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+
+      const fin = await post("/backtest/strategy/finalize", { runId: begin.runId });
+      setReport(fin.report);
+      if (typeof fin.walletBalance === "number") setWallet(fin.walletBalance);
       loadHistory();
     } catch (e: any) {
       setError(e.message || "Backtest failed");
     } finally {
       setLoading(false);
+      setProgress(0);
     }
   };
+
 
   const s = report?.summary;
   const periods = report ? report[view] || [] : [];
@@ -228,15 +257,22 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
             className="w-full bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white py-6 text-base"
           >
             {loading ? (
-              <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Running backtest on live market data…</>
+              <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Running backtest… {progress}%</>
             ) : (
               <><FlaskConical className="w-5 h-5 mr-2" /> Run Backtest — ₹5</>
             )}
           </Button>
           {loading && (
-            <p className="text-xs text-zinc-500 text-center">
-              Fetching 15-minute candles and replaying every signal. Longer durations can take up to a minute.
-            </p>
+            <>
+              <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 transition-all"
+                  style={{ width: `${Math.max(4, progress)}%` }} />
+              </div>
+              <p className="text-xs text-zinc-500 text-center">
+                Fetching 15-minute candles and replaying every signal. Longer durations can take up to a minute.
+              </p>
+            </>
+
           )}
           {error && (
             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>
