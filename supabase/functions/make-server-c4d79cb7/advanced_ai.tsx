@@ -3378,11 +3378,44 @@ export class AdvancedAI {
     const inTrendingRegime =
       marketRegime.type === "TRENDING_UP" ||
       marketRegime.type === "TRENDING_DOWN";
+    // ⚡ STRUCTURED-TREND OVERRIDE (added 2026-09-03):
+    // A slow one-way grind (today's NIFTY: lower highs + lower lows below VWAP, ADX 16)
+    // is NOT a sideways market — it just has a low ADX because the move is orderly.
+    // Detect clean directional structure over the last 4 bars and exempt it from the
+    // sideways block and from the hard ADX floor further below.
+    const structBars = ohlcData.slice(-4);
+    const lowerHighsLows =
+      structBars.length === 4 &&
+      structBars[3].high < structBars[1].high &&
+      structBars[3].low < structBars[1].low &&
+      structBars[3].close < structBars[0].close;
+    const higherHighsLows =
+      structBars.length === 4 &&
+      structBars[3].high > structBars[1].high &&
+      structBars[3].low > structBars[1].low &&
+      structBars[3].close > structBars[0].close;
+    // NOTE: strict EMA9<EMA21 is too slow on 15m — on a mid-session reversal day the
+    // EMAs are still crossed from the previous trend. Falling/rising EMA9 slope counts.
+    const structuredTrendDown =
+      lowerHighsLows &&
+      vwapDistance <= -0.12 &&
+      (ema9 < ema21 || ema9Slope < 0) &&
+      adx >= 14;
+    const structuredTrendUp =
+      higherHighsLows &&
+      vwapDistance >= 0.12 &&
+      (ema9 > ema21 || ema9Slope > 0) &&
+      adx >= 14;
+
+    const structuredTrend = structuredTrendDown || structuredTrendUp;
+
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
       !inTrendingRegime &&
+      !structuredTrend &&
       adx < 18 &&
       ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
+
     const sidewaysSignals = [
       adx < 18,
       atrLow,
@@ -3724,12 +3757,20 @@ export class AdvancedAI {
       const rsiFalling = rsi < rsiPrev;
       const rsiRising = rsi > rsiPrev;
 
+      // EMA condition: accept either a completed cross OR a turning EMA9 with the
+      // structure confirming (mid-session reversals turn slope first, cross later).
+      const emaBearOk =
+        (ema9 < ema21 && ema21SlopeDown) ||
+        (ema9Slope < 0 && (structuredTrendDown || ema21SlopeDown));
+      const emaBullOk =
+        (ema9 > ema21 && ema21SlopeUp) ||
+        (ema9Slope > 0 && (structuredTrendUp || ema21SlopeUp));
+
       const driftBear =
         (lowerCloses || redBars >= 4) &&
         vwapDistance <= -0.2 &&
         vwapSlopeDown &&
-        ema9 < ema21 &&
-        ema21SlopeDown &&
+        emaBearOk &&
         rsi >= 35 &&
         rsi <= 55 &&
         rsiFalling &&
@@ -3740,13 +3781,13 @@ export class AdvancedAI {
         (higherCloses || greenBars >= 4) &&
         vwapDistance >= 0.2 &&
         vwapSlopeUp &&
-        ema9 > ema21 &&
-        ema21SlopeUp &&
+        emaBullOk &&
         rsi >= 45 &&
         rsi <= 65 &&
         rsiRising &&
         adx >= 15 &&
         closeNow > closeMinus3;
+
 
       if (driftBear) {
         let conf = 72;
@@ -3951,12 +3992,27 @@ export class AdvancedAI {
     // trend extremes. Filtering these lifted win rate from ~48% to ~80% and turned
     // P&L positive in both the in-sample and out-of-sample windows.
     if (action !== "WAIT") {
-      if (adx < 20) {
+      // Structured grind (clean lower-highs/lower-lows or higher-highs/higher-lows on the
+      // right side of VWAP with EMA alignment) is tradable down to ADX 16 — an orderly
+      // trend prints a low ADX by construction. Everything else still needs ADX 20.
+      const strongVwapBear =
+        action === "BUY_PUT" && vwapDistance <= -0.2 && ema9Slope < 0;
+      const strongVwapBull =
+        action === "BUY_CALL" && vwapDistance >= 0.2 && ema9Slope > 0;
+      const structAligned =
+        (action === "BUY_PUT" && structuredTrendDown) ||
+        (action === "BUY_CALL" && structuredTrendUp) ||
+        strongVwapBear ||
+        strongVwapBull;
+      const adxFloor = structAligned ? 16 : 20;
+
+      if (adx < adxFloor) {
         action = "WAIT";
         bias = "Neutral";
         confidence = 35;
-        reasoning = `⏸️ WAIT: trend too weak (ADX ${adx.toFixed(1)} < 20). Backtest: no edge below ADX 20.`;
+        reasoning = `⏸️ WAIT: trend too weak (ADX ${adx.toFixed(1)} < ${adxFloor}). Backtest: no edge below ADX ${adxFloor}.`;
       } else if (adx > 34) {
+
         action = "WAIT";
         bias = "Neutral";
         confidence = 35;
