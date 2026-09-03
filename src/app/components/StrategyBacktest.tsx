@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 const INDICES = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
+const LOT_SIZES: Record<string, number> = { NIFTY: 75, BANKNIFTY: 35, SENSEX: 20 };
 const STRATEGIES = [
   { key: "indexpilotai", label: "IndexPilotAI Strategy", desc: "Default multi-confirmation AI engine (live strategy)" },
 ];
@@ -34,6 +35,10 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
   const [capital, setCapital] = useState(1000000);
   const [duration, setDuration] = useState(365);
   const [selected, setSelected] = useState<string[]>([...INDICES]);
+  const [lots, setLots] = useState<Record<string, number>>({ NIFTY: 1, BANKNIFTY: 1, SENSEX: 1 });
+  const [maxTradesPerDay, setMaxTradesPerDay] = useState(2);
+  const [minConfidence, setMinConfidence] = useState(70);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [report, setReport] = useState<any>(null);
@@ -93,6 +98,9 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
         initialCapital: capital,
         fromDate: isoDaysAgo(duration),
         toDate: isoDaysAgo(1),
+        lots,
+        maxTradesPerDay,
+        minConfidence,
       });
       if (typeof begin.walletBalance === "number") setWallet(begin.walletBalance);
 
@@ -233,23 +241,88 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
           </div>
 
           <div>
-            <div className="text-sm text-zinc-400 mb-2">Indices</div>
-            <div className="flex gap-2 flex-wrap">
+            <div className="text-sm text-zinc-400 mb-2">Indices &amp; Lots per trade</div>
+            <div className="grid sm:grid-cols-3 gap-2">
               {INDICES.map((i) => (
-                <button
+                <div
                   key={i}
-                  onClick={() => toggleIndex(i)}
-                  className={`px-4 py-2 rounded-lg text-sm border transition-all ${
+                  className={`p-3 rounded-xl border transition-all ${
                     selected.includes(i)
-                      ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
-                      : "border-zinc-800 bg-zinc-900/60 text-zinc-500 hover:border-zinc-700"
+                      ? "border-emerald-500/60 bg-emerald-500/10"
+                      : "border-zinc-800 bg-zinc-900/60"
                   }`}
                 >
-                  {i}
-                </button>
+                  <button
+                    onClick={() => toggleIndex(i)}
+                    className={`text-sm font-medium ${selected.includes(i) ? "text-emerald-300" : "text-zinc-500"}`}
+                  >
+                    {selected.includes(i) ? "✓ " : ""}{i}
+                  </button>
+                  <div className="mt-2 flex items-center gap-2">
+                    <label className="text-[11px] text-zinc-500" htmlFor={`bt-lots-${i}`}>Lots</label>
+                    <input
+                      id={`bt-lots-${i}`}
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={lots[i]}
+                      disabled={!selected.includes(i)}
+                      onChange={(e) => setLots((p) => ({ ...p, [i]: Math.max(1, Math.min(50, Number(e.target.value) || 1)) }))}
+                      className="w-20 bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1 text-white text-sm disabled:opacity-40"
+                    />
+                    <span className="text-[11px] text-zinc-600">× {LOT_SIZES[i]} qty</span>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-zinc-400 mb-2 block" htmlFor="bt-maxtrades">
+                Max trades per day (per index)
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {[1, 2, 3, 5, 0].map((v) => (
+                  <button
+                    key={v}
+                    id={v === 1 ? "bt-maxtrades" : undefined}
+                    onClick={() => setMaxTradesPerDay(v)}
+                    className={`px-3 py-2 rounded-lg text-sm border transition-all ${
+                      maxTradesPerDay === v
+                        ? "border-blue-500/60 bg-blue-500/10 text-white"
+                        : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700"
+                    }`}
+                  >
+                    {v === 0 ? "Unlimited" : v}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-zinc-600 mt-2">
+                Fewer trades per day = less churn. Total daily trades ≈ selected indices × this limit.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm text-zinc-400 mb-2 block" htmlFor="bt-minconf">
+                Minimum signal confidence — {minConfidence}%
+              </label>
+              <input
+                id="bt-minconf"
+                type="range"
+                min={0}
+                max={90}
+                step={5}
+                value={minConfidence}
+                onChange={(e) => setMinConfidence(Number(e.target.value))}
+                className="w-full accent-emerald-500"
+              />
+              <p className="text-[11px] text-zinc-600 mt-2">
+                Higher = only the strongest setups are traded (fewer trades, usually better win rate).
+              </p>
+            </div>
+          </div>
+
 
           <Button
             onClick={run}

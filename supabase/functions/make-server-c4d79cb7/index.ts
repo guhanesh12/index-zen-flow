@@ -5390,6 +5390,14 @@ app.post('/make-server-c4d79cb7/backtest/strategy/begin', async (c) => {
     const initialCapital = Math.max(10000, Math.min(50000000, Number(body.initialCapital) || 100000));
     const fromDate = String(body.fromDate || '').slice(0, 10);
     const toDate = String(body.toDate || '').slice(0, 10);
+    const rawLots = body.lots && typeof body.lots === 'object' ? body.lots : {};
+    const lots: Record<string, number> = {};
+    for (const idx of BT_INDICES) {
+      lots[idx] = Math.max(0, Math.min(50, Math.floor(Number(rawLots[idx]) || 0)));
+    }
+    const maxTradesPerDay = Math.max(0, Math.min(20, Math.floor(Number(body.maxTradesPerDay) || 0)));
+    const minConfidence = Math.max(0, Math.min(95, Math.floor(Number(body.minConfidence) || 0)));
+
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
       return c.json({ success: false, error: 'Invalid date range' }, 400);
@@ -5430,7 +5438,7 @@ app.post('/make-server-c4d79cb7/backtest/strategy/begin', async (c) => {
     for (const idx of indices) for (const s of btSlices(fromDate, toDate)) tasks.push({ index: idx, from: s.from, to: s.to });
 
     await kv.set(`backtest:run:${user.id}:${runId}`, {
-      strategy, indices, initialCapital, fromDate, toDate,
+      strategy, indices, initialCapital, fromDate, toDate, lots, maxTradesPerDay, minConfidence,
       trades: [], done: 0, total: tasks.length,
       createdAt: new Date().toISOString(),
     });
@@ -5462,7 +5470,11 @@ app.post('/make-server-c4d79cb7/backtest/strategy/segment', async (c) => {
       fromDate: from,
       toDate: to,
       capital: state.initialCapital / Math.max(1, (state.indices || []).length),
+      lots: Number(state.lots?.[index] || 0),
+      maxTradesPerDay: Number(state.maxTradesPerDay || 0),
+      minConfidence: Number(state.minConfidence || 0),
     });
+
 
     const cur = (await kv.get(key)) || state;
     await kv.set(key, {

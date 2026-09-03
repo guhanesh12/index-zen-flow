@@ -175,6 +175,15 @@ interface OpenPos {
   steps: number;
 }
 
+export interface ReplayOptions {
+  /** Fixed lots per trade for this index (0/undefined → auto risk sizing). */
+  fixedLots?: number;
+  /** Max entries allowed per trading day for this index (0 → unlimited). */
+  maxTradesPerDay?: number;
+  /** Ignore signals weaker than this confidence (quality filter). */
+  minConfidence?: number;
+}
+
 /**
  * Replay the strategy for one index, mirroring the LIVE position monitor:
  * per-lot ₹ target / ₹ stop-loss, ratchet trailing (activation → target/SL
@@ -185,11 +194,17 @@ async function replayIndex(
   candles: OHLCCandle[],
   getCapital: () => number,
   onTrade: (t: BTTrade) => void,
+  opts: ReplayOptions = {},
 ) {
   const lotSize = LOT_SIZES[index];
+  const maxPerDay = Math.max(0, Math.floor(opts.maxTradesPerDay || 0));
+  const minConf = Math.max(0, Number(opts.minConfidence || 0));
+  const fixedLots = Math.max(0, Math.floor(opts.fixedLots || 0));
+  const entriesByDay = new Map<string, number>();
   let pos: OpenPos | null = null;
   let lastSignalTs = 0;
   let lastDir: "BUY_CALL" | "BUY_PUT" | "WAIT" = "WAIT";
+
 
   /** ₹ P&L of the open position if the index trades at `price`. */
   const pnlAt = (p: OpenPos, price: number) =>
@@ -288,6 +303,13 @@ async function replayIndex(
     }
     if (!signal || (signal.action !== "BUY_CALL" && signal.action !== "BUY_PUT")) continue;
 
+    // ---- quality filter: skip weak signals entirely
+    if (minConf > 0 && Number(signal.confidence || 0) < minConf) continue;
+
+    // ---- daily trade budget for this index
+    const usedToday = entriesByDay.get(info.date) || 0;
+    if (maxPerDay > 0 && usedToday >= maxPerDay && !pos) continue;
+
     // ---- live reversal rule: flip a LOSING position on a decent counter-signal
     if (pos) {
       const p = pos;
@@ -297,6 +319,11 @@ async function replayIndex(
       const canReverse = livePnl < 0 ? (conf >= 68 && Math.abs(livePnl) >= p.baseSL * 0.45) : conf >= 90 && livePnl <= p.baseSL * 0.7;
       if (!canReverse) continue;
       closeAtPnl(bar.timestamp, livePnl, "AI_REVERSAL");
+      if (maxPerDay > 0 && (entriesByDay.get(info.date) || 0) >= maxPerDay) {
+        lastSignalTs = bar.timestamp;
+        lastDir = signal.action;
+        continue; // budget spent — reversal only closes, never re-enters
+      }
     }
 
     lastSignalTs = bar.timestamp;
@@ -311,8 +338,12 @@ async function replayIndex(
     const perLot = premium * lotSize;
     const byRisk = Math.floor((capital * RISK_PER_TRADE) / (SL_PER_LOT + COST_PER_LOT));
     const byMargin = Math.floor((capital * 0.35) / perLot);
-    const lots = Math.max(0, Math.min(20, byRisk, byMargin));
+    const lots = fixedLots > 0
+      ? Math.max(1, Math.min(fixedLots, Math.max(1, byMargin)))
+      : Math.max(0, Math.min(20, byRisk, byMargin));
     if (lots < 1) continue;
+    entriesByDay.set(info.date, (entriesByDay.get(info.date) || 0) + 1);
+
 
     const baseTarget = TARGET_PER_LOT * lots;
     const baseSL = SL_PER_LOT * lots;
@@ -408,6 +439,9 @@ export async function replaySegment(params: {
   fromDate: string;
   toDate: string;
   capital: number;
+  lots?: number;
+  maxTradesPerDay?: number;
+  minConfidence?: number;
 }): Promise<BTTrade[]> {
   const leadIn = new Date(new Date(`${params.fromDate}T00:00:00Z`).getTime() - 20 * 86400000);
   const candles = await fetchHistoricalCandles(params.index, ymd(leadIn), params.toDate);
@@ -418,9 +452,15 @@ export async function replaySegment(params: {
     candles,
     () => Math.max(params.capital, 10000),
     (t) => { if (t.date >= params.fromDate) out.push(t); },
+    {
+      fixedLots: params.lots,
+      maxTradesPerDay: params.maxTradesPerDay,
+      minConfidence: params.minConfidence,
+    },
   );
   return out;
 }
+
 
 /** Build the full report from an already-computed trade list. */
 export function buildReport(
