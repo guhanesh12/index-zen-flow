@@ -220,14 +220,22 @@ async function replayIndex(
 
   /** Apply the live ratchet ladder using the running peak profit. */
   const applyTrailing = (p: OpenPos) => {
-    if (p.activation <= 0 || p.peak < p.activation) return;
-    const jumps = Math.floor(p.peak / p.activation);
-    if (jumps > p.steps) {
-      p.steps = jumps;
-      p.curTarget = p.baseTarget + jumps * p.targetJump;
-      p.curSL = p.baseSL - jumps * p.slJump;
+    if (p.activation > 0 && p.peak >= p.activation) {
+      const jumps = Math.floor(p.peak / p.activation);
+      if (jumps > p.steps) {
+        p.steps = jumps;
+        p.curTarget = p.baseTarget + jumps * p.targetJump;
+        p.curSL = p.baseSL - jumps * p.slJump;
+      }
+    }
+    // Live profit protection: once the move has banked 60% of the base target,
+    // never give back more than 40% of the peak profit.
+    if (p.peak >= p.baseTarget * 0.6) {
+      const floor = p.peak * 0.6; // ₹ profit that must stay protected
+      if (-p.curSL < floor) p.curSL = -floor;
     }
   };
+
 
   for (let i = 60; i < candles.length; i++) {
     const bar = candles[i];
