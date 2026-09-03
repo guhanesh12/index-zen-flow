@@ -5438,7 +5438,7 @@ app.post('/make-server-c4d79cb7/backtest/strategy/begin', async (c) => {
     for (const idx of indices) for (const s of btSlices(fromDate, toDate)) tasks.push({ index: idx, from: s.from, to: s.to });
 
     await kv.set(`backtest:run:${user.id}:${runId}`, {
-      strategy, indices, initialCapital, fromDate, toDate,
+      strategy, indices, initialCapital, fromDate, toDate, lots, maxTradesPerDay, minConfidence,
       trades: [], done: 0, total: tasks.length,
       createdAt: new Date().toISOString(),
     });
