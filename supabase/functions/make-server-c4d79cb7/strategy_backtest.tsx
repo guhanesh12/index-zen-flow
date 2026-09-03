@@ -136,7 +136,7 @@ function premiumOf(indexPrice: number) {
 }
 
 const DELTA = 0.5;
-// Live engine money rules: ₹6,000 target / ₹3,000 stop-loss per lot
+// Live engine money rules (per lot): ₹6,000 target / ₹3,000 stop-loss
 let TARGET_PER_LOT = 6000;
 let SL_PER_LOT = 3000;
 export function setRiskParams(targetPerLot: number, slPerLot: number) {
@@ -151,19 +151,26 @@ interface OpenPos {
   direction: "BUY_CALL" | "BUY_PUT";
   entryTs: number;
   entryPrice: number;
-  sl: number;
-  target: number;
   lots: number;
   qty: number;
   premiumEntry: number;
   confidence: number;
-  atr: number;
-  beLocked?: boolean;
+  // live-engine ladder state (all values in ₹ P&L of the whole position)
+  baseTarget: number;
+  baseSL: number;
+  activation: number;
+  targetJump: number;
+  slJump: number;
+  curTarget: number;
+  curSL: number; // positive = loss limit, negative = locked profit floor
+  peak: number;
+  steps: number;
 }
 
 /**
- * Replay the strategy for one index. Returns the closed trades.
- * `capitalFor(ts)` supplies the live capital so lot sizing compounds.
+ * Replay the strategy for one index, mirroring the LIVE position monitor:
+ * per-lot ₹ target / ₹ stop-loss, ratchet trailing (activation → target/SL
+ * jumps → profit lock), AI reversal exits and EOD square-off.
  */
 async function replayIndex(
   index: IndexName,
@@ -176,47 +183,79 @@ async function replayIndex(
   let lastSignalTs = 0;
   let lastDir: "BUY_CALL" | "BUY_PUT" | "WAIT" = "WAIT";
 
-  const closePos = (exitTs: number, exitPrice: number, reason: string) => {
+  /** ₹ P&L of the open position if the index trades at `price`. */
+  const pnlAt = (p: OpenPos, price: number) =>
+    (p.direction === "BUY_CALL" ? price - p.entryPrice : p.entryPrice - price) * DELTA * p.qty;
+
+  /** Index price that produces exactly `pnl` for the open position. */
+  const priceFor = (p: OpenPos, pnl: number) => {
+    const move = pnl / (DELTA * p.qty);
+    return p.direction === "BUY_CALL" ? p.entryPrice + move : p.entryPrice - move;
+  };
+
+  const closeAtPnl = (exitTs: number, grossPnl: number, reason: string) => {
     if (!pos) return;
-    const move = pos.direction === "BUY_CALL" ? exitPrice - pos.entryPrice : pos.entryPrice - exitPrice;
-    const premiumExit = Math.max(pos.premiumEntry + move * DELTA, 0.5);
-    const gross = (premiumExit - pos.premiumEntry) * pos.qty;
-    const costs = COST_PER_LOT * pos.lots;
-    const t: BTTrade = {
+    const p = pos;
+    const exitPrice = priceFor(p, grossPnl);
+    const premiumExit = Math.max(p.premiumEntry + grossPnl / p.qty, 0.5);
+    const costs = COST_PER_LOT * p.lots;
+    onTrade({
       index,
-      direction: pos.direction,
-      date: istParts(pos.entryTs).date,
-      entryTime: `${istParts(pos.entryTs).date} ${istParts(pos.entryTs).hhmm}`,
+      direction: p.direction,
+      date: istParts(p.entryTs).date,
+      entryTime: `${istParts(p.entryTs).date} ${istParts(p.entryTs).hhmm}`,
       exitTime: `${istParts(exitTs).date} ${istParts(exitTs).hhmm}`,
-      entryPrice: Number(pos.entryPrice.toFixed(2)),
+      entryPrice: Number(p.entryPrice.toFixed(2)),
       exitPrice: Number(exitPrice.toFixed(2)),
-      lots: pos.lots,
-      qty: pos.qty,
-      premiumEntry: Number(pos.premiumEntry.toFixed(2)),
+      lots: p.lots,
+      qty: p.qty,
+      premiumEntry: Number(p.premiumEntry.toFixed(2)),
       premiumExit: Number(premiumExit.toFixed(2)),
-      pnl: Number((gross - costs).toFixed(2)),
-      confidence: pos.confidence,
+      pnl: Number((grossPnl - costs).toFixed(2)),
+      confidence: p.confidence,
       reason,
-    };
-    onTrade(t);
+    });
     pos = null;
+  };
+
+  /** Apply the live ratchet ladder using the running peak profit. */
+  const applyTrailing = (p: OpenPos) => {
+    if (p.activation <= 0 || p.peak < p.activation) return;
+    const jumps = Math.floor(p.peak / p.activation);
+    if (jumps > p.steps) {
+      p.steps = jumps;
+      p.curTarget = p.baseTarget + jumps * p.targetJump;
+      p.curSL = p.baseSL - jumps * p.slJump;
+    }
   };
 
   for (let i = 60; i < candles.length; i++) {
     const bar = candles[i];
     const info = istParts(bar.timestamp);
 
-    // ---- manage an open position first (intrabar SL / target, then EOD)
+    // ---------------------------------------------------- manage open position
     if (pos) {
-      const hitSL = pos.direction === "BUY_CALL" ? bar.low <= pos.sl : bar.high >= pos.sl;
-      const hitTgt = pos.direction === "BUY_CALL" ? bar.high >= pos.target : bar.low <= pos.target;
-      if (hitTgt) closePos(bar.timestamp, pos!.target, "TARGET");
-      else if (hitSL) closePos(bar.timestamp, pos!.sl, "STOPLOSS");
-      else if (info.minutes >= 15 * 60) closePos(bar.timestamp, bar.close, "EOD_EXIT");
-      if (pos) continue; // still open → no new entry
+      const p = pos;
+      const adverse = p.direction === "BUY_CALL" ? bar.low : bar.high;
+      const favorable = p.direction === "BUY_CALL" ? bar.high : bar.low;
+
+      // 1) conservative: the adverse extreme is tested against the CURRENT stop
+      const stopPnl = -p.curSL; // curSL>0 → loss limit; curSL<0 → locked profit
+      if (pnlAt(p, adverse) <= stopPnl) {
+        closeAtPnl(bar.timestamp, stopPnl, p.curSL <= 0 ? "TRAIL_LOCK" : "STOPLOSS");
+      } else {
+        // 2) ratchet on the favourable extreme, then test the (possibly raised) target
+        p.peak = Math.max(p.peak, pnlAt(p, favorable));
+        applyTrailing(p);
+        if (pnlAt(p, favorable) >= p.curTarget) {
+          closeAtPnl(bar.timestamp, p.curTarget, "TARGET");
+        } else if (info.minutes >= 15 * 60) {
+          closeAtPnl(bar.timestamp, pnlAt(p, bar.close), "EOD_EXIT");
+        }
+      }
     }
 
-    // ---- entries only inside the intraday window
+    // ---- entries / reversals only inside the intraday window
     if (info.minutes < 9 * 60 + 30 || info.minutes > 14 * 60 + 45) continue;
 
     const window = candles.slice(Math.max(0, i - 149), i + 1);
@@ -233,6 +272,17 @@ async function replayIndex(
     }
     if (!signal || (signal.action !== "BUY_CALL" && signal.action !== "BUY_PUT")) continue;
 
+    // ---- live reversal rule: flip a LOSING position on a decent counter-signal
+    if (pos) {
+      const p = pos;
+      if (p.direction === signal.action) continue; // same side → hold
+      const livePnl = pnlAt(p, bar.close);
+      const conf = Number(signal.confidence || 0);
+      const canReverse = livePnl < 0 ? conf >= 68 : conf >= 90 && livePnl <= p.baseSL * 0.7;
+      if (!canReverse) continue;
+      closeAtPnl(bar.timestamp, livePnl, "AI_REVERSAL");
+    }
+
     lastSignalTs = bar.timestamp;
     lastDir = signal.action;
 
@@ -240,40 +290,48 @@ async function replayIndex(
     if (!next) break;
 
     const entry = next.open;
-    const a = Math.max(atr14(window), entry * 0.0008);
     const premium = premiumOf(entry);
     const capital = getCapital();
     const perLot = premium * lotSize;
-    // index points equivalent to the ₹ target / stop-loss of one lot
-    const tgtPts = TARGET_PER_LOT / (DELTA * lotSize);
-    const slPts = SL_PER_LOT / (DELTA * lotSize);
     const byRisk = Math.floor((capital * RISK_PER_TRADE) / (SL_PER_LOT + COST_PER_LOT));
     const byMargin = Math.floor((capital * 0.35) / perLot);
     const lots = Math.max(0, Math.min(20, byRisk, byMargin));
     if (lots < 1) continue;
+
+    const baseTarget = TARGET_PER_LOT * lots;
+    const baseSL = SL_PER_LOT * lots;
+    // live defaults when the user has not customised the ladder
+    const activation = Math.round(TARGET_PER_LOT * 0.66) * lots;
+    const slJump = Math.round(SL_PER_LOT * 0.33) * lots;
 
     pos = {
       index,
       direction: signal.action,
       entryTs: next.timestamp,
       entryPrice: entry,
-      sl: signal.action === "BUY_CALL" ? entry - slPts : entry + slPts,
-      target: signal.action === "BUY_CALL" ? entry + tgtPts : entry - tgtPts,
       lots,
       qty: lots * lotSize,
       premiumEntry: premium,
       confidence: Math.round(signal.confidence || 0),
-      atr: a,
-      beLocked: false,
+      baseTarget,
+      baseSL,
+      activation,
+      targetJump: slJump,
+      slJump,
+      curTarget: baseTarget,
+      curSL: baseSL,
+      peak: 0,
+      steps: 0,
     };
     i++; // entry consumed the next bar's open; management starts after it
   }
 
   if (pos) {
     const last = candles[candles.length - 1];
-    closePos(last.timestamp, last.close, "OPEN_AT_END");
+    closeAtPnl(last.timestamp, pnlAt(pos, last.close), "OPEN_AT_END");
   }
 }
+
 
 // ---------------------------------------------------------------- reporting
 
