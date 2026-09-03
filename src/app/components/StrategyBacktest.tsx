@@ -70,30 +70,57 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
 
   const run = async () => {
     if (!selected.length) { setError("Select at least one index"); return; }
-    setLoading(true); setError(""); setReport(null);
+    setLoading(true); setError(""); setReport(null); setProgress(0);
     try {
-      const res = await fetch(`${getBaseUrl()}/backtest/strategy/run`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          strategy,
-          indices: selected,
-          initialCapital: capital,
-          fromDate: isoDaysAgo(duration),
-          toDate: isoDaysAgo(1),
-        }),
+      const post = async (path: string, payload: any) => {
+        const res = await fetch(`${getBaseUrl()}${path}`, {
+          method: "POST", headers, body: JSON.stringify(payload),
+        });
+        const text = await res.text();
+        let data: any = {};
+        try { data = JSON.parse(text); } catch { /* non json */ }
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `Backtest failed (HTTP ${res.status})`);
+        }
+        return data;
+      };
+
+      const begin = await post("/backtest/strategy/begin", {
+        strategy,
+        indices: selected,
+        initialCapital: capital,
+        fromDate: isoDaysAgo(duration),
+        toDate: isoDaysAgo(1),
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Backtest failed");
-      setReport(data.report);
-      if (typeof data.walletBalance === "number") setWallet(data.walletBalance);
+      if (typeof begin.walletBalance === "number") setWallet(begin.walletBalance);
+
+      const tasks: any[] = begin.tasks || [];
+      // run segments with a small concurrency so each request stays light
+      let done = 0;
+      const queue = tasks.slice();
+      const worker = async () => {
+        while (queue.length) {
+          const t = queue.shift();
+          if (!t) break;
+          await post("/backtest/strategy/segment", { runId: begin.runId, ...t });
+          done += 1;
+          setProgress(Math.round((done / tasks.length) * 100));
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+
+      const fin = await post("/backtest/strategy/finalize", { runId: begin.runId });
+      setReport(fin.report);
+      if (typeof fin.walletBalance === "number") setWallet(fin.walletBalance);
       loadHistory();
     } catch (e: any) {
       setError(e.message || "Backtest failed");
     } finally {
       setLoading(false);
+      setProgress(0);
     }
   };
+
 
   const s = report?.summary;
   const periods = report ? report[view] || [] : [];
