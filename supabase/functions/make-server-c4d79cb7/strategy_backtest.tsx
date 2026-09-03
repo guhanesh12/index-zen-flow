@@ -303,6 +303,13 @@ async function replayIndex(
     }
     if (!signal || (signal.action !== "BUY_CALL" && signal.action !== "BUY_PUT")) continue;
 
+    // ---- quality filter: skip weak signals entirely
+    if (minConf > 0 && Number(signal.confidence || 0) < minConf) continue;
+
+    // ---- daily trade budget for this index
+    const usedToday = entriesByDay.get(info.date) || 0;
+    if (maxPerDay > 0 && usedToday >= maxPerDay && !pos) continue;
+
     // ---- live reversal rule: flip a LOSING position on a decent counter-signal
     if (pos) {
       const p = pos;
@@ -312,6 +319,11 @@ async function replayIndex(
       const canReverse = livePnl < 0 ? (conf >= 68 && Math.abs(livePnl) >= p.baseSL * 0.45) : conf >= 90 && livePnl <= p.baseSL * 0.7;
       if (!canReverse) continue;
       closeAtPnl(bar.timestamp, livePnl, "AI_REVERSAL");
+      if (maxPerDay > 0 && (entriesByDay.get(info.date) || 0) >= maxPerDay) {
+        lastSignalTs = bar.timestamp;
+        lastDir = signal.action;
+        continue; // budget spent — reversal only closes, never re-enters
+      }
     }
 
     lastSignalTs = bar.timestamp;
@@ -326,8 +338,12 @@ async function replayIndex(
     const perLot = premium * lotSize;
     const byRisk = Math.floor((capital * RISK_PER_TRADE) / (SL_PER_LOT + COST_PER_LOT));
     const byMargin = Math.floor((capital * 0.35) / perLot);
-    const lots = Math.max(0, Math.min(20, byRisk, byMargin));
+    const lots = fixedLots > 0
+      ? Math.max(1, Math.min(fixedLots, Math.max(1, byMargin)))
+      : Math.max(0, Math.min(20, byRisk, byMargin));
     if (lots < 1) continue;
+    entriesByDay.set(info.date, (entriesByDay.get(info.date) || 0) + 1);
+
 
     const baseTarget = TARGET_PER_LOT * lots;
     const baseSL = SL_PER_LOT * lots;
