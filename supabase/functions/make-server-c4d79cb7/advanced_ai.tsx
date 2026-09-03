@@ -3757,12 +3757,20 @@ export class AdvancedAI {
       const rsiFalling = rsi < rsiPrev;
       const rsiRising = rsi > rsiPrev;
 
+      // EMA condition: accept either a completed cross OR a turning EMA9 with the
+      // structure confirming (mid-session reversals turn slope first, cross later).
+      const emaBearOk =
+        (ema9 < ema21 && ema21SlopeDown) ||
+        (ema9Slope < 0 && (structuredTrendDown || ema21SlopeDown));
+      const emaBullOk =
+        (ema9 > ema21 && ema21SlopeUp) ||
+        (ema9Slope > 0 && (structuredTrendUp || ema21SlopeUp));
+
       const driftBear =
         (lowerCloses || redBars >= 4) &&
         vwapDistance <= -0.2 &&
         vwapSlopeDown &&
-        ema9 < ema21 &&
-        ema21SlopeDown &&
+        emaBearOk &&
         rsi >= 35 &&
         rsi <= 55 &&
         rsiFalling &&
@@ -3773,13 +3781,13 @@ export class AdvancedAI {
         (higherCloses || greenBars >= 4) &&
         vwapDistance >= 0.2 &&
         vwapSlopeUp &&
-        ema9 > ema21 &&
-        ema21SlopeUp &&
+        emaBullOk &&
         rsi >= 45 &&
         rsi <= 65 &&
         rsiRising &&
         adx >= 15 &&
         closeNow > closeMinus3;
+
 
       if (driftBear) {
         let conf = 72;
