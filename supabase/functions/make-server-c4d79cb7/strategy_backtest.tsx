@@ -128,7 +128,7 @@ function premiumOf(indexPrice: number) {
 
 const DELTA = 0.5;
 let SL_ATR = 1.0;
-let TGT_ATR = 1.5;
+let TGT_ATR = 2.0;
 export function setRiskParams(sl: number, tgt: number) { SL_ATR = sl; TGT_ATR = tgt; }
 const RISK_PER_TRADE = 0.02; // risk 2% of capital per trade
 const COST_PER_LOT = 40; // brokerage + taxes + slippage, round trip
