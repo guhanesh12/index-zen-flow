@@ -2141,10 +2141,12 @@ class PersistentTradingEngine {
               Boolean(targetOptionType) &&
               normalizeOptionType(sameIndexPosition?.optionType || sameIndexPosition?.symbolName) !== targetOptionType;
             const sameIndexReversalConfirmed =
-              isOppositeSignal && confidence >= 90 && sameIndexPnl <= -sameIndexSL;
+              isOppositeSignal &&
+              ((confidence >= 68 && sameIndexPnl < 0) ||
+                (confidence >= 90 && sameIndexPnl <= -sameIndexSL));
             if (isOppositeSignal && !sameIndexReversalConfirmed) {
               console.log(
-                `🛡️ ${indexName} configured-symbol reversal ignored — confidence ${confidence}% (need 90%), P&L ₹${sameIndexPnl.toFixed(2)} (must be ≤ -₹${sameIndexSL.toFixed(2)})`,
+                `🛡️ ${indexName} configured-symbol reversal ignored — confidence ${confidence}% (need 68% while losing / 90% otherwise), P&L ₹${sameIndexPnl.toFixed(2)}`,
               );
             }
             if (
