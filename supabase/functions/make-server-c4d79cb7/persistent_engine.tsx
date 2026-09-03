@@ -1533,12 +1533,6 @@ class PersistentTradingEngine {
               state.candleInterval === "15"
                 ? ohlcDataRaw
                 : (await getCentralOHLC(securityId, "15", 80, dhanSvc)).candles;
-            let real1hData: any[] = [];
-            try {
-              real1hData = (await getCentralOHLC(securityId, "60", 40, dhanSvc)).candles;
-            } catch (_e) {
-              real1hData = [];
-            }
             if (primary.source === "user") {
               console.warn(`🟡 [CENTRAL] ${indexName} fell back to user market data (${userId})`);
             }
@@ -1577,7 +1571,6 @@ class PersistentTradingEngine {
             const tfMin = Number(state.candleInterval);
             ohlcData = stripForming(ohlcDataRaw, tfMin);
             let real15mData = stripForming(real15mDataRaw, 15);
-            const real1hDataClosed = stripForming(real1hData, 60);
             // Fallback: if separate 15m feed is sparse, resample primary
             if ((!real15mData || real15mData.length < 15) && ohlcData && ohlcData.length >= 15 && tfMin < 15) {
               const resampled = resampleTo15m(ohlcData, tfMin);
@@ -1612,7 +1605,6 @@ class PersistentTradingEngine {
                 const lastLossTimestamp = Number((await kv.get(`central:last_loss_ts:${indexName}`)) || 0);
                 const sig = AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                   higherTimeframeData: real15mData,
-                  hourlyTimeframeData: real1hDataClosed,
                   timeframeMinutes: tfMin,
                   lastSignalTimestamp,
                   lastSignalDirection,
@@ -4059,16 +4051,6 @@ class PersistentTradingEngine {
             );
             const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
 
-            // 1h context (same as the pre-central per-user path used)
-            let hourly: any[] = [];
-            try {
-              const h = (await getCentralOHLC(idx.securityId, "60", 40, null)).candles || [];
-              const hourMs = 60 * 60 * 1000;
-              hourly = h.filter((c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / hourMs) * hourMs);
-            } catch (_e) {
-              hourly = [];
-            }
-
             // 🛡️ ANTI-WHIPSAW STATE (restored): the pre-central path fed the strategy
             // last-signal / stop-loss cooldown / loss-streak context. Without it the
             // publisher happily emitted CE then PE on the next candle.
@@ -4082,7 +4064,6 @@ class PersistentTradingEngine {
 
             const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
               higherTimeframeData: htf,
-              hourlyTimeframeData: hourly,
               timeframeMinutes: tf,
               lastSignalTimestamp,
               lastSignalDirection,
