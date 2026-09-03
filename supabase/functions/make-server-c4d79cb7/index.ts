@@ -5358,6 +5358,185 @@ app.post('/make-server-c4d79cb7/backtest/strategy/run', async (c) => {
   }
 });
 
+// ============================================================
+// Segmented backtest flow (keeps every request inside the edge
+// function CPU budget — long runs used to be killed mid-flight)
+// begin → segment (per index / per slice) → finalize
+// ============================================================
+
+const BT_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
+
+function btSlices(fromDate: string, toDate: string) {
+  const out: { from: string; to: string }[] = [];
+  const end = new Date(`${toDate}T00:00:00Z`).getTime();
+  const STEP = 45 * 86400000;
+  for (let s = new Date(`${fromDate}T00:00:00Z`).getTime(); s <= end; s += STEP + 86400000) {
+    const to = Math.min(s + STEP, end);
+    out.push({ from: new Date(s).toISOString().slice(0, 10), to: new Date(to).toISOString().slice(0, 10) });
+    if (to >= end) break;
+  }
+  return out;
+}
+
+app.post('/make-server-c4d79cb7/backtest/strategy/begin', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const strategy = String(body.strategy || 'indexpilotai');
+    const requested: string[] = Array.isArray(body.indices) && body.indices.length ? body.indices : BT_INDICES;
+    const indices = requested.map((s: string) => String(s).toUpperCase()).filter((s: string) => BT_INDICES.includes(s));
+    const initialCapital = Math.max(10000, Math.min(50000000, Number(body.initialCapital) || 100000));
+    const fromDate = String(body.fromDate || '').slice(0, 10);
+    const toDate = String(body.toDate || '').slice(0, 10);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+      return c.json({ success: false, error: 'Invalid date range' }, 400);
+    }
+    const spanDays = (new Date(`${toDate}T00:00:00Z`).getTime() - new Date(`${fromDate}T00:00:00Z`).getTime()) / 86400000;
+    if (spanDays < 28) return c.json({ success: false, error: 'Minimum duration is 1 month' }, 400);
+    if (spanDays > 370) return c.json({ success: false, error: 'Maximum duration is 1 year' }, 400);
+    if (!indices.length) return c.json({ success: false, error: 'Select at least one index' }, 400);
+
+    const wallet = (await kv.get(`wallet:${user.id}`)) || { balance: 0, totalDeducted: 0 };
+    const balance = Number(wallet.balance || 0);
+    if (balance < BACKTEST_COST) {
+      return c.json({
+        success: false,
+        error: `Insufficient wallet balance. Backtest costs ₹${BACKTEST_COST}, available ₹${balance}.`,
+      }, 402);
+    }
+    const newBalance = Number((balance - BACKTEST_COST).toFixed(2));
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Number(wallet.totalDeducted || 0) + BACKTEST_COST,
+      updatedAt: new Date().toISOString(),
+    });
+    const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
+    walletTx.push({
+      id: `bt_${Date.now()}`,
+      type: 'debit',
+      amount: BACKTEST_COST,
+      description: `Strategy backtest (${strategy}) ${fromDate} → ${toDate}`,
+      balanceAfter: newBalance,
+      timestamp: new Date().toISOString(),
+    });
+    await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
+    const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const tasks: { index: string; from: string; to: string }[] = [];
+    for (const idx of indices) for (const s of btSlices(fromDate, toDate)) tasks.push({ index: idx, from: s.from, to: s.to });
+
+    await kv.set(`backtest:run:${user.id}:${runId}`, {
+      strategy, indices, initialCapital, fromDate, toDate,
+      trades: [], done: 0, total: tasks.length,
+      createdAt: new Date().toISOString(),
+    });
+
+    return c.json({ success: true, runId, tasks, walletBalance: newBalance, cost: BACKTEST_COST });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to start backtest' }, 500);
+  }
+});
+
+app.post('/make-server-c4d79cb7/backtest/strategy/segment', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const runId = String(body.runId || '');
+    const index = String(body.index || '').toUpperCase();
+    const from = String(body.from || '').slice(0, 10);
+    const to = String(body.to || '').slice(0, 10);
+    if (!runId || !BT_INDICES.includes(index)) return c.json({ success: false, error: 'Invalid segment' }, 400);
+
+    const key = `backtest:run:${user.id}:${runId}`;
+    const state = await kv.get(key);
+    if (!state) return c.json({ success: false, error: 'Backtest session expired, please run again' }, 404);
+
+    const trades = await replaySegment({
+      index: index as any,
+      fromDate: from,
+      toDate: to,
+      capital: state.initialCapital / Math.max(1, (state.indices || []).length),
+    });
+
+    const cur = (await kv.get(key)) || state;
+    await kv.set(key, {
+      ...cur,
+      trades: [...(cur.trades || []), ...trades],
+      done: Number(cur.done || 0) + 1,
+    });
+
+    return c.json({ success: true, trades: trades.length });
+  } catch (e: any) {
+    console.error('❌ backtest segment error', e);
+    return c.json({ success: false, error: e?.message || 'Segment failed' }, 500);
+  }
+});
+
+app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const runId = String(body.runId || '');
+    const key = `backtest:run:${user.id}:${runId}`;
+    const state = await kv.get(key);
+    if (!state) return c.json({ success: false, error: 'Backtest session expired, please run again' }, 404);
+
+    const report = buildReport(state.trades || [], {
+      strategy: state.strategy,
+      indices: state.indices,
+      initialCapital: state.initialCapital,
+      fromDate: state.fromDate,
+      toDate: state.toDate,
+    });
+
+    try {
+      const supabaseSrv = createClient(
+        Deno.env.get('SUPABASE_URL') || '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+      );
+      await supabaseSrv.from('strategy_backtests').insert({
+        user_id: user.id,
+        user_email: user.email || null,
+        strategy: state.strategy,
+        indices: state.indices,
+        initial_capital: state.initialCapital,
+        from_date: state.fromDate,
+        to_date: state.toDate,
+        cost: BACKTEST_COST,
+        summary: report.summary,
+        by_index: report.byIndex,
+        report: {
+          daily: report.daily,
+          weekly: report.weekly,
+          monthly: report.monthly,
+          yearly: report.yearly,
+          equityCurve: report.equityCurve,
+          trades: report.trades.slice(-200),
+        },
+      });
+    } catch (persistErr: any) {
+      console.error('⚠️ backtest persist failed:', persistErr?.message);
+    }
+
+    await kv.del(key).catch(() => {});
+    const wallet = (await kv.get(`wallet:${user.id}`)) || {};
+    return c.json({ success: true, report, walletBalance: Number(wallet.balance || 0) });
+  } catch (e: any) {
+    console.error('❌ backtest finalize error', e);
+    return c.json({ success: false, error: e?.message || 'Failed to build report' }, 500);
+  }
+});
+
+
+
 // User's own backtest history
 app.get('/make-server-c4d79cb7/backtest/strategy/history', async (c) => {
   try {
