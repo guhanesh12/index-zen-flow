@@ -11362,8 +11362,8 @@ function verifyTotpServerSide(secretBase32: string, code: string, label: string)
       period: 30,
       secret: OTPAuth.Secret.fromBase32(secretBase32),
     });
-    // window: 1 → tolerate ±30s clock skew
-    return totp.validate({ token: (code || '').trim(), window: 1 }) !== null;
+    // window: 2 → tolerate ±60s clock skew between phone and server
+    return totp.validate({ token: (code || '').replace(/\D/g, '').trim(), window: 2 }) !== null;
   } catch (e) {
     console.error('[ADMIN 2FA] verify error', e);
     return false;
@@ -11662,7 +11662,25 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
 
     const ok = verifyTotpServerSide(challenge.secret, String(code), challenge.email);
     if (!ok) {
-      return c.json({ success: false, message: 'Invalid verification code' }, 401);
+      // Recovery: if the stored (enrolled) secret no longer matches the admin's
+      // authenticator app, drop it after 3 misses so the next login re-enrols
+      // with a fresh QR instead of locking the admin out forever.
+      challenge.twoFaAttempts = (challenge.twoFaAttempts || 0) + 1;
+      let reset = false;
+      if (!challenge.pending && challenge.twoFaAttempts >= 3) {
+        await kv.del(`${ADMIN_2FA_ENROLLED_PREFIX}${challenge.email}`);
+        await kv.del(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
+        reset = true;
+      } else {
+        await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify(challenge));
+      }
+      return c.json({
+        success: false,
+        reset,
+        message: reset
+          ? 'Authenticator reset. Please log in again and scan the new QR code.'
+          : 'Invalid verification code',
+      }, 401);
     }
 
     // Consume challenge, promote pending secret to enrolled
