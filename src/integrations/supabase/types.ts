@@ -1480,6 +1480,54 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_backtests: {
+        Row: {
+          by_index: Json
+          cost: number
+          created_at: string
+          from_date: string
+          id: string
+          indices: string[]
+          initial_capital: number
+          report: Json
+          strategy: string
+          summary: Json
+          to_date: string
+          user_email: string | null
+          user_id: string
+        }
+        Insert: {
+          by_index?: Json
+          cost?: number
+          created_at?: string
+          from_date: string
+          id?: string
+          indices?: string[]
+          initial_capital?: number
+          report?: Json
+          strategy?: string
+          summary?: Json
+          to_date: string
+          user_email?: string | null
+          user_id: string
+        }
+        Update: {
+          by_index?: Json
+          cost?: number
+          created_at?: string
+          from_date?: string
+          id?: string
+          indices?: string[]
+          initial_capital?: number
+          report?: Json
+          strategy?: string
+          summary?: Json
+          to_date?: string
+          user_email?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       suspended_users: {
         Row: {
           auto: boolean
