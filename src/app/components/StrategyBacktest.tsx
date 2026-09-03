@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 const INDICES = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
+const LOT_SIZES: Record<string, number> = { NIFTY: 75, BANKNIFTY: 35, SENSEX: 20 };
 const STRATEGIES = [
   { key: "indexpilotai", label: "IndexPilotAI Strategy", desc: "Default multi-confirmation AI engine (live strategy)" },
 ];
@@ -97,6 +98,9 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
         initialCapital: capital,
         fromDate: isoDaysAgo(duration),
         toDate: isoDaysAgo(1),
+        lots,
+        maxTradesPerDay,
+        minConfidence,
       });
       if (typeof begin.walletBalance === "number") setWallet(begin.walletBalance);
 
