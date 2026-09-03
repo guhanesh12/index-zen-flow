@@ -63,28 +63,36 @@ export async function fetchHistoricalCandles(
   const key = INSTRUMENT_KEYS[index];
   const start = new Date(`${fromDate}T00:00:00Z`).getTime();
   const end = new Date(`${toDate}T00:00:00Z`).getTime();
-  const CHUNK = 30 * 24 * 60 * 60 * 1000;
+  const CHUNK = 24 * 24 * 60 * 60 * 1000; // API rejects ranges of ~1 month+
 
   const seen = new Map<number, OHLCCandle>();
-  for (let s = start; s <= end; s += CHUNK + 24 * 60 * 60 * 1000) {
-    const cFrom = new Date(s);
-    const cTo = new Date(Math.min(s + CHUNK, end));
-    let ok = false;
-    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+  const load = async (a: Date, b: Date, depth = 0): Promise<void> => {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const candles = await fetchChunk(key, ymd(cFrom), ymd(cTo));
+        const candles = await fetchChunk(key, ymd(a), ymd(b));
         for (const cd of candles) if (isFinite(cd.close) && cd.close > 0) seen.set(cd.timestamp, cd);
-        ok = true;
+        return;
       } catch (e) {
-        if (attempt === 2) {
-          console.error(`[BACKTEST] chunk failed ${index} ${ymd(cFrom)}→${ymd(cTo)}:`, (e as any)?.message);
-        } else {
+        if (attempt < 2) {
           await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          continue;
         }
+        // Last resort: split the range and retry the halves (covers API range caps)
+        if (depth < 2 && b.getTime() - a.getTime() > 3 * 86400000) {
+          const mid = new Date((a.getTime() + b.getTime()) / 2);
+          await load(a, mid, depth + 1);
+          await load(new Date(mid.getTime() + 86400000), b, depth + 1);
+          return;
+        }
+        console.error(`[BACKTEST] chunk failed ${index} ${ymd(a)}→${ymd(b)}:`, (e as any)?.message);
       }
     }
+  };
 
+  for (let s = start; s <= end; s += CHUNK + 24 * 60 * 60 * 1000) {
+    await load(new Date(s), new Date(Math.min(s + CHUNK, end)));
   }
+
   return Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
 
