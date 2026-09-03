@@ -257,15 +257,22 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
             className="w-full bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-700 hover:to-blue-700 text-white py-6 text-base"
           >
             {loading ? (
-              <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Running backtest on live market data…</>
+              <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Running backtest… {progress}%</>
             ) : (
               <><FlaskConical className="w-5 h-5 mr-2" /> Run Backtest — ₹5</>
             )}
           </Button>
           {loading && (
-            <p className="text-xs text-zinc-500 text-center">
-              Fetching 15-minute candles and replaying every signal. Longer durations can take up to a minute.
-            </p>
+            <>
+              <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 transition-all"
+                  style={{ width: `${Math.max(4, progress)}%` }} />
+              </div>
+              <p className="text-xs text-zinc-500 text-center">
+                Fetching 15-minute candles and replaying every signal. Longer durations can take up to a minute.
+              </p>
+            </>
+
           )}
           {error && (
             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>
