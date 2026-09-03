@@ -12,7 +12,7 @@ import { ChatGPTService } from "./chatgpt_service.tsx";
 import { BackendAI } from "./backend_ai.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import { BacktestEngine } from "./backtesting.tsx";
-import { runStrategyBacktest, BACKTEST_COST } from "./strategy_backtest.tsx";
+import { runStrategyBacktest, replaySegment, buildReport, BACKTEST_COST } from "./strategy_backtest.tsx";
 import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
