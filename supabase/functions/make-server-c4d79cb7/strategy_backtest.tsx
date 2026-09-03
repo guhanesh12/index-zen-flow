@@ -470,3 +470,26 @@ export function buildReport(
     trades: trades.slice(-500),
   };
 }
+
+/** Full run in one shot (used by internal/admin tooling and short ranges). */
+export async function runStrategyBacktest(params: {
+  strategy?: string;
+  indices?: IndexName[];
+  initialCapital: number;
+  fromDate: string;
+  toDate: string;
+}): Promise<BacktestResult> {
+  const indices = (params.indices?.length ? params.indices : (["NIFTY", "BANKNIFTY", "SENSEX"] as IndexName[]));
+  const initialCapital = Math.max(10000, params.initialCapital || 100000);
+  const trades: BTTrade[] = [];
+  for (const idx of indices) {
+    const t = await replaySegment({
+      index: idx,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+      capital: initialCapital / indices.length,
+    });
+    trades.push(...t);
+  }
+  return buildReport(trades, { ...params, indices, initialCapital });
+}
