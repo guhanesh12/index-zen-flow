@@ -3394,10 +3394,19 @@ export class AdvancedAI {
       structBars[3].high > structBars[1].high &&
       structBars[3].low > structBars[1].low &&
       structBars[3].close > structBars[0].close;
+    // NOTE: strict EMA9<EMA21 is too slow on 15m — on a mid-session reversal day the
+    // EMAs are still crossed from the previous trend. Falling/rising EMA9 slope counts.
     const structuredTrendDown =
-      lowerHighsLows && vwapDistance <= -0.12 && ema9 < ema21 && adx >= 14;
+      lowerHighsLows &&
+      vwapDistance <= -0.12 &&
+      (ema9 < ema21 || ema9Slope < 0) &&
+      adx >= 14;
     const structuredTrendUp =
-      higherHighsLows && vwapDistance >= 0.12 && ema9 > ema21 && adx >= 14;
+      higherHighsLows &&
+      vwapDistance >= 0.12 &&
+      (ema9 > ema21 || ema9Slope > 0) &&
+      adx >= 14;
+
     const structuredTrend = structuredTrendDown || structuredTrendUp;
 
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
