@@ -317,8 +317,8 @@ async function replayIndex(
     const baseTarget = TARGET_PER_LOT * lots;
     const baseSL = SL_PER_LOT * lots;
     // live defaults when the user has not customised the ladder
-    const activation = Math.round(TARGET_PER_LOT * 0.66) * lots;
-    const slJump = Math.round(SL_PER_LOT * 0.33) * lots;
+    const activation = Math.round(TARGET_PER_LOT * 0.5) * lots;
+    const slJump = Math.round(SL_PER_LOT * 0.5) * lots;
 
     pos = {
       index,
