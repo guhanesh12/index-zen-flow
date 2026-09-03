@@ -11677,6 +11677,10 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       return c.json({
         success: false,
         reset,
+        errorCode: reset ? 'TOTP_RESET' : 'INVALID_TOTP',
+        attemptsRemaining: reset || challenge.pending
+          ? null
+          : Math.max(0, 3 - challenge.twoFaAttempts),
         message: reset
           ? 'Authenticator reset. Please log in again and scan the new QR code.'
           : 'Invalid verification code',
