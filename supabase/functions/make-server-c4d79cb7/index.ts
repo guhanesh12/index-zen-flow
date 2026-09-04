@@ -9312,12 +9312,20 @@ app.post("/make-server-c4d79cb7/admin/users", async (c) => {
     
     console.log(`👤 Admin: Creating new user ${email}`);
 
-    // Create auth user
+    // Create auth user with a strong random one-time password (never a fixed literal).
+    // The user sets their own password via the password-reset / invite flow.
+    const randomPassword = (() => {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+      return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+    })();
+
     const { data: authUser, error: createError } = await supabase.auth.admin.createUser({
       email,
-      password: 'TempPassword123!', // User should change this
+      password: randomPassword,
       email_confirm: true,
-      user_metadata: { name, phone, city, state, communityId }
+      user_metadata: { name, phone, city, state, communityId, must_reset_password: true }
     });
 
     if (createError || !authUser.user) {
@@ -9345,6 +9353,14 @@ app.post("/make-server-c4d79cb7/admin/users", async (c) => {
     });
 
     await kv.set(`engine_running:${userId}`, false);
+
+    // Best-effort: email the user a secure password-setup link so they set their own password
+    try {
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email);
+      if (resetErr) console.warn('⚠️ Password setup email failed:', resetErr.message);
+    } catch (e) {
+      console.warn('⚠️ Password setup email error:', e);
+    }
 
     console.log(`✅ Admin: User ${email} created successfully with ID ${userId}`);
     return c.json({ success: true, userId });
