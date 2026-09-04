@@ -836,11 +836,28 @@ app.get("/make-server-c4d79cb7/auth/test-2factor", async (c) => {
 // 🔥 NEW: Send OTP for signup using 2factor.in
 app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
   try {
-    const { phone, email, name } = await c.req.json();
+    const { phone, email, name, resend } = await c.req.json();
 
     if (!phone || !/^[0-9]{10}$/.test(phone)) {
       return c.json({ error: 'Invalid phone number. Must be 10 digits.' }, 400);
     }
+
+    // 🛡️ Duplicate-send guard: only one OTP per 60s unless the user
+    // explicitly taps "Resend OTP" (resend === true).
+    if (!resend) {
+      const prev = await kv.get(`otp_session:${phone}`);
+      if (prev?.timestamp && Date.now() - prev.timestamp < 60_000) {
+        console.log(`⏳ OTP already sent to ${phone} recently — skipping duplicate send`);
+        return c.json({
+          success: true,
+          message: 'OTP already sent',
+          sessionId: prev.sessionId,
+          throttled: true,
+        });
+      }
+    }
+
+
 
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     if (!apiKey) {
