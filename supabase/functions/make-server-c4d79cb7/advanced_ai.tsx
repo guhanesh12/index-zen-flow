@@ -3454,7 +3454,6 @@ export class AdvancedAI {
       lastCandle.close - recentReversalLow >= atr14 * 0.8 &&
       reversalCloseFromLow >= 0.62 &&
       rsi > reversalRsiPrev &&
-      rsi >= 40 &&
       rsi <= 68;
     const resistanceRejectEntry =
       reversalLookback.length >= 3 &&
@@ -3464,7 +3463,6 @@ export class AdvancedAI {
       recentReversalHigh - lastCandle.close >= atr14 * 0.8 &&
       reversalCloseFromHigh >= 0.62 &&
       rsi < reversalRsiPrev &&
-      rsi >= 32 &&
       rsi <= 60;
 
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
