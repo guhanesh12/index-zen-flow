@@ -175,6 +175,10 @@ interface OpenPos {
   steps: number;
   strategyTargetPrice: number;
   strategyStopPrice: number;
+  strategyTrailTriggerPrice: number;
+  strategyTrailDistance: number;
+  maxHoldBars: number;
+  barsHeld: number;
 }
 
 export interface ReplayOptions {
@@ -269,6 +273,7 @@ async function replayIndex(
     // ---------------------------------------------------- manage open position
     if (pos) {
       const p = pos;
+      p.barsHeld += 1;
       const adverse = p.direction === "BUY_CALL" ? bar.low : bar.high;
       const favorable = p.direction === "BUY_CALL" ? bar.high : bar.low;
 
@@ -283,6 +288,17 @@ async function replayIndex(
       const strategyTargetHit = p.direction === "BUY_CALL"
         ? bar.high >= p.strategyTargetPrice
         : bar.low <= p.strategyTargetPrice;
+      const strategyTrailActivated = p.direction === "BUY_CALL"
+        ? favorable >= p.strategyTrailTriggerPrice
+        : favorable <= p.strategyTrailTriggerPrice;
+      if (strategyTrailActivated) {
+        const trailPrice = p.direction === "BUY_CALL"
+          ? favorable - p.strategyTrailDistance
+          : favorable + p.strategyTrailDistance;
+        p.strategyStopPrice = p.direction === "BUY_CALL"
+          ? Math.max(p.strategyStopPrice, p.entryPrice, trailPrice)
+          : Math.min(p.strategyStopPrice, p.entryPrice, trailPrice);
+      }
 
       // 1) conservative: the adverse extreme is tested against the CURRENT stop
       const stopPnl = -p.curSL; // curSL>0 → loss limit; curSL<0 → locked profit
@@ -302,6 +318,8 @@ async function replayIndex(
         applyTrailing(p);
         if (pnlAt(p, favorable) >= p.curTarget) {
           closeAtPnl(bar.timestamp, p.curTarget, "TARGET");
+        } else if (p.barsHeld >= p.maxHoldBars) {
+          closeAtPnl(bar.timestamp, pnlAt(p, bar.close), "TIME_EXIT");
         } else if (info.minutes >= 15 * 60 + 15) {
           closeAtPnl(bar.timestamp, pnlAt(p, bar.close), "EOD_EXIT");
         }
@@ -375,6 +393,8 @@ async function replayIndex(
     const targetJump = Math.round(TARGET_PER_LOT * 0.33) * lots;
     const suggestedTarget = Number(signal.riskManagement?.suggestedTarget);
     const suggestedStop = Number(signal.riskManagement?.suggestedStopLoss);
+    const suggestedTrailTrigger = Number(signal.riskManagement?.trailingStop?.trigger);
+    const suggestedTrailDistance = Number(signal.riskManagement?.trailingStop?.trailDistance);
     const signalReference = Number(signal.riskManagement?.suggestedEntry) || bar.close;
     const targetDistance = Number.isFinite(suggestedTarget)
       ? Math.max(1, Math.abs(suggestedTarget - signalReference))
@@ -403,6 +423,14 @@ async function replayIndex(
       steps: 0,
       strategyTargetPrice: signal.action === "BUY_CALL" ? entry + targetDistance : entry - targetDistance,
       strategyStopPrice: signal.action === "BUY_CALL" ? entry - stopDistance : entry + stopDistance,
+      strategyTrailTriggerPrice: Number.isFinite(suggestedTrailTrigger)
+        ? entry + (suggestedTrailTrigger - signalReference)
+        : signal.action === "BUY_CALL" ? entry + stopDistance * 0.8 : entry - stopDistance * 0.8,
+      strategyTrailDistance: Number.isFinite(suggestedTrailDistance)
+        ? Math.max(1, suggestedTrailDistance)
+        : Math.max(1, atr14(window) * 0.6),
+      maxHoldBars: Math.max(1, Number(signal.riskManagement?.maxHoldBars) || 8),
+      barsHeld: 0,
     };
     i++; // entry consumed the next bar's open; management starts after it
   }
