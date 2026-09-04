@@ -5476,12 +5476,9 @@ app.post('/make-server-c4d79cb7/backtest/strategy/segment', async (c) => {
     });
 
 
-    const cur = (await kv.get(key)) || state;
-    await kv.set(key, {
-      ...cur,
-      trades: [...(cur.trades || []), ...trades],
-      done: Number(cur.done || 0) + 1,
-    });
+    // Each segment writes to its OWN key — concurrent segments can never
+    // overwrite each other's trades (finalize aggregates them by prefix).
+    await kv.set(`backtest:seg:${user.id}:${runId}:${index}:${from}:${to}`, { trades });
 
     return c.json({ success: true, trades: trades.length });
   } catch (e: any) {
