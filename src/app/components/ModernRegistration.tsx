@@ -369,7 +369,7 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${publicAnonKey}`
         },
-        body: JSON.stringify({ phone: formData.mobile })
+        body: JSON.stringify({ phone: formData.mobile, resend: true })
       });
 
       if (!response.ok) {

@@ -97,7 +97,7 @@ export const PinApi = {
   status: () => pinCall('/status', 'GET'),
   set: (pin: string, confirmPin: string) => pinCall('/set', 'POST', { pin, confirmPin }),
   verify: (pin: string) => pinCall('/verify', 'POST', { pin }),
-  forgot: () => pinCall('/forgot', 'POST'),
+  forgot: (resend = false) => pinCall('/forgot', 'POST', { resend }),
   reset: (otp: string, pin: string, confirmPin: string) =>
     pinCall('/reset', 'POST', { otp, pin, confirmPin }),
 };
