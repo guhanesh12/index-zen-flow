@@ -173,6 +173,8 @@ interface OpenPos {
   curSL: number; // positive = loss limit, negative = locked profit floor
   peak: number;
   steps: number;
+  strategyTargetPrice: number;
+  strategyStopPrice: number;
 }
 
 export interface ReplayOptions {
@@ -270,17 +272,33 @@ async function replayIndex(
       const adverse = p.direction === "BUY_CALL" ? bar.low : bar.high;
       const favorable = p.direction === "BUY_CALL" ? bar.high : bar.low;
 
+      // The signal model is trained around its ATR-derived exit levels. Keep
+      // the user's per-lot money SL/target as hard limits, but also honor the
+      // model exit that made the entry valid. The old replay discarded these
+      // levels, requiring (for NIFTY 1 lot) a ~160 point target and turning
+      // short momentum trades into all-day holds.
+      const strategyStopHit = p.direction === "BUY_CALL"
+        ? bar.low <= p.strategyStopPrice
+        : bar.high >= p.strategyStopPrice;
+      const strategyTargetHit = p.direction === "BUY_CALL"
+        ? bar.high >= p.strategyTargetPrice
+        : bar.low <= p.strategyTargetPrice;
+
       // 1) conservative: the adverse extreme is tested against the CURRENT stop
       const stopPnl = -p.curSL; // curSL>0 → loss limit; curSL<0 → locked profit
-      if (pnlAt(p, adverse) <= stopPnl) {
+      if (strategyStopHit) {
+        closeAtPnl(bar.timestamp, pnlAt(p, p.strategyStopPrice), "STRATEGY_STOP");
+      } else if (pnlAt(p, adverse) <= stopPnl) {
         closeAtPnl(bar.timestamp, stopPnl, p.curSL <= 0 ? "TRAIL_LOCK" : "STOPLOSS");
       } else {
         // 2) ratchet on the favourable extreme, then test the (possibly raised) target
         p.peak = Math.max(p.peak, pnlAt(p, favorable));
         applyTrailing(p);
-        if (pnlAt(p, favorable) >= p.curTarget) {
+        if (strategyTargetHit) {
+          closeAtPnl(bar.timestamp, pnlAt(p, p.strategyTargetPrice), "STRATEGY_TARGET");
+        } else if (pnlAt(p, favorable) >= p.curTarget) {
           closeAtPnl(bar.timestamp, p.curTarget, "TARGET");
-        } else if (info.minutes >= 15 * 60) {
+        } else if (info.minutes >= 15 * 60 + 15) {
           closeAtPnl(bar.timestamp, pnlAt(p, bar.close), "EOD_EXIT");
         }
       }
@@ -350,6 +368,16 @@ async function replayIndex(
     // live defaults when the user has not customised the ladder
     const activation = Math.round(TARGET_PER_LOT * 0.5) * lots;
     const slJump = Math.round(SL_PER_LOT * 0.5) * lots;
+    const targetJump = Math.round(TARGET_PER_LOT * 0.33) * lots;
+    const suggestedTarget = Number(signal.riskManagement?.suggestedTarget);
+    const suggestedStop = Number(signal.riskManagement?.suggestedStopLoss);
+    const signalReference = Number(signal.riskManagement?.suggestedEntry) || bar.close;
+    const targetDistance = Number.isFinite(suggestedTarget)
+      ? Math.max(1, Math.abs(suggestedTarget - signalReference))
+      : Math.max(1, atr14(window) * 0.4);
+    const stopDistance = Number.isFinite(suggestedStop)
+      ? Math.max(1, Math.abs(signalReference - suggestedStop))
+      : Math.max(1, atr14(window) * 2);
 
     pos = {
       index,
@@ -363,12 +391,14 @@ async function replayIndex(
       baseTarget,
       baseSL,
       activation,
-      targetJump: slJump,
+      targetJump,
       slJump,
       curTarget: baseTarget,
       curSL: baseSL,
       peak: 0,
       steps: 0,
+      strategyTargetPrice: signal.action === "BUY_CALL" ? entry + targetDistance : entry - targetDistance,
+      strategyStopPrice: signal.action === "BUY_CALL" ? entry - stopDistance : entry + stopDistance,
     };
     i++; // entry consumed the next bar's open; management starts after it
   }
