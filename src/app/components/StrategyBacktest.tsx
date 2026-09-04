@@ -103,6 +103,7 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
         maxTradesPerDay,
         minConfidence,
       });
+      startedRunId = begin.runId || "";
       if (typeof begin.walletBalance === "number") setWallet(begin.walletBalance);
 
       const tasks: any[] = begin.tasks || [];
