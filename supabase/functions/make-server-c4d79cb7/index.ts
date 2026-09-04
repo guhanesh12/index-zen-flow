@@ -836,11 +836,28 @@ app.get("/make-server-c4d79cb7/auth/test-2factor", async (c) => {
 // 🔥 NEW: Send OTP for signup using 2factor.in
 app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
   try {
-    const { phone, email, name } = await c.req.json();
+    const { phone, email, name, resend } = await c.req.json();
 
     if (!phone || !/^[0-9]{10}$/.test(phone)) {
       return c.json({ error: 'Invalid phone number. Must be 10 digits.' }, 400);
     }
+
+    // 🛡️ Duplicate-send guard: only one OTP per 60s unless the user
+    // explicitly taps "Resend OTP" (resend === true).
+    if (!resend) {
+      const prev = await kv.get(`otp_session:${phone}`);
+      if (prev?.timestamp && Date.now() - prev.timestamp < 60_000) {
+        console.log(`⏳ OTP already sent to ${phone} recently — skipping duplicate send`);
+        return c.json({
+          success: true,
+          message: 'OTP already sent',
+          sessionId: prev.sessionId,
+          throttled: true,
+        });
+      }
+    }
+
+
 
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     if (!apiKey) {
@@ -1095,7 +1112,7 @@ app.post("/make-server-c4d79cb7/auth/register-direct", async (c) => {
 // 📧 Send Email OTP (independent of mobile OTP)
 app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
   try {
-    const { email, name } = await c.req.json();
+    const { email, name, resend } = await c.req.json();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return c.json({ error: 'Valid email is required' }, 400);
     }
@@ -1108,11 +1125,13 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
 
     const otpKey = `email_otp:${email.toLowerCase()}`;
 
-    // 🛡️ Duplicate-send guard: if an OTP was just sent (<60s), don't send again
+    // 🛡️ Duplicate-send guard: only one email OTP per 60s unless the user
+    // explicitly taps "Resend".
     const existing = await kv.get(otpKey);
-    if (existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
+    if (!resend && existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
       return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
     }
+
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
@@ -11937,7 +11956,14 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     // The admin must confirm a 6-digit code mailed to their registered
     // address BEFORE the Google Authenticator step is even offered.
     const challengeToken = newChallengeToken();
-    const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
+
+    // 🛡️ Duplicate-send guard: if a code was mailed to this admin in the last
+    // 60s (double-submit / retry), reuse the SAME code and do not mail again.
+    const otpCooldownKey = `admin_login_otp_cd:${loginEmail}`;
+    const cooldownRaw = await kv.get(otpCooldownKey);
+    const cooldown = typeof cooldownRaw === 'string' ? JSON.parse(cooldownRaw) : cooldownRaw;
+    const reuse = cooldown?.code && cooldown?.sentAt && Date.now() - cooldown.sentAt < 60_000;
+    const emailOtp = reuse ? String(cooldown.code) : String(Math.floor(100000 + Math.random() * 900000));
 
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
       email: loginEmail,
@@ -11953,11 +11979,18 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
     }));
 
-    const mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
-    await logAdminSecurityEvent({
-      action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
-      status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
-    });
+    let mailed = true;
+    if (reuse) {
+      console.log('⏳ Admin email OTP already sent recently — reusing code, not re-sending');
+    } else {
+      mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+      await kv.set(otpCooldownKey, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
+      await logAdminSecurityEvent({
+        action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
+        status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
+      });
+    }
+
 
     return c.json({
       success: true,

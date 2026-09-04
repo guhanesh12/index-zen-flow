@@ -97,7 +97,7 @@ export const PinApi = {
   status: () => pinCall('/status', 'GET'),
   set: (pin: string, confirmPin: string) => pinCall('/set', 'POST', { pin, confirmPin }),
   verify: (pin: string) => pinCall('/verify', 'POST', { pin }),
-  forgot: () => pinCall('/forgot', 'POST'),
+  forgot: (resend = false) => pinCall('/forgot', 'POST', { resend }),
   reset: (otp: string, pin: string, confirmPin: string) =>
     pinCall('/reset', 'POST', { otp, pin, confirmPin }),
 };
@@ -306,13 +306,13 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   };
 
 
-  const doForgot = async () => {
+  const doForgot = async (resend = false) => {
     setError(''); setInfo(''); setBusy(true);
     try {
       // Make sure the token is fresh before asking for an OTP — this endpoint
       // used to fail with a raw SESSION_LOST error.
       try { await supabase.auth.refreshSession(); } catch {}
-      const r = await PinApi.forgot();
+      const r = await PinApi.forgot(resend);
       if (r.status === 200) {
         setInfo(`${r.message}${r.mobile ? ` (${r.mobile})` : ''}${r.email ? ` (${r.email})` : ''}`);
         setScreen('reset'); setPin(''); setConfirmPin(''); setOtp('');
@@ -411,7 +411,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
         subtitle="We'll send a 6-digit OTP by SMS to your registered mobile number"
         onBack={() => { reset(); setScreen('enter'); }}>
         <Err />
-        <button className={btn} disabled={busy} onClick={doForgot}>{busy ? 'Sending…' : 'Send OTP'}</button>
+        <button className={btn} disabled={busy} onClick={() => doForgot(false)}>{busy ? 'Sending…' : 'Send OTP'}</button>
       </Shell>
     );
   }
@@ -430,7 +430,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       <button className={btn} disabled={busy || otp.length !== 6 || pin.length !== 4 || confirmPin.length !== 4} onClick={doReset}>
         {busy ? 'Saving…' : 'Reset PIN'}
       </button>
-      <button onClick={doForgot} disabled={busy} className="mt-3 w-full text-xs text-cyan-400 hover:underline">Resend OTP</button>
+      <button onClick={() => doForgot(true)} disabled={busy} className="mt-3 w-full text-xs text-cyan-400 hover:underline">Resend OTP</button>
     </Shell>
   );
 }
