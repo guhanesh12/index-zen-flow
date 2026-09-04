@@ -5552,6 +5552,51 @@ app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
   }
 });
 
+// Abort a started (but unfinished) backtest and refund the ₹5 charge
+app.post('/make-server-c4d79cb7/backtest/strategy/abort', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const runId = String(body.runId || '');
+    if (!runId) return c.json({ success: false, error: 'runId required' }, 400);
+
+    const key = `backtest:run:${user.id}:${runId}`;
+    const state = await kv.get(key);
+    // Only refund once — the run record acts as the idempotency guard
+    if (!state) return c.json({ success: true, refunded: false });
+    await kv.del(key).catch(() => {});
+    const segRows = await kv.getByPrefix(`backtest:seg:${user.id}:${runId}:`).catch(() => []);
+    if (segRows.length) await kv.mdel(segRows.map((r: any) => r.key)).catch(() => {});
+
+    const wallet = (await kv.get(`wallet:${user.id}`)) || { balance: 0, totalDeducted: 0 };
+    const newBalance = Number((Number(wallet.balance || 0) + BACKTEST_COST).toFixed(2));
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Math.max(0, Number(wallet.totalDeducted || 0) - BACKTEST_COST),
+      updatedAt: new Date().toISOString(),
+    });
+    const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
+    walletTx.push({
+      id: `btr_${Date.now()}`,
+      type: 'credit',
+      amount: BACKTEST_COST,
+      description: 'Refund — backtest failed',
+      balanceAfter: newBalance,
+      timestamp: new Date().toISOString(),
+    });
+    await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
+    return c.json({ success: true, refunded: true, walletBalance: newBalance });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Refund failed' }, 500);
+  }
+});
+
+
+
 
 
 // User's own backtest history
