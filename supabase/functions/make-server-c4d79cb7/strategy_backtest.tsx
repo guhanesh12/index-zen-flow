@@ -21,8 +21,8 @@ const INSTRUMENT_KEYS: Record<IndexName, string> = {
 };
 
 export const LOT_SIZES: Record<IndexName, number> = {
-  NIFTY: 75,
-  BANKNIFTY: 35,
+  NIFTY: 65,
+  BANKNIFTY: 30,
   SENSEX: 20,
 };
 
