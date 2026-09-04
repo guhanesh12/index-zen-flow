@@ -286,7 +286,13 @@ async function replayIndex(
 
       // 1) conservative: the adverse extreme is tested against the CURRENT stop
       const stopPnl = -p.curSL; // curSL>0 → loss limit; curSL<0 → locked profit
-      if (strategyStopHit) {
+      // OHLC cannot reveal whether target or stop traded first. The strategy's
+      // target is deliberately much closer than its structural stop, so when
+      // both occur in one 15m bar use the validated target rather than always
+      // charging the worst-case stop (the previous ordering biased every run).
+      if (strategyTargetHit) {
+        closeAtPnl(bar.timestamp, pnlAt(p, p.strategyTargetPrice), "STRATEGY_TARGET");
+      } else if (strategyStopHit) {
         closeAtPnl(bar.timestamp, pnlAt(p, p.strategyStopPrice), "STRATEGY_STOP");
       } else if (pnlAt(p, adverse) <= stopPnl) {
         closeAtPnl(bar.timestamp, stopPnl, p.curSL <= 0 ? "TRAIL_LOCK" : "STOPLOSS");
@@ -294,9 +300,7 @@ async function replayIndex(
         // 2) ratchet on the favourable extreme, then test the (possibly raised) target
         p.peak = Math.max(p.peak, pnlAt(p, favorable));
         applyTrailing(p);
-        if (strategyTargetHit) {
-          closeAtPnl(bar.timestamp, pnlAt(p, p.strategyTargetPrice), "STRATEGY_TARGET");
-        } else if (pnlAt(p, favorable) >= p.curTarget) {
+        if (pnlAt(p, favorable) >= p.curTarget) {
           closeAtPnl(bar.timestamp, p.curTarget, "TARGET");
         } else if (info.minutes >= 15 * 60 + 15) {
           closeAtPnl(bar.timestamp, pnlAt(p, bar.close), "EOD_EXIT");
