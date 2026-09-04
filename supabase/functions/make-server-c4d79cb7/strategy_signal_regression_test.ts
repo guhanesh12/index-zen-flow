@@ -25,12 +25,12 @@ function candles(direction: "bull" | "bear" | "chop"): OHLCCandle[] {
 
 Deno.test("signal: confirmed support reclaim emits CALL before trend ADX catches up", () => {
   const signal = AdvancedAI.generateAdvancedSignal(candles("bull"), 100000, { timeframeMinutes: 15, enforceClosedCandle: false });
-  assertEquals(signal.action, "BUY_CALL");
+  assertEquals(signal.action, "BUY_CALL", signal.reasoning);
 });
 
 Deno.test("signal: confirmed resistance rejection emits PUT symmetrically", () => {
   const signal = AdvancedAI.generateAdvancedSignal(candles("bear"), 100000, { timeframeMinutes: 15, enforceClosedCandle: false });
-  assertEquals(signal.action, "BUY_PUT");
+  assertEquals(signal.action, "BUY_PUT", signal.reasoning);
 });
 
 Deno.test("signal: low-volatility chop remains WAIT", () => {
