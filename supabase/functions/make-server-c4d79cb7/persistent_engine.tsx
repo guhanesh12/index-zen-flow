@@ -2684,6 +2684,54 @@ class PersistentTradingEngine {
           }
         } else {
           (position as any).missingBrokerPositionCount = 0;
+          (position as any).everSeenAtBroker = true;
+        }
+
+        // 🚫 ENTRY ORDER REJECTED — this trade NEVER opened at the broker.
+        // A rejected/cancelled entry must never be reported as a closed position
+        // and must never touch the engine on/off state.
+        if (!dhanPos && !(position as any).everSeenAtBroker) {
+          const entryStatusRaw = await BrokerRouter.getOrderStatusSmart(
+            userId,
+            String(position.orderId),
+            () => dhanService.getOrderStatus(String(position.orderId)),
+          ).catch(() => null);
+          const entryStatus = String(
+            entryStatusRaw?.orderStatus || entryStatusRaw?.order_status || entryStatusRaw?.status ||
+            entryStatusRaw?.raw?.orderStatus || "",
+          ).toUpperCase();
+          if (["REJECTED", "CANCELLED", "CANCELED", "FAILED", "ERROR", "EXPIRED"].includes(entryStatus)) {
+            console.warn(`🚫 Entry order ${position.orderId} ${entryStatus} — clearing monitor row silently (no position was ever opened)`);
+            position.status = "CLOSED";
+            await supabaseAdmin
+              .from("position_monitor_state")
+              .update({
+                is_active: false,
+                // "housekeeping:" prefix keeps the DB triggers silent — no
+                // "Position Closed" push and no engine shutdown.
+                exit_reason: `housekeeping: entry order ${entryStatus.toLowerCase()} — position never opened`,
+                exited_at: new Date().toISOString(),
+                pnl: 0,
+              })
+              .eq("user_id", userId)
+              .eq("order_id", position.orderId)
+              .eq("is_active", true);
+
+            await supabaseAdmin
+              .from("trading_orders")
+              .update({ status: "failed", error_message: `Broker ${entryStatus}` })
+              .eq("user_id", userId)
+              .eq("dhan_order_id", String(position.orderId));
+
+            await this.appendSharedLog(userId, {
+              type: "ERROR",
+              timestamp: Date.now(),
+              symbol: position.symbolName,
+              message: `🚫 ORDER ${entryStatus}: ${position.symbolName} — no position was opened. Engine keeps running.`,
+              data: { orderId: position.orderId, status: entryStatus },
+            });
+            continue;
+          }
         }
 
         if (!dhanPos || Number(dhanPos.netQty ?? dhanPos.quantity ?? 0) === 0) {
