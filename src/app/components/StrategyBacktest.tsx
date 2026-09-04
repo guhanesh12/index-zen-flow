@@ -126,6 +126,17 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
       if (typeof fin.walletBalance === "number") setWallet(fin.walletBalance);
       loadHistory();
     } catch (e: any) {
+      // refund the ₹5 charge when a started run could not complete
+      if (startedRunId) {
+        try {
+          const r = await fetch(`${getBaseUrl()}/backtest/strategy/abort`, {
+            method: "POST", headers, body: JSON.stringify({ runId: startedRunId }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (d?.refunded && typeof d.walletBalance === "number") setWallet(d.walletBalance);
+          if (d?.refunded) e.message = `${e.message || "Backtest failed"} — ₹5 refunded to your wallet.`;
+        } catch { /* ignore refund failure */ }
+      }
       setError(e.message || "Backtest failed");
     } finally {
       setLoading(false);
