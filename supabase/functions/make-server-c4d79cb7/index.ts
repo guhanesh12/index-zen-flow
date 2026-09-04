@@ -5498,7 +5498,14 @@ app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
     const state = await kv.get(key);
     if (!state) return c.json({ success: false, error: 'Backtest session expired, please run again' }, 404);
 
-    const report = buildReport(state.trades || [], {
+    const segPrefix = `backtest:seg:${user.id}:${runId}:`;
+    const segRows = await kv.getByPrefix(segPrefix).catch(() => []);
+    const allTrades = [
+      ...(state.trades || []),
+      ...segRows.flatMap((r: any) => (r?.value?.trades || [])),
+    ];
+
+    const report = buildReport(allTrades, {
       strategy: state.strategy,
       indices: state.indices,
       initialCapital: state.initialCapital,
