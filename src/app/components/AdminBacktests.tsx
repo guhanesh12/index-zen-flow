@@ -18,7 +18,11 @@ export function AdminBacktests() {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const token = localStorage.getItem("admin_access_token") || localStorage.getItem("access_token") || "";
+      const token =
+        sessionStorage.getItem("admin_access_token") ||
+        localStorage.getItem("admin_access_token") ||
+        localStorage.getItem("access_token") ||
+        "";
       const res = await fetch(`${getBaseUrl()}/admin/strategy-backtests`, {
         headers: { Authorization: `Bearer ${token}` },
       });
