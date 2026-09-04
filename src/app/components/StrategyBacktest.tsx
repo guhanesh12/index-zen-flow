@@ -78,6 +78,7 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
   const run = async () => {
     if (!selected.length) { setError("Select at least one index"); return; }
     setLoading(true); setError(""); setReport(null); setProgress(0);
+    let startedRunId = "";
     try {
       const post = async (path: string, payload: any) => {
         const res = await fetch(`${getBaseUrl()}${path}`, {
