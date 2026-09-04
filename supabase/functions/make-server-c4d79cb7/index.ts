@@ -1125,11 +1125,13 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
 
     const otpKey = `email_otp:${email.toLowerCase()}`;
 
-    // 🛡️ Duplicate-send guard: if an OTP was just sent (<60s), don't send again
+    // 🛡️ Duplicate-send guard: only one email OTP per 60s unless the user
+    // explicitly taps "Resend".
     const existing = await kv.get(otpKey);
-    if (existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
+    if (!resend && existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
       return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
     }
+
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
