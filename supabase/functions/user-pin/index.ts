@@ -200,6 +200,29 @@ Deno.serve(async (req) => {
       if (!hasMobile && !email) {
         return json(400, { success: false, message: "No registered mobile or email. Update your profile first." });
       }
+
+      // 🛡️ Duplicate-send guard: only one OTP per 60s unless the user
+      // explicitly taps "Resend OTP" (body.resend === true).
+      if (!body?.resend) {
+        const since = new Date(Date.now() - 60 * 1000).toISOString();
+        const { data: recent } = await admin.from("pin_reset_otps")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("verified", false)
+          .gte("created_at", since)
+          .limit(1);
+        if (recent && recent.length > 0) {
+          return json(200, {
+            success: true,
+            throttled: true,
+            message: hasMobile ? "OTP already sent to your registered mobile number" : "OTP already sent to your registered email",
+            channels: { sms: hasMobile, email: !hasMobile },
+            mobile: hasMobile ? maskMobile(mobile) : null,
+            email: hasMobile ? null : maskEmail(email),
+          });
+        }
+      }
+
       const otp = String(Math.floor(100000 + Math.random() * 900000));
       const otp_hash = await sha256(otp);
       const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString();
