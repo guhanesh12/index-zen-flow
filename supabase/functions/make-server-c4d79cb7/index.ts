@@ -9354,6 +9354,14 @@ app.post("/make-server-c4d79cb7/admin/users", async (c) => {
 
     await kv.set(`engine_running:${userId}`, false);
 
+    // Best-effort: email the user a secure password-setup link so they set their own password
+    try {
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email);
+      if (resetErr) console.warn('⚠️ Password setup email failed:', resetErr.message);
+    } catch (e) {
+      console.warn('⚠️ Password setup email error:', e);
+    }
+
     console.log(`✅ Admin: User ${email} created successfully with ID ${userId}`);
     return c.json({ success: true, userId });
   } catch (error: any) {
