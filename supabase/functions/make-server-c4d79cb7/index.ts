@@ -1112,7 +1112,7 @@ app.post("/make-server-c4d79cb7/auth/register-direct", async (c) => {
 // 📧 Send Email OTP (independent of mobile OTP)
 app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
   try {
-    const { email, name } = await c.req.json();
+    const { email, name, resend } = await c.req.json();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return c.json({ error: 'Valid email is required' }, 400);
     }
