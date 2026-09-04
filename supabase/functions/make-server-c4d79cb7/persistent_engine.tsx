@@ -2296,6 +2296,20 @@ class PersistentTradingEngine {
                 };
               }
 
+              // A broker can echo an order ID and still reject the order — that is a
+              // FAILED entry, not a position. Treat it exactly like an order failure.
+              const placedStatus = String(
+                orderResult?.orderStatus || orderResult?.status || "",
+              ).toUpperCase();
+              if (orderResult.orderId && ["REJECTED", "CANCELLED", "CANCELED", "FAILED", "ERROR", "EXPIRED"].includes(placedStatus)) {
+                orderResult = {
+                  ...orderResult,
+                  orderId: null,
+                  success: false,
+                  error: orderResult?.error || orderResult?.message || `Broker ${placedStatus} the order`,
+                };
+              }
+
               if (orderResult.orderId) {
                 actionableOrderSucceeded = true;
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
