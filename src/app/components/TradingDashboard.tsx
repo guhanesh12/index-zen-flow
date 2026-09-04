@@ -4,7 +4,7 @@ import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, MoreVertical, User, FlaskConical } from "lucide-react";
+import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, MoreVertical, User, FlaskConical, ArrowRight } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "./ui/sheet";
 const logoWhite = "/logo-white.png";
 import { SettingsPanel } from "./SettingsPanel";
@@ -1154,6 +1154,31 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                   walletBalance={realAccountBalance || walletBalance}
                   marginUsed={realMarginUsed}
                 />
+
+                {/* 📊 Strategy Backtest banner — opens the Backtest section */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('backtest')}
+                  className="w-full text-left glass-card glow-ai p-4 sm:p-5 flex items-center gap-4 group cursor-pointer transition-all duration-300 hover:scale-[1.01] hover:border-emerald-500/40"
+                >
+                  <div className="size-12 rounded-xl bg-gradient-to-br from-emerald-600 to-blue-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
+                    <FlaskConical className="size-6 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-white flex items-center gap-2">
+                      Strategy Backtest
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">₹5 / run</span>
+                    </h3>
+                    <p className="text-xs text-muted-foreground truncate">
+                      Replay the live AI strategy on real NIFTY, BANKNIFTY & SENSEX data — up to 1 year of history.
+                    </p>
+                  </div>
+                  <span className="shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-400 group-hover:gap-2.5 transition-all">
+                    Run Backtest
+                    <ArrowRight className="size-4" />
+                  </span>
+                </button>
+
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="lg:col-span-2 space-y-4">

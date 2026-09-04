@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 const INDICES = ["NIFTY", "BANKNIFTY", "SENSEX"] as const;
-const LOT_SIZES: Record<string, number> = { NIFTY: 75, BANKNIFTY: 35, SENSEX: 20 };
+const LOT_SIZES: Record<string, number> = { NIFTY: 65, BANKNIFTY: 30, SENSEX: 20 };
 const STRATEGIES = [
   { key: "indexpilotai", label: "IndexPilotAI Strategy", desc: "Default multi-confirmation AI engine (live strategy)" },
 ];
