@@ -399,9 +399,14 @@ async function replayIndex(
     const targetDistance = Number.isFinite(suggestedTarget)
       ? Math.max(1, Math.abs(suggestedTarget - signalReference))
       : Math.max(1, atr14(window) * 0.4);
-    const stopDistance = Number.isFinite(suggestedStop)
-      ? Math.max(1, Math.abs(signalReference - suggestedStop))
-      : Math.max(1, atr14(window) * 2);
+    const modelStopDistance = Number.isFinite(suggestedStop)
+      ? Math.abs(signalReference - suggestedStop)
+      : atr14(window) * 2;
+    // The broad structural stop is useful as a last-resort live money guard,
+    // but a backtested 15m momentum entry must invalidate quickly when it does
+    // not follow through. Cap the strategy stop near its target distance while
+    // retaining the user's larger per-lot emergency stop underneath.
+    const stopDistance = Math.max(1, Math.min(modelStopDistance, targetDistance * 0.9));
 
     pos = {
       index,
