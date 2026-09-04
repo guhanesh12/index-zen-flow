@@ -5543,6 +5543,7 @@ app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
     }
 
     await kv.del(key).catch(() => {});
+    if (segRows.length) await kv.mdel(segRows.map((r: any) => r.key)).catch(() => {});
     const wallet = (await kv.get(`wallet:${user.id}`)) || {};
     return c.json({ success: true, report, walletBalance: Number(wallet.balance || 0) });
   } catch (e: any) {
