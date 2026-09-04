@@ -3431,10 +3431,46 @@ export class AdvancedAI {
 
     const structuredTrend = structuredTrendDown || structuredTrendUp;
 
+    // A fresh reversal begins while ADX and EMA slopes still describe the old
+    // range/trend. Detect the first confirmed reclaim/rejection from a local
+    // extreme before the generic sideways return below. This is deliberately
+    // structural: a strong close through the previous candle, two improving
+    // closes, a meaningful move away from the swept level, and turning RSI.
+    // It does not predict the low/high; it waits for one closed confirmation bar.
+    const reversalLookback = ohlcData.slice(-6, -1);
+    const recentReversalLow = Math.min(...reversalLookback.map((c) => c.low));
+    const recentReversalHigh = Math.max(...reversalLookback.map((c) => c.high));
+    const reversalRsiPrev = this.calculateRSI(ohlcData.slice(0, -1));
+    const reversalRange = Math.max(lastCandle.high - lastCandle.low, 1e-9);
+    const reversalCloseFromLow =
+      (lastCandle.close - lastCandle.low) / reversalRange;
+    const reversalCloseFromHigh =
+      (lastCandle.high - lastCandle.close) / reversalRange;
+    const supportReclaimEntry =
+      reversalLookback.length >= 3 &&
+      lastCandle.close > lastCandle.open &&
+      lastCandle.close > prevCandle.high &&
+      prevCandle.close >= ohlcData[ohlcData.length - 3].close &&
+      lastCandle.close - recentReversalLow >= atr14 * 0.8 &&
+      reversalCloseFromLow >= 0.62 &&
+      rsi > reversalRsiPrev &&
+      rsi <= 68;
+    const resistanceRejectEntry =
+      reversalLookback.length >= 3 &&
+      lastCandle.close < lastCandle.open &&
+      lastCandle.close < prevCandle.low &&
+      prevCandle.close <= ohlcData[ohlcData.length - 3].close &&
+      recentReversalHigh - lastCandle.close >= atr14 * 0.8 &&
+      reversalCloseFromHigh >= 0.62 &&
+      rsi < reversalRsiPrev &&
+      rsi >= 32;
+
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
       !inTrendingRegime &&
       !structuredTrend &&
+      !supportReclaimEntry &&
+      !resistanceRejectEntry &&
       adx < 18 &&
       ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
 
@@ -3684,6 +3720,24 @@ export class AdvancedAI {
     // position), so the generic ADX floor — which lags badly on orderly,
     // low-volatility grinds — is relaxed for them only.
     let patternDetectorEntry = false;
+
+    // ===== CONFIRMED SUPPORT / RESISTANCE REVERSAL =====
+    // Runs before breakout/drift detectors and survives the low-ADX floor via
+    // patternDetectorEntry. This catches a reclaim close, not an unconfirmed
+    // falling knife, and mirrors the rules exactly for PUT entries.
+    if (action === "WAIT" && supportReclaimEntry) {
+      action = "BUY_CALL";
+      bias = "Bullish";
+      confidence = 75;
+      patternDetectorEntry = true;
+      reasoning = `🔄 SUPPORT RECLAIM BUY_CALL — close ${lastCandle.close.toFixed(2)} cleared prev high ${prevCandle.high.toFixed(2)}, recovered ${(lastCandle.close - recentReversalLow).toFixed(2)}pts from support, RSI ${reversalRsiPrev.toFixed(1)}→${rsi.toFixed(1)}.`;
+    } else if (action === "WAIT" && resistanceRejectEntry) {
+      action = "BUY_PUT";
+      bias = "Bearish";
+      confidence = 75;
+      patternDetectorEntry = true;
+      reasoning = `🔄 RESISTANCE REJECTION BUY_PUT — close ${lastCandle.close.toFixed(2)} broke prev low ${prevCandle.low.toFixed(2)}, rejected ${(recentReversalHigh - lastCandle.close).toFixed(2)}pts from resistance, RSI ${reversalRsiPrev.toFixed(1)}→${rsi.toFixed(1)}.`;
+    }
 
     // ===== BREAKDOWN DETECTOR (symmetric to breakout) =====
 
