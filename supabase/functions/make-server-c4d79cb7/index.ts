@@ -5476,12 +5476,9 @@ app.post('/make-server-c4d79cb7/backtest/strategy/segment', async (c) => {
     });
 
 
-    const cur = (await kv.get(key)) || state;
-    await kv.set(key, {
-      ...cur,
-      trades: [...(cur.trades || []), ...trades],
-      done: Number(cur.done || 0) + 1,
-    });
+    // Each segment writes to its OWN key — concurrent segments can never
+    // overwrite each other's trades (finalize aggregates them by prefix).
+    await kv.set(`backtest:seg:${user.id}:${runId}:${index}:${from}:${to}`, { trades });
 
     return c.json({ success: true, trades: trades.length });
   } catch (e: any) {
@@ -5501,7 +5498,14 @@ app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
     const state = await kv.get(key);
     if (!state) return c.json({ success: false, error: 'Backtest session expired, please run again' }, 404);
 
-    const report = buildReport(state.trades || [], {
+    const segPrefix = `backtest:seg:${user.id}:${runId}:`;
+    const segRows = await kv.getByPrefix(segPrefix).catch(() => []);
+    const allTrades = [
+      ...(state.trades || []),
+      ...segRows.flatMap((r: any) => (r?.value?.trades || [])),
+    ];
+
+    const report = buildReport(allTrades, {
       strategy: state.strategy,
       indices: state.indices,
       initialCapital: state.initialCapital,
@@ -5539,6 +5543,7 @@ app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
     }
 
     await kv.del(key).catch(() => {});
+    if (segRows.length) await kv.mdel(segRows.map((r: any) => r.key)).catch(() => {});
     const wallet = (await kv.get(`wallet:${user.id}`)) || {};
     return c.json({ success: true, report, walletBalance: Number(wallet.balance || 0) });
   } catch (e: any) {
@@ -5546,6 +5551,51 @@ app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
     return c.json({ success: false, error: e?.message || 'Failed to build report' }, 500);
   }
 });
+
+// Abort a started (but unfinished) backtest and refund the ₹5 charge
+app.post('/make-server-c4d79cb7/backtest/strategy/abort', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const runId = String(body.runId || '');
+    if (!runId) return c.json({ success: false, error: 'runId required' }, 400);
+
+    const key = `backtest:run:${user.id}:${runId}`;
+    const state = await kv.get(key);
+    // Only refund once — the run record acts as the idempotency guard
+    if (!state) return c.json({ success: true, refunded: false });
+    await kv.del(key).catch(() => {});
+    const segRows = await kv.getByPrefix(`backtest:seg:${user.id}:${runId}:`).catch(() => []);
+    if (segRows.length) await kv.mdel(segRows.map((r: any) => r.key)).catch(() => {});
+
+    const wallet = (await kv.get(`wallet:${user.id}`)) || { balance: 0, totalDeducted: 0 };
+    const newBalance = Number((Number(wallet.balance || 0) + BACKTEST_COST).toFixed(2));
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Math.max(0, Number(wallet.totalDeducted || 0) - BACKTEST_COST),
+      updatedAt: new Date().toISOString(),
+    });
+    const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
+    walletTx.push({
+      id: `btr_${Date.now()}`,
+      type: 'credit',
+      amount: BACKTEST_COST,
+      description: 'Refund — backtest failed',
+      balanceAfter: newBalance,
+      timestamp: new Date().toISOString(),
+    });
+    await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
+    return c.json({ success: true, refunded: true, walletBalance: newBalance });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Refund failed' }, 500);
+  }
+});
+
+
 
 
 
