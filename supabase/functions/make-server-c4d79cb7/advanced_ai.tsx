@@ -3463,7 +3463,7 @@ export class AdvancedAI {
       recentReversalHigh - lastCandle.close >= atr14 * 0.8 &&
       reversalCloseFromHigh >= 0.62 &&
       rsi < reversalRsiPrev &&
-      rsi <= 60;
+      rsi >= 32;
 
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
