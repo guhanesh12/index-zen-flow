@@ -1,5 +1,5 @@
 # Roadmap
 
-- [ ] Diagnose and fix blocked/delayed live CALL and PUT signals
-- [ ] Diagnose and fix user backtest results/model mismatch
-- [ ] Add focused regression tests and verify edge function behavior
+- [x] Diagnose and fix blocked/delayed live CALL and PUT signals
+- [x] Diagnose and fix user backtest results/model mismatch
+- [x] Add focused regression tests and verify edge function behavior
