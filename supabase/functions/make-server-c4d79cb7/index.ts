@@ -16348,7 +16348,66 @@ app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
   }
 });
 
+/**
+ * Mobile app finishes the Fyers OAuth itself: the RN WebView intercepts the
+ * callback URL and posts the auth_code here instead of letting the server page load.
+ */
+app.post("/make-server-c4d79cb7/broker/fyers/consume", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({} as any));
+    const authCode = String(body?.authCode || body?.auth_code || body?.code || "").trim();
+    const state = String(body?.state || "").trim();
+    if (!authCode) return c.json({ success: false, error: "Missing auth code" }, 400);
+
+    // State is optional here (the app already proved identity with its JWT),
+    // but when present it must belong to this user.
+    if (state) {
+      const st = await kv.get(`fyers_oauth_state:${state}`);
+      if (st?.userId && st.userId !== user.id) {
+        return c.json({ success: false, error: "This login link belongs to another account" }, 403);
+      }
+      await kv.del(`fyers_oauth_state:${state}`);
+    }
+
+    const creds = await BrokerRouter.getFyersCredentials(user.id);
+    if (!creds?.appId || !creds?.appSecret) {
+      return c.json({ success: false, error: "App ID / Secret ID missing. Save them again in Broker Setup." }, 400);
+    }
+
+    try {
+      const tok = await exchangeFyersAuthCode({
+        appId: creds.appId,
+        appSecret: creds.appSecret,
+        authCode,
+      });
+      await BrokerRouter.saveFyersCredentials(user.id, {
+        accessToken: tok.accessToken,
+        refreshToken: tok.refreshToken,
+        tokenExpiry: fyersTokenExpiry(tok.accessToken),
+        lastStatus: "connected",
+        lastError: null,
+      } as any);
+      await BrokerRouter.mirrorFyersStatus(user.id, { last_status: "connected", last_error: null });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+        await BrokerRouter.setBrokerConnected(user.id, true);
+      }
+      await ensureFyersInstruments(false);
+      return c.json({ success: true, connected: true, broker: "fyers" });
+    } catch (ex: any) {
+      const msg = String(ex?.message || ex).slice(0, 300);
+      await BrokerRouter.saveFyersCredentials(user.id, { lastStatus: "token_invalid", lastError: msg } as any);
+      await BrokerRouter.mirrorFyersStatus(user.id, { last_status: "token_invalid", last_error: msg });
+      return c.json({ success: false, connected: false, error: msg }, 400);
+    }
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
 app.post("/make-server-c4d79cb7/broker/fyers/verify", async (c) => {
+
   try {
     const { user, error } = await validateAuth(c);
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
