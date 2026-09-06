@@ -4416,6 +4416,13 @@ app.post("/make-server-c4d79cb7/backend-ai-signal", async (c) => {
     if (!accessToken) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
+
+    // 🔒 Verify the JWT against Supabase Auth before doing any work
+    const { data: { user: authedUser }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !authedUser) {
+      return c.json({ error: 'Unauthorized - invalid token' }, 401);
+    }
+
     
     const credentialsRaw = await kv.get('api_credentials');
     if (!credentialsRaw) {
