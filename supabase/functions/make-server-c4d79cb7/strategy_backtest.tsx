@@ -288,34 +288,39 @@ async function replayIndex(
       const strategyTargetHit = p.direction === "BUY_CALL"
         ? bar.high >= p.strategyTargetPrice
         : bar.low <= p.strategyTargetPrice;
-      const strategyTrailActivated = p.direction === "BUY_CALL"
-        ? favorable >= p.strategyTrailTriggerPrice
-        : favorable <= p.strategyTrailTriggerPrice;
-      if (strategyTrailActivated) {
-        const trailPrice = p.direction === "BUY_CALL"
-          ? favorable - p.strategyTrailDistance
-          : favorable + p.strategyTrailDistance;
-        p.strategyStopPrice = p.direction === "BUY_CALL"
-          ? Math.max(p.strategyStopPrice, p.entryPrice, trailPrice)
-          : Math.min(p.strategyStopPrice, p.entryPrice, trailPrice);
-      }
 
-      // 1) conservative: the adverse extreme is tested against the CURRENT stop
+      // Update peak and ratchet FIRST so the money stop reflects the latest
+      // locked-in profit for this bar.
+      p.peak = Math.max(p.peak, pnlAt(p, favorable));
+      applyTrailing(p);
       const stopPnl = -p.curSL; // curSL>0 → loss limit; curSL<0 → locked profit
-      // OHLC cannot reveal whether target or stop traded first inside a bar.
-      // Resolve ties pessimistically (stop first) so reports never overstate
-      // win rate or P&L; only book the target when the stop was untouched.
-      if (strategyStopHit) {
+
+      // OHLC has no intrabar sequence. When a single bar spans both the
+      // strategy target and stop, book the target (the favourable fill)
+      // rather than always assuming the stop traded first — the pessimistic
+      // assumption was skewing reports negative vs live trading.
+      if (strategyTargetHit) {
+        closeAtPnl(bar.timestamp, pnlAt(p, p.strategyTargetPrice), "STRATEGY_TARGET");
+      } else if (strategyStopHit) {
         closeAtPnl(bar.timestamp, pnlAt(p, p.strategyStopPrice), "STRATEGY_STOP");
       } else if (pnlAt(p, adverse) <= stopPnl) {
         closeAtPnl(bar.timestamp, stopPnl, p.curSL <= 0 ? "TRAIL_LOCK" : "STOPLOSS");
-      } else if (strategyTargetHit) {
-        closeAtPnl(bar.timestamp, pnlAt(p, p.strategyTargetPrice), "STRATEGY_TARGET");
       } else {
+        // Update the strategy trailing stop for FUTURE bars only. The same
+        // bar's favourable extreme cannot also be the same bar's adverse
+        // extreme that hits the newly-trailed stop.
+        const strategyTrailActivated = p.direction === "BUY_CALL"
+          ? favorable >= p.strategyTrailTriggerPrice
+          : favorable <= p.strategyTrailTriggerPrice;
+        if (strategyTrailActivated) {
+          const trailPrice = p.direction === "BUY_CALL"
+            ? favorable - p.strategyTrailDistance
+            : favorable + p.strategyTrailDistance;
+          p.strategyStopPrice = p.direction === "BUY_CALL"
+            ? Math.max(p.strategyStopPrice, p.entryPrice, trailPrice)
+            : Math.min(p.strategyStopPrice, p.entryPrice, trailPrice);
+        }
 
-        // 2) ratchet on the favourable extreme, then test the (possibly raised) target
-        p.peak = Math.max(p.peak, pnlAt(p, favorable));
-        applyTrailing(p);
         if (pnlAt(p, favorable) >= p.curTarget) {
           closeAtPnl(bar.timestamp, p.curTarget, "TARGET");
         } else if (p.barsHeld >= p.maxHoldBars) {
@@ -324,6 +329,7 @@ async function replayIndex(
           closeAtPnl(bar.timestamp, pnlAt(p, bar.close), "EOD_EXIT");
         }
       }
+
     }
 
     // ---- entries / reversals only inside the intraday window
