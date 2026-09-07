@@ -3852,27 +3852,32 @@ export class AdvancedAI {
         (ema9 > ema21 && ema21SlopeUp) ||
         (ema9Slope > 0 && (structuredTrendUp || ema21SlopeUp));
 
+      // Strong-trend continuation: on a real trend day RSI runs below 35 (or above 65)
+      // and VWAP falls/rises with price, so the old "RSI 35-55 + VWAP 0.2%" window never
+      // matched and the whole move was skipped. Allow the momentum leg explicitly.
+      const strongBearMomentum = rsi < 35 && adx >= 20 && ema9 < ema21;
+      const strongBullMomentum = rsi > 65 && adx >= 20 && ema9 > ema21;
+      const bearVwapGate = strongBearMomentum ? -0.02 : -0.2;
+      const bullVwapGate = strongBullMomentum ? 0.02 : 0.2;
+
       const driftBear =
-        (lowerCloses || redBars >= 4) &&
-        vwapDistance <= -0.2 &&
+        (lowerCloses || redBars >= 3) &&
+        vwapDistance <= bearVwapGate &&
         vwapSlopeDown &&
         emaBearOk &&
-        rsi >= 35 &&
-        rsi <= 55 &&
-        rsiFalling &&
+        ((rsi >= 35 && rsi <= 55 && rsiFalling) || strongBearMomentum) &&
         adx >= 15 &&
         closeNow < closeMinus3;
 
       const driftBull =
-        (higherCloses || greenBars >= 4) &&
-        vwapDistance >= 0.2 &&
+        (higherCloses || greenBars >= 3) &&
+        vwapDistance >= bullVwapGate &&
         vwapSlopeUp &&
         emaBullOk &&
-        rsi >= 45 &&
-        rsi <= 65 &&
-        rsiRising &&
+        ((rsi >= 45 && rsi <= 65 && rsiRising) || strongBullMomentum) &&
         adx >= 15 &&
         closeNow > closeMinus3;
+
 
 
       if (driftBear) {
@@ -4099,12 +4104,15 @@ export class AdvancedAI {
         bias = "Neutral";
         confidence = 35;
         reasoning = `⏸️ WAIT: trend too weak (ADX ${adx.toFixed(1)} < ${adxFloor}). Backtest: no edge below ADX ${adxFloor}.`;
-      } else if (adx > 34) {
-
+      } else if (adx > 34 && (adx > 55 || distFromEma21Atr > 2.5)) {
+        // Only call a strong trend "exhausted" when price is actually stretched far
+        // from EMA21 (or ADX is extreme). A high-but-orderly ADX on a clean trend day
+        // was previously blocking every continuation entry of the move.
         action = "WAIT";
         bias = "Neutral";
         confidence = 35;
-        reasoning = `⏸️ WAIT: trend exhausted (ADX ${adx.toFixed(1)} > 34). Backtest: late-trend entries mean-revert.`;
+        reasoning = `⏸️ WAIT: trend exhausted (ADX ${adx.toFixed(1)}, price ${distFromEma21Atr.toFixed(2)} ATR from EMA21). Avoid chasing.`;
+
       } else if (confidence > 88) {
         action = "WAIT";
         bias = "Neutral";
