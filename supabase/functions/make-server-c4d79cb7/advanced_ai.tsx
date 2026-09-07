@@ -4099,12 +4099,15 @@ export class AdvancedAI {
         bias = "Neutral";
         confidence = 35;
         reasoning = `⏸️ WAIT: trend too weak (ADX ${adx.toFixed(1)} < ${adxFloor}). Backtest: no edge below ADX ${adxFloor}.`;
-      } else if (adx > 34) {
-
+      } else if (adx > 34 && (adx > 55 || distFromEma21Atr > 2.5)) {
+        // Only call a strong trend "exhausted" when price is actually stretched far
+        // from EMA21 (or ADX is extreme). A high-but-orderly ADX on a clean trend day
+        // was previously blocking every continuation entry of the move.
         action = "WAIT";
         bias = "Neutral";
         confidence = 35;
-        reasoning = `⏸️ WAIT: trend exhausted (ADX ${adx.toFixed(1)} > 34). Backtest: late-trend entries mean-revert.`;
+        reasoning = `⏸️ WAIT: trend exhausted (ADX ${adx.toFixed(1)}, price ${distFromEma21Atr.toFixed(2)} ATR from EMA21). Avoid chasing.`;
+
       } else if (confidence > 88) {
         action = "WAIT";
         bias = "Neutral";
