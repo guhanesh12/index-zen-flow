@@ -1990,6 +1990,39 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     });
   };
 
+  // ⚡ TERMINAL BRIDGE: publish compact engine state + accept controls from the terminal card
+  useEffect(() => {
+    const slotsReady = autoSymbolSlots.filter((s: any) => s?.enabled !== false).length || tradingSymbols.length;
+    try {
+      localStorage.setItem('engine_bridge', JSON.stringify({
+        running: isRunning,
+        interval: candleInterval,
+        marketStatus,
+        slotsReady,
+        activeCount: activePositions.length,
+        nextCandleClose,
+        stats,
+        ts: Date.now(),
+      }));
+    } catch {}
+  }, [isRunning, candleInterval, marketStatus, autoSymbolSlots, tradingSymbols, activePositions, nextCandleClose, stats]);
+
+  useEffect(() => {
+    const onStart = () => { handleStartEngine(); };
+    const onStop = () => { handleStopEngine(); };
+    const onInterval = (e: any) => { setCandleInterval(e?.detail === '5' ? '5' : '15'); };
+    window.addEventListener('terminal-engine-start', onStart);
+    window.addEventListener('terminal-engine-stop', onStop);
+    window.addEventListener('terminal-engine-interval', onInterval as EventListener);
+    return () => {
+      window.removeEventListener('terminal-engine-start', onStart);
+      window.removeEventListener('terminal-engine-stop', onStop);
+      window.removeEventListener('terminal-engine-interval', onInterval as EventListener);
+    };
+  });
+
+
+
   const stopEngine = async (syncBackend = true) => {
     console.log('\n🛑🛑🛑 ========== ENGINE STOPPING ========== 🛑🛑🛑');
     
