@@ -334,19 +334,28 @@ export function SignalBoard() {
 function SignalDetailDialog({ detail, onClose }: any) {
   const sig = detail?.sig;
   const state = signalState(sig);
+  const ind = sig?.indicators || {};
+  const sup = sig?.supportLevels || sig?.support || [];
+  const res = sig?.resistanceLevels || sig?.resistance || [];
   const rows: Array<[string, any]> = sig
     ? [
         ["Signal", state],
         ["Confidence", `${Number(sig.confidence || 0).toFixed(0)}%`],
+        ["Bias", sig.bias ?? sig?.marketRegime?.bias ?? "—"],
+        ["Institutional", sig.institutional ?? sig.smartMoney ?? "—"],
         ["Spot price", sig.price ? money(sig.price) : "—"],
         ["Strike", sig.strike ?? "—"],
         ["Option type", sig.optionType ?? "—"],
         ["Trend", sig.trend ?? sig?.marketRegime?.type ?? "—"],
-        ["RSI", sig?.indicators?.rsi ?? sig?.rsi ?? "—"],
-        ["ADX", sig?.indicators?.adx ?? sig?.adx ?? "—"],
+        ["Momentum", sig.momentum ?? ind.momentum ?? "—"],
+        ["Volume", sig.volumeRatio ? `${Number(sig.volumeRatio).toFixed(2)}x` : "—"],
+        ["RSI", ind.rsi ?? sig?.rsi ?? "—"],
+        ["ADX", ind.adx ?? sig?.adx ?? "—"],
+        ["Timeframe", sig.timeframe ? `${sig.timeframe}M` : "—"],
         ["Time", sig.timestamp ? new Date(sig.timestamp).toLocaleString() : "—"],
       ]
     : [];
+
 
   return (
     <Dialog open={!!detail} onOpenChange={(o) => !o && onClose()}>
