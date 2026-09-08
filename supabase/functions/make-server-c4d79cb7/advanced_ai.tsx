@@ -3951,7 +3951,7 @@ export class AdvancedAI {
     // move was already finished. This catches the START of a leg: a fresh VWAP
     // reclaim/loss or a fresh EMA9/EMA21 cross with a strong directional bar, while
     // price is still close to EMA21 (i.e. the move has NOT already run).
-    if (action === "WAIT" && ohlcData.length >= 10) {
+    if (ohlcData.length >= 10) {
       const c = ohlcData;
       const n = c.length;
       const cur = c[n - 1];
