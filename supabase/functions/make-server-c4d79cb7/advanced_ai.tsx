@@ -3852,11 +3852,23 @@ export class AdvancedAI {
         (ema9 > ema21 && ema21SlopeUp) ||
         (ema9Slope > 0 && (structuredTrendUp || ema21SlopeUp));
 
-      // Strong-trend continuation: on a real trend day RSI runs below 35 (or above 65)
-      // and VWAP falls/rises with price, so the old "RSI 35-55 + VWAP 0.2%" window never
-      // matched and the whole move was skipped. Allow the momentum leg explicitly.
-      const strongBearMomentum = rsi < 35 && adx >= 20 && ema9 < ema21;
-      const strongBullMomentum = rsi > 65 && adx >= 20 && ema9 > ema21;
+      // Strong-trend continuation must not wait for RSI to become extreme. A clean
+      // three-bar directional leg with EMA/VWAP alignment is enough; this is mirrored
+      // exactly so orderly upside and downside moves work on every supported index.
+      const directionalBearLeg =
+        adx >= 20 &&
+        ema9 < ema21 &&
+        ema9Slope < 0 &&
+        closeNow < closeMinus3 &&
+        (rsi < 40 || (lowerCloses && redBars >= 3));
+      const directionalBullLeg =
+        adx >= 20 &&
+        ema9 > ema21 &&
+        ema9Slope > 0 &&
+        closeNow > closeMinus3 &&
+        (rsi > 60 || (higherCloses && greenBars >= 3));
+      const strongBearMomentum = directionalBearLeg;
+      const strongBullMomentum = directionalBullLeg;
       const bearVwapGate = strongBearMomentum ? -0.02 : -0.2;
       const bullVwapGate = strongBullMomentum ? 0.02 : 0.2;
 
