@@ -8,6 +8,7 @@ import { fetchWithAuth } from "../../utils/apiClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { BrokerLogo } from "../../brokerLogos";
+import { AlertSystem } from "../AlertSystem";
 import {
   Activity,
   ArrowDownRight,
@@ -334,19 +335,28 @@ export function SignalBoard() {
 function SignalDetailDialog({ detail, onClose }: any) {
   const sig = detail?.sig;
   const state = signalState(sig);
+  const ind = sig?.indicators || {};
+  const sup = sig?.supportLevels || sig?.support || [];
+  const res = sig?.resistanceLevels || sig?.resistance || [];
   const rows: Array<[string, any]> = sig
     ? [
         ["Signal", state],
         ["Confidence", `${Number(sig.confidence || 0).toFixed(0)}%`],
+        ["Bias", sig.bias ?? sig?.marketRegime?.bias ?? "—"],
+        ["Institutional", sig.institutional ?? sig.smartMoney ?? "—"],
         ["Spot price", sig.price ? money(sig.price) : "—"],
         ["Strike", sig.strike ?? "—"],
         ["Option type", sig.optionType ?? "—"],
         ["Trend", sig.trend ?? sig?.marketRegime?.type ?? "—"],
-        ["RSI", sig?.indicators?.rsi ?? sig?.rsi ?? "—"],
-        ["ADX", sig?.indicators?.adx ?? sig?.adx ?? "—"],
+        ["Momentum", sig.momentum ?? ind.momentum ?? "—"],
+        ["Volume", sig.volumeRatio ? `${Number(sig.volumeRatio).toFixed(2)}x` : "—"],
+        ["RSI", ind.rsi ?? sig?.rsi ?? "—"],
+        ["ADX", ind.adx ?? sig?.adx ?? "—"],
+        ["Timeframe", sig.timeframe ? `${sig.timeframe}M` : "—"],
         ["Time", sig.timestamp ? new Date(sig.timestamp).toLocaleString() : "—"],
       ]
     : [];
+
 
   return (
     <Dialog open={!!detail} onOpenChange={(o) => !o && onClose()}>
@@ -380,6 +390,29 @@ function SignalDetailDialog({ detail, onClose }: any) {
                 </div>
               ))}
             </div>
+            {(Array.isArray(res) && res.length > 0) || (Array.isArray(sup) && sup.length > 0) ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-red-400 mb-1">Resistance</div>
+                  {(Array.isArray(res) ? res : []).slice(0, 3).map((r: any, i: number) => (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="text-zinc-500">R{i + 1}</span>
+                      <span className="text-zinc-200 tabular-nums">{Number(r).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-emerald-400 mb-1">Support</div>
+                  {(Array.isArray(sup) ? sup : []).slice(0, 3).map((s: any, i: number) => (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="text-zinc-500">S{i + 1}</span>
+                      <span className="text-zinc-200 tabular-nums">{Number(s).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {(sig.reasoning || sig.reason) && (
               <div className="rounded-lg border border-zinc-800 p-3">
                 <div className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Why this signal</div>
@@ -477,30 +510,160 @@ export function BrokerStatusCard({ broker, brokerName, connected, funds, onOpenB
   );
 }
 
-export function EngineStatusCard({ running, interval, signalsCount = 0, ordersCount = 0, onOpenEngine }: any) {
+/** Compact engine card — reads the live engine bridge and drives the same engine instance. */
+export function EngineStatusCard() {
+  const [bridge, setBridge] = useState<any>({});
+  useEffect(() => {
+    const read = () => {
+      try {
+        setBridge(JSON.parse(localStorage.getItem("engine_bridge") || "{}") || {});
+      } catch {
+        setBridge({});
+      }
+    };
+    read();
+    const t = setInterval(read, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const running = !!bridge.running;
+  const interval = bridge.interval === "5" ? "5" : "15";
+  const marketOpen = String(bridge.marketStatus || "").toUpperCase() === "OPEN";
+  const fire = (name: string, detail?: any) => window.dispatchEvent(new CustomEvent(name, { detail }));
+
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950">
       <RailHeader
-        title="Engine"
+        title="Trading Engine"
         right={
           <span className={`text-[10px] ${running ? "text-emerald-400" : "text-zinc-500"}`}>
             {running ? "Running" : "Stopped"}
           </span>
         }
       />
-      <div className="p-3 space-y-2">
-        <Row label="Candle slot" value={`${interval} minute`} icon={<Clock className="w-3.5 h-3.5 text-zinc-500" />} />
-        <Row label="Signals today" value={String(signalsCount)} icon={<Radio className="w-3.5 h-3.5 text-zinc-500" />} />
-        <Row label="Orders placed" value={String(ordersCount)} icon={<Activity className="w-3.5 h-3.5 text-zinc-500" />} />
-        {onOpenEngine && (
-          <Button size="sm" variant="outline" className="w-full border-zinc-700 text-zinc-300" onClick={onOpenEngine}>
-            Engine controls
+      <div className="p-3 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          {(["5", "15"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              disabled={running}
+              onClick={() => fire("terminal-engine-interval", v)}
+              className={`h-8 rounded-md text-xs font-semibold border transition-colors disabled:opacity-50 ${
+                interval === v
+                  ? "border-zinc-500 bg-zinc-800 text-zinc-100"
+                  : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {v} minute
+            </button>
+          ))}
+        </div>
+
+        <Row
+          label="Active slots"
+          value={`${Number(bridge.slotsReady || 0)} ready · ${Number(bridge.activeCount || 0)} live`}
+          icon={<Radio className="w-3.5 h-3.5 text-zinc-500" />}
+        />
+        <Row
+          label="Market"
+          value={bridge.marketStatus || "—"}
+          icon={<CircleDot className={`w-3.5 h-3.5 ${marketOpen ? "text-emerald-500" : "text-zinc-600"}`} />}
+        />
+        <Row
+          label="Next candle"
+          value={bridge.nextCandleClose || "—"}
+          icon={<Clock className="w-3.5 h-3.5 text-zinc-500" />}
+        />
+
+        {running ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full border-red-500/40 text-red-400 hover:bg-red-500/10"
+            onClick={() => fire("terminal-engine-stop")}
+          >
+            Stop engine
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => fire("terminal-engine-start")}
+          >
+            Start engine
           </Button>
         )}
       </div>
     </div>
   );
 }
+
+/** Compact performance card — signals / orders / speed. */
+export function PerformanceCard() {
+  const [stats, setStats] = useState<any>({});
+  useEffect(() => {
+    const read = () => {
+      try {
+        setStats(JSON.parse(localStorage.getItem("engine_bridge") || "{}")?.stats || {});
+      } catch {
+        setStats({});
+      }
+    };
+    read();
+    const t = setInterval(read, 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950">
+      <RailHeader title="Performance" />
+      <div className="grid grid-cols-3 text-center py-3">
+        <Stat label="Signals" value={Number(stats.totalSignals || 0)} />
+        <Stat label="Orders" value={Number(stats.totalOrders || 0)} border />
+        <Stat label="Speed" value={`${Number(stats.avgExecutionTime || 0)}ms`} />
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, border }: any) {
+  return (
+    <div className={border ? "border-x border-zinc-800" : ""}>
+      <div className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</div>
+      <div className="text-lg font-bold text-zinc-100 tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+/** Real-time alerts, driven by the freshest engine signal. */
+export function LiveAlertsCard() {
+  const signals = useEngineSignals(1000);
+  const prevRef = useRef<any>(null);
+  const [pair, setPair] = useState<{ cur: any; prev: any }>({ cur: null, prev: null });
+
+  useEffect(() => {
+    const list = [signals.NIFTY, signals.BANKNIFTY, signals.SENSEX].filter(Boolean) as any[];
+    if (list.length === 0) return;
+    const latest = list.sort((a, b) => Number(b?.timestamp || 0) - Number(a?.timestamp || 0))[0];
+    if (!latest || Number(latest.timestamp || 0) === Number(prevRef.current?.timestamp || 0)) return;
+    setPair({ cur: latest, prev: prevRef.current });
+    prevRef.current = latest;
+  }, [signals.NIFTY, signals.BANKNIFTY, signals.SENSEX]);
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
+      <RailHeader title="Real-Time Alerts" />
+      <div className="max-h-[360px] overflow-auto p-2 text-sm">
+        {pair.cur ? (
+          <AlertSystem signal={pair.cur} previousSignal={pair.prev} timeframe={`${signals.interval}M`} />
+        ) : (
+          <Empty text="No alerts yet" sub="Alerts appear as the engine reads each candle." />
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function Row({ label, value, icon }: any) {
   return (

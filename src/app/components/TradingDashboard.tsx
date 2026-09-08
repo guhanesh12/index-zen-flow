@@ -37,6 +37,8 @@ import {
   ActivityRail,
   BrokerStatusCard,
   EngineStatusCard,
+  LiveAlertsCard,
+  PerformanceCard,
   OrdersView,
   PositionsView,
 } from "./terminal/TerminalPanels";
@@ -1138,12 +1140,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
                   {/* RIGHT — engine, broker, activity */}
                   <div className="space-y-4 xl:sticky xl:top-4">
-                    <EngineStatusCard
-                      running={engineRunning}
-                      interval={typeof window !== 'undefined' && localStorage.getItem('engine_interval') === '5' ? '5' : '15'}
-                      signalsCount={stats.totalSignals || 0}
-                      ordersCount={stats.totalOrders || 0}
-                    />
+                    <EngineStatusCard />
                     <BrokerStatusCard
                       broker={activeBroker}
                       brokerName={activeBrokerName}
@@ -1151,7 +1148,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                       funds={fundsError ? null : realAccountBalance}
                       onOpenBroker={() => setActiveTab('settings')}
                     />
+                    <LiveAlertsCard />
                     <ActivityRail logs={logs} />
+                    <PerformanceCard />
                   </div>
                 </div>
 
@@ -1568,7 +1567,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
         {/* ⚡ PERSISTENT ENGINE — always mounted so the engine keeps running across tabs */}
         {walletBalance >= 89 && (
-          <div className={activeTab === "dashboard" ? "block space-y-6 mt-4" : "hidden"}>
+          <div className="hidden">
             <EnhancedTradingEngine
               serverUrl={serverUrl}
               accessToken={accessToken}
