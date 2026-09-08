@@ -4774,7 +4774,6 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           lastLossTimestamp,
           consecutiveLossThreshold: 3,
           consecutiveLossCooldownMs: 30 * 60 * 1000,
-          minimumBarsBetweenSignals: Number(interval) === 15 ? 3 : 2,
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
