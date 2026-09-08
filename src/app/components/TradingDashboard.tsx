@@ -1554,6 +1554,17 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* ⚡ PERSISTENT ENGINE — always mounted so the engine keeps running across tabs */}
+        {walletBalance >= 89 && (
+          <div className={activeTab === "dashboard" ? "block space-y-6 mt-4" : "hidden"}>
+            <EnhancedTradingEngine
+              serverUrl={serverUrl}
+              accessToken={accessToken}
+              onLog={addLog}
+            />
+          </div>
+        )}
       </main>
 
       {/* Wallet Management Modal */}
