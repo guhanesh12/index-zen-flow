@@ -3469,12 +3469,30 @@ export class AdvancedAI {
       rsi < reversalRsiPrev &&
       rsi >= 32;
 
+    // A fresh ignition bar (strong body clearing the last 3 bars in the direction of
+    // VWAP) means the range is breaking RIGHT NOW — the sideways return must not
+    // swallow the first bar of a new leg, which is exactly the entry we want.
+    const ignRange = Math.max(lastCandle.high - lastCandle.low, 1e-9);
+    const ignBodyPct = Math.abs(lastCandle.close - lastCandle.open) / ignRange;
+    const ign3High = Math.max(...ohlcData.slice(-4, -1).map((c) => c.high));
+    const ign3Low = Math.min(...ohlcData.slice(-4, -1).map((c) => c.low));
+    const ignitionCandidate =
+      ohlcData.length >= 10 &&
+      ignBodyPct >= 0.4 &&
+      ((lastCandle.close > lastCandle.open &&
+        lastCandle.close > ign3High &&
+        lastCandle.close > vwap) ||
+        (lastCandle.close < lastCandle.open &&
+          lastCandle.close < ign3Low &&
+          lastCandle.close < vwap));
+
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
       !inTrendingRegime &&
       !structuredTrend &&
       !supportReclaimEntry &&
       !resistanceRejectEntry &&
+      !ignitionCandidate &&
       adx < 18 &&
       ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
 
@@ -3926,6 +3944,121 @@ export class AdvancedAI {
         reasoning = `📈 DRIFT BUY_CALL — ${greenBars}/5 green bars, +${(closeNow - closeMinus3).toFixed(2)}pt over 3 bars, VWAP+${vwapDistance.toFixed(2)}%, EMA9>EMA21 (slope up), RSI ${rsi.toFixed(1)} rising from ${rsiPrev.toFixed(1)}, ADX ${adx.toFixed(0)}.`;
       }
     }
+
+    // ===== EARLY TREND IGNITION DETECTOR =====
+    // The drift/breakout detectors need three confirmed bars, so on a clean one-way
+    // leg (e.g. NIFTY 2026-09-01 10:00–11:30) the first alert only printed once the
+    // move was already finished. This catches the START of a leg: a fresh VWAP
+    // reclaim/loss or a fresh EMA9/EMA21 cross with a strong directional bar, while
+    // price is still close to EMA21 (i.e. the move has NOT already run).
+    if (ohlcData.length >= 10) {
+      const c = ohlcData;
+      const n = c.length;
+      const cur = c[n - 1];
+      const range = Math.max(cur.high - cur.low, 1e-6);
+      const body = Math.abs(cur.close - cur.open);
+      const strongBody = body / range >= 0.4;
+
+      const vwapPrev1 = this.calculateVWAP(c.slice(0, n - 1));
+      const vwapPrev2 = this.calculateVWAP(c.slice(0, n - 2));
+      const freshVwapReclaim =
+        cur.close > vwap &&
+        (c[n - 2].close <= vwapPrev1 || c[n - 3].close <= vwapPrev2);
+      const freshVwapLoss =
+        cur.close < vwap &&
+        (c[n - 2].close >= vwapPrev1 || c[n - 3].close >= vwapPrev2);
+
+      const ema9p1 = this.calculateEMA(c.slice(0, n - 1), 9);
+      const ema21p1 = this.calculateEMA(c.slice(0, n - 1), 21);
+      const ema9p2 = this.calculateEMA(c.slice(0, n - 2), 9);
+      const ema21p2 = this.calculateEMA(c.slice(0, n - 2), 21);
+      const freshBullCross =
+        ema9 > ema21 && (ema9p1 <= ema21p1 || ema9p2 <= ema21p2);
+      const freshBearCross =
+        ema9 < ema21 && (ema9p1 >= ema21p1 || ema9p2 >= ema21p2);
+
+      const prior3High = Math.max(c[n - 2].high, c[n - 3].high, c[n - 4].high);
+      const prior3Low = Math.min(c[n - 2].low, c[n - 3].low, c[n - 4].low);
+      const rsiPrevIg = this.calculateRSI(c.slice(0, n - 1));
+
+      // The leg must still be young: price close to EMA21 and the last 3 bars have
+      // not already travelled more than ~1.6 ATR.
+      const leg3 = Math.abs(cur.close - c[n - 4].close) / Math.max(atr14, 1e-6);
+      const legYoung = distFromEma21Atr <= 2 && leg3 <= 1.6;
+
+      const ignitionBull =
+        legYoung &&
+        strongBody &&
+        cur.close > cur.open &&
+        cur.close > prior3High &&
+        (freshVwapReclaim || freshBullCross) &&
+        ema9Slope > 0 &&
+        rsi > rsiPrevIg &&
+        rsi >= 48 &&
+        rsi <= 70 &&
+        adx >= 12;
+
+      const ignitionBear =
+        legYoung &&
+        strongBody &&
+        cur.close < cur.open &&
+        cur.close < prior3Low &&
+        (freshVwapLoss || freshBearCross) &&
+        ema9Slope < 0 &&
+        rsi < rsiPrevIg &&
+        rsi >= 30 &&
+        rsi <= 52 &&
+        adx >= 12;
+
+      if (ignitionBull) {
+        let conf = 74;
+        if (h1Align === "bull" || htfAlign === "bull") conf += 5;
+        if (avgVolume > 0 && cur.volume >= avgVolume * 1.1) conf += 4;
+        confidence = Math.min(88, conf);
+        action = "BUY_CALL";
+        bias = "Bullish";
+        patternDetectorEntry = true;
+        reasoning = `🚀 IGNITION BUY_CALL — trend start: ${freshVwapReclaim ? "fresh VWAP reclaim" : "fresh EMA9>EMA21 cross"}, close ${cur.close.toFixed(2)} above last 3 highs, body ${((body / range) * 100).toFixed(0)}%, only ${distFromEma21Atr.toFixed(1)} ATR from EMA21, RSI ${rsi.toFixed(1)} rising, ADX ${adx.toFixed(0)}.`;
+      } else if (ignitionBear) {
+        let conf = 74;
+        if (h1Align === "bear" || htfAlign === "bear") conf += 5;
+        if (avgVolume > 0 && cur.volume >= avgVolume * 1.1) conf += 4;
+        confidence = Math.min(88, conf);
+        action = "BUY_PUT";
+        bias = "Bearish";
+        patternDetectorEntry = true;
+        reasoning = `🚀 IGNITION BUY_PUT — trend start: ${freshVwapLoss ? "fresh VWAP loss" : "fresh EMA9<EMA21 cross"}, close ${cur.close.toFixed(2)} below last 3 lows, body ${((body / range) * 100).toFixed(0)}%, only ${distFromEma21Atr.toFixed(1)} ATR from EMA21, RSI ${rsi.toFixed(1)} falling, ADX ${adx.toFixed(0)}.`;
+      }
+    }
+
+    // ===== LATE-ENTRY (CHASE) BLOCK =====
+    // Never take a continuation entry once the leg has already extended. This is the
+    // rule that removed the 11:30/11:45/12:15/12:30 top-buying and the 14:15/14:30
+    // bottom-selling seen on 2026-09-01 across all three indices.
+    if (action !== "WAIT" && ohlcData.length >= 6) {
+      const cc = ohlcData;
+      const nn = cc.length;
+      const curC = cc[nn - 1];
+      const prevC = cc[nn - 2];
+      const leg4 =
+        Math.abs(curC.close - cc[nn - 5].close) / Math.max(atr14, 1e-6);
+      const isIgnition = reasoning.startsWith("🚀 IGNITION");
+      // The entry bar itself must still be pushing: a directional close beyond the
+      // previous bar's extreme. A stalling/opposite bar means the leg is finishing,
+      // which is exactly where the old logic bought the top and sold the bottom.
+      const pushingNow =
+        action === "BUY_CALL"
+          ? curC.close > curC.open && curC.close > prevC.high
+          : curC.close < curC.open && curC.close < prevC.low;
+      if (!isIgnition && (!pushingNow || distFromEma21Atr > 2.5 || leg4 > 2.2)) {
+        action = "WAIT";
+        bias = "Neutral";
+        confidence = 35;
+        reasoning = `⏸️ WAIT: ${!pushingNow ? "entry candle is no longer pushing (leg stalling)" : `move already extended (${distFromEma21Atr.toFixed(1)} ATR from EMA21, ${leg4.toFixed(1)} ATR over 4 bars)`}. Waiting for the next trend start instead of chasing.`;
+      }
+    }
+
+
     if (consecutiveLossLockout) {
       action = "WAIT";
       confidence = 30;
@@ -4155,6 +4288,7 @@ export class AdvancedAI {
     // trades on the same move. The faster 5m strategy is intentionally unchanged.
     if (action !== "WAIT" && timeframeMinutes === 15) {
       const isConfirmedContinuation =
+        reasoning.startsWith("🚀 IGNITION") ||
         reasoning.startsWith("📉 DRIFT") ||
         reasoning.startsWith("📈 DRIFT") ||
         reasoning.startsWith("📉 BREAKDOWN") ||
