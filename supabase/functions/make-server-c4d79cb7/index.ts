@@ -4774,7 +4774,7 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           lastLossTimestamp,
           consecutiveLossThreshold: 3,
           consecutiveLossCooldownMs: 30 * 60 * 1000,
-          minimumBarsBetweenSignals: 1, // ⚡ ULTRA FAST: allow every newly closed candle; duplicate orders still protected separately
+          minimumBarsBetweenSignals: Number(interval) === 15 ? 3 : 2,
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
