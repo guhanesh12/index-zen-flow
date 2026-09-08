@@ -4038,16 +4038,26 @@ export class AdvancedAI {
     if (action !== "WAIT" && ohlcData.length >= 6) {
       const cc = ohlcData;
       const nn = cc.length;
+      const curC = cc[nn - 1];
+      const prevC = cc[nn - 2];
       const leg4 =
-        Math.abs(cc[nn - 1].close - cc[nn - 5].close) / Math.max(atr14, 1e-6);
+        Math.abs(curC.close - cc[nn - 5].close) / Math.max(atr14, 1e-6);
       const isIgnition = reasoning.startsWith("🚀 IGNITION");
-      if (!isIgnition && (distFromEma21Atr > 2.5 || leg4 > 2.2)) {
+      // The entry bar itself must still be pushing: a directional close beyond the
+      // previous bar's extreme. A stalling/opposite bar means the leg is finishing,
+      // which is exactly where the old logic bought the top and sold the bottom.
+      const pushingNow =
+        action === "BUY_CALL"
+          ? curC.close > curC.open && curC.close > prevC.high
+          : curC.close < curC.open && curC.close < prevC.low;
+      if (!isIgnition && (!pushingNow || distFromEma21Atr > 2.5 || leg4 > 2.2)) {
         action = "WAIT";
         bias = "Neutral";
         confidence = 35;
-        reasoning = `⏸️ WAIT: move already extended (${distFromEma21Atr.toFixed(1)} ATR from EMA21, ${leg4.toFixed(1)} ATR over 4 bars). Entry would be chasing a finished leg — waiting for the next trend start.`;
+        reasoning = `⏸️ WAIT: ${!pushingNow ? "entry candle is no longer pushing (leg stalling)" : `move already extended (${distFromEma21Atr.toFixed(1)} ATR from EMA21, ${leg4.toFixed(1)} ATR over 4 bars)`}. Waiting for the next trend start instead of chasing.`;
       }
     }
+
 
     if (consecutiveLossLockout) {
       action = "WAIT";
