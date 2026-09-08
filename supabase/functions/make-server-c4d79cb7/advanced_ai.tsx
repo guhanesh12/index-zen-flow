@@ -2700,6 +2700,20 @@ export class AdvancedAI {
       cooldownActive && options.lastSignalDirection === "BUY_CALL";
     const cooldownBlocksBear =
       cooldownActive && options.lastSignalDirection === "BUY_PUT";
+    // ⚡ GUARD 2: no immediate counter-trend re-entry — after a signal, an opposite-direction
+    // signal must wait at least 2 bars (whipsaw flip-flop protection).
+    const reversalCooldownBars = 2;
+    const reversalTooSoon =
+      isFinite(barsSinceLastSignal) &&
+      Math.abs(barsSinceLastSignal) < reversalCooldownBars &&
+      (options.lastSignalDirection === "BUY_CALL" ||
+        options.lastSignalDirection === "BUY_PUT");
+    const reversalBlocksBull =
+      reversalTooSoon && options.lastSignalDirection === "BUY_PUT";
+    const reversalBlocksBear =
+      reversalTooSoon && options.lastSignalDirection === "BUY_CALL";
+
+
 
     // ===== FIX 6: FAKE BREAKOUT DETECTION =====
     // Breakout candle but weak close, dominant wick, no volume expansion, no BB expansion.
@@ -3210,8 +3224,11 @@ export class AdvancedAI {
       lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout =
       lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    // ⚡ FIX: Relaxed late-entry gate from 15:15 → 15:25 IST so the 15:15 candle close still produces a tradeable signal.
-    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 25; // 15:25 IST
+    // ⚡ GUARD 1: no fresh intraday entries after 14:15 IST on the 15m strategy
+    // (late-day entries had no time to reach target and produced the largest losses).
+    const lastEntryMinute =
+      options.blockNewEntriesAfterMinutes ??
+      (timeframeMinutes >= 15 ? 14 * 60 + 15 : 15 * 60 + 25);
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish =
@@ -3789,6 +3806,11 @@ export class AdvancedAI {
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
+    } else if ((action === "BUY_CALL" && reversalBlocksBull) || (action === "BUY_PUT" && reversalBlocksBear)) {
+      action = "WAIT";
+      confidence = 35;
+      bias = "Neutral";
+      reasoning = `WAIT: Counter-trend re-entry guard — opposite signal only ${barsSinceLastSignal.toFixed(1)}/${reversalCooldownBars} bars after a ${options.lastSignalDirection}. Avoiding whipsaw flip.`;
     } else if (
       false /* HTF disagreement is now soft-scored, never a hard WAIT */
     ) {
