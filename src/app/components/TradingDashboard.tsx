@@ -710,6 +710,18 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 {/* 🔔 Notification Bell */}
                 <NotificationBell />
 
+                {/* Profile chip — initial from the signed-in account */}
+                <button
+                  onClick={() => setActiveTab('profile')}
+                  title="Profile"
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors"
+                >
+                  <span className="size-7 rounded-full bg-zinc-800 text-zinc-200 text-xs font-bold flex items-center justify-center">
+                    {(userEmail || 'U').charAt(0).toUpperCase()}
+                  </span>
+                  <span className="text-xs text-zinc-400 max-w-[120px] truncate">{userEmail || 'Profile'}</span>
+                </button>
+
                 {/* Wallet Balance - Enhanced */}
                 <button
                   id="tour-wallet-btn"
