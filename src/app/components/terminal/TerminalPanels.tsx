@@ -602,6 +602,35 @@ function Stat({ label, value, border }: any) {
   );
 }
 
+/** Real-time alerts, driven by the freshest engine signal. */
+export function LiveAlertsCard() {
+  const signals = useEngineSignals(1000);
+  const prevRef = useRef<any>(null);
+  const [pair, setPair] = useState<{ cur: any; prev: any }>({ cur: null, prev: null });
+
+  useEffect(() => {
+    const list = [signals.NIFTY, signals.BANKNIFTY, signals.SENSEX].filter(Boolean) as any[];
+    if (list.length === 0) return;
+    const latest = list.sort((a, b) => Number(b?.timestamp || 0) - Number(a?.timestamp || 0))[0];
+    if (!latest || Number(latest.timestamp || 0) === Number(prevRef.current?.timestamp || 0)) return;
+    setPair({ cur: latest, prev: prevRef.current });
+    prevRef.current = latest;
+  }, [signals.NIFTY, signals.BANKNIFTY, signals.SENSEX]);
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
+      <RailHeader title="Real-Time Alerts" />
+      <div className="max-h-[360px] overflow-auto p-2 text-sm">
+        {pair.cur ? (
+          <AlertSystem signal={pair.cur} previousSignal={pair.prev} timeframe={`${signals.interval}M`} />
+        ) : (
+          <Empty text="No alerts yet" sub="Alerts appear as the engine reads each candle." />
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function Row({ label, value, icon }: any) {
   return (
