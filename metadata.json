@@ -1,0 +1,8 @@
+{
+  "name": "IndexpilotAI",
+  "description": "IndexpilotAI is an AI-powered algo trading platform for India. Automate NSE options strategies, manage risk and connect your broker for live trading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,16 +1,16 @@
 // @ts-nocheck
 /**
- * API Client with Automatic JWT Refresh on 401 Errors
+ * API Client with Automatic Auth Token handling for Google Cloud Run
  */
-
-import { supabase } from '@/utils-ext/supabase/client';
+import { auth } from "@/lib/firebase";
+import { supabase } from "@/utils-ext/supabase/client";
 
 interface FetchWithAuthOptions extends RequestInit {
   skipAuthRefresh?: boolean;
 }
 
 /**
- * Fetch wrapper that automatically refreshes auth token on 401 errors
+ * Fetch wrapper that automatically includes auth token and user context
  */
 export async function fetchWithAuth(
   url: string,
@@ -18,67 +18,68 @@ export async function fetchWithAuth(
 ): Promise<Response> {
   const { skipAuthRefresh, ...fetchOptions } = options;
   
-  // First attempt
-  let response = await fetch(url, fetchOptions);
+  const token = await getAccessToken();
+  const headers = new Headers(fetchOptions.headers || {});
   
-  // If 401 and not already retrying, try to refresh the session
-  if (response.status === 401 && !skipAuthRefresh) {
-    console.log('🔄 Got 401 error, attempting to refresh session...');
-    
-    try {
-      // Refresh the session
-      const { data: { session }, error } = await supabase.auth.refreshSession();
-      
-      if (error || !session) {
-        console.error('❌ Failed to refresh session:', error?.message);
-        // Let the caller handle the 401
-        return response;
-      }
-      
-      console.log('✅ Session refreshed successfully');
-      
-      // Update Authorization header with new token
-      const newHeaders = new Headers(fetchOptions.headers || {});
-      newHeaders.set('Authorization', `Bearer ${session.access_token}`);
-      
-      // Retry the request with new token
-      response = await fetch(url, {
-        ...fetchOptions,
-        headers: newHeaders,
-        skipAuthRefresh: true // Prevent infinite loop
-      } as FetchWithAuthOptions);
-      
-      console.log(`✅ Retry with refreshed token: ${response.status} ${response.statusText}`);
-    } catch (refreshError) {
-      console.error('❌ Error during session refresh:', refreshError);
-    }
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
-  
+
+  // Also include user id and email if available in localStorage
+  try {
+    const userSessionStr = localStorage.getItem('user_session');
+    if (userSessionStr) {
+      const parsed = JSON.parse(userSessionStr);
+      const user = parsed?.user || parsed;
+      if (user?.id && !headers.has('x-user-id')) headers.set('x-user-id', user.id);
+      if (user?.email && !headers.has('x-user-email')) headers.set('x-user-email', user.email);
+    }
+  } catch {}
+
+  const response = await fetch(url, {
+    ...fetchOptions,
+    headers,
+  });
+
   return response;
 }
 
 /**
- * Get current access token with automatic refresh if needed
+ * Get current access token: checks Supabase auth session, localStorage, then Firebase
  */
 export async function getAccessToken(): Promise<string | null> {
   try {
-    const { data: { session }, error } = await supabase.auth.getSession();
-    
-    if (error || !session) {
-      console.log('📡 No session found, attempting refresh...');
-      const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession();
-      
-      if (refreshError || !newSession) {
-        console.error('❌ Failed to get/refresh session:', refreshError?.message);
-        return null;
-      }
-      
-      return newSession.access_token;
+    // 1. Check Supabase session first (primary authentication provider)
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) {
+      return data.session.access_token;
     }
-    
-    return session.access_token;
+
+    // 2. Check localStorage auth_token
+    const localToken = localStorage.getItem('auth_token');
+    if (localToken && !localToken.includes('cloud-run') && localToken.length > 20) {
+      return localToken;
+    }
+
+    // 3. Check user_session object in localStorage
+    const userSessionStr = localStorage.getItem('user_session');
+    if (userSessionStr) {
+      try {
+        const parsed = JSON.parse(userSessionStr);
+        if (parsed?.access_token) return parsed.access_token;
+        if (parsed?.session?.access_token) return parsed.session.access_token;
+      } catch {}
+    }
+
+    // 4. Check Firebase currentUser
+    const currentUser = auth?.currentUser;
+    if (currentUser) {
+      return await currentUser.getIdToken();
+    }
+
+    return localToken || "cloud-run-local-token";
   } catch (err) {
-    console.error('❌ Error getting access token:', err);
-    return null;
+    console.error('Error getting access token:', err);
+    return localStorage.getItem('auth_token') || "cloud-run-local-token";
   }
 }

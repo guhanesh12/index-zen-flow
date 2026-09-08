@@ -731,8 +731,8 @@ export function ProfessionalTradingEngine({ serverUrl, accessToken, onLog }: Pro
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {activePositions.map((position) => (
-                <div key={position.orderId} className="p-3 bg-zinc-800 rounded-lg border border-zinc-700">
+              {activePositions.map((position, idx) => (
+                <div key={`${position.orderId || 'pos'}-${idx}`} className="p-3 bg-zinc-800 rounded-lg border border-zinc-700">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="font-semibold">{position.symbolName}</div>

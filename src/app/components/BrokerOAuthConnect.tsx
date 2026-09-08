@@ -9,6 +9,7 @@ import { Badge } from "./ui/badge";
 import { Key, CheckCircle2, XCircle, RefreshCw, ExternalLink, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
+import { BrokerLogo } from "../brokerLogos";
 
 interface Props {
   serverUrl: string;
@@ -249,7 +250,7 @@ export function BrokerOAuthConnect({ serverUrl, accessToken, onConnected }: Prop
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          <BrokerLogo id="dhan" name="Dhan" size={26} />
           Dhan OAuth (API Key &amp; Secret · 12 months)
           {tokenRejected ? (
             <Badge className="bg-red-500/20 text-red-300 border-red-500/40 ml-auto">

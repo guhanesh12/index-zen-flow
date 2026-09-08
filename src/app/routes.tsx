@@ -27,6 +27,7 @@ const Disclaimer = lazy(() => import('./components/Disclaimer').then(m => ({ def
 const AboutUs = lazy(() => import('./components/AboutUs').then(m => ({ default: m.AboutUs })));
 const ContactUs = lazy(() => import('./components/ContactUs').then(m => ({ default: m.ContactUs })));
 
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
 import { supabase } from '@/utils-ext/supabase/client';
 import { trackPageView } from './hooks/useAnalyticsTracking';
@@ -82,17 +83,18 @@ function PageViewTracker({ children }: { children: ReactNode }) {
   }, [location.pathname]);
   
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-background">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
-        </div>
-      }
-    >
-      {children}
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense
+        fallback={
+          <div className="min-h-screen flex items-center justify-center bg-background">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
+          </div>
+        }
+      >
+        {children}
+      </Suspense>
+    </ErrorBoundary>
   );
-
 }
 
 // Landing Page Wrapper with SPA navigation
@@ -139,7 +141,6 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   
   useEffect(() => {
     let mounted = true;
-    let refreshInterval: NodeJS.Timeout;
     
     // Check Supabase session and refresh token periodically
     const checkAuth = async () => {
@@ -160,8 +161,34 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
         }
         
         if (session?.access_token) {
-          console.log('✅ ProtectedRoute: Valid session found');
-          console.log('📝 Token expiry:', new Date(session.expires_at! * 1000).toLocaleString());
+          console.log('✅ ProtectedRoute: Session found, verifying with server...');
+          
+          // Verify with server that this session still exists and has not been revoked
+          const { data: userData, error: userError } = await supabase.auth.getUser();
+          
+          if (!mounted) return;
+          
+          if (userError || !userData?.user) {
+            console.warn('⚠️ Stale or revoked session detected:', userError?.message);
+            // Try refresh once
+            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+            
+            if (!mounted) return;
+            
+            if (refreshError || !refreshData.session?.access_token) {
+              console.error('❌ Session invalid and cannot be refreshed:', refreshError?.message);
+              await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+              setIsAuthenticated(false);
+              setIsCheckingAuth(false);
+              return;
+            }
+            
+            console.log('✅ Session refreshed successfully on auth verification');
+            setAccessToken(refreshData.session.access_token);
+            setIsAuthenticated(true);
+            setIsCheckingAuth(false);
+            return;
+          }
           
           // Check if token is about to expire (within 5 minutes)
           const expiresAt = session.expires_at! * 1000;
@@ -172,8 +199,11 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
             console.log('⚠️ Token expiring soon, refreshing session...');
             const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
             
+            if (!mounted) return;
+            
             if (refreshError) {
               console.error('❌ Failed to refresh session:', refreshError);
+              await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
               setIsAuthenticated(false);
               setIsCheckingAuth(false);
               return;
@@ -207,8 +237,33 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     // Initial check
     checkAuth();
     
+    // Listen for global session-expired events dispatched by API clients or engines
+    const handleSessionExpired = async () => {
+      console.warn('🚨 Session expired event received in ProtectedRoute - logging out');
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+      if (mounted) {
+        setIsAuthenticated(false);
+        navigate('/login', { replace: true });
+      }
+    };
+    window.addEventListener('indexpilot:session-expired', handleSessionExpired);
+    
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!mounted) return;
+      if (event === 'SIGNED_OUT' || !newSession) {
+        setIsAuthenticated(false);
+        setAccessToken(null);
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (newSession?.access_token) {
+          setAccessToken(newSession.access_token);
+          setIsAuthenticated(true);
+        }
+      }
+    });
+    
     // Refresh token every 45 minutes to prevent expiration
-    refreshInterval = setInterval(() => {
+    const refreshInterval = setInterval(() => {
       console.log('🔄 Auto-refreshing session to prevent token expiration...');
       checkAuth();
     }, 45 * 60 * 1000); // 45 minutes
@@ -217,9 +272,9 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     return () => {
       console.log('🧹 ProtectedRoute: Cleaning up');
       mounted = false;
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-      }
+      clearInterval(refreshInterval);
+      window.removeEventListener('indexpilot:session-expired', handleSessionExpired);
+      subscription?.unsubscribe();
     };
   }, []); // Only run once on mount - NO DEPENDENCIES
   
@@ -273,12 +328,30 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   };
   
   return (
-    <PinGate onLogout={handleLogout}>
-      <TradingDashboard 
-        accessToken={accessToken}
-        onLogout={handleLogout}
-      />
-    </PinGate>
+    <Suspense fallback={
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="size-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-zinc-400 text-sm font-medium">Loading Trading Terminal...</p>
+        </div>
+      </div>
+    }>
+      <PinGate onLogout={handleLogout}>
+        <Suspense fallback={
+          <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+            <div className="text-center space-y-3">
+              <div className="size-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-zinc-400 text-sm font-medium">Initializing Dashboard...</p>
+            </div>
+          </div>
+        }>
+          <TradingDashboard 
+            accessToken={accessToken}
+            onLogout={handleLogout}
+          />
+        </Suspense>
+      </PinGate>
+    </Suspense>
   );
 }
 
@@ -384,6 +457,12 @@ function AdminRoute({ children }: { children: ReactNode }) {
 function AdminLoginPage() {
   const { uniqueCode } = useParams<{ uniqueCode: string }>();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (uniqueCode) {
+      sessionStorage.setItem('admin_unique_code', uniqueCode);
+    }
+  }, [uniqueCode]);
   
   return (
     <AdminRoute>

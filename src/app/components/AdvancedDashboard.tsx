@@ -159,7 +159,7 @@ export function AdvancedDashboard({ serverUrl, accessToken, credentialsConfigure
         
         // ⚡ ADD TIMEOUT to prevent hanging
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
         
         const response = await fetch(`${serverUrl}/fund-limits`, {
           headers: { Authorization: `Bearer ${freshToken}` },
@@ -170,10 +170,10 @@ export function AdvancedDashboard({ serverUrl, accessToken, credentialsConfigure
         
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('❌ Fund limits HTTP error:', response.status, errorText);
+          console.warn('⚠️ Fund limits response status:', response.status, errorText);
           
           if (response.status === 401) {
-            console.error('⚠️ Authentication expired. Retrying with fresh token...');
+            console.warn('⚠️ Authentication token expired. Refreshing token...');
             // Token was refreshed - the next interval will use it
           }
           
@@ -186,13 +186,13 @@ export function AdvancedDashboard({ serverUrl, accessToken, credentialsConfigure
           console.log('✅ Real fund data received:', data.funds);
           setFundLimits(data.funds);
         } else if (data.error) {
-          console.error('❌ Fund limits error:', data.error);
+          console.warn('⚠️ Fund limits note:', data.error);
         }
       } catch (error: any) {
         if (error.name === 'AbortError') {
-          console.error('❌ Fund limits request timeout (>10s)');
+          console.warn('⚠️ Fund limits request timed out (>15s) - broker response pending');
         } else {
-          console.error('❌ Failed to load fund limits:', error.message || error);
+          console.warn('⚠️ Could not load fund limits:', error.message || error);
         }
         // Don't spam errors - fail silently after logging
       } finally {

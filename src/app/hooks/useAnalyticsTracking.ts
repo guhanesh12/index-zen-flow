@@ -11,9 +11,8 @@ import { getServerUrl, fetchWithApiFallback } from '@/utils-ext/config/apiConfig
 // Track page view
 export function trackPageView(page: string) {
   try {
-    const serverUrl = getServerUrl();
     console.log(`📊 [Analytics] Tracking page view: ${page}`);
-    fetch(`${serverUrl}/analytics/pageview`, {
+    fetchWithApiFallback('/analytics/pageview', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -37,7 +36,6 @@ export function trackPageView(page: string) {
 // Send heartbeat to keep session alive
 export function sendHeartbeat(page: string) {
   try {
-    const serverUrl = getServerUrl();
     fetchWithApiFallback(`/analytics/heartbeat`, {
       method: 'POST',
       headers: {
@@ -54,9 +52,8 @@ export function sendHeartbeat(page: string) {
 // Track login attempt
 export function trackLogin(email: string, status: 'success' | 'failed', userId?: string) {
   try {
-    const serverUrl = getServerUrl();
     console.log(`📊 [Analytics] Tracking login: ${email} - ${status}`);
-    fetch(`${serverUrl}/analytics/login`, {
+    fetchWithApiFallback('/analytics/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -87,9 +84,8 @@ export function trackSignup(
   userId?: string
 ) {
   try {
-    const serverUrl = getServerUrl();
     console.log(`📊 [Analytics] Tracking signup: ${email || mobile} - ${completionPercent}%${completed ? ' (COMPLETED)' : ''}`);
-    fetch(`${serverUrl}/analytics/signup`, {
+    fetchWithApiFallback('/analytics/signup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

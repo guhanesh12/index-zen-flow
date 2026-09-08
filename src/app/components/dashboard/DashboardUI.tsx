@@ -102,44 +102,77 @@ export function useFundLimits(serverUrl?: string, accessToken?: string, brokerKe
       } finally { if (alive) setLoading(false); }
     };
     load();
-    const t = setInterval(load, 60000);
+    const t = setInterval(load, 5000);
     return () => { alive = false; clearInterval(t); };
   }, [serverUrl, accessToken, brokerKey]);
-
 
   return { funds, loading, error };
 }
 
 export function usePositions(serverUrl?: string, accessToken?: string, brokerKey?: string) {
-  const [positions, setPositions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [positions, setPositions] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('last_known_positions');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(positions.length === 0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!serverUrl || !accessToken) return;
+    if (!serverUrl) return;
     let alive = true;
-    setPositions([]);
-    setError(null);
-    setLoading(true);
+    let inFlight = false;
+
     const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const res = await fetchWithAuth(`${serverUrl}/positions`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        const cleanBase = serverUrl.replace(/\/+$/, '');
+        const targetUrl = `${cleanBase}/positions`;
+        const headers: Record<string, string> = {};
+        if (accessToken) {
+          headers['Authorization'] = `Bearer ${accessToken}`;
+        }
+        const res = await fetchWithAuth(targetUrl, { headers });
+        if (!res.ok) {
+          return;
+        }
         const json = await res.json();
         if (!alive) return;
         if (json?.broker && brokerKey && String(json.broker) !== String(brokerKey)) return;
-        setPositions(json?.positions || json?.data || []);
+        const newPositions = json?.positions || json?.data;
+        if (Array.isArray(newPositions)) {
+          setPositions(prev => {
+            const prevStr = JSON.stringify(prev);
+            const nextStr = JSON.stringify(newPositions);
+            if (prevStr !== nextStr) {
+              try {
+                localStorage.setItem('last_known_positions', nextStr);
+              } catch {}
+              return newPositions;
+            }
+            return prev;
+          });
+        }
         setError(json?.warning || json?.error || null);
       } catch {
-        if (alive) { setPositions([]); setError('Positions unavailable'); }
-      } finally { if (alive) setLoading(false); }
+        // Silently preserve current positions on temporary network glitch
+      } finally {
+        inFlight = false;
+        if (alive) setLoading(false);
+      }
     };
+
+    // Load immediately
     load();
-    const t = setInterval(load, 15000);
+
+    // ⚡ ULTRA-FAST 1-SECOND POLLING LOOP FOR LIVE POSITIONS & LTP
+    const t = setInterval(load, 1000);
     return () => { alive = false; clearInterval(t); };
   }, [serverUrl, accessToken, brokerKey]);
-
 
   return { positions, loading, error };
 }

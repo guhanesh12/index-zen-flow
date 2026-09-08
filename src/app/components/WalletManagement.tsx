@@ -41,10 +41,15 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
         },
       });
 
-      const balanceData = await balanceResponse.json();
-      console.log('💰 [WALLET] Balance response:', balanceData);
-      if (balanceData.success) {
-        setWalletBalance(balanceData.balance);
+      const balanceContentType = balanceResponse.headers.get('content-type') || '';
+      if (balanceResponse.ok && balanceContentType.includes('application/json')) {
+        const balanceData = await balanceResponse.json();
+        console.log('💰 [WALLET] Balance response:', balanceData);
+        if (balanceData && balanceData.success) {
+          setWalletBalance(balanceData.balance || 0);
+        }
+      } else {
+        setWalletBalance(0);
       }
 
       // Fetch transaction history
@@ -54,15 +59,15 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
         },
       });
 
-      const txnData = await txnResponse.json();
-      console.log('💰 [WALLET] Transactions response:', txnData);
-      console.log('💰 [WALLET] Transactions count:', txnData.transactions?.length || 0);
-      console.log('💰 [WALLET] Transactions data:', JSON.stringify(txnData.transactions, null, 2));
-      
       let walletTxns: any[] = [];
-      if (txnData.success) {
-        walletTxns = txnData.transactions || [];
-        console.log('✅ [WALLET] Transactions loaded:', walletTxns.length);
+      const txnContentType = txnResponse.headers.get('content-type') || '';
+      if (txnResponse.ok && txnContentType.includes('application/json')) {
+        const txnData = await txnResponse.json();
+        console.log('💰 [WALLET] Transactions response:', txnData);
+        if (txnData && txnData.success) {
+          walletTxns = txnData.transactions || [];
+          console.log('✅ [WALLET] Transactions loaded:', walletTxns.length);
+        }
       }
 
       // Fetch VPS transactions and merge
@@ -74,7 +79,8 @@ export default function WalletManagement({ onClose }: WalletManagementProps) {
             'x-user-email': session.user.email || '',
           },
         });
-        if (vpsTxnRes.ok) {
+        const vpsContentType = vpsTxnRes.headers.get('content-type') || '';
+        if (vpsTxnRes.ok && vpsContentType.includes('application/json')) {
           const vpsTxnData = await vpsTxnRes.json();
           const vpsTxns = (vpsTxnData.transactions || []).map((t: any) => ({ ...t, source: 'vps' }));
           const merged = [...walletTxns, ...vpsTxns].sort(

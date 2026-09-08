@@ -1,43 +1,24 @@
 // @ts-nocheck
 /**
  * API Configuration
- * Handles switching between Supabase (dev) and Centralized Backend (production)
+ * Configured exclusively for Google Cloud Run / Express backend (No Supabase)
  */
 
-// Environment detection
 const isDevelopment = import.meta.env.MODE === 'development';
-const useSupabase = import.meta.env.VITE_USE_SUPABASE === 'true' || isDevelopment;
 
-// API URLs
 export const API_CONFIG = {
-  // Centralized backend API (Production)
-  BACKEND_URL: import.meta.env.VITE_API_URL || 'https://api.indexpilotai.com',
-  
-  // Supabase (Development/Testing)
-  SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL || '',
-  SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-  
-  // Environment flags
+  BACKEND_URL: import.meta.env.VITE_API_URL || '',
   IS_DEVELOPMENT: isDevelopment,
-  USE_SUPABASE: useSupabase,
+  USE_SUPABASE: false,
 };
 
-/**
- * Get the base API URL based on environment
- */
 export function getApiUrl(): string {
-  if (API_CONFIG.USE_SUPABASE && API_CONFIG.SUPABASE_URL) {
-    // Development mode with Supabase
-    return `${API_CONFIG.SUPABASE_URL}/functions/v1/make-server-c4d79cb7`;
-  } else {
-    // Production mode with centralized backend
-    return `${API_CONFIG.BACKEND_URL}/api`;
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}`;
   }
+  return API_CONFIG.BACKEND_URL || 'http://localhost:3000';
 }
 
-/**
- * Get authorization header based on environment
- */
 export function getAuthHeaders(token?: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -45,53 +26,27 @@ export function getAuthHeaders(token?: string): Record<string, string> {
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-  } else if (API_CONFIG.USE_SUPABASE && API_CONFIG.SUPABASE_ANON_KEY) {
-    // Use Supabase anon key in development
-    headers['Authorization'] = `Bearer ${API_CONFIG.SUPABASE_ANON_KEY}`;
+  } else {
+    const localToken = localStorage.getItem('auth_token') || 'cloud-run-local-token';
+    headers['Authorization'] = `Bearer ${localToken}`;
   }
 
   return headers;
 }
 
-/**
- * API Endpoints
- */
 export const API_ENDPOINTS = {
-  // Authentication
   AUTH: {
-    CHECK_EMAIL: '/auth/check-email',
-    SEND_OTP: '/auth/send-otp',
-    VERIFY_OTP: '/auth/verify-otp',
-    REGISTER: '/auth/register',
-    LOGIN: '/auth/login',
-    LOGOUT: '/auth/logout',
-    REFRESH: '/auth/refresh',
-    ME: '/auth/me',
+    LOGIN: '/api/auth/login',
+    REGISTER: '/api/auth/register',
+    LOGOUT: '/api/auth/logout',
+    ME: '/api/auth/me',
   },
-  
-  // User
   USER: {
-    PROFILE: '/user/profile',
-    STATISTICS: '/user/statistics',
+    PROFILE: '/api/user/profile',
   },
-  
-  // Trading
   TRADING: {
-    TRADES: '/trading/trades',
-    POSITIONS: '/trading/positions',
+    TRADES: '/api/trading/trades',
   },
-  
-  // Broker
-  BROKER: {
-    CONNECTIONS: '/broker/connections',
-  },
-  
-  // Strategies
-  STRATEGY: {
-    LIST: '/strategy',
-  },
-  
-  // Notifications
   NOTIFICATION: {
     LIST: '/notification',
     READ: (id: number) => `/notification/${id}/read`,
