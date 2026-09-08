@@ -714,8 +714,54 @@ function Row({ label, value, icon }: any) {
 
 /* ───────────────────────── orders & positions tabs ───────────────────────── */
 
-export function OrdersView({ logs = [] }: any) {
-  const orders = useMemo(
+export function OrdersView({ logs = [], serverUrl, accessToken }: any) {
+  const [filter, setFilter] = useState<"open" | "executed">("open");
+  const [executed, setExecuted] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { open } = useLivePositions(serverUrl, accessToken, 2000);
+
+  // Executed orders come from the trade journal (real filled trades).
+  useEffect(() => {
+    if (!serverUrl || !accessToken) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetchWithAuth(`${serverUrl}/get-journal-entries`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const json = await res.json();
+        if (alive && Array.isArray(json?.entries)) setExecuted(json.entries);
+      } catch {
+        /* keep last good data */
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [serverUrl, accessToken]);
+
+  const openOrders = useMemo(
+    () =>
+      open.map((p: any) => ({
+        symbol: posName(p),
+        side: posQty(p) > 0 ? "BUY" : "SELL",
+        qty: posTradedQty(p),
+        price: posAvg(p),
+        ltp: posLtp(p),
+        pnl: posPnL(p),
+        time: p?.exchangeTime || p?.orderTime || null,
+      })),
+    [open]
+  );
+
+  const orderLogs = useMemo(
     () =>
       (Array.isArray(logs) ? logs : []).filter((l: any) => {
         const t = String(l?.type || "").toUpperCase();
@@ -725,26 +771,96 @@ export function OrdersView({ logs = [] }: any) {
     [logs]
   );
 
+  const rows = filter === "open" ? openOrders : executed;
+
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-950">
-      <RailHeader title="Orders" right={<span className="text-[10px] text-zinc-500">{orders.length}</span>} />
-      {orders.length === 0 ? (
-        <Empty text="No orders yet" sub="Every order placed by the engine is listed here." />
-      ) : (
-        <div className="divide-y divide-zinc-800/70 max-h-[600px] overflow-auto">
-          {orders.map((o: any, i: number) => {
-            const bad = String(o?.type || "").toUpperCase().includes("FAIL");
-            return (
-              <div key={i} className="px-3 py-2.5 flex items-start gap-3">
-                <span className="text-[11px] text-zinc-600 font-mono w-16 shrink-0">
-                  {new Date(o?.timestamp || Date.now()).toLocaleTimeString()}
-                </span>
-                <span className={`text-[13px] ${bad ? "text-red-400" : "text-zinc-200"}`}>{String(o?.message || "")}</span>
-              </div>
-            );
-          })}
+    <div className="space-y-4">
+      <div className="rounded-xl border border-zinc-800 bg-zinc-950">
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-zinc-800">
+          <div className="flex items-center gap-1 rounded-lg bg-zinc-900 p-1">
+            {(["open", "executed"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1 rounded-md text-xs font-medium capitalize transition-colors ${
+                  filter === f ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {f} ({f === "open" ? openOrders.length : executed.length})
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-zinc-500">Live</span>
         </div>
-      )}
+
+        {loading && rows.length === 0 ? (
+          <Empty text="Loading orders…" />
+        ) : rows.length === 0 ? (
+          <Empty
+            text={filter === "open" ? "No open orders" : "No executed orders"}
+            sub="Orders placed by the engine or by you appear here."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wide text-zinc-500 border-b border-zinc-800">
+                  <th className="text-left font-medium px-3 py-2">Symbol</th>
+                  <th className="text-left font-medium px-3 py-2">Side</th>
+                  <th className="text-right font-medium px-3 py-2">Qty</th>
+                  <th className="text-right font-medium px-3 py-2">{filter === "open" ? "Avg" : "Entry"}</th>
+                  <th className="text-right font-medium px-3 py-2">{filter === "open" ? "LTP" : "Exit"}</th>
+                  <th className="text-right font-medium px-3 py-2">P&L</th>
+                  <th className="text-right font-medium px-3 py-2">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/70">
+                {rows.map((o: any, i: number) => {
+                  const pnl = Number(o?.pnl || 0);
+                  const side = String(o?.side || "BUY").toUpperCase();
+                  const entry = filter === "open" ? o.price : Number(o?.entryPrice || 0);
+                  const exitP = filter === "open" ? o.ltp : Number(o?.exitPrice || 0);
+                  const ts = filter === "open" ? o.time : o?.timestamp;
+                  return (
+                    <tr key={i}>
+                      <td className="px-3 py-2 text-zinc-100">{o?.symbol || "—"}</td>
+                      <td className={`px-3 py-2 ${side === "BUY" ? "text-emerald-400" : "text-red-400"}`}>{side}</td>
+                      <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{Number(o?.qty || o?.quantity || 0) || "—"}</td>
+                      <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{money(entry)}</td>
+                      <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{money(exitP)}</td>
+                      <td className={`px-3 py-2 text-right font-semibold tabular-nums ${pnlClass(pnl)}`}>{signed(pnl)}</td>
+                      <td className="px-3 py-2 text-right text-[11px] text-zinc-500">
+                        {ts ? new Date(ts).toLocaleTimeString() : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-zinc-800 bg-zinc-950">
+        <RailHeader title="Order activity" right={<span className="text-[10px] text-zinc-500">{orderLogs.length}</span>} />
+        {orderLogs.length === 0 ? (
+          <Empty text="No order activity yet" />
+        ) : (
+          <div className="divide-y divide-zinc-800/70 max-h-[320px] overflow-auto">
+            {orderLogs.map((o: any, i: number) => {
+              const bad = String(o?.type || "").toUpperCase().includes("FAIL");
+              return (
+                <div key={i} className="px-3 py-2.5 flex items-start gap-3">
+                  <span className="text-[11px] text-zinc-600 font-mono w-16 shrink-0">
+                    {new Date(o?.timestamp || Date.now()).toLocaleTimeString()}
+                  </span>
+                  <span className={`text-[13px] ${bad ? "text-red-400" : "text-zinc-200"}`}>{String(o?.message || "")}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
