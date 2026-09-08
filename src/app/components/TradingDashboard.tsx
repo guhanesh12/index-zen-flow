@@ -993,69 +993,67 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
         >
           {/* Tabs - Desktop: grid; Mobile: 3-dot menu */}
           <div className="relative" ref={tabsScrollRef}>
-            {isMobile ? (
-              <div className="flex items-center justify-between gap-2 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-2 rounded-xl shadow-xl">
-                <div className="flex items-center gap-2 min-w-0">
-                  {(() => {
-                    const tabMeta: Record<string, { icon: any; label: string }> = {
-                      dashboard: { icon: BarChart3, label: 'Dashboard' },
-                      symbols: { icon: DollarSign, label: 'Symbols' },
-                      settings: { icon: Settings, label: 'Broker Setup' },
-                      journal: { icon: FileText, label: 'Journal' },
-                      strategies: { icon: Zap, label: 'Strategies' },
-                      support: { icon: MessageSquare, label: 'Support' },
-                      profile: { icon: User, label: 'Profile' },
-                      logs: { icon: FileText, label: 'Logs' },
-                    };
-                    const current = tabMeta[activeTab] || tabMeta.dashboard;
-                    const Icon = current.icon;
-                    return (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 text-white text-sm font-medium truncate">
-                        <Icon className="w-4 h-4 flex-shrink-0" />
-                        <span className="truncate">{current.label}</span>
-                      </div>
-                    );
-                  })()}
-                </div>
-                <Sheet open={mobileTabMenuOpen} onOpenChange={setMobileTabMenuOpen}>
-                  <SheetTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-zinc-300 hover:bg-zinc-800 flex-shrink-0"
-                      aria-label="Open tab menu"
+            {(() => {
+              const MAIN_TABS = [
+                { value: 'dashboard', icon: BarChart3, label: 'Home' },
+                { value: 'orders', icon: FileText, label: 'Orders' },
+                { value: 'positions', icon: ActivityIcon, label: 'Positions' },
+                { value: 'settings', icon: Link2, label: 'Broker' },
+              ];
+              const MORE_TABS = [
+                { value: 'symbols', icon: DollarSign, label: 'Auto Symbols' },
+                { value: 'strategies', icon: Zap, label: 'Strategies' },
+                { value: 'backtest', icon: FlaskConical, label: 'Backtest' },
+                { value: 'journal', icon: FileText, label: 'Journal' },
+                { value: 'support', icon: MessageSquare, label: 'Support' },
+                { value: 'profile', icon: User, label: 'Profile' },
+                { value: 'logs', icon: FileText, label: 'Logs' },
+              ];
+              const moreActive = MORE_TABS.some(t => t.value === activeTab);
+              return (
+                <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 p-1 rounded-xl">
+                  {MAIN_TABS.map(({ value, icon: Icon, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setActiveTab(value)}
+                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        activeTab === value
+                          ? 'bg-zinc-800 text-white'
+                          : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900'
+                      }`}
                     >
-                      <MoreVertical className="w-5 h-5" />
-                    </Button>
-                  </SheetTrigger>
-                  <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
-                    <SheetHeader className="p-4 border-b border-zinc-800">
-                      <SheetTitle className="text-white">All Tabs</SheetTitle>
-                    </SheetHeader>
-                    <div className="p-2 space-y-1">
-                      {[
-                        { value: 'dashboard', icon: BarChart3, label: 'Dashboard' },
-                        { value: 'symbols', icon: DollarSign, label: 'Symbols' },
-                        { value: 'settings', icon: Settings, label: 'Broker Setup' },
-                        { value: 'journal', icon: FileText, label: 'Journal' },
-                        { value: 'strategies', icon: Zap, label: 'Strategies' },
-                        { value: 'backtest', icon: FlaskConical, label: 'Backtest' },
-                        { value: 'support', icon: MessageSquare, label: 'Support' },
-                        { value: 'profile', icon: User, label: 'Profile' },
-                        { value: 'logs', icon: FileText, label: 'Logs' },
-                      ].map(({ value, icon: Icon, label }) => {
-                        const active = activeTab === value;
-                        return (
+                      <Icon className="w-4 h-4" />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                  <Sheet open={mobileTabMenuOpen} onOpenChange={setMobileTabMenuOpen}>
+                    <SheetTrigger asChild>
+                      <button
+                        className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          moreActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900'
+                        }`}
+                        aria-label="More sections"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                        <span className="hidden sm:inline">More</span>
+                        {supportUnreadCount > 0 && (
+                          <span className="size-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                            {supportUnreadCount}
+                          </span>
+                        )}
+                      </button>
+                    </SheetTrigger>
+                    <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
+                      <SheetHeader className="p-4 border-b border-zinc-800">
+                        <SheetTitle className="text-white">More</SheetTitle>
+                      </SheetHeader>
+                      <div className="p-2 space-y-1">
+                        {MORE_TABS.map(({ value, icon: Icon, label }) => (
                           <button
                             key={value}
-                            onClick={() => {
-                              setActiveTab(value);
-                              setMobileTabMenuOpen(false);
-                            }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${
-                              active
-                                ? 'bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/20'
-                                : 'text-zinc-300 hover:bg-zinc-800'
+                            onClick={() => { setActiveTab(value); setMobileTabMenuOpen(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
+                              activeTab === value ? 'bg-zinc-800 text-white' : 'text-zinc-300 hover:bg-zinc-900'
                             }`}
                           >
                             <Icon className="w-5 h-5 flex-shrink-0" />
@@ -1066,57 +1064,13 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                               </span>
                             )}
                           </button>
-                        );
-                      })}
-                    </div>
-                  </SheetContent>
-                </Sheet>
-              </div>
-            ) : (
-              <TabsList className="grid grid-cols-9 w-full bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1">
-                <TabsTrigger id="tour-tab-dashboard" value="dashboard" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <BarChart3 className="w-4 h-4" />
-                  <span className="hidden sm:inline">Dashboard</span>
-                </TabsTrigger>
-                <TabsTrigger id="tour-tab-symbols" value="symbols" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <DollarSign className="w-4 h-4" />
-                  <span className="hidden sm:inline">Symbols</span>
-                </TabsTrigger>
-                <TabsTrigger id="tour-tab-settings" value="settings" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <Settings className="w-4 h-4" />
-                  <span className="hidden sm:inline">Broker Setup</span>
-                </TabsTrigger>
-                <TabsTrigger id="tour-tab-journal" value="journal" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <FileText className="w-4 h-4" />
-                  <span className="hidden sm:inline">Journal</span>
-                </TabsTrigger>
-                <TabsTrigger value="strategies" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <Zap className="w-4 h-4" />
-                  <span className="hidden sm:inline">Strategies</span>
-                </TabsTrigger>
-                <TabsTrigger value="backtest" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <FlaskConical className="w-4 h-4" />
-                  <span className="hidden sm:inline">Backtest</span>
-                </TabsTrigger>
-                <TabsTrigger value="support" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative">
-                  <MessageSquare className="w-4 h-4" />
-                  <span className="hidden sm:inline">Support</span>
-                  {supportUnreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
-                      {supportUnreadCount}
-                    </span>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="profile" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <User className="w-4 h-4" />
-                  <span className="hidden sm:inline">Profile</span>
-                </TabsTrigger>
-                <TabsTrigger value="logs" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
-                  <FileText className="w-4 h-4" />
-                  <span className="hidden sm:inline">Logs</span>
-                </TabsTrigger>
-              </TabsList>
-            )}
+                        ))}
+                      </div>
+                    </SheetContent>
+                  </Sheet>
+                </div>
+              );
+            })()}
           </div>
 
           {/* ⚡⚡⚡ PERSISTENT ENGINE - ALWAYS MOUNTED, CONDITIONALLY VISIBLE ⚡⚡⚡ */}
@@ -1138,80 +1092,58 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             {/* 💰 WALLET BALANCE CHECK - Show Dashboard UI only if balance >= ₹89 */}
             {walletBalance >= 89 ? (
               <>
-                {/* 🚀 NEW: Premium fintech overview */}
-                <SectionHeader
-                  icon={Sparkles}
-                  title="Trading Overview"
-                  desc="Your complete picture in one glance — markets, P&L, AI confidence and risk."
-                />
-                <KpiGrid
-                  totalPnL={realPositionsPnL + (stats.totalPnL || 0)}
-                  todayPnL={realPositionsPnL}
-                  winRate={stats.winRate || 0}
-                  runningStrategies={engineRunning ? 1 : 0}
-                  openTrades={realOpenTrades || activePositions.length}
-                  aiConfidence={lastSignal?.confidence ?? 0}
-                  walletBalance={realAccountBalance || walletBalance}
-                  marginUsed={realMarginUsed}
+                <SymbolStrip
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                  openPnL={openPositionsPnL}
+                  closedPnL={closedPositionsPnL}
                 />
 
-                {/* 📊 Strategy Backtest banner — opens the Backtest section */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('backtest')}
-                  className="w-full text-left glass-card glow-ai p-4 sm:p-5 flex items-center gap-4 group cursor-pointer transition-all duration-300 hover:scale-[1.01] hover:border-emerald-500/40"
-                >
-                  <div className="size-12 rounded-xl bg-gradient-to-br from-emerald-600 to-blue-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
-                    <FlaskConical className="size-6 text-white" />
+                <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)_320px] gap-4 items-start">
+                  {/* LEFT — positions, P&L, exit */}
+                  <div className="space-y-4 xl:sticky xl:top-4">
+                    <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-white flex items-center gap-2">
-                      Strategy Backtest
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">₹5 / run</span>
-                    </h3>
-                    <p className="text-xs text-muted-foreground truncate">
-                      Replay the live AI strategy on real NIFTY, BANKNIFTY & SENSEX data — up to 1 year of history.
-                    </p>
-                  </div>
-                  <span className="shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-400 group-hover:gap-2.5 transition-all">
-                    Run Backtest
-                    <ArrowRight className="size-4" />
-                  </span>
-                </button>
 
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  <div className="lg:col-span-2 space-y-4">
-                    <MarketOverview serverUrl={serverUrl} accessToken={accessToken} />
-                    <PerformanceChart serverUrl={serverUrl} accessToken={accessToken} />
+                  {/* CENTRE — signals + position monitor */}
+                  <div className="space-y-4 min-w-0">
+                    <SignalBoard />
+                    <AdvancedPositionMonitor accessToken={accessToken} />
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('backtest')}
+                      className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-3 hover:border-zinc-700 transition-colors"
+                    >
+                      <FlaskConical className="size-5 text-zinc-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-zinc-100">Strategy Backtest</div>
+                        <div className="text-xs text-zinc-500 truncate">
+                          Replay the live strategy on real NIFTY, BANKNIFTY & SENSEX data.
+                        </div>
+                      </div>
+                      <ArrowRight className="size-4 text-zinc-500" />
+                    </button>
                   </div>
-                  <div className="space-y-4">
-                    <RiskCenter serverUrl={serverUrl} accessToken={accessToken} walletBalance={realAccountBalance || walletBalance} />
-                    <div className="glass-card p-4 glow-ai">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Brain className="size-4 text-ai" />
-                        <h3 className="font-semibold">AI Signal Engine</h3>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Live multi-indicator AI scanning NIFTY, BANKNIFTY & SENSEX every candle close.
-                      </p>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5"><span className="live-dot" /> Online</span>
-                        <span className="text-muted-foreground">Confidence floor 65%</span>
-                      </div>
-                    </div>
+
+                  {/* RIGHT — engine, broker, activity */}
+                  <div className="space-y-4 xl:sticky xl:top-4">
+                    <EngineStatusCard
+                      running={engineRunning}
+                      interval={typeof window !== 'undefined' && localStorage.getItem('engine_interval') === '5' ? '5' : '15'}
+                      signalsCount={stats.totalSignals || 0}
+                      ordersCount={stats.totalOrders || 0}
+                    />
+                    <BrokerStatusCard
+                      broker={activeBroker}
+                      brokerName={activeBrokerName}
+                      connected={credentialsConfigured}
+                      funds={fundsError ? null : realAccountBalance}
+                      onOpenBroker={() => setActiveTab('settings')}
+                    />
+                    <ActivityRail logs={logs} />
                   </div>
                 </div>
 
-                {/* Existing detailed sections — kept intact */}
-                <SectionHeader icon={ActivityIcon} title="Live Positions & Engine" desc="Real-time monitor with momentum guard, give-back & time-stop." />
-                <ProfitDashboard accessToken={accessToken} />
-                <AdvancedPositionMonitor accessToken={accessToken} />
-                <AdvancedDashboard
-                  serverUrl={serverUrl}
-                  accessToken={accessToken}
-                  credentialsConfigured={credentialsConfigured}
-                />
               </>
             ) : (
               /* 💳 INSUFFICIENT WALLET BALANCE WARNING */
