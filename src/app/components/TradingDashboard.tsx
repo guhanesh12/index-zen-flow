@@ -1238,7 +1238,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               <div className="xl:sticky xl:top-4">
                 <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
               </div>
-              <OrdersView logs={logs} />
+              <OrdersView logs={logs} serverUrl={serverUrl} accessToken={accessToken} />
             </div>
           </TabsContent>
 
@@ -1280,6 +1280,12 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
           <TabsContent value="settings">
             <div className="animate-in fade-in-50 duration-500 space-y-4">
+              <SymbolStrip
+                serverUrl={serverUrl}
+                accessToken={accessToken}
+                openPnL={openPositionsPnL}
+                closedPnL={closedPositionsPnL}
+              />
               {/* Broker Setup Sub-Tabs */}
               <div className="flex gap-1 p-1 bg-zinc-800/70 rounded-xl border border-zinc-700/50">
                 <button
