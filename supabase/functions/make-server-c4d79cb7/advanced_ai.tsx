@@ -3806,6 +3806,11 @@ export class AdvancedAI {
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
+    } else if (reversalTooSoon && (reversalBlocksBull || reversalBlocksBear)) {
+      action = "WAIT";
+      confidence = 35;
+      bias = "Neutral";
+      reasoning = `WAIT: Counter-trend re-entry guard — opposite signal only ${barsSinceLastSignal.toFixed(1)}/${reversalCooldownBars} bars after a ${options.lastSignalDirection}. Avoiding whipsaw flip.`;
     } else if (
       false /* HTF disagreement is now soft-scored, never a hard WAIT */
     ) {
