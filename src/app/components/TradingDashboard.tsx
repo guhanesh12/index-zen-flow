@@ -1217,23 +1217,39 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             )}
           </TabsContent>
 
+          <TabsContent value="orders" className="space-y-4">
+            <SymbolStrip
+              serverUrl={serverUrl}
+              accessToken={accessToken}
+              openPnL={openPositionsPnL}
+              closedPnL={closedPositionsPnL}
+            />
+            <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start">
+              <div className="xl:sticky xl:top-4">
+                <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
+              </div>
+              <OrdersView logs={logs} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="positions" className="space-y-4">
+            <SymbolStrip
+              serverUrl={serverUrl}
+              accessToken={accessToken}
+              openPnL={openPositionsPnL}
+              closedPnL={closedPositionsPnL}
+            />
+            <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start">
+              <div className="xl:sticky xl:top-4">
+                <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
+              </div>
+              <PositionsView serverUrl={serverUrl} accessToken={accessToken} />
+            </div>
+          </TabsContent>
+
           <TabsContent value="symbols">
-            <div className="animate-in fade-in-50 duration-500 space-y-4">
-              <Tabs defaultValue="auto" className="w-full">
-                <TabsList className="w-full grid grid-cols-2 bg-zinc-800/70 border border-zinc-700/50">
-                  <TabsTrigger value="auto" className="flex items-center gap-2">
-                    ⚡ Auto
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">Recommended</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="manual">📝 Manual</TabsTrigger>
-                </TabsList>
-                <TabsContent value="auto" className="mt-4">
-                  <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
-                </TabsContent>
-                <TabsContent value="manual" className="mt-4">
-                  <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
-                </TabsContent>
-              </Tabs>
+            <div className="animate-in fade-in-50 duration-500">
+              <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
             </div>
           </TabsContent>
 
