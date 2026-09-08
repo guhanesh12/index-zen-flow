@@ -2700,6 +2700,20 @@ export class AdvancedAI {
       cooldownActive && options.lastSignalDirection === "BUY_CALL";
     const cooldownBlocksBear =
       cooldownActive && options.lastSignalDirection === "BUY_PUT";
+    // ⚡ GUARD 2: no immediate counter-trend re-entry — after a signal, an opposite-direction
+    // signal must wait at least 2 bars (whipsaw flip-flop protection).
+    const reversalCooldownBars = 2;
+    const reversalTooSoon =
+      isFinite(barsSinceLastSignal) &&
+      Math.abs(barsSinceLastSignal) < reversalCooldownBars &&
+      (options.lastSignalDirection === "BUY_CALL" ||
+        options.lastSignalDirection === "BUY_PUT");
+    const reversalBlocksBull =
+      reversalTooSoon && options.lastSignalDirection === "BUY_PUT";
+    const reversalBlocksBear =
+      reversalTooSoon && options.lastSignalDirection === "BUY_CALL";
+
+
 
     // ===== FIX 6: FAKE BREAKOUT DETECTION =====
     // Breakout candle but weak close, dominant wick, no volume expansion, no BB expansion.
