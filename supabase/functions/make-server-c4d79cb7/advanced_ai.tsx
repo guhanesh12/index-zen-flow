@@ -3996,7 +3996,7 @@ export class AdvancedAI {
         rsi > rsiPrevIg &&
         rsi >= 48 &&
         rsi <= 70 &&
-        adx >= 15;
+        adx >= 12;
 
       const ignitionBear =
         legYoung &&
@@ -4008,7 +4008,7 @@ export class AdvancedAI {
         rsi < rsiPrevIg &&
         rsi >= 30 &&
         rsi <= 52 &&
-        adx >= 15;
+        adx >= 12;
 
       if (ignitionBull) {
         let conf = 74;
