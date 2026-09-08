@@ -21,25 +21,19 @@ export const NotificationToast = React.forwardRef<HTMLDivElement, NotificationTo
     const autoDismissTime = 7000; // 7 seconds
 
     useEffect(() => {
-      const startTime = Date.now();
-      let dismissed = false;
-
       const interval = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const remaining = Math.max(0, 100 - (elapsed / autoDismissTime) * 100);
-        setProgress(remaining);
-
-        if (elapsed >= autoDismissTime && !dismissed) {
-          dismissed = true;
-          clearInterval(interval);
-          setTimeout(() => {
+        setProgress(prev => {
+          const newProgress = prev - (100 / (autoDismissTime / 100));
+          if (newProgress <= 0) {
             onDismiss(notification.id);
-          }, 0);
-        }
+            return 0;
+          }
+          return newProgress;
+        });
       }, 100);
 
       return () => clearInterval(interval);
-    }, [notification.id, onDismiss, autoDismissTime]);
+    }, [notification.id, onDismiss]);
 
     // Get color scheme based on notification type
     const getTypeConfig = (type: NotificationType) => {

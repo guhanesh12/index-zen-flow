@@ -1,60 +1,169 @@
 /**
  * API Configuration
- * Resilient multi-tier configuration for Google Cloud Run and Supabase Edge Functions
+ * Centralized configuration for all API endpoints
+ * 
+ * IMPORTANT: This allows easy switching between Supabase and custom domain
+ * for mobile network compatibility where Supabase URLs may be blocked.
  */
+
 import { projectId, publicAnonKey } from '../supabase/info';
 
-export const SUPABASE_BACKEND_URL = `https://${projectId}.supabase.co/functions/v1/make-server-c4d79cb7`;
+// ==============================================
+// API BASE URL CONFIGURATION
+// ==============================================
 
+/**
+ * Toggle between Supabase and Custom Domain
+ * 
+ * OPTIONS:
+ * 1. 'supabase' - Use default Supabase edge functions URL
+ * 2. 'custom' - Use custom domain (for mobile networks where Supabase is blocked)
+ */
+const API_MODE: 'supabase' | 'custom' = 'custom';
+
+/**
+ * Custom Domain Configuration
+ * This domain works on mobile networks where Supabase URLs are blocked
+ */
+const CUSTOM_API_DOMAIN = 'https://api.indexpilotai.com';
+
+/**
+ * Supabase Domain Configuration
+ * Default Supabase edge functions URL
+ */
+const SUPABASE_API_DOMAIN = `https://${projectId}.supabase.co`;
+
+// ==============================================
+// ACTIVE API URL (AUTOMATICALLY SELECTED)
+// ==============================================
+
+/**
+ * Get the active API base URL based on current mode
+ */
 export const getApiBaseUrl = (): string => {
-  if (typeof window !== 'undefined') {
-    return window.location.origin;
+  if ((API_MODE as string) === 'custom') {
+    console.log('🌐 [API CONFIG] Using CUSTOM domain:', CUSTOM_API_DOMAIN);
+    return CUSTOM_API_DOMAIN;
+  } else {
+    console.log('🌐 [API CONFIG] Using SUPABASE domain:', SUPABASE_API_DOMAIN);
+    return SUPABASE_API_DOMAIN;
   }
-  return 'http://localhost:3000';
 };
 
+/**
+ * Get the complete server URL with function path
+ */
 export const getServerUrl = (): string => {
-  return getApiBaseUrl();
+  return `${getApiBaseUrl()}/functions/v1/make-server-c4d79cb7`;
 };
 
+/**
+ * Supabase direct URL used as a production fallback if the custom API domain
+ * temporarily serves an old/stale edge function deployment.
+ */
 export const getSupabaseServerUrl = (): string => {
-  return SUPABASE_BACKEND_URL;
+  return `${SUPABASE_API_DOMAIN}/functions/v1/make-server-c4d79cb7`;
 };
 
-export const getVpsBackendUrl = (): string => {
-  return getApiBaseUrl();
+export const getServerUrls = (): string[] => {
+  const primary = getServerUrl();
+  const fallback = getSupabaseServerUrl();
+  return primary === fallback ? [primary] : [primary, fallback];
 };
 
-export async function fetchWithApiFallback(endpoint: string, options: RequestInit = {}): Promise<Response> {
+export async function fetchWithApiFallback(endpoint: string, init?: RequestInit): Promise<Response> {
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  
-  // Primary attempt: Cloud Run local server / proxy
-  try {
-    const localUrl = `${getApiBaseUrl()}${cleanEndpoint}`;
-    const localRes = await fetch(localUrl, options);
-    if (localRes.ok || localRes.status === 400 || localRes.status === 401 || localRes.status === 403) {
-      return localRes;
+  let lastResponse: Response | null = null;
+  let lastError: unknown = null;
+
+  for (const baseUrl of getServerUrls()) {
+    try {
+      const response = await fetch(`${baseUrl}${cleanEndpoint}`, init);
+      lastResponse = response;
+      if (response.status !== 404 && response.status < 500) return response;
+    } catch (error) {
+      lastError = error;
     }
-  } catch (err) {
-    console.warn('[fetchWithApiFallback] Local request failed, falling back to direct Supabase backend:', err);
   }
 
-  // Secondary attempt: Direct Supabase edge function backend
-  try {
-    const headers = new Headers(options.headers || {});
-    if (!headers.has('apikey')) headers.set('apikey', publicAnonKey);
-    if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${publicAnonKey}`);
-    
-    const directUrl = `${SUPABASE_BACKEND_URL}${cleanEndpoint}`;
-    return await fetch(directUrl, {
-      ...options,
-      headers,
-    });
-  } catch (err2) {
-    // Return graceful fallback response for network glitches (analytics, tracking, etc.)
-    return new Response(JSON.stringify({ success: true, fallback: true }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('API request failed');
 }
+
+/**
+ * Get the URL for the dedicated Express backend that handles
+ * VPS provisioning, Razorpay payments, and subscription management.
+ *
+ * In development this is the local Express server (port 3001).
+ * In production it should be the deployed backend domain.
+ */
+export const getVpsBackendUrl = (): string => {
+  return 'https://api.indexpilotai.com/api';
+};
+
+/**
+ * Get full endpoint URL
+ * @param endpoint - API endpoint path (e.g., '/auth/login', '/trades/create')
+ * @returns Complete URL with base domain and endpoint
+ */
+export const getEndpointUrl = (endpoint: string): string => {
+  const baseUrl = getServerUrl();
+  // Remove leading slash from endpoint if present to avoid double slashes
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${baseUrl}${cleanEndpoint}`;
+};
+
+// ==============================================
+// COMMON API HEADERS
+// ==============================================
+
+/**
+ * Get standard API headers with authorization
+ * @param accessToken - Optional user access token (if not provided, uses public anon key)
+ */
+export const getApiHeaders = (accessToken?: string): HeadersInit => {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${accessToken || publicAnonKey}`,
+  };
+};
+
+/**
+ * Get headers for multipart/form-data requests
+ * @param accessToken - Optional user access token (if not provided, uses public anon key)
+ */
+export const getMultipartHeaders = (accessToken?: string): HeadersInit => {
+  return {
+    'Authorization': `Bearer ${accessToken || publicAnonKey}`,
+    // Note: Don't set Content-Type for multipart, browser will set it with boundary
+  };
+};
+
+// ==============================================
+// ENVIRONMENT INFO (FOR DEBUGGING)
+// ==============================================
+
+/**
+ * Log current API configuration (useful for debugging)
+ */
+export const logApiConfig = () => {
+  console.log('📊 [API CONFIG] ======================');
+  console.log('📊 [API CONFIG] Mode:', API_MODE);
+  console.log('📊 [API CONFIG] Base URL:', getApiBaseUrl());
+  console.log('📊 [API CONFIG] Server URL:', getServerUrl());
+  console.log('📊 [API CONFIG] Fallback URLs:', getServerUrls());
+  console.log('📊 [API CONFIG] Project ID:', projectId);
+  console.log('📊 [API CONFIG] ======================');
+};
+
+// ==============================================
+// EXPORTS
+// ==============================================
+
+export {
+  API_MODE,
+  CUSTOM_API_DOMAIN,
+  SUPABASE_API_DOMAIN,
+  publicAnonKey,
+  projectId,
+};

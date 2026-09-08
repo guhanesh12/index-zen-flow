@@ -1,7 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect } from 'react';
 import { getBaseUrl } from '../utils/apiService';
-import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 import { SupportedBrokers } from './SupportedBrokers';
 import { motion, useScroll, useTransform, useSpring } from 'motion/react';
 import { Link } from 'react-router-dom';
@@ -23,7 +22,6 @@ import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { AnimatedIndexTitle } from './AnimatedIndexTitle';
 import { HowItWorksSection } from './HowItWorksSection';
 import { SEO, SEO_CONFIGS } from '../utils/seo';
-import { BrokerLogo, ALL_8_BROKERS } from '../brokerLogos';
 
 // Floating animation keyframes
 const floatingAnimation = {
@@ -355,21 +353,14 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
 
   const loadContent = async () => {
     try {
-      const response = await fetchWithApiFallback('/landing/content', {
+      const response = await fetch(`${serverUrl}/landing/content`, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`
         }
       });
-      if (!response.ok) return;
-      const text = await response.text();
-      let data: any = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return;
-      }
+      const data = await response.json();
       
-      if (data?.success && data.content) {
+      if (data.success && data.content) {
         // Merge backend content with DEFAULT_CONTENT (backend takes priority, but use defaults for missing sections)
         const mergedContent = {
           ...DEFAULT_CONTENT,
@@ -397,32 +388,25 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
       }
       // If no custom content, keep DEFAULT_CONTENT already set in state
     } catch (error) {
-      console.warn('Could not load dynamic landing content, using default:', error);
+      console.error('Error loading landing content:', error);
       // Keep DEFAULT_CONTENT already set in state
     }
   };
 
   const loadPages = async () => {
     try {
-      const response = await fetchWithApiFallback('/landing/pages', {
+      const response = await fetch(`${serverUrl}/landing/pages`, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`
         }
       });
-      if (!response.ok) return;
-      const text = await response.text();
-      let data: any = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return;
-      }
+      const data = await response.json();
       
-      if (data?.success && data.pages) {
+      if (data.success && data.pages) {
         setPages(data.pages);
       }
     } catch (error) {
-      console.warn('Could not load dynamic pages, using fallback:', error);
+      console.error('Error loading pages:', error);
     }
   };
 
@@ -745,7 +729,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     alt="IndexpilotAI Android trading app home screen"
                     className="relative w-full rounded-[2.5rem] border border-cyan-500/30 shadow-[0_30px_100px_rgba(6,182,212,0.25)]"
                     loading="eager"
-                    fetchpriority="high"
+                    fetchPriority="high"
                     decoding="async"
                   />
                 </motion.div>
@@ -764,34 +748,6 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
             </motion.div>
           </div>
         </motion.div>
-      </section>
-
-      {/* 🚀 Supported Indian Brokers Trust Strip */}
-      <section className="relative py-8 bg-slate-950 border-y border-slate-900/80 overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <p className="text-center text-xs font-semibold tracking-wider uppercase text-slate-400 mb-6">
-            Directly Integrated With India&apos;s Top 8 Brokerage Platforms
-          </p>
-          <div className="grid grid-cols-4 md:grid-cols-8 gap-3 items-center justify-items-center">
-            {ALL_8_BROKERS.map((broker) => (
-              <div
-                key={broker.id}
-                className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl bg-slate-900/50 hover:bg-slate-900 border border-slate-800/80 hover:border-cyan-500/40 transition-all group w-full"
-              >
-                <BrokerLogo
-                  id={broker.id}
-                  name={broker.name}
-                  color={broker.color}
-                  size={38}
-                  className="group-hover:scale-105 transition-transform"
-                />
-                <span className="text-[11px] font-medium text-slate-300 group-hover:text-white transition-colors truncate max-w-full">
-                  {broker.name}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       </section>
 
       {/* Stats Section */}

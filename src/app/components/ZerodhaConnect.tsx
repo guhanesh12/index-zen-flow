@@ -9,7 +9,6 @@ import { Badge } from "./ui/badge";
 import { Key, CheckCircle2, XCircle, RefreshCw, ExternalLink, ShieldCheck, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
-import { BrokerLogo } from "../brokerLogos";
 
 interface Props {
   serverUrl: string;
@@ -241,7 +240,7 @@ export function ZerodhaConnect({ serverUrl, accessToken, onConnected }: Props) {
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <BrokerLogo id="zerodha" name="Zerodha Kite" size={26} />
+          <Key className="w-5 h-5 text-orange-500" />
           Zerodha Kite Connect
           {connected ? (
             <Badge className="bg-emerald-600/20 text-emerald-400 border-emerald-700">

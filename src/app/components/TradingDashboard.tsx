@@ -30,14 +30,10 @@ import { NotificationBell } from "./NotificationBell";
 import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
 import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
-import { Brain, Shield, Activity as ActivityIcon, Sparkles, ChevronDown, ShoppingCart, Info, LayoutGrid, ShoppingBag, Radio } from "lucide-react";
+import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 import { WelcomeOnboarding } from "./WelcomeOnboarding";
 import { AIAssistantBot } from "./AIAssistantBot";
 import { BrokerLogo } from "../brokerLogos";
-import { ProTradingTerminalView } from "./dashboard/ProTradingTerminalView";
-import { DhanOrderManager } from "./DhanOrderManager";
-import { OrdersSection } from "./OrdersSection";
-import { PositionsSection } from "./PositionsSection";
 
 
 interface TradingDashboardProps {
@@ -111,7 +107,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   // 🔀 Active broker (common for all brokers — Dhan is the default)
   const [activeBroker, setActiveBroker] = useState<string>('dhan');
   const [activeBrokerName, setActiveBrokerName] = useState<string>('Dhan');
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   // 🔴 REAL DATA — active broker fund limits & positions (auto-refetch on broker switch)
   const { funds: dhanFunds, loading: fundsLoading, error: fundsError } = useFundLimits(serverUrl, accessToken, activeBroker);
@@ -189,26 +184,20 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
     const loadLogs = async () => {
       try {
-        const cleanBase = serverUrl ? serverUrl.replace(/\/+$/, '') : '';
-        const targetUrl = cleanBase ? `${cleanBase}/logs` : '/logs';
-        const response = await fetchWithAuth(targetUrl, {
+        const response = await fetchWithAuth(`${serverUrl}/logs`, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
 
         if (!response.ok) return;
 
-        const contentType = response.headers.get("content-type") || "";
-        if (!contentType.includes("application/json")) return;
-
         const data = await response.json();
         const nextLogs = normalizeLogs(data.logs || []);
 
-        if (!cancelled && Array.isArray(nextLogs)) {
+        if (!cancelled) {
           setLogs(prev => areLogsEqual(prev, nextLogs) ? prev : nextLogs);
         }
-      } catch (error: any) {
-        // Silently retry on transient network hiccups or dev-server reloads
-        console.warn('⚠️ Log sync retry notice:', error?.message || error);
+      } catch (error) {
+        console.error('Failed to load logs from backend:', error);
       }
     };
 
@@ -241,10 +230,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   const [brokerTab, setBrokerTab] = useState<'static-ip' | 'broker-request' | 'broker-connect'>('broker-connect');
   
   // ⚡ PERSISTENT ENGINE STATES
-  const [candleInterval, setCandleInterval] = useState<'5' | '15'>(() => {
-    const saved = localStorage.getItem('engine_interval');
-    return (saved === '5' || saved === '15') ? (saved as '5' | '15') : '5';
-  });
+  const [candleInterval, setCandleInterval] = useState<'5' | '15'>('15');
   const [tradingSymbols, setTradingSymbols] = useState<any[]>([]);
   
   // Dhan Authentication Error State
@@ -320,23 +306,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
     };
   }, []);
 
-  // Listen for broker switch events from SettingsPanel or other components
-  useEffect(() => {
-    const handleBrokerSwitched = (event: any) => {
-      const broker = event?.detail?.broker;
-      const bName = event?.detail?.brokerName;
-      if (broker) {
-        setActiveBroker(broker);
-        if (bName) setActiveBrokerName(bName);
-        fetchActiveBroker();
-      }
-    };
-    window.addEventListener('broker-switched', handleBrokerSwitched);
-    return () => {
-      window.removeEventListener('broker-switched', handleBrokerSwitched);
-    };
-  }, []);
-
   // ⚡ RESPONSIVE DESIGN
   const { isMobile, isTablet, isDesktop, deviceType } = useResponsive();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -348,19 +317,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [activePositions, setActivePositions] = useState<ActivePosition[]>([]);
   const [lastSignal, setLastSignal] = useState<any>(null);
-  const [signals, setSignals] = useState<any[]>([]);
-  const [multiSymbolSignals, setMultiSymbolSignals] = useState<{
-    NIFTY: any | null;
-    BANKNIFTY: any | null;
-    SENSEX: any | null;
-    __timestamp?: number;
-  }>(() => {
-    try {
-      const saved = localStorage.getItem('engine_signals');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return { NIFTY: null, BANKNIFTY: null, SENSEX: null, __timestamp: 0 };
-  });
   const [executionCount, setExecutionCount] = useState(0);
   const [avgExecutionTime, setAvgExecutionTime] = useState(0);
 
@@ -384,7 +340,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   // Tab scroll ref for mobile
   const tabsScrollRef = useRef<HTMLDivElement | null>(null);
 
-  // ⚡ HEADER ENGINE STATUS & SIGNALS — synced from backend (same source as the engine card)
+  // ⚡ HEADER ENGINE STATUS — synced from backend (same source as the engine card)
   useEffect(() => {
     if (!accessToken) return;
     let cancelled = false;
@@ -397,71 +353,13 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
         const data = await res.json();
         if (cancelled || !data?.success) return;
         setEngineRunning(Boolean(data.engine?.isRunning));
-        
-        // ⚡ CRITICAL FIX: Sync candle interval from backend database (multi-device mobile/desktop sync)
-        const rawBackendInterval = data.engine?.strategySettings?.candleInterval || data.engine?.candleInterval;
-        const backendInterval = String(rawBackendInterval || '').replace(/[^0-9]/g, '');
-        if (backendInterval === '5' || backendInterval === '15') {
-          const validInterval = backendInterval as '5' | '15';
-          setCandleInterval(prev => {
-            if (prev !== validInterval) {
-              console.log(`☁️ Synced candle interval from backend: ${prev}M → ${validInterval}M`);
-              localStorage.setItem('engine_interval', validInterval);
-              window.dispatchEvent(new CustomEvent('engine-interval-changed', { detail: { interval: validInterval } }));
-              return validInterval;
-            }
-            return prev;
-          });
-        }
-        
-        if (data.engine?.signals || data.signals) {
-          const remoteSignals = data.engine?.signals || data.signals;
-          if (remoteSignals) {
-            setMultiSymbolSignals(prev => ({
-              ...prev,
-              ...(remoteSignals.NIFTY ? { NIFTY: remoteSignals.NIFTY } : {}),
-              ...(remoteSignals.BANKNIFTY ? { BANKNIFTY: remoteSignals.BANKNIFTY } : {}),
-              ...(remoteSignals.SENSEX ? { SENSEX: remoteSignals.SENSEX } : {}),
-              __timestamp: Date.now()
-            }));
-          }
-        }
       } catch {
         /* transient network error — keep last known status */
       }
     };
     pull();
     const id = setInterval(pull, 5000);
-
-    const handleSignalsUpdated = (e: any) => {
-      if (e.detail) {
-        setMultiSymbolSignals(e.detail);
-      }
-    };
-    const handleIntervalChanged = (e: any) => {
-      const newInterval = e.detail?.interval;
-      if (newInterval === '5' || newInterval === '15') {
-        setCandleInterval(newInterval);
-        localStorage.setItem('engine_interval', newInterval);
-      }
-    };
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'engine_interval' && (e.newValue === '5' || e.newValue === '15')) {
-        setCandleInterval(e.newValue as '5' | '15');
-      }
-    };
-
-    window.addEventListener('engine-signals-updated', handleSignalsUpdated);
-    window.addEventListener('engine-interval-changed', handleIntervalChanged);
-    window.addEventListener('storage', handleStorage);
-
-    return () => { 
-      cancelled = true; 
-      clearInterval(id);
-      window.removeEventListener('engine-signals-updated', handleSignalsUpdated);
-      window.removeEventListener('engine-interval-changed', handleIntervalChanged);
-      window.removeEventListener('storage', handleStorage);
-    };
+    return () => { cancelled = true; clearInterval(id); };
   }, [serverUrl, accessToken]);
 
 
@@ -576,20 +474,16 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
     }
     
     try {
-      const response = await fetchWithAuth(`${serverUrl}/wallet/balance`, {
+      const response = await fetch(`${serverUrl}/wallet/balance`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      if (!response.ok) {
-        console.warn('⚠️ Wallet balance response status:', response.status);
-        return;
-      }
       const data = await response.json();
       
       if (data.success) {
         setWalletBalance(data.balance || 0);
       }
-    } catch (error: any) {
-      console.warn("⚠️ Could not fetch wallet balance:", error?.message || error);
+    } catch (error) {
+      console.error("Failed to fetch wallet balance:", error);
     } finally {
       setWalletLoading(false);
     }
@@ -597,23 +491,16 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
   // 🔀 Which broker is this user on, and is it connected?
   const fetchActiveBroker = async (): Promise<string> => {
-    const cachedChoice = typeof window !== 'undefined' ? localStorage.getItem('indexpilot_broker_choice') : null;
+    if (!accessToken) return 'dhan';
     try {
-      const response = await fetchWithAuth(`${serverUrl}/broker/active`);
-      if (!response.ok) {
-        console.warn('⚠️ Active broker response status:', response.status);
-        if (cachedChoice) {
-          setActiveBroker(cachedChoice);
-          setActiveBrokerName(cachedChoice === 'upstox' ? 'Upstox' : cachedChoice === 'zerodha' ? 'Zerodha Kite' : 'Dhan');
-          return cachedChoice;
-        }
-        return 'dhan';
-      }
+      const response = await fetch(`${serverUrl}/broker/active`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
       const data = await response.json();
       if (data?.success) {
-        const broker = data.activeBroker || cachedChoice || 'dhan';
+        const broker = data.activeBroker || 'dhan';
         setActiveBroker(broker);
-        setActiveBrokerName(data.activeBrokerName || (broker === 'upstox' ? 'Upstox' : broker === 'zerodha' ? 'Zerodha Kite' : 'Dhan'));
+        setActiveBrokerName(data.activeBrokerName || 'Dhan');
         // For non-Dhan brokers the /api-credentials check does not apply —
         // trust the broker status returned by the router.
         if (broker !== 'dhan') {
@@ -621,13 +508,8 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
         }
         return broker;
       }
-    } catch (error: any) {
-      console.warn('⚠️ Could not fetch active broker:', error?.message || error);
-    }
-    if (cachedChoice) {
-      setActiveBroker(cachedChoice);
-      setActiveBrokerName(cachedChoice === 'upstox' ? 'Upstox' : cachedChoice === 'zerodha' ? 'Zerodha Kite' : 'Dhan');
-      return cachedChoice;
+    } catch (error) {
+      console.error('Failed to fetch active broker:', error);
     }
     return 'dhan';
   };
@@ -642,14 +524,20 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
     }
   };
 
+
   const checkCredentials = async () => {
+    if (!accessToken) {
+      console.log('⏳ Skipping credentials check - no access token');
+      return;
+    }
+    
     try {
-      const response = await fetchWithAuth(`${serverUrl}/api-credentials`);
+      const response = await fetch(`${serverUrl}/api-credentials`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
       
-      const contentType = response.headers.get("content-type") || "";
-      if (!response.ok || !contentType.includes("application/json")) {
-        setCredentialsConfigured(false);
-        return;
+      if (!response.ok) {
+        throw new Error(`Failed to fetch credentials: ${response.status}`);
       }
       
       const data = await response.json();
@@ -688,9 +576,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       // Add userId to log
       const logWithUser = { ...log, userId };
       
-      const cleanBase = serverUrl ? serverUrl.replace(/\/+$/, '') : '';
-      const targetUrl = cleanBase ? `${cleanBase}/logs` : '/logs';
-      await fetchWithAuth(targetUrl, {
+      await fetchWithAuth(`${serverUrl}/logs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -705,76 +591,20 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
         // Keep only the last 500 logs (reduced from unlimited)
         return newLogs.slice(0, 500);
       });
-    } catch (error: any) {
-      console.warn("Log write notice:", error?.message || error);
+    } catch (error) {
+      console.error("Failed to add log:", error);
     }
   };
 
   const clearLogs = async () => {
     try {
-      const cleanBase = serverUrl ? serverUrl.replace(/\/+$/, '') : '';
-      const targetUrl = cleanBase ? `${cleanBase}/logs` : '/logs';
-      await fetchWithAuth(targetUrl, {
+      await fetchWithAuth(`${serverUrl}/logs`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       setLogs([]);
-    } catch (error: any) {
-      console.warn('Log clear notice:', error?.message || error);
-    }
-  };
-
-  const handleToggleEngine = async () => {
-    const nextState = !engineRunning;
-    setEngineRunning(nextState);
-    const currentInterval = candleInterval || (localStorage.getItem('engine_interval') as '5' | '15') || '5';
-    try {
-      const endpoint = nextState ? `${serverUrl}/engine/start` : `${serverUrl}/engine/stop`;
-      const res = await fetchWithAuth(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({
-          userId,
-          broker: activeBroker,
-          candleInterval: currentInterval,
-          symbols: tradingSymbols.filter((s: any) => s.active)
-        })
-      });
-      if (res.ok) {
-        addLog({
-          type: nextState ? 'ENGINE_START' : 'ENGINE_STOP',
-          message: nextState ? `AI Trading Engine activated (${currentInterval}M candles)` : 'AI Trading Engine stopped by user'
-        });
-      }
-    } catch (err: any) {
-      console.error('Engine toggle error:', err);
-    }
-  };
-
-  const handleSquareOffAll = async () => {
-    try {
-      const res = await fetchWithAuth(`${serverUrl}/positions/square-off-all`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({ broker: activeBroker, userId })
-      });
-      const data = await res.json().catch(() => ({}));
-      addLog({
-        type: 'ORDER',
-        message: `Square-off all requested: ${data?.message || 'Positions closing initiated'}`
-      });
-    } catch (err: any) {
-      console.error('Square off all error:', err);
-      addLog({
-        type: 'ERROR',
-        message: `Square-off request error: ${err?.message || 'Unknown error'}`
-      });
+    } catch (error) {
+      console.error('Failed to clear logs:', error);
     }
   };
 
@@ -838,292 +668,318 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
           </div>
         </div>
       )}
-      {/* Professional Header with Glassmorphism & Live Upside Index Run - RESPONSIVE */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-zinc-950/90 border-b border-zinc-800/70 shadow-2xl">
-        <div className="w-full px-3 sm:px-6 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            {/* Left: Active Broker Logo + Live Indices Ticker Run */}
-            <div className="flex items-center gap-3 sm:gap-5 min-w-0">
-              {/* Connected Broker Logo & Monogram Badge */}
-              <div 
-                onClick={() => {
-                  setActiveTab('settings');
-                  setBrokerTab('broker-connect');
-                }}
-                className="group flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-indigo-500/50 cursor-pointer transition-all duration-300 shrink-0 shadow-inner"
-                title={`Connected Broker: ${activeBrokerName}`}
-              >
-                <div className="relative">
-                  <BrokerLogo id={activeBroker} name={activeBrokerName} size={28} className="rounded-lg shadow-sm" />
-                  <span className={`absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-zinc-950 ${credentialsConfigured ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`} />
-                </div>
-                <div className="hidden sm:block text-left leading-none pr-1">
-                  <div className="text-[11px] font-bold text-white tracking-tight flex items-center gap-1">
-                    {activeBrokerName}
-                  </div>
-                  <div className={`text-[9px] font-medium ${credentialsConfigured ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                    {credentialsConfigured ? 'Connected' : 'Offline'}
-                  </div>
-                </div>
-              </div>
-
-              {/* 📈 UPSIDE INDEX RUN (NIFTY, SENSEX, India VIX) */}
-              <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto no-scrollbar py-0.5">
-                {/* NIFTY 50 */}
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs shrink-0">
-                  <span className="font-bold text-zinc-300">NIFTY</span>
-                  <span className="font-bold tabular-nums text-white">23,756.30</span>
-                  <span className="text-[11px] font-semibold tabular-nums text-red-400 bg-red-500/10 px-1 py-0.2 rounded border border-red-500/20">
-                    -141.40 (-0.59%)
-                  </span>
-                </div>
-
-                {/* SENSEX */}
-                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs shrink-0">
-                  <span className="font-bold text-zinc-300">SENSEX</span>
-                  <span className="font-bold tabular-nums text-white">76,029.56</span>
-                  <span className="text-[11px] font-semibold tabular-nums text-red-400 bg-red-500/10 px-1 py-0.2 rounded border border-red-500/20">
-                    -485.87 (-0.63%)
-                  </span>
-                </div>
-
-                {/* India VIX */}
-                <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-xs shrink-0">
-                  <span className="font-bold text-zinc-300">India VIX</span>
-                  <span className="font-bold tabular-nums text-white">11.14</span>
-                  <span className="text-[11px] font-semibold tabular-nums text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20">
-                    +0.46 (+4.31%)
-                  </span>
-                </div>
+      {/* Professional Header with Glassmorphism - RESPONSIVE */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-zinc-900/80 border-b border-zinc-800/50 shadow-2xl">
+        <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo & Branding - Responsive */}
+            <div className="flex items-center gap-2 sm:gap-4">
+              <img src={logoWhite} alt="IndexpilotAI Logo" className="h-8 sm:h-10 w-auto" />
+              <div>
+                <h1 className="text-base sm:text-xl lg:text-2xl font-bold bg-gradient-to-r from-cyan-400 via-emerald-400 to-blue-500 bg-clip-text text-transparent">
+                  IndexpilotAI
+                </h1>
+                <p className="hidden sm:block text-xs text-zinc-500">Professional Options Trading Platform</p>
               </div>
             </div>
 
-            {/* Middle & Right: Navigation Tabs matching screenshot & Profile Actions */}
-            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-              {/* Primary Top Nav Tabs (Desktop) */}
-              {isDesktop && (
-                <nav className="flex items-center gap-1 text-sm font-medium">
-                  <button
-                    onClick={() => setActiveTab('dashboard')}
-                    className={`px-3.5 py-1.5 transition-all relative ${
-                      activeTab === 'dashboard'
-                        ? 'text-white font-semibold after:absolute after:bottom-[-10px] after:left-0 after:right-0 after:h-[2.5px] after:bg-gradient-to-r after:from-purple-500 after:to-indigo-500 after:rounded-full'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Home
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('symbols')}
-                    className={`px-3.5 py-1.5 transition-all relative ${
-                      activeTab === 'symbols'
-                        ? 'text-white font-semibold after:absolute after:bottom-[-10px] after:left-0 after:right-0 after:h-[2.5px] after:bg-gradient-to-r after:from-purple-500 after:to-indigo-500 after:rounded-full'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    My List
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('orders')}
-                    className={`px-3.5 py-1.5 transition-all relative ${
-                      activeTab === 'orders'
-                        ? 'text-white font-semibold after:absolute after:bottom-[-10px] after:left-0 after:right-0 after:h-[2.5px] after:bg-gradient-to-r after:from-purple-500 after:to-indigo-500 after:rounded-full'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Orders
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('positions')}
-                    className={`px-3.5 py-1.5 transition-all relative ${
-                      activeTab === 'positions'
-                        ? 'text-white font-semibold after:absolute after:bottom-[-10px] after:left-0 after:right-0 after:h-[2.5px] after:bg-gradient-to-r after:from-purple-500 after:to-indigo-500 after:rounded-full'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Positions
-                  </button>
+            {/* Desktop Actions */}
+            {isDesktop && (
+              <div className="flex items-center gap-4">
+                {/* Market Status */}
+                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+                  <div className={`size-2 rounded-full animate-pulse ${
+                    marketStatus === 'OPEN' ? 'bg-emerald-500' : 
+                    marketStatus === 'CLOSED' ? 'bg-red-500' : 'bg-amber-500'
+                  }`}></div>
+                  <span className="text-sm font-medium text-zinc-300">
+                    Market {marketStatus === 'OPEN' ? 'Open' : marketStatus === 'CLOSED' ? 'Closed' : 'Weekend'}
+                  </span>
+                </div>
 
-                  {/* More Dropdown */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setMoreMenuOpen(!moreMenuOpen)}
-                      className={`flex items-center gap-1 px-3.5 py-1.5 transition-all ${
-                        ['settings', 'strategies', 'backtest', 'journal', 'support', 'profile', 'logs'].includes(activeTab)
-                          ? 'text-purple-400 font-semibold'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      More
-                      <ChevronDown className="size-3.5" />
-                    </button>
+                {/* 🔔 Notification Bell */}
+                <NotificationBell />
 
-                    {moreMenuOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-52 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl p-1.5 z-50 animate-in fade-in-50 zoom-in-95">
-                        {[
-                          { value: 'strategies', label: 'Strategy Manager', icon: Zap },
-                          { value: 'backtest', label: 'Strategy Backtest', icon: FlaskConical },
-                          { value: 'settings', label: 'Broker Setup & IP', icon: Settings },
-                          { value: 'journal', label: 'Trading Journal', icon: FileText },
-                          { value: 'support', label: 'Support Desk', icon: MessageSquare },
-                          { value: 'profile', label: 'User Profile', icon: User },
-                          { value: 'logs', label: 'System Logs', icon: FileText },
-                        ].map((item) => {
-                          const ItemIcon = item.icon;
-                          return (
-                            <button
-                              key={item.value}
-                              onClick={() => {
-                                setActiveTab(item.value);
-                                setMoreMenuOpen(false);
-                              }}
-                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition-colors ${
-                                activeTab === item.value
-                                  ? 'bg-purple-600/20 text-purple-300 font-semibold'
-                                  : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-                              }`}
-                            >
-                              <ItemIcon className="size-3.5 text-zinc-400" />
-                              <span>{item.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                {/* Wallet Balance - Enhanced */}
+                <button
+                  id="tour-wallet-btn"
+                  onClick={() => setShowWallet(true)}
+                  className="group relative px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600/20 to-blue-600/20 border border-emerald-500/30 hover:border-emerald-400/50 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/20"
+                >
+                  <div className="flex items-center gap-2">
+                    <Wallet className="size-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                    <div className="text-left">
+                      <div className="text-xs text-zinc-500">Wallet Balance</div>
+                      {walletLoading ? (
+                        <div className="h-4 w-16 bg-zinc-700 rounded animate-pulse"></div>
+                      ) : (
+                        <div className="text-sm font-bold bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
+                          ₹{walletBalance.toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+
+                {/* Lock Screen Button */}
+                <Button
+                  onClick={handleLock}
+                  variant="outline"
+                  size="sm"
+                  className="border-zinc-700 text-zinc-300 hover:border-amber-500/50 hover:bg-amber-500/10 hover:text-amber-400 transition-all duration-300"
+                  title="Lock screen — keeps engine running 24/7"
+                >
+                  <Lock className="size-4 mr-2" />
+                  Lock Screen
+                </Button>
+
+                {/* Logout Button */}
+                <Button
+                  onClick={onLogout}
+                  variant="outline"
+                  size="sm"
+                  className="border-zinc-700 text-zinc-300 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400 transition-all duration-300"
+                >
+                  <LogOut className="size-4 mr-2" />
+                  Logout
+                </Button>
+              </div>
+            )}
+
+            {/* Mobile & Tablet Actions */}
+            {(isMobile || isTablet) && (
+              <div className="flex items-center gap-2">
+                {/* 🔔 Notification Bell Mobile */}
+                <NotificationBell />
+                
+                {/* Mobile Wallet Balance - Enhanced & Clear Display */}
+                <button
+                  onClick={() => setShowWallet(true)}
+                  className="relative px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600/20 to-blue-600/20 border border-emerald-500/30 hover:border-emerald-400/50 transition-all"
+                >
+                  <div className="flex items-center gap-2">
+                    <Wallet className="size-4 text-emerald-400" />
+                    {walletLoading ? (
+                      <div className="h-4 w-12 bg-zinc-700 rounded animate-pulse"></div>
+                    ) : (
+                      <span className="text-sm font-bold bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent whitespace-nowrap">
+                        ₹{walletBalance.toFixed(0)}
+                      </span>
                     )}
                   </div>
-                </nav>
-              )}
+                </button>
 
-              {/* Wallet Funds Pill */}
-              <button
-                id="tour-wallet-btn"
-                onClick={() => setShowWallet(true)}
-                className="group flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/90 border border-zinc-800 hover:border-emerald-500/40 transition-all duration-200 shadow-inner"
-              >
-                <Wallet className="size-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                <div className="text-left">
-                  <div className="text-[9px] uppercase tracking-wider text-zinc-500 leading-none">Funds</div>
-                  <div className="text-xs font-bold text-white tabular-nums">
-                    ₹{walletBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </button>
-
-              {/* Dedicated Static IP / VPS Indicator */}
-              <div 
-                onClick={() => {
-                  setActiveTab('settings');
-                  setBrokerTab('static-ip');
-                }}
-                className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-900/80 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 cursor-pointer transition-all"
-                title="Dedicated Broker Static IP: 143.110.180.201"
-              >
-                <Server className="size-3 text-cyan-400" />
-                <span className="text-[11px] font-mono text-zinc-300">143.110.180.201</span>
-                <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              </div>
-
-              {/* User Avatar Circle */}
-              <button
-                onClick={() => setActiveTab('profile')}
-                className="size-8 rounded-full bg-gradient-to-tr from-purple-600 to-indigo-500 text-white text-xs font-bold flex items-center justify-center ring-2 ring-zinc-800 hover:ring-purple-500/50 transition-all"
-                title="User Profile"
-              >
-                RP
-              </button>
-
-              {/* Lock Screen */}
-              <button
-                onClick={handleLock}
-                className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 transition-all"
-                title="Lock Screen"
-              >
-                <Lock className="size-3.5" />
-              </button>
-
-              {/* Logout Button */}
-              <button
-                onClick={onLogout}
-                className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 text-zinc-400 hover:text-red-400 hover:border-red-500/40 transition-all"
-                title="Logout"
-              >
-                <LogOut className="size-3.5" />
-              </button>
-
-              {/* Mobile Menu Button */}
-              {(isMobile || isTablet) && (
+                {/* Mobile Menu Button */}
                 <button
                   onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                   className="p-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white hover:bg-zinc-700 transition-colors"
                 >
                   {mobileMenuOpen ? <X className="size-5" /> : <Menu className="size-5" />}
                 </button>
-              )}
+              </div>
+            )}
+          </div>
+
+          {/* ══ LIVE STATUS RAIL — broker · funds · positions P&L · engine ══ */}
+          <div className="mt-3 -mx-1 px-1 overflow-x-auto no-scrollbar">
+            <div className="flex items-stretch gap-2 sm:gap-3 min-w-max sm:min-w-0">
+              {/* Active broker */}
+              <div className="group flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-zinc-800/70 to-zinc-900/70 border border-zinc-700/60 hover:border-cyan-500/40 transition-all duration-300">
+                <BrokerLogo id={activeBroker} name={activeBrokerName} size={28} className="shrink-0 transition-transform duration-300 group-hover:scale-110" />
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Broker</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold text-white whitespace-nowrap">{activeBrokerName}</span>
+                    <span className={`size-1.5 rounded-full ${credentialsConfigured ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`} />
+                    <span className={`text-[10px] font-medium ${credentialsConfigured ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {credentialsConfigured ? 'Live' : 'Off'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Available funds */}
+              <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-blue-600/10 to-zinc-900/70 border border-blue-500/25 hover:border-blue-400/50 transition-all duration-300">
+                <DollarSign className="size-4 text-blue-400 shrink-0" />
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Funds · {activeBrokerName}</div>
+                  <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${fundsError ? 'text-amber-400' : 'text-blue-300'}`}>
+                    {fundsLoading && !dhanFunds ? '…' : fundsError ? 'Not available' : `₹${realAccountBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Positions P&L — running + closed, per active broker */}
+              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-zinc-900/70 to-zinc-900/70 border transition-all duration-300 ${
+                realPositionsPnL > 0
+                  ? 'border-emerald-500/30 hover:border-emerald-400/60'
+                  : realPositionsPnL < 0
+                    ? 'border-red-500/30 hover:border-red-400/60'
+                    : 'border-zinc-700/60'
+              }`}>
+                <BarChart3 className={`size-4 shrink-0 ${realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}`} />
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500 whitespace-nowrap">
+                    Positions · {activeBrokerName} ({positionsLoading && (dhanPositions || []).length === 0 ? '…' : (dhanPositions || []).length})
+                  </div>
+
+                  <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${
+                    realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-300'
+                  }`}>
+                    {realPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(realPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] whitespace-nowrap mt-0.5">
+                    <span className="text-zinc-500">
+                      Running {realOpenTrades}{' '}
+                      <span className={openPositionsPnL > 0 ? 'text-emerald-400' : openPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}>
+                        {openPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(openPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </span>
+                    </span>
+                    <span className="text-zinc-700">|</span>
+                    <span className="text-zinc-500">
+                      Closed {closedPositions.length}{' '}
+                      <span className={closedPositionsPnL > 0 ? 'text-emerald-400' : closedPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}>
+                        {closedPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(closedPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+
+              {/* Engine status */}
+              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all duration-300 ${
+                engineRunning
+                  ? 'bg-gradient-to-br from-emerald-600/15 to-zinc-900/70 border-emerald-500/40 shadow-[0_0_18px_-6px_rgba(16,185,129,0.6)]'
+                  : 'bg-zinc-800/50 border-zinc-700/60'
+              }`}>
+                <span className="relative flex size-2.5 shrink-0">
+                  {engineRunning && <span className="absolute inline-flex size-full rounded-full bg-emerald-400 opacity-70 animate-ping" />}
+                  <span className={`relative inline-flex size-2.5 rounded-full ${engineRunning ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                </span>
+                <div className="leading-tight">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Engine</div>
+                  <div className={`text-sm font-semibold whitespace-nowrap ${engineRunning ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                    {engineRunning ? 'Running' : 'Stopped'}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
+
         {/* Mobile Menu Dropdown */}
         {(isMobile || isTablet) && mobileMenuOpen && (
-          <div className="border-t border-zinc-800 bg-zinc-950/98 backdrop-blur-xl p-3 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { value: 'dashboard', label: 'Home', icon: BarChart3 },
-                { value: 'symbols', label: 'My List', icon: DollarSign },
-                { value: 'orders', label: 'Orders', icon: FileText },
-                { value: 'positions', label: 'Positions', icon: ActivityIcon },
-                { value: 'strategies', label: 'Strategies', icon: Zap },
-                { value: 'backtest', label: 'Backtest', icon: FlaskConical },
-                { value: 'settings', label: 'Broker Setup', icon: Settings },
-                { value: 'journal', label: 'Journal', icon: FileText },
-                { value: 'support', label: 'Support', icon: MessageSquare },
-                { value: 'profile', label: 'Profile', icon: User },
-              ].map((item) => {
-                const ItemIcon = item.icon;
-                return (
-                  <button
-                    key={item.value}
-                    onClick={() => {
-                      setActiveTab(item.value);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
-                      activeTab === item.value
-                        ? 'bg-purple-600 text-white font-bold'
-                        : 'bg-zinc-900 border border-zinc-800 text-zinc-300'
-                    }`}
-                  >
-                    <ItemIcon className="size-3.5" />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
+          <div className="border-t border-zinc-800 bg-zinc-900/95 backdrop-blur-xl">
+            <div className="container mx-auto px-3 py-3 space-y-2">
+              {/* Market Status Mobile */}
+              <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-800/50">
+                <span className="text-sm text-zinc-400">Market Status</span>
+                <div className="flex items-center gap-2">
+                  <div className={`size-2 rounded-full animate-pulse ${
+                    marketStatus === 'OPEN' ? 'bg-emerald-500' : 
+                    marketStatus === 'CLOSED' ? 'bg-red-500' : 'bg-amber-500'
+                  }`}></div>
+                  <span className="text-sm font-medium text-white">
+                    {marketStatus === 'OPEN' ? 'Open' : marketStatus === 'CLOSED' ? 'Closed' : 'Weekend'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <Button
+                onClick={() => {
+                  handleLock();
+                  setMobileMenuOpen(false);
+                }}
+                variant="outline"
+                className="w-full border-zinc-700 text-zinc-300 hover:border-amber-500/50 hover:bg-amber-500/10 hover:text-amber-400"
+              >
+                <Lock className="size-4 mr-2" />
+                Lock Screen
+              </Button>
+              <Button
+                onClick={() => {
+                  onLogout();
+                  setMobileMenuOpen(false);
+                }}
+                variant="outline"
+                className="w-full border-zinc-700 text-zinc-300 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400"
+              >
+                <LogOut className="size-4 mr-2" />
+                Logout
+              </Button>
             </div>
           </div>
         )}
       </header>
 
-      <main className="w-full px-2 sm:px-4 lg:px-6 py-3 sm:py-4">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
         {/* ⚠️ CREDENTIALS WARNING BANNER */}
         {!credentialsConfigured && (
-          <div className="mb-4 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="size-2 rounded-full bg-amber-400 animate-ping" />
-                <span className="text-xs font-semibold text-amber-300">
-                  {activeBrokerName} is not connected. Connect in Broker Setup to activate automated trading.
-                </span>
+          <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/50 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="text-amber-500 text-2xl">⚠️</div>
+              <div className="flex-1">
+                <h3 className="text-amber-500 font-semibold mb-1">{activeBrokerName} Not Connected</h3>
+                <p className="text-zinc-300 text-sm mb-2">
+                  Please connect your <strong>{activeBrokerName}</strong> account in the <strong>Broker Setup</strong> tab to enable real trading.
+                </p>
+                <p className="text-zinc-400 text-xs">
+                  Without a connected broker session, all API calls will fail with an "Invalid Token" error.
+                </p>
               </div>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setActiveTab('settings');
-                  setBrokerTab('broker-connect');
-                }}
-                className="bg-amber-500 hover:bg-amber-600 text-black font-semibold h-7 text-xs px-3 rounded-lg"
-              >
-                Connect Now
-              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 🔑 DHAN ACCESS TOKEN EXPIRED BANNER */}
+        {dhanAuthError && activeBroker === 'dhan' && (
+          <div className="mb-6 p-5 bg-red-500/10 border-2 border-red-500/50 rounded-lg animate-pulse">
+            <div className="flex items-start gap-4">
+              <div className="text-red-400 text-3xl">🔐</div>
+              <div className="flex-1">
+                <h3 className="text-red-400 font-bold text-lg mb-2">⚠️ DHAN ACCESS TOKEN EXPIRED!</h3>
+                <p className="text-zinc-200 text-sm mb-3">
+                  Your <strong>Dhan Access Token</strong> has expired and needs to be refreshed. 
+                  Dhan tokens expire regularly for security reasons.
+                </p>
+                
+                <div className="bg-zinc-900/50 p-3 rounded border border-zinc-700 mb-3">
+                  <p className="text-xs text-zinc-400 mb-2 font-semibold">🔧 HOW TO FIX:</p>
+                  <ol className="text-xs text-zinc-300 space-y-1 list-decimal ml-4">
+                    <li>Go to <strong className="text-emerald-400">Broker Setup tab</strong></li>
+                    <li>Click <strong className="text-blue-400">"Get New Token from Dhan"</strong> link</li>
+                    <li>Login to Dhan portal → Generate new Access Token</li>
+                    <li>Copy the new token</li>
+                    <li>Paste it in the <strong className="text-emerald-400">Dhan Access Token</strong> field</li>
+                    <li>Click <strong className="text-emerald-400">Save Credentials</strong></li>
+                  </ol>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => {
+                      setActiveTab('settings');
+                      setBrokerTab('broker-connect');
+                      const settingsTab = document.querySelector('[value="settings"]') as HTMLElement;
+                      if (settingsTab) settingsTab.click();
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    Go to Broker Setup
+                  </Button>
+                  <Button
+                    onClick={() => setDhanAuthError(false)}
+                    variant="outline"
+                    className="bg-zinc-700 border-zinc-600"
+                  >
+                    Dismiss (I'll fix it later)
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1132,12 +988,143 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
           key="trading-tabs-v1" 
           value={activeTab}
           defaultValue="dashboard" 
-          className="space-y-4"
+          className="space-y-4 sm:space-y-6"
           onValueChange={(value) => setActiveTab(value)}
         >
+          {/* Tabs - Desktop: grid; Mobile: 3-dot menu */}
+          <div className="relative" ref={tabsScrollRef}>
+            {isMobile ? (
+              <div className="flex items-center justify-between gap-2 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-2 rounded-xl shadow-xl">
+                <div className="flex items-center gap-2 min-w-0">
+                  {(() => {
+                    const tabMeta: Record<string, { icon: any; label: string }> = {
+                      dashboard: { icon: BarChart3, label: 'Dashboard' },
+                      symbols: { icon: DollarSign, label: 'Symbols' },
+                      settings: { icon: Settings, label: 'Broker Setup' },
+                      journal: { icon: FileText, label: 'Journal' },
+                      strategies: { icon: Zap, label: 'Strategies' },
+                      support: { icon: MessageSquare, label: 'Support' },
+                      profile: { icon: User, label: 'Profile' },
+                      logs: { icon: FileText, label: 'Logs' },
+                    };
+                    const current = tabMeta[activeTab] || tabMeta.dashboard;
+                    const Icon = current.icon;
+                    return (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 text-white text-sm font-medium truncate">
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{current.label}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+                <Sheet open={mobileTabMenuOpen} onOpenChange={setMobileTabMenuOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-zinc-300 hover:bg-zinc-800 flex-shrink-0"
+                      aria-label="Open tab menu"
+                    >
+                      <MoreVertical className="w-5 h-5" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
+                    <SheetHeader className="p-4 border-b border-zinc-800">
+                      <SheetTitle className="text-white">All Tabs</SheetTitle>
+                    </SheetHeader>
+                    <div className="p-2 space-y-1">
+                      {[
+                        { value: 'dashboard', icon: BarChart3, label: 'Dashboard' },
+                        { value: 'symbols', icon: DollarSign, label: 'Symbols' },
+                        { value: 'settings', icon: Settings, label: 'Broker Setup' },
+                        { value: 'journal', icon: FileText, label: 'Journal' },
+                        { value: 'strategies', icon: Zap, label: 'Strategies' },
+                        { value: 'backtest', icon: FlaskConical, label: 'Backtest' },
+                        { value: 'support', icon: MessageSquare, label: 'Support' },
+                        { value: 'profile', icon: User, label: 'Profile' },
+                        { value: 'logs', icon: FileText, label: 'Logs' },
+                      ].map(({ value, icon: Icon, label }) => {
+                        const active = activeTab === value;
+                        return (
+                          <button
+                            key={value}
+                            onClick={() => {
+                              setActiveTab(value);
+                              setMobileTabMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${
+                              active
+                                ? 'bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/20'
+                                : 'text-zinc-300 hover:bg-zinc-800'
+                            }`}
+                          >
+                            <Icon className="w-5 h-5 flex-shrink-0" />
+                            <span className="font-medium flex-1">{label}</span>
+                            {value === 'support' && supportUnreadCount > 0 && (
+                              <span className="size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                                {supportUnreadCount}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
+            ) : (
+              <TabsList className="grid grid-cols-9 w-full bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1">
+                <TabsTrigger id="tour-tab-dashboard" value="dashboard" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <BarChart3 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Dashboard</span>
+                </TabsTrigger>
+                <TabsTrigger id="tour-tab-symbols" value="symbols" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <DollarSign className="w-4 h-4" />
+                  <span className="hidden sm:inline">Symbols</span>
+                </TabsTrigger>
+                <TabsTrigger id="tour-tab-settings" value="settings" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden sm:inline">Broker Setup</span>
+                </TabsTrigger>
+                <TabsTrigger id="tour-tab-journal" value="journal" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden sm:inline">Journal</span>
+                </TabsTrigger>
+                <TabsTrigger value="strategies" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <Zap className="w-4 h-4" />
+                  <span className="hidden sm:inline">Strategies</span>
+                </TabsTrigger>
+                <TabsTrigger value="backtest" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <FlaskConical className="w-4 h-4" />
+                  <span className="hidden sm:inline">Backtest</span>
+                </TabsTrigger>
+                <TabsTrigger value="support" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative">
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="hidden sm:inline">Support</span>
+                  {supportUnreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                      {supportUnreadCount}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="profile" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <User className="w-4 h-4" />
+                  <span className="hidden sm:inline">Profile</span>
+                </TabsTrigger>
+                <TabsTrigger value="logs" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden sm:inline">Logs</span>
+                </TabsTrigger>
+              </TabsList>
+            )}
+          </div>
+
           {/* ⚡⚡⚡ PERSISTENT ENGINE - ALWAYS MOUNTED, CONDITIONALLY VISIBLE ⚡⚡⚡ */}
+          {/* This stays mounted even when switching tabs to keep the engine running */}
           {walletBalance >= 89 && (
-            <div className={activeTab === "dashboard" ? "hidden" : "hidden"}>
+            <div 
+              className={activeTab === "dashboard" ? "block space-y-6" : "hidden"}
+            >
               <EnhancedTradingEngine
                 serverUrl={serverUrl}
                 accessToken={accessToken}
@@ -1146,82 +1133,156 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             </div>
           )}
 
-          {/* 🚀 PRIMARY HOME / DASHBOARD TAB — 3-COLUMN PROFESSIONAL TERMINAL VIEW */}
-          <TabsContent value="dashboard" className="space-y-4 animate-in fade-in-50 duration-300 m-0">
-            <ProTradingTerminalView
-              serverUrl={serverUrl}
-              accessToken={accessToken}
-              activeBroker={activeBroker}
-              activeBrokerName={activeBrokerName}
-              credentialsConfigured={credentialsConfigured}
-              realPositionsPnL={realPositionsPnL}
-              realAccountBalance={realAccountBalance || walletBalance}
-              realOpenTrades={realOpenTrades || activePositions.length}
-              openPositionsPnL={openPositionsPnL}
-              closedPositionsPnL={closedPositionsPnL}
-              closedPositionsCount={closedPositions.length}
-              openPositions={openPositions}
-              closedPositions={closedPositions}
-              dhanPositions={dhanPositions}
-              symbols={symbols}
-              logs={logs}
-              engineRunning={engineRunning}
-              candleInterval={candleInterval}
-              onCandleIntervalChange={async (interval) => {
-                setCandleInterval(interval);
-                localStorage.setItem('engine_interval', interval);
-                window.dispatchEvent(new CustomEvent('engine-interval-changed', { detail: { interval } }));
-                try {
-                  if (accessToken) {
-                    await fetchWithAuth(`${serverUrl}/engine/state`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${accessToken}`
-                      },
-                      body: JSON.stringify({
-                        isRunning: engineRunning,
-                        candleInterval: interval,
-                        timestamp: Date.now()
-                      })
-                    });
-                  }
-                } catch (err) {
-                  console.warn('Failed to sync timeframe change to backend:', err);
-                }
-              }}
-              onToggleEngine={handleToggleEngine}
-              onNavigateTab={(tab) => setActiveTab(tab)}
-              onOpenWallet={() => setShowWallet(true)}
-              onOpenBrokerSetup={() => {
-                setActiveTab('settings');
-                setBrokerTab('broker-connect');
-              }}
-              onOpenLockScreen={handleLock}
-              onSquareOffAll={handleSquareOffAll}
-              lastSignal={lastSignal}
-              signals={signals}
-              multiSymbolSignals={multiSymbolSignals}
-            />
-          </TabsContent>
+          {/* Dashboard Tab Content */}
+          <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-500">
+            {/* 💰 WALLET BALANCE CHECK - Show Dashboard UI only if balance >= ₹89 */}
+            {walletBalance >= 89 ? (
+              <>
+                {/* 🚀 NEW: Premium fintech overview */}
+                <SectionHeader
+                  icon={Sparkles}
+                  title="Trading Overview"
+                  desc="Your complete picture in one glance — markets, P&L, AI confidence and risk."
+                />
+                <KpiGrid
+                  totalPnL={realPositionsPnL + (stats.totalPnL || 0)}
+                  todayPnL={realPositionsPnL}
+                  winRate={stats.winRate || 0}
+                  runningStrategies={engineRunning ? 1 : 0}
+                  openTrades={realOpenTrades || activePositions.length}
+                  aiConfidence={lastSignal?.confidence ?? 0}
+                  walletBalance={realAccountBalance || walletBalance}
+                  marginUsed={realMarginUsed}
+                />
 
-          {/* 📋 ORDERS TAB */}
-          <TabsContent value="orders" className="space-y-4 animate-in fade-in-50 duration-300 m-0">
-            <OrdersSection
-              accessToken={accessToken}
-              userId={userId}
-              activeBroker={activeBroker}
-            />
-          </TabsContent>
+                {/* 📊 Strategy Backtest banner — opens the Backtest section */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('backtest')}
+                  className="w-full text-left glass-card glow-ai p-4 sm:p-5 flex items-center gap-4 group cursor-pointer transition-all duration-300 hover:scale-[1.01] hover:border-emerald-500/40"
+                >
+                  <div className="size-12 rounded-xl bg-gradient-to-br from-emerald-600 to-blue-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
+                    <FlaskConical className="size-6 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-white flex items-center gap-2">
+                      Strategy Backtest
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">₹5 / run</span>
+                    </h3>
+                    <p className="text-xs text-muted-foreground truncate">
+                      Replay the live AI strategy on real NIFTY, BANKNIFTY & SENSEX data — up to 1 year of history.
+                    </p>
+                  </div>
+                  <span className="shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-400 group-hover:gap-2.5 transition-all">
+                    Run Backtest
+                    <ArrowRight className="size-4" />
+                  </span>
+                </button>
 
-          {/* 📊 POSITIONS TAB */}
-          <TabsContent value="positions" className="space-y-4 animate-in fade-in-50 duration-300 m-0">
-            <PositionsSection
-              accessToken={accessToken}
-              userId={userId}
-              activeBroker={activeBroker}
-              onSquareOffAll={handleSquareOffAll}
-            />
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 space-y-4">
+                    <MarketOverview serverUrl={serverUrl} accessToken={accessToken} />
+                    <PerformanceChart serverUrl={serverUrl} accessToken={accessToken} />
+                  </div>
+                  <div className="space-y-4">
+                    <RiskCenter serverUrl={serverUrl} accessToken={accessToken} walletBalance={realAccountBalance || walletBalance} />
+                    <div className="glass-card p-4 glow-ai">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Brain className="size-4 text-ai" />
+                        <h3 className="font-semibold">AI Signal Engine</h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Live multi-indicator AI scanning NIFTY, BANKNIFTY & SENSEX every candle close.
+                      </p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5"><span className="live-dot" /> Online</span>
+                        <span className="text-muted-foreground">Confidence floor 65%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Existing detailed sections — kept intact */}
+                <SectionHeader icon={ActivityIcon} title="Live Positions & Engine" desc="Real-time monitor with momentum guard, give-back & time-stop." />
+                <ProfitDashboard accessToken={accessToken} />
+                <AdvancedPositionMonitor accessToken={accessToken} />
+                <AdvancedDashboard
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                  credentialsConfigured={credentialsConfigured}
+                />
+              </>
+            ) : (
+              /* 💳 INSUFFICIENT WALLET BALANCE WARNING */
+              <Card className="bg-gradient-to-br from-red-900/20 to-orange-900/20 border-2 border-red-500/50">
+                <CardContent className="p-8">
+                  <div className="text-center">
+                    <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <Wallet className="w-10 h-10 text-red-400" />
+                    </div>
+                    
+                    <h2 className="text-2xl font-bold text-white mb-3">
+                      Insufficient Wallet Balance
+                    </h2>
+                    
+                    <p className="text-zinc-300 mb-2">
+                      Your wallet balance is <span className="font-bold text-red-400">₹{walletBalance.toLocaleString('en-IN')}</span>
+                    </p>
+                    
+                    <p className="text-zinc-400 text-sm mb-6">
+                      You need at least <span className="font-bold text-green-400">₹89</span> to access the AI Trading Engine
+                    </p>
+                    
+                    <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-700 mb-6 max-w-md mx-auto">
+                      <div className="text-sm text-zinc-300 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span>Required Balance:</span>
+                          <span className="font-bold text-green-400">₹89</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Current Balance:</span>
+                          <span className="font-bold text-red-400">₹{walletBalance}</span>
+                        </div>
+                        <div className="border-t border-zinc-700 pt-2 mt-2 flex items-center justify-between">
+                          <span>Need to Add:</span>
+                          <span className="font-bold text-yellow-400">₹{Math.max(0, 89 - walletBalance)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <Button
+                        onClick={() => setShowWallet(true)}
+                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white px-8 py-6 text-lg font-semibold shadow-xl"
+                      >
+                        <Wallet className="w-5 h-5 mr-2" />
+                        Recharge Wallet Now
+                      </Button>
+                      
+                      <p className="text-xs text-zinc-500">
+                        💡 Pay only ₹89 when your profit exceeds ₹200. No profit? No charge!
+                      </p>
+                    </div>
+                    
+                    <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                      <div className="flex items-start space-x-3">
+                        <div className="text-blue-400 text-xl">ℹ️</div>
+                        <div className="text-left text-sm text-blue-300">
+                          <p className="font-semibold mb-1">How It Works:</p>
+                          <ul className="space-y-1 text-blue-200 text-xs">
+                            <li>• Recharge your wallet with any amount (min ₹100)</li>
+                            <li>• Trade with AI-powered signals</li>
+                            <li>• ₹89 auto-deducted only when profit {`>`} ₹200</li>
+                            <li>• Profit below ₹200 or loss? Completely FREE!</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="symbols">

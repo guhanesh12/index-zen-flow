@@ -428,19 +428,11 @@ const ALLOWED_CORS_ORIGINS = [
   "https://www.indexpilotai.com",
   "https://indexpilotai.com",
   "https://api.indexpilotai.com",
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
   "http://localhost:8080",
   "http://127.0.0.1:8080",
   // RN app local dev (Metro / Expo web)
   "http://localhost:8081",
   "http://127.0.0.1:8081",
-  // Cloud Run & AI Studio preview domains
-  /\.run\.app$/,
-  /\.googleusercontent\.com$/,
-  /\.aistudio\.google\.com$/,
   // Lovable preview domains
   /\.lovable\.app$/,
   /\.lovableproject\.com$/,
@@ -458,13 +450,10 @@ app.use(
         if (typeof allowed === "string" && allowed === origin) return origin;
         if (allowed instanceof RegExp && allowed.test(origin)) return origin;
       }
-      if (origin.includes("run.app") || origin.includes("localhost") || origin.includes("127.0.0.1") || origin.includes("indexpilotai.com")) {
-        return origin;
-      }
       console.warn(`⛔ CORS blocked origin: ${origin}`);
       return "";
     },
-    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-client-info", "apikey", "x-internal-key", "x-supabase-auth", "Accept", "Origin"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-client-info", "apikey"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
@@ -2552,84 +2541,6 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
     }
     
     return c.json({ error: `Failed to fetch positions: ${error}` }, 500);
-  }
-});
-
-// Square off single position
-app.post("/make-server-c4d79cb7/positions/square-off", async (c) => {
-  try {
-    const { user } = await validateAuth(c);
-    const userId = user?.id || c.req.header("x-user-id") || "ae08130c-d5dd-4b7b-b29f-d2bbc9d97d9f";
-    const body = await c.req.json().catch(() => ({}));
-    
-    const symbol = body.symbol || body.tradingSymbol || body.securityId || "POSITION";
-    const securityId = body.securityId || "";
-    const quantity = Number(body.quantity || body.netQty || body.qty || 1);
-
-    console.log(`⚡ Edge Function Square Off: ${symbol}, qty: ${quantity}, user: ${userId}`);
-
-    try {
-      await supabaseAdmin.from("trading_orders").insert({
-        user_id: userId,
-        symbol: symbol,
-        index_name: symbol.includes("BANKNIFTY") ? "BANKNIFTY" : symbol.includes("SENSEX") ? "SENSEX" : "NIFTY",
-        order_type: "MARKET",
-        transaction_type: "SELL",
-        quantity: Math.abs(quantity),
-        price: 0,
-        status: "EXECUTED",
-        dhan_order_id: `SQ-${Date.now()}`,
-        product_type: body.productType || "INTRADAY"
-      });
-    } catch (dbErr) {
-      console.log("Error inserting square off order:", dbErr);
-    }
-
-    return c.json({
-      success: true,
-      message: `Successfully squared off ${symbol}`,
-      symbol,
-      orderId: `SQ-${Date.now()}`
-    });
-  } catch (err: any) {
-    return c.json({ success: false, error: err?.message || "Square off failed" }, 500);
-  }
-});
-
-// Square off all positions
-app.post("/make-server-c4d79cb7/positions/square-off-all", async (c) => {
-  try {
-    const { user } = await validateAuth(c);
-    const userId = user?.id || c.req.header("x-user-id") || "ae08130c-d5dd-4b7b-b29f-d2bbc9d97d9f";
-    console.log(`⚡ Edge Function Square Off All: user ${userId}`);
-
-    return c.json({
-      success: true,
-      message: "All open positions squared off successfully"
-    });
-  } catch (err: any) {
-    return c.json({ success: false, error: err?.message || "Square off all failed" }, 500);
-  }
-});
-
-// GET Orders
-app.get("/make-server-c4d79cb7/orders", async (c) => {
-  try {
-    const { user } = await validateAuth(c);
-    const userId = user?.id || c.req.header("x-user-id") || "ae08130c-d5dd-4b7b-b29f-d2bbc9d97d9f";
-
-    const { data: orders } = await supabaseAdmin
-      .from("trading_orders")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    return c.json({
-      success: true,
-      orders: orders || []
-    });
-  } catch (err: any) {
-    return c.json({ success: false, error: err?.message || "Failed to fetch orders" }, 500);
   }
 });
 
@@ -4863,7 +4774,6 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           lastLossTimestamp,
           consecutiveLossThreshold: 3,
           consecutiveLossCooldownMs: 30 * 60 * 1000,
-          minimumBarsBetweenSignals: 1, // ⚡ ULTRA FAST: allow every newly closed candle; duplicate orders still protected separately
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
@@ -8144,31 +8054,6 @@ app.post("/make-server-c4d79cb7/admin/vps-power/toggle/:userId", async (c) => {
 // One admin data feed → same candles & same signal for every user.
 // User broker tokens are still used for orders/positions/funds.
 // ============================================================
-app.get("/admin/market-data/status", async (c) => {
-  try {
-    const auth = await validateAdminAuth(c);
-    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
-
-    const { data } = await supabase
-      .from('market_data_credentials')
-      .select('dhan_client_id, enabled, status, last_error, last_verified_at, updated_at, access_token_encrypted')
-      .eq('id', 1)
-      .maybeSingle();
-
-    return c.json({
-      success: true,
-      configured: !!(data?.dhan_client_id && data?.access_token_encrypted),
-      clientId: data?.dhan_client_id || '',
-      enabled: data?.enabled ?? false,
-      status: data?.status || 'not_configured',
-      lastError: data?.last_error || null,
-      lastVerifiedAt: data?.last_verified_at || null,
-      updatedAt: data?.updated_at || null,
-    });
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
-  }
-});
 app.get("/make-server-c4d79cb7/admin/market-data/status", async (c) => {
   try {
     const auth = await validateAdminAuth(c);
@@ -8195,7 +8080,7 @@ app.get("/make-server-c4d79cb7/admin/market-data/status", async (c) => {
   }
 });
 
-const saveMarketDataHandler = async (c: any) => {
+app.post("/make-server-c4d79cb7/admin/market-data/save", async (c) => {
   try {
     const auth = await validateAdminAuth(c);
     if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
@@ -8233,11 +8118,9 @@ const saveMarketDataHandler = async (c: any) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
-};
-app.post("/admin/market-data/save", saveMarketDataHandler);
-app.post("/make-server-c4d79cb7/admin/market-data/save", saveMarketDataHandler);
+});
 
-const testMarketDataHandler = async (c: any) => {
+app.post("/make-server-c4d79cb7/admin/market-data/test", async (c) => {
   try {
     const auth = await validateAdminAuth(c);
     if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
@@ -8259,9 +8142,7 @@ const testMarketDataHandler = async (c: any) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
-};
-app.post("/admin/market-data/test", testMarketDataHandler);
-app.post("/make-server-c4d79cb7/admin/market-data/test", testMarketDataHandler);
+});
 
 // Latest shared signal per index + timeframe (what EVERY user sees for the current candle)
 // Returns FULL elaborated detail: confirmations, indicators, risk plan, and why-no-trade diagnostics.
@@ -8334,7 +8215,7 @@ function shapeCentralSignal(sig: any, candleStamp: string | null, generatedAt: n
   };
 }
 
-const getMarketDataSignalsHandler = async (c: any) => {
+app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
   try {
     const auth = await validateAdminAuth(c);
     if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
@@ -8352,18 +8233,25 @@ const getMarketDataSignalsHandler = async (c: any) => {
           tfs.map(async (tf) => {
             try {
               const latest = await CentralMarketData.getLatestCentralSignal(idx, tf);
+              // Only trust the cached signal when it belongs to the CURRENT/last closed
+              // candle. Otherwise the panel showed yesterday's stamp (e.g. "12:30").
               const maxAgeMs = (tf + 2) * 60 * 1000;
               const fresh = latest?.signal && latest?.at && Date.now() - Number(latest.at) <= maxAgeMs;
               if (fresh) {
                 out[idx][`${tf}m`] = shapeCentralSignal(latest.signal, latest.candleStamp || null, latest.at || null, false);
                 return;
               }
+              // stale or missing → compute live from the central feed AND publish it so
+              // every user engine reuses the exact same signal for this candle.
               const sec = CENTRAL_INDEX_IDS[idx];
               const tfMs = tf * 60 * 1000;
               const toMs = (t: any) => {
                 const n = Number(t || 0);
                 return n > 0 && n < 1e12 ? n * 1000 : n;
               };
+              // Candle timestamps are bar OPEN times: at 09:45 the newly closed 15m
+              // bar is stamped 09:30. Drop the still-forming bar and require the last
+              // closed bar to be the one that just completed.
               const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
               const closedStartMs = formingStartMs - tfMs;
               const primary = await CentralMarketData.getCentralOHLC(sec, String(tf), 150, null);
@@ -8382,6 +8270,8 @@ const getMarketDataSignalsHandler = async (c: any) => {
                 out[idx][`${tf}m`] = null;
                 return;
               }
+              // READ-ONLY preview: the admin panel must never publish a signal that
+              // engines will trade — it lacks the anti-whipsaw state the publisher uses.
               const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
                 higherTimeframeData: htf,
                 timeframeMinutes: tf,
@@ -8406,16 +8296,18 @@ const getMarketDataSignalsHandler = async (c: any) => {
       timeframes: tfs,
       fetchedAt: Date.now(),
       signals: out,
+      // legacy shape (15m only) for older clients
       legacy: Object.fromEntries(indices.map((i) => [i, out[i]?.['15m'] || null])),
     });
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
-};
-app.get("/admin/market-data/signals", getMarketDataSignalsHandler);
-app.get("/make-server-c4d79cb7/admin/market-data/signals", getMarketDataSignalsHandler);
+});
 
-const getMarketDataSignalHistoryHandler = async (c: any) => {
+// 🗂️ Central signal HISTORY — every published 5m/15m signal, date + time wise.
+// Rows are read from the date-scoped KV keys written by saveCentralSignal():
+//   central_signal:YYYY-MM-DD:INDEX:TF:HH:MM
+app.get("/make-server-c4d79cb7/admin/market-data/signal-history", async (c) => {
   try {
     const auth = await validateAdminAuth(c);
     if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
@@ -8428,6 +8320,7 @@ const getMarketDataSignalHistoryHandler = async (c: any) => {
     const rows = await kv.getByPrefix(`central_signal:${date}:`).catch(() => []);
     const entries = (rows || [])
       .map((r: any) => {
+        // key = central_signal:DATE:INDEX:TF:HH:MM
         const parts = String(r.key || '').split(':');
         const indexName = parts[2];
         const tf = Number(parts[3]);
@@ -8435,6 +8328,9 @@ const getMarketDataSignalHistoryHandler = async (c: any) => {
         const sig = r.value?.signal || null;
         if (!indexName || !tf || !sig) return null;
 
+        // The stamp is the candle CLOSE time. The bar actually analysed is the one
+        // that OPENED tf minutes earlier — surface both so entries can be audited
+        // against the chart without guessing which candle produced the decision.
         const istHHMM = (ms: number) => {
           const d = new Date(ms + 5.5 * 60 * 60 * 1000);
           return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
@@ -8445,6 +8341,8 @@ const getMarketDataSignalHistoryHandler = async (c: any) => {
         const barClose = barOpenMs > 0 ? istHHMM(barOpenMs + tf * 60 * 1000) : null;
         const publishedAt = r.value?.at || null;
         const publishedIst = publishedAt ? istHHMM(Number(publishedAt)) : null;
+        // A healthy publish lands within seconds of the bar close. Anything else
+        // means the row was written off a stale or still-forming candle.
         const stale = !!barClose && barClose !== stamp;
         const delaySec = publishedAt && barOpenMs > 0
           ? Math.round((Number(publishedAt) - (barOpenMs + tf * 60 * 1000)) / 1000)
@@ -8477,6 +8375,7 @@ const getMarketDataSignalHistoryHandler = async (c: any) => {
       .filter(Boolean)
       .sort((a: any, b: any) => (a.candleStamp < b.candleStamp ? 1 : a.candleStamp > b.candleStamp ? -1 : a.tf - b.tf));
 
+    // Which dates are available (last 30 days that have at least one signal)
     const allKeys = await kv.getByPrefix('central_signal:').catch(() => []);
     const dates = Array.from(
       new Set((allKeys || []).map((r: any) => String(r.key || '').split(':')[1]).filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d))),
@@ -8486,16 +8385,14 @@ const getMarketDataSignalHistoryHandler = async (c: any) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
-};
-app.get("/admin/market-data/signal-history", getMarketDataSignalHistoryHandler);
-app.get("/make-server-c4d79cb7/admin/market-data/signal-history", getMarketDataSignalHistoryHandler);
+});
 
 
 
 
 // 📊 Live proof that the central feed works: latest 5m + 15m candles per index,
 // fetched with the ADMIN data subscription (the exact bars users/engines consume).
-const getMarketDataCandlesHandler = async (c: any) => {
+app.get("/make-server-c4d79cb7/admin/market-data/candles", async (c) => {
   try {
     const auth = await validateAdminAuth(c);
     if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
@@ -8568,9 +8465,7 @@ const getMarketDataCandlesHandler = async (c: any) => {
   } catch (e: any) {
     return c.json({ error: e.message }, 500);
   }
-};
-app.get("/admin/market-data/candles", getMarketDataCandlesHandler);
-app.get("/make-server-c4d79cb7/admin/market-data/candles", getMarketDataCandlesHandler);
+});
 
 
 
@@ -10185,9 +10080,10 @@ app.get("/make-server-c4d79cb7/admin/monitoring", async (c) => {
 // 📊 ANALYTICS TRACKING ENDPOINTS - Track visitor activity
 // ═══════════════════════════════════════════════════════════════
 
-const trackPageViewHandler = async (c: any) => {
+// Track page view
+app.post("/make-server-c4d79cb7/analytics/pageview", async (c) => {
   try {
-    const { page } = await c.req.json().catch(() => ({ page: '/' }));
+    const { page } = await c.req.json();
     const userAgent = c.req.header('user-agent') || 'Unknown';
     const ipAddressRaw = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'Unknown';
     
@@ -10202,15 +10098,15 @@ const trackPageViewHandler = async (c: any) => {
     return c.json({ success: true });
   } catch (error: any) {
     console.error('❌ Error tracking page view:', error);
-    return c.json({ success: true });
+    console.error('   Stack:', error.stack);
+    return c.json({ error: error.message }, 500);
   }
-};
-app.post("/analytics/pageview", trackPageViewHandler);
-app.post("/make-server-c4d79cb7/analytics/pageview", trackPageViewHandler);
+});
 
-const trackHeartbeatHandler = async (c: any) => {
+// Heartbeat to keep session alive (doesn't create new page views)
+app.post("/make-server-c4d79cb7/analytics/heartbeat", async (c) => {
   try {
-    const { page } = await c.req.json().catch(() => ({ page: '/' }));
+    const { page } = await c.req.json();
     const userAgent = c.req.header('user-agent') || 'Unknown';
     const ipAddressRaw = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'Unknown';
     
@@ -10225,16 +10121,15 @@ const trackHeartbeatHandler = async (c: any) => {
     return c.json({ success: true });
   } catch (error: any) {
     console.error('❌ Error sending heartbeat:', error);
-    return c.json({ success: true });
+    return c.json({ error: error.message }, 500);
   }
-};
-app.post("/analytics/heartbeat", trackHeartbeatHandler);
-app.post("/make-server-c4d79cb7/analytics/heartbeat", trackHeartbeatHandler);
+});
 
-const trackLoginHandler = async (c: any) => {
+// Track login attempt
+app.post("/make-server-c4d79cb7/analytics/login", async (c) => {
   try {
     const { trackLoginAttempt } = await import('./analytics_tracker.tsx');
-    const { email, status, userId } = await c.req.json().catch(() => ({}));
+    const { email, status, userId } = await c.req.json();
     const userAgent = c.req.header('user-agent') || 'Unknown';
     const ipAddressRaw = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'Unknown';
     
@@ -10248,16 +10143,15 @@ const trackLoginHandler = async (c: any) => {
     return c.json({ success: true });
   } catch (error: any) {
     console.error('❌ Error tracking login attempt:', error);
-    return c.json({ success: true });
+    return c.json({ error: error.message }, 500);
   }
-};
-app.post("/analytics/login", trackLoginHandler);
-app.post("/make-server-c4d79cb7/analytics/login", trackLoginHandler);
+});
 
-const trackSignupHandler = async (c: any) => {
+// Track signup progress
+app.post("/make-server-c4d79cb7/analytics/signup", async (c) => {
   try {
     const { trackSignupProgress } = await import('./analytics_tracker.tsx');
-    const { email, name, mobile, completionPercent, completed, userId } = await c.req.json().catch(() => ({}));
+    const { email, name, mobile, completionPercent, completed, userId } = await c.req.json();
     
     console.log(`📝 [SIGNUP] Tracking progress: ${email || mobile || 'unknown'} - ${completionPercent}%${completed ? ' (COMPLETED)' : ''}`);
     
@@ -10266,11 +10160,9 @@ const trackSignupHandler = async (c: any) => {
     return c.json({ success: true });
   } catch (error: any) {
     console.error('❌ Error tracking signup progress:', error);
-    return c.json({ success: true });
+    return c.json({ error: error.message }, 500);
   }
-};
-app.post("/analytics/signup", trackSignupHandler);
-app.post("/make-server-c4d79cb7/analytics/signup", trackSignupHandler);
+});
 
 // 🐛 DEBUG ENDPOINT - Inspect all analytics data in KV store
 app.get("/make-server-c4d79cb7/debug/analytics", async (c) => {
@@ -10830,10 +10722,9 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
 
 
     // Start engine (saves to both KV and DB)
-    const effectiveInterval = (candleInterval === '5' || candleInterval === '15' || candleInterval === 5 || candleInterval === 15) ? String(candleInterval) : '5';
     const result = await PersistentTradingEngine.startEngine({
       userId: user.id,
-      candleInterval: effectiveInterval,
+      candleInterval: candleInterval || '15',
       symbols: activeSymbols,
       dhanClientId: credentials.dhanClientId,
       dhanAccessToken: credentials.dhanAccessToken
@@ -11168,12 +11059,10 @@ app.post("/make-server-c4d79cb7/engine/state", async (c) => {
 
     console.log(`⚡ Saving engine state for user ${user.id}:`, { isRunning, candleInterval });
 
-    const rawInterval = (candleInterval === '5' || candleInterval === '15' || candleInterval === 5 || candleInterval === 15) ? String(candleInterval) : '5';
-
     // Save engine state to KV store
     await kv.set(`engine_state:${user.id}`, {
       isRunning: isRunning || false,
-      candleInterval: rawInterval,
+      candleInterval: candleInterval || '15',
       lastUpdated: timestamp || Date.now(),
       userId: user.id
     });
@@ -11188,7 +11077,7 @@ app.post("/make-server-c4d79cb7/engine/state", async (c) => {
         stopped_reason: isRunning ? null : 'user',
         stopped_at: isRunning ? null : new Date().toISOString(),
         strategy_settings: {
-          candleInterval: rawInterval,
+          candleInterval: candleInterval || '15',
           lastUpdated: timestamp || Date.now()
         },
         last_heartbeat: new Date().toISOString()
@@ -11197,7 +11086,7 @@ app.post("/make-server-c4d79cb7/engine/state", async (c) => {
     return c.json({
       success: true,
       message: 'Engine state saved',
-      state: { isRunning, candleInterval: rawInterval }
+      state: { isRunning, candleInterval }
     });
   } catch (error: any) {
     console.error('❌ Error saving engine state:', error);
@@ -11215,7 +11104,7 @@ app.get("/make-server-c4d79cb7/engine/state", async (c) => {
 
     const state = await kv.get(`engine_state:${user.id}`) || {
       isRunning: false,
-      candleInterval: '5',
+      candleInterval: '15',
       lastUpdated: Date.now()
     };
 
@@ -11457,8 +11346,9 @@ app.delete("/make-server-c4d79cb7/admin/instruments/delete-all", async (c) => {
 // ==================== ADMIN AUTHENTICATION ====================
 
 // 🔐 Hotkey-bound admin access window: after a valid hotkey press, the admin
-// has a 10-minute window to complete credentials and OTP verification.
-const ADMIN_HOTKEY_WINDOW_MS = 10 * 60 * 1000;
+// has exactly 60 seconds to log in, and only with the credentials that own
+// that hotkey. Anything else → restricted mode + audit log entry.
+const ADMIN_HOTKEY_WINDOW_MS = 60 * 1000;
 
 function clientIpOf(c: any): string | null {
   try {
@@ -11740,91 +11630,31 @@ function maskEmail(email: string): string {
 
 // Mails a one-time login code to the admin's registered address.
 async function sendAdminEmailOtp(email: string, name: string, otp: string): Promise<boolean> {
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-  const internalKey = Deno.env.get('INTERNAL_SYNC_KEY') || '';
-
-  // 1. Try send-email edge function with the official transactional OTP template
-  if (supabaseUrl) {
-    try {
-      const res = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${serviceKey}`,
-          apikey: serviceKey,
-          'x-internal-key': internalKey,
-        },
-        body: JSON.stringify({
-          to: email,
-          name,
-          template: 'otp',
-          data: {
-            code: otp,
-            expiryMinutes: 10,
-            name: name || 'Admin',
-          },
-          subject: `Your IndexPilot Admin Code: ${otp}`,
-          html: `<p>Hi ${name || 'Admin'},</p><p>Your IndexPilot admin login code is:</p><p style="font-size:26px;font-weight:700;letter-spacing:6px">${otp}</p><p>It expires in 10 minutes.</p>`,
-        }),
-      });
-      if (res.ok) {
-        console.log(`[ADMIN EMAIL OTP] Sent successfully via send-email function to ${email}`);
-        return true;
-      }
-      const errText = await res.text().catch(() => '');
-      console.warn(`[ADMIN EMAIL OTP] send-email status ${res.status}: ${errText}`);
-    } catch (e) {
-      console.error('[ADMIN EMAIL OTP] send-email call error:', e);
-    }
+  try {
+    const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
+      },
+      body: JSON.stringify({
+        to: email,
+        name,
+        subject: `Admin login code ${otp}`,
+        html: `<p>Hi ${name},</p>
+<p>Your IndexPilot admin login code is:</p>
+<p style="font-size:26px;font-weight:700;letter-spacing:6px">${otp}</p>
+<p>It expires in 10 minutes. After entering it you will still need your Google Authenticator code.</p>
+<p>If you did not start this login, secure your account immediately — the attempt has been logged.</p>`,
+      }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('[ADMIN EMAIL OTP] send failed', e);
+    return false;
   }
-
-  // 2. Direct Brevo fallback if send-email function fails or is unconfigured
-  const brevoApiKey = (Deno.env.get('BREVO_API_KEY') || Deno.env.get('BREVO_KEY') || '').trim();
-  if (brevoApiKey) {
-    try {
-      const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': brevoApiKey,
-          accept: 'application/json',
-        },
-        body: JSON.stringify({
-          sender: { email: 'noreply@indexpilotai.com', name: 'IndexPilot AI' },
-          to: [{ email, name: name || 'Admin' }],
-          subject: `Your IndexPilot admin verification code: ${otp}`,
-          htmlContent: `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#f5f6f8;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#1a1a1a">
-            <div style="max-width:540px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.05)">
-              <div style="font-size:18px;font-weight:700;color:#0B1E3F;margin-bottom:18px">IndexPilot<span style="color:#F4B400">·</span>AI</div>
-              <h2 style="margin:0 0 12px;font-size:20px;color:#0B1E3F">Admin Verification Code</h2>
-              <p style="margin:0 0 16px;font-size:14px;color:#475569">Hi ${name || 'Admin'}, use the one-time code below to complete your administrative login:</p>
-              <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:18px;text-align:center;font-size:28px;font-weight:800;letter-spacing:6px;color:#0B1E3F;margin:20px 0">
-                ${otp}
-              </div>
-              <p style="margin:0 0 8px;font-size:12px;color:#64748b">This code expires in 10 minutes. Do not share this code with anyone.</p>
-              <p style="margin:16px 0 0;font-size:12px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:12px">If you did not request this login, please investigate immediately.</p>
-            </div>
-          </body></html>`,
-          headers: {
-            'X-Mailer': 'IndexPilot-Transactional',
-            Precedence: 'transactional',
-            'Auto-Submitted': 'auto-generated',
-          },
-        }),
-      });
-      if (brevoRes.ok) {
-        console.log(`[ADMIN EMAIL OTP] Sent successfully via direct Brevo API to ${email}`);
-        return true;
-      }
-      const brevoErr = await brevoRes.text().catch(() => '');
-      console.error(`[ADMIN EMAIL OTP] direct Brevo API failed (${brevoRes.status}): ${brevoErr}`);
-    } catch (bErr) {
-      console.error('[ADMIN EMAIL OTP] direct Brevo call failed:', bErr);
-    }
-  }
-
-  return false;
 }
 
 
@@ -12030,56 +11860,37 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     }
 
     // ── 🔒 RESTRICTED MODE: hotkey-bound access window ────────────────
-    // Admin login is accessible within the 10-minute window opened by a
+    // Admin login is only possible inside the 1-minute window opened by a
     // valid hotkey press, and only for the admin who owns that hotkey.
     const code = String(uniqueCode || '').trim().toUpperCase();
     let pressedHotkey = '';
     if (!code) {
-      const candidateProfile = await findAdminProfileForLogin(identifier);
-      const isPrivileged = identifier === DEFAULT_ADMIN_EMAIL || identifier === PERMANENT_SUPER_ADMIN_EMAIL || candidateProfile?.is_super_admin;
-      if (isPrivileged) {
-        pressedHotkey = String(candidateProfile?.hotkey || 'GUHAN').toUpperCase();
-      } else {
-        await logAdminSecurityEvent({
-          action: 'admin_login_restricted_no_hotkey', email: identifier, status: 'blocked',
-          metadata: { reason: 'no_hotkey_session' }, c,
-        });
-        return c.json({ success: false, restricted: true, message: 'Restricted mode: admin access requires a valid hotkey press.' }, 403);
-      }
-    } else {
+      await logAdminSecurityEvent({
+        action: 'admin_login_restricted_no_hotkey', email: identifier, status: 'blocked',
+        metadata: { reason: 'no_hotkey_session' }, c,
+      });
+      return c.json({ success: false, restricted: true, message: 'Restricted mode: admin access requires a valid hotkey press.' }, 403);
+    }
+    {
       const rawCode = await kv.get(`admin_hotkey_code_${code}`);
       const codeData = rawCode ? (typeof rawCode === 'string' ? JSON.parse(rawCode) : rawCode) : null;
       if (!codeData) {
-        const candidateProfile = await findAdminProfileForLogin(identifier);
-        const isPrivileged = identifier === DEFAULT_ADMIN_EMAIL || identifier === PERMANENT_SUPER_ADMIN_EMAIL || candidateProfile?.is_super_admin;
-        if (isPrivileged) {
-          pressedHotkey = String(candidateProfile?.hotkey || 'GUHAN').toUpperCase();
-        } else {
-          await logAdminSecurityEvent({
-            action: 'admin_login_restricted_invalid_code', email: identifier, status: 'blocked',
-            metadata: { code, reason: 'invalid_or_unknown_code' }, c,
-          });
-          return c.json({ success: false, restricted: true, message: 'Restricted mode: hotkey session invalid. Press your hotkey again.' }, 403);
-        }
-      } else {
-        const pressedAt = new Date(codeData.createdAt || 0).getTime();
-        if (!pressedAt || Date.now() - pressedAt > ADMIN_HOTKEY_WINDOW_MS) {
-          await kv.del(`admin_hotkey_code_${code}`);
-          const candidateProfile = await findAdminProfileForLogin(identifier);
-          const isPrivileged = identifier === DEFAULT_ADMIN_EMAIL || identifier === PERMANENT_SUPER_ADMIN_EMAIL || candidateProfile?.is_super_admin;
-          if (isPrivileged) {
-            pressedHotkey = String(codeData.hotkey || candidateProfile?.hotkey || 'GUHAN').toUpperCase();
-          } else {
-            await logAdminSecurityEvent({
-              action: 'admin_login_restricted_window_expired', email: identifier, status: 'blocked',
-              metadata: { code, hotkey: codeData.hotkey, secondsElapsed: Math.round((Date.now() - pressedAt) / 1000) }, c,
-            });
-            return c.json({ success: false, restricted: true, message: 'Restricted mode: 10-minute hotkey window expired. Press your hotkey again.' }, 403);
-          }
-        } else {
-          pressedHotkey = String(codeData.hotkey || '').toUpperCase();
-        }
+        await logAdminSecurityEvent({
+          action: 'admin_login_restricted_invalid_code', email: identifier, status: 'blocked',
+          metadata: { code, reason: 'invalid_or_unknown_code' }, c,
+        });
+        return c.json({ success: false, restricted: true, message: 'Restricted mode: hotkey session invalid. Press your hotkey again.' }, 403);
       }
+      const pressedAt = new Date(codeData.createdAt || 0).getTime();
+      if (!pressedAt || Date.now() - pressedAt > ADMIN_HOTKEY_WINDOW_MS) {
+        await kv.del(`admin_hotkey_code_${code}`);
+        await logAdminSecurityEvent({
+          action: 'admin_login_restricted_window_expired', email: identifier, status: 'blocked',
+          metadata: { code, hotkey: codeData.hotkey, secondsElapsed: Math.round((Date.now() - pressedAt) / 1000) }, c,
+        });
+        return c.json({ success: false, restricted: true, message: 'Restricted mode: 1-minute hotkey window expired. Press your hotkey again.' }, 403);
+      }
+      pressedHotkey = String(codeData.hotkey || '').toUpperCase();
     }
 
     const profile = await findAdminProfileForLogin(identifier);
@@ -12168,20 +11979,13 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     // address BEFORE the Google Authenticator step is even offered.
     const challengeToken = newChallengeToken();
 
-    // 🛡️ Always send the OTP when credentials are submitted.
-    // Also include any recent previous OTP hash in validOtpHashes so if an earlier email arrives,
-    // the user can still use it.
+    // 🛡️ Duplicate-send guard: if a code was mailed to this admin in the last
+    // 60s (double-submit / retry), reuse the SAME code and do not mail again.
     const otpCooldownKey = `admin_login_otp_cd:${loginEmail}`;
     const cooldownRaw = await kv.get(otpCooldownKey);
     const cooldown = typeof cooldownRaw === 'string' ? JSON.parse(cooldownRaw) : cooldownRaw;
-
-    const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
-    const initialOtpHash = await sha256Hex(emailOtp);
-    const validHashes = [initialOtpHash];
-    if (cooldown?.code) {
-      const priorHash = await sha256Hex(String(cooldown.code));
-      validHashes.push(priorHash);
-    }
+    const reuse = cooldown?.code && cooldown?.sentAt && Date.now() - cooldown.sentAt < 60_000;
+    const emailOtp = reuse ? String(cooldown.code) : String(Math.floor(100000 + Math.random() * 900000));
 
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
       email: loginEmail,
@@ -12191,19 +11995,23 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       fullName: adminProfile.full_name || null,
       roleLabel: adminProfile.role_label || null,
       emailVerified: false,
-      emailOtpHash: initialOtpHash,
-      validOtpHashes: Array.from(new Set(validHashes)),
+      emailOtpHash: await sha256Hex(emailOtp),
       emailOtpExpiresAt: Date.now() + ADMIN_EMAIL_OTP_TTL_MS,
       emailOtpAttempts: 0,
       expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
     }));
 
-    const mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
-    await kv.set(otpCooldownKey, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
-    await logAdminSecurityEvent({
-      action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
-      status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
-    });
+    let mailed = true;
+    if (reuse) {
+      console.log('⏳ Admin email OTP already sent recently — reusing code, not re-sending');
+    } else {
+      mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+      await kv.set(otpCooldownKey, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
+      await logAdminSecurityEvent({
+        action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
+        status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
+      });
+    }
 
 
     return c.json({
@@ -12243,22 +12051,7 @@ app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
       return c.json({ success: false, message: 'Too many wrong codes. Please log in again.' }, 429);
     }
 
-    const cleanCode = String(code).replace(/\D/g, '').trim();
-    const enteredHash = await sha256Hex(cleanCode);
-
-    // Build comprehensive list of valid OTP hashes for this challenge session
-    const validHashes: string[] = Array.isArray(ch.validOtpHashes) ? [...ch.validOtpHashes] : [];
-    if (ch.emailOtpHash) validHashes.push(ch.emailOtpHash);
-
-    // Also check active cooldown cache for this admin
-    const otpCooldownKey = `admin_login_otp_cd:${ch.email}`;
-    const cooldownRaw = await kv.get(otpCooldownKey);
-    const cooldown = typeof cooldownRaw === 'string' ? JSON.parse(cooldownRaw) : cooldownRaw;
-    if (cooldown?.code && (Date.now() - (cooldown.sentAt || 0) < ADMIN_EMAIL_OTP_TTL_MS)) {
-      validHashes.push(await sha256Hex(String(cooldown.code).trim()));
-    }
-
-    const ok = validHashes.includes(enteredHash);
+    const ok = (await sha256Hex(String(code).trim())) === ch.emailOtpHash;
     if (!ok) {
       ch.emailOtpAttempts = (ch.emailOtpAttempts || 0) + 1;
       await kv.set(key, JSON.stringify(ch));
@@ -12271,7 +12064,6 @@ app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
 
     ch.emailVerified = true;
     ch.emailOtpHash = null;
-    ch.validOtpHashes = [];
 
     // Now resolve the Google Authenticator step.
     const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${ch.email}`);
@@ -12322,20 +12114,10 @@ app.post("/make-server-c4d79cb7/admin/email-otp/resend", async (c) => {
     if (ch.emailVerified) return c.json({ success: false, message: 'Email already verified' }, 400);
 
     const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
-    const newOtpHash = await sha256Hex(emailOtp);
-
-    const validHashes: string[] = Array.isArray(ch.validOtpHashes) ? [...ch.validOtpHashes] : [];
-    if (ch.emailOtpHash) validHashes.push(ch.emailOtpHash);
-    validHashes.push(newOtpHash);
-
-    ch.validOtpHashes = Array.from(new Set(validHashes));
-    ch.emailOtpHash = newOtpHash;
+    ch.emailOtpHash = await sha256Hex(emailOtp);
     ch.emailOtpExpiresAt = Date.now() + ADMIN_EMAIL_OTP_TTL_MS;
     ch.emailOtpAttempts = 0;
     await kv.set(key, JSON.stringify(ch));
-
-    const otpCooldownKey = `admin_login_otp_cd:${ch.email}`;
-    await kv.set(otpCooldownKey, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
 
     const mailed = await sendAdminEmailOtp(ch.email, ch.fullName || 'Admin', emailOtp);
     await logAdminSecurityEvent({
@@ -14057,45 +13839,21 @@ function normalizeAutoSymbolSlot(body: any, userId: string, maxSlots: number) {
 // 📋 List user symbol config (auto-selection slots)
 app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
   try {
-    const { user } = await validateAuth(c);
-    let resolvedUserId = user?.id || c.req.header("x-user-id") || c.req.query("userId");
-    if (!resolvedUserId || resolvedUserId === "default-user" || resolvedUserId === "null" || resolvedUserId === "undefined") {
-      resolvedUserId = "ae08130c-d5dd-4b7b-b29f-d2bbc9d97d9f";
-    }
-
-    let { data, error } = await supabase
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
+    const { data, error } = await supabase
       .from("user_symbol_config")
       .select("*")
-      .eq("user_id", resolvedUserId)
+      .eq("user_id", user.id)
       .order("slot", { ascending: true });
     if (error) throw error;
-
-    if (!data || data.length === 0) {
-      const fallback = await supabase
-        .from("user_symbol_config")
-        .select("*")
-        .in("user_id", ["ae08130c-d5dd-4b7b-b29f-d2bbc9d97d9f", "09132b66-3973-46c4-aa17-9d1746fdc930", "default-user"])
-        .order("slot", { ascending: true });
-      if (fallback.data && fallback.data.length > 0) {
-        const slotMap = new Map();
-        for (const fs of fallback.data) {
-          if (!slotMap.has(fs.slot)) slotMap.set(fs.slot, fs);
-        }
-        data = Array.from(slotMap.values()).sort((a: any, b: any) => a.slot - b.slot);
-      }
-    }
-
-    const extra = await getExtraSlots(resolvedUserId);
-    const totalSlotsCount = data ? data.length : 0;
-    const effectiveExtra = Math.max(extra, Math.max(0, totalSlotsCount - FREE_SLOTS));
-    const maxSlots = Math.min(HARD_SLOT_CAP, Math.max(FREE_SLOTS + effectiveExtra, totalSlotsCount));
-
+    const extra = await getExtraSlots(user.id);
     return c.json({
       success: true,
       slots: data || [],
-      max_slots: maxSlots,
+      max_slots: Math.min(HARD_SLOT_CAP, FREE_SLOTS + extra),
       free_slots: FREE_SLOTS,
-      extra_slots: effectiveExtra,
+      extra_slots: extra,
       slot_price: EXTRA_SLOT_PRICE,
       hard_cap: HARD_SLOT_CAP,
     });
@@ -14107,15 +13865,11 @@ app.get("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
 // 💾 Upsert one slot of user symbol config
 app.post("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
   try {
-    const { user } = await validateAuth(c);
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
     const body = await c.req.json();
-    let resolvedUserId = user?.id || body?.userId || c.req.header("x-user-id") || c.req.query("userId");
-    if (!resolvedUserId || resolvedUserId === "default-user" || resolvedUserId === "null" || resolvedUserId === "undefined") {
-      resolvedUserId = "ae08130c-d5dd-4b7b-b29f-d2bbc9d97d9f";
-    }
-
-    const maxSlots = await getMaxSlots(resolvedUserId);
-    const row = normalizeAutoSymbolSlot(body, resolvedUserId, Math.max(maxSlots, 10));
+    const maxSlots = await getMaxSlots(user.id);
+    const row = normalizeAutoSymbolSlot(body, user.id, maxSlots);
     const { data, error } = await supabase
       .from("user_symbol_config")
       .upsert(row, { onConflict: "user_id,slot" })
@@ -14131,19 +13885,15 @@ app.post("/make-server-c4d79cb7/auto-symbol/config", async (c) => {
 // 🗑️ Delete one slot
 app.delete("/make-server-c4d79cb7/auto-symbol/config/:slot", async (c) => {
   try {
-    const { user } = await validateAuth(c);
-    let resolvedUserId = user?.id || c.req.header("x-user-id") || c.req.query("userId");
-    if (!resolvedUserId || resolvedUserId === "default-user" || resolvedUserId === "null" || resolvedUserId === "undefined") {
-      resolvedUserId = "ae08130c-d5dd-4b7b-b29f-d2bbc9d97d9f";
-    }
-
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: authError?.message || "Unauthorized" }, 401);
     const slot = Number(c.req.param("slot"));
-    const maxSlots = await getMaxSlots(resolvedUserId);
-    if (!Number.isInteger(slot) || slot < 1 || slot > Math.max(maxSlots, 20)) return c.json({ success: false, error: "Invalid slot" }, 400);
+    const maxSlots = await getMaxSlots(user.id);
+    if (!Number.isInteger(slot) || slot < 1 || slot > maxSlots) return c.json({ success: false, error: "Invalid slot" }, 400);
     const { error } = await supabase
       .from("user_symbol_config")
       .delete()
-      .eq("user_id", resolvedUserId)
+      .eq("user_id", user.id)
       .eq("slot", slot);
     if (error) throw error;
     return c.json({ success: true });

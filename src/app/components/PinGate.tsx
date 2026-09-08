@@ -57,7 +57,7 @@ async function pinCall(path: string, method: 'GET' | 'POST', body?: any) {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-  const token = await getFreshToken();
+  let token = await getFreshToken();
   if (!token) throw new Error('SESSION_LOST');
 
   let res = await doFetch(token);

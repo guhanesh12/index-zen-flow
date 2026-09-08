@@ -6,7 +6,11 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Loader2, RefreshCw, Clock, UserCheck, Download } from 'lucide-react';
-import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
+
+const FN_BASE =
+  (import.meta as any).env?.VITE_SUPABASE_URL
+    ? `${(import.meta as any).env.VITE_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/make-server-c4d79cb7`
+    : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
 
 /** Admin check-in / check-out report: login time, logout time, duration, online state. */
 export function AdminSessionsPanel({ accessToken }: { accessToken: string }) {
@@ -25,13 +29,11 @@ export function AdminSessionsPanel({ accessToken }: { accessToken: string }) {
       const params = new URLSearchParams();
       if (from) params.set('from', new Date(from).toISOString());
       if (to) params.set('to', new Date(`${to}T23:59:59`).toISOString());
-      const res = await fetchWithApiFallback(`/admin/sessions?${params.toString()}`, {
+      const res = await fetch(`${FN_BASE}/admin/sessions?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json().catch(() => ({}));
       setSessions(data?.sessions || []);
-    } catch {
-      setSessions([]);
     } finally {
       setLoading(false);
     }

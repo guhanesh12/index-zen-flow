@@ -6,7 +6,6 @@ import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { History, RefreshCw, CalendarDays } from 'lucide-react';
-import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 
 interface Props {
   serverUrl: string;
@@ -41,7 +40,7 @@ export function AdminCentralSignalHistory({ serverUrl, accessToken }: Props) {
     try {
       setLoading(true);
       setError(null);
-      const r = await fetchWithApiFallback(`/admin/market-data/signal-history?date=${encodeURIComponent(d)}`, {
+      const r = await fetch(`${serverUrl}/admin/market-data/signal-history?date=${encodeURIComponent(d)}`, {
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       });
       const j = await r.json().catch(() => ({}));

@@ -36,14 +36,8 @@ export class ErrorBoundary extends Component<Props, State> {
     // Log error details to console for debugging
     console.error('🚨 ERROR BOUNDARY CAUGHT ERROR:');
     console.error('Error:', error);
-    console.error('Component Stack:', errorInfo?.componentStack);
+    console.error('Component Stack:', errorInfo.componentStack);
     console.error('Error Count:', this.state.errorCount + 1);
-
-    const isChunkOrImportError = 
-      error?.message?.includes('Failed to fetch dynamically imported module') ||
-      error?.message?.includes('Importing a module script failed') ||
-      error?.message?.includes('error loading dynamically imported module') ||
-      error?.name === 'ChunkLoadError';
 
     // Update state with error details
     this.setState(prevState => ({
@@ -52,31 +46,27 @@ export class ErrorBoundary extends Component<Props, State> {
       errorCount: prevState.errorCount + 1
     }));
 
-    // For chunk/module network errors, trigger an automatic recovery reload if not done recently
-    if (isChunkOrImportError && typeof window !== 'undefined') {
-      const lastAutoReload = parseInt(sessionStorage.getItem('last_eb_chunk_reload') || '0', 10);
-      const now = Date.now();
-      if (now - lastAutoReload > 6000) {
-        sessionStorage.setItem('last_eb_chunk_reload', String(now));
-        console.warn('🔄 Auto-refreshing page to recover from dynamic module fetch error...');
-        setTimeout(() => {
-          window.location.reload();
-        }, 800);
-        return;
-      }
-    }
-
-    // Only force engine stop for severe non-chunk JavaScript crashes repeated multiple times
-    if (!isChunkOrImportError && this.state.errorCount >= 4) {
-      console.error('🚨 TOO MANY RUNTIME ERRORS! Stopping engine safely...');
+    // ⚡ CRITICAL FIX: If too many errors, force engine stop
+    if (this.state.errorCount >= 3) {
+      console.error('🚨 TOO MANY ERRORS! Stopping engine and clearing state...');
       localStorage.setItem('engine_running', 'false');
+      
+      // Optional: Clear all localStorage to force full reset
+      if (this.state.errorCount >= 5) {
+        console.error('🚨 CRITICAL ERROR THRESHOLD! Clearing all app state...');
+        // Only clear our app-specific keys, not auth tokens
+        localStorage.removeItem('engine_running');
+        localStorage.removeItem('engine_interval');
+        localStorage.removeItem('trading_symbols');
+      }
     }
 
     // Send error to backend logging (optional)
     try {
-      // Background logging
-    } catch {
-      // ignore
+      // You could send errors to your backend for monitoring
+      // fetch('/api/log-error', { method: 'POST', body: JSON.stringify({ error: error.toString(), stack: errorInfo.componentStack }) });
+    } catch (e) {
+      console.error('Failed to log error to backend:', e);
     }
   }
 
@@ -100,40 +90,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
-      const isChunkOrImportError = 
-        this.state.error?.message?.includes('Failed to fetch dynamically imported module') ||
-        this.state.error?.message?.includes('Importing a module script failed') ||
-        this.state.error?.message?.includes('error loading dynamically imported module') ||
-        this.state.error?.name === 'ChunkLoadError';
-
-      if (isChunkOrImportError) {
-        return (
-          <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4">
-            <Card className="max-w-md w-full bg-zinc-900/90 border-zinc-800 shadow-2xl p-6 text-center space-y-4">
-              <div className="size-12 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center mx-auto text-purple-400">
-                <RefreshCw className="size-6 animate-spin" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-lg font-bold text-zinc-100">Updating Application</h2>
-                <p className="text-xs text-zinc-400">
-                  A fresh version or module chunk is being synchronized.
-                </p>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <Button 
-                  onClick={() => window.location.reload()}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs py-2 rounded-lg"
-                >
-                  <RefreshCw className="size-3.5 mr-2" />
-                  Reload App Now
-                </Button>
-              </div>
-            </Card>
-          </div>
-        );
-      }
-
-      // Standard Error UI
+      // Error UI
       return (
         <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4">
           <Card className="max-w-2xl w-full bg-red-950/10 border-red-900/30">

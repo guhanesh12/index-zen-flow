@@ -24,9 +24,7 @@ export function NotificationContainer() {
   }, []);
 
   const handleDismiss = useCallback((id: string) => {
-    setTimeout(() => {
-      setActiveNotifications(prev => prev.filter(n => n.id !== id));
-    }, 0);
+    setActiveNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
   const handleRead = useCallback((id: string) => {

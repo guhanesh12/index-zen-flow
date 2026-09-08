@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from './ui/alert';
 import { CheckCircle2, AlertTriangle, RefreshCw, Key, Download, ExternalLink, LogIn } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchWithAuth, getAccessToken } from '../utils/apiClient';
-import { BrokerLogo } from '../brokerLogos';
 
 interface AngelOneConnectProps {
   serverUrl: string;
@@ -244,7 +243,7 @@ export function AngelOneConnect({ serverUrl, accessToken, onConnected }: AngelOn
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <BrokerLogo id="angelone" name="Angel One" size={26} />
+          <Key className="h-4 w-4" />
           Angel One (SmartAPI)
           {connected ? (
             <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600">

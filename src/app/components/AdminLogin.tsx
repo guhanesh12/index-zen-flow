@@ -11,7 +11,6 @@ import type { AdminUser } from './AdminTypes';
 import QRCode from 'qrcode';
 // NOTE: TOTP verification runs server-side; no otpauth client dependency needed here.
 import { trackLogin } from '../hooks/useAnalyticsTracking';
-import { publicAnonKey, projectId } from '@/utils-ext/supabase/info';
 
 interface AdminLoginProps {
   onLogin: (admin: AdminUser, accessToken?: string) => void;
@@ -19,7 +18,7 @@ interface AdminLoginProps {
   accessToken: string;
   onClose?: () => void;
   pressedHotkey?: string; // Track which hotkey was pressed to access login
-  uniqueCode?: string; // Hotkey session code (10-minute window, bound to hotkey owner)
+  uniqueCode?: string; // Hotkey session code (1-minute window, bound to hotkey owner)
 }
 
 // 🔒 SECURITY: Do NOT hardcode admin passwords or hotkey secrets here.
@@ -49,88 +48,14 @@ const DEFAULT_ADMIN: AdminUser = {
   twoFactorEnabled: false,
 };
 
-// Robust multi-endpoint fallback fetcher for admin auth.
-// Bypasses ISP blocks, CORS restrictions, and network timeouts.
-async function fetchAdminAuth(
-  endpoint: string,
-  payload: Record<string, any>,
-  providedToken?: string,
-): Promise<{ ok: boolean; status: number; data: any; errorMessage?: string }> {
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const token = providedToken || publicAnonKey;
-
-  const localProxy = typeof window !== 'undefined' ? `${window.location.origin}/functions/v1/make-server-c4d79cb7` : null;
-  const customApi = 'https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7';
-  const directSupabase = `https://${projectId}.supabase.co/functions/v1/make-server-c4d79cb7`;
-  const localSupabaseProxy = typeof window !== 'undefined' ? `${window.location.origin}/supabase-proxy/functions/v1/make-server-c4d79cb7` : null;
-
-  const isLocalOrPreview = typeof window !== 'undefined' &&
-    window.location.hostname !== 'indexpilotai.com' &&
-    window.location.hostname !== 'www.indexpilotai.com';
-
-  const candidateUrls = isLocalOrPreview
-    ? [localProxy, localSupabaseProxy, customApi, directSupabase].filter(Boolean) as string[]
-    : [customApi, directSupabase, localProxy].filter(Boolean) as string[];
-
-  const customEnvUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-  if (customEnvUrl && !isLocalOrPreview) {
-    candidateUrls.unshift(`${customEnvUrl.replace(/\/$/, '')}/functions/v1/make-server-c4d79cb7`);
-  }
-
-  const uniqueCandidates = Array.from(new Set(candidateUrls));
-  let lastErrorMsg = 'Network connection failed';
-
-  for (const baseUrl of uniqueCandidates) {
-    try {
-      const url = `${baseUrl}${cleanEndpoint}`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'apikey': publicAnonKey,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      const contentType = response.headers.get('content-type') || '';
-      let data: any = null;
-
-      if (contentType.includes('application/json')) {
-        data = await response.json().catch(() => null);
-      } else {
-        const text = await response.text().catch(() => '');
-        try {
-          data = JSON.parse(text);
-        } catch {
-          if (response.status >= 500) {
-            console.warn(`[ADMIN AUTH] ${baseUrl} returned non-JSON ${response.status}, trying fallback...`);
-            continue;
-          }
-        }
-      }
-
-      if (data) {
-        return {
-          ok: response.ok,
-          status: response.status,
-          data,
-          errorMessage: data.message || (data.restricted ? data.message : undefined),
-        };
-      }
-    } catch (err: any) {
-      console.warn(`[ADMIN AUTH] Endpoint ${baseUrl} failed:`, err?.message || err);
-      lastErrorMsg = err?.message || 'Connection failed';
-    }
-  }
-
-  return { ok: false, status: 0, data: null, errorMessage: lastErrorMsg };
-}
+// Admin auth ALWAYS talks to Supabase edge functions directly, never through the
+// custom api.indexpilotai.com proxy — that proxy caches an older /admin/login
+// build that bypasses 2FA. Using the Supabase URL guarantees we hit the current
+// deployed function.
+const SUPABASE_FN_BASE =
+  (import.meta as any).env?.VITE_SUPABASE_URL
+    ? `${(import.meta as any).env.VITE_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/make-server-c4d79cb7`
+    : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
 
 
 export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHotkey, uniqueCode }: AdminLoginProps) {
@@ -138,7 +63,6 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [infoMessage, setInfoMessage] = useState('');
   const [step, setStep] = useState<'credentials' | 'email-otp' | '2fa-setup' | '2fa-verify'>('credentials');
   const [maskedEmail, setMaskedEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -153,15 +77,6 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
   // Owner of the hotkey that opened this 1-minute window (set by the global
   // hotkey listener). Only these credentials are allowed to log in here.
   const [hotkeyOwner, setHotkeyOwner] = useState<{ hotkey?: string; email?: string; name?: string; username?: string } | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(0);
-
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const timer = setInterval(() => {
-      setResendCooldown((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [resendCooldown]);
 
   useEffect(() => {
     try {
@@ -187,44 +102,29 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setBusy(true);
 
     try {
-      let codeToUse = (uniqueCode || sessionStorage.getItem('admin_unique_code') || '').trim();
-
-      // If code is missing or empty, attempt auto-generation with available hotkey
-      if (!codeToUse) {
-        const activeHotkey = hotkeyOwner?.hotkey || pressedHotkey || 'GUHAN';
-        try {
-          const genRes = await fetchAdminAuth(
-            '/admin/generate-unique-code',
-            { hotkey: activeHotkey.toUpperCase() },
-            accessToken,
-          );
-          if (genRes.ok && genRes.data?.uniqueCode) {
-            codeToUse = genRes.data.uniqueCode;
-            sessionStorage.setItem('admin_unique_code', codeToUse);
-          }
-        } catch (err) {
-          console.warn('[ADMIN LOGIN] Auto-generating unique code fallback failed:', err);
-        }
-      }
-
-      const res = await fetchAdminAuth(
-        '/admin/login',
-        {
-          email: email.trim(),
-          password,
-          uniqueCode: codeToUse,
+      const response = await fetch(`${SUPABASE_FN_BASE}/admin/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
         },
-        accessToken,
-      );
+        body: JSON.stringify({
+          email,
+          password,
+          uniqueCode: uniqueCode || sessionStorage.getItem('admin_unique_code') || '',
+        }),
+      });
 
-      const data = res.data;
+      const data = await response.json();
 
-      if (!res.ok || !data || !data.success) {
-        const msg = res.errorMessage || data?.message || 'Invalid email or password';
-        setError(data?.restricted ? `🚫 ${msg}` : msg);
+      if (!response.ok || !data.success) {
+        setError(
+          data.restricted
+            ? `🚫 ${data.message || 'Restricted mode: access denied.'}`
+            : (data.message || 'Invalid email or password'),
+        );
         trackLogin(email, 'failed');
         return;
       }
@@ -249,12 +149,8 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
         setMaskedEmail(data.maskedEmail || '');
         setOtpCode('');
         setStep('email-otp');
-        setResendCooldown(30);
         if (data.mailed === false) {
-          setError('Email delivery may be delayed. Please check your spam/junk folder or use Resend code in 30 seconds.');
-        } else {
-          setError('');
-          setInfoMessage('');
+          setError('Could not send the email code. Use Resend, or contact the super admin.');
         }
         return;
       }
@@ -282,47 +178,34 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       }
     } catch (error: any) {
       console.error('Admin login error:', error);
-      setError(error?.message || 'Login failed. Please check your connection and try again.');
-    } finally {
-      setBusy(false);
+      setError('Login failed. Please try again.');
     }
   };
 
   // STEP 2 — verify the 6-digit code emailed to the admin, then move on to
   // Google Authenticator (setup or verify, decided by the server).
   const submitEmailOtp = async () => {
-    const cleanOtp = otpCode.replace(/\D/g, '');
-    if (cleanOtp.length !== 6) { setError('Please enter the full 6-digit email code'); return; }
+    if (otpCode.length !== 6) { setError('Please enter the 6-digit email code'); return; }
     if (!challengeToken) { setError('Session expired. Please log in again.'); setStep('credentials'); return; }
     setError('');
-    setInfoMessage('');
     setBusy(true);
     try {
-      const res = await fetchAdminAuth(
-        '/admin/email-otp/verify',
-        { challengeToken, code: cleanOtp },
-        accessToken,
-      );
-      const data = res.data;
-      if (!res.ok || !data || !data.success) {
+      const res = await fetch(`${SUPABASE_FN_BASE}/admin/email-otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ challengeToken, code: otpCode }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok || !data.success) {
         if (res.status === 401 || res.status === 429) {
-          if (String(data?.message || '').includes('log in again')) {
-            setOtpCode('');
-            setChallengeToken('');
-            setStep('credentials');
-            setError(data?.message || 'Session expired. Please log in again.');
-            return;
-          }
-          setError(
-            data?.message === 'Invalid email code'
-              ? 'Invalid email code. If multiple emails arrived, please use the code from the most recent email.'
-              : (data?.message || res.errorMessage || 'Invalid email code')
-          );
-          otpInputRefs[0].current?.select?.();
+          setOtpCode('');
+          if (String(data.message || '').includes('log in again')) { setChallengeToken(''); setStep('credentials'); }
+          setError(data.message || 'Invalid email code');
           return;
         }
-        setError(data?.message || res.errorMessage || 'Invalid email code');
-        otpInputRefs[0].current?.select?.();
+        setError(data.message || 'Invalid email code');
+        setOtpCode('');
+        otpInputRefs[0].current?.focus();
         return;
       }
       setOtpCode('');
@@ -337,37 +220,26 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
         setQrCodeUrl('');
         setStep('2fa-verify');
       }
-    } catch (e: any) {
-      setError(e?.message || 'Verification failed. Please try again.');
+    } catch (e) {
+      setError('Verification failed. Please try again.');
     } finally {
       setBusy(false);
     }
   };
 
   const resendEmailOtp = async () => {
-    if (!challengeToken || resendCooldown > 0) return;
+    if (!challengeToken) return;
     setBusy(true);
     setError('');
-    setInfoMessage('');
     try {
-      const res = await fetchAdminAuth(
-        '/admin/email-otp/resend',
-        { challengeToken },
-        accessToken,
-      );
-      const data = res.data;
-      if (!res.ok || !data || !data.success) {
-        setError(data?.message || res.errorMessage || 'Could not resend the code');
-      } else if (data.mailed === false) {
-        setResendCooldown(25);
-        setError('Email provider delayed delivery. Please wait a moment or check your spam/junk folder.');
-      } else {
-        setResendCooldown(45);
-        setError('');
-        setInfoMessage('New 6-digit code dispatched. Please check your inbox and spam/junk folder.');
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Resend request failed. Please try again.');
+      const res = await fetch(`${SUPABASE_FN_BASE}/admin/email-otp/resend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ challengeToken }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!data.success) setError(data.message || 'Could not resend the code');
+      else setError('');
     } finally {
       setBusy(false);
     }
@@ -375,33 +247,12 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
 
 
   const handleOtpChange = (index: number, value: string) => {
-    const clean = value.replace(/\D/g, '');
-    if (!clean) {
-      const newOtp = otpCode.split('');
-      while (newOtp.length < 6) newOtp.push('');
-      newOtp[index] = '';
-      setOtpCode(newOtp.join('').trimEnd());
-      return;
-    }
-    if (clean.length > 1) {
-      // Handle multi-character paste or browser autofill
-      const chars = clean.slice(0, 6).split('');
-      const newOtp = otpCode.split('');
-      while (newOtp.length < 6) newOtp.push('');
-      for (let i = 0; i < chars.length && index + i < 6; i++) {
-        newOtp[index + i] = chars[i];
-      }
-      const fullOtp = newOtp.join('').slice(0, 6);
-      setOtpCode(fullOtp);
-      const nextIdx = Math.min(index + chars.length, 5);
-      otpInputRefs[nextIdx]?.current?.focus();
-      return;
-    }
-    const singleDigit = clean.slice(-1);
+    const digit = value.replace(/\D/g, '');
+    const singleDigit = digit.slice(-1);
     const newOtp = otpCode.split('');
     while (newOtp.length < 6) newOtp.push('');
     newOtp[index] = singleDigit;
-    setOtpCode(newOtp.join('').slice(0, 6));
+    setOtpCode(newOtp.join(''));
     if (singleDigit && index < 5) {
       otpInputRefs[index + 1].current?.focus();
     }
@@ -420,9 +271,10 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     e.preventDefault();
     const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
     if (pastedData) {
-      setOtpCode(pastedData);
-      const nextIndex = Math.min(pastedData.length - 1, 5);
-      otpInputRefs[nextIndex]?.current?.focus();
+      const paddedOtp = (pastedData + '      ').slice(0, 6);
+      setOtpCode(paddedOtp);
+      const nextIndex = Math.min(pastedData.length, 5);
+      otpInputRefs[nextIndex].current?.focus();
     }
   };
 
@@ -441,32 +293,34 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       return;
     }
 
-    setBusy(true);
     try {
-      const res = await fetchAdminAuth(
-        '/admin/2fa/verify',
-        { challengeToken, code: otpCode },
-        accessToken,
-      );
-      const data = res.data;
-      if (!res.ok || !data || !data.success || !data.accessToken || !data.admin) {
+      const res = await fetch(`${SUPABASE_FN_BASE}/admin/2fa/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ challengeToken, code: otpCode }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok || !data.success || !data.accessToken || !data.admin) {
         // A wrong TOTP also returns 401, but its challenge must remain active so
         // the server can count retries and reset a stale enrollment after three
         // misses. Restart only when the challenge is actually expired/reset.
-        const challengeEnded = data?.reset === true
-          || data?.errorCode === 'TOTP_RESET'
-          || String(data?.message || '').toLowerCase().includes('expired');
+        const challengeEnded = data.reset === true
+          || data.errorCode === 'TOTP_RESET'
+          || String(data.message || '').toLowerCase().includes('expired');
         if (res.status === 401 && challengeEnded) {
           setChallengeToken('');
           setOtpCode('');
           setStep('credentials');
-          setError(data?.message || 'Session expired. Please log in again.');
+          setError(data.message || 'Session expired. Please log in again.');
           return;
         }
-        const attemptsHint = typeof data?.attemptsRemaining === 'number'
+        const attemptsHint = typeof data.attemptsRemaining === 'number'
           ? ` (${data.attemptsRemaining} attempt${data.attemptsRemaining === 1 ? '' : 's'} remaining before authenticator reset)`
           : '';
-        setError(`${data?.message || res.errorMessage || 'Invalid verification code'}${attemptsHint}`);
+        setError(`${data.message || 'Invalid verification code'}${attemptsHint}`);
         setOtpCode('');
         otpInputRefs[0].current?.focus();
         return;
@@ -488,9 +342,7 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
       onLogin(updatedAdmin, data.accessToken);
     } catch (err: any) {
       console.error('2FA verify error', err);
-      setError(err?.message || 'Verification failed. Please try again.');
-    } finally {
-      setBusy(false);
+      setError('Verification failed. Please try again.');
     }
   };
 
@@ -563,7 +415,9 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                       </p>
                     )}
                     <p className="text-[11px] text-amber-300">
-                      ⚠️ Use your registered username/email and password. An email verification OTP code will be sent to your inbox upon verification.
+
+                      ⚠️ Use only your own username and password for this hotkey. Any other credentials are blocked
+                      (restricted mode) and logged in admin activity. This window is valid for 1 minute.
                     </p>
                   </motion.div>
                 )}
@@ -618,11 +472,10 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
 
                   <Button 
                     type="submit" 
-                    disabled={busy}
                     className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                   >
                     <Key className="size-4 mr-2" />
-                    {busy ? 'Authenticating & Sending Code…' : 'Continue'}
+                    Continue
                   </Button>
                 </form>
 
@@ -669,12 +522,6 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                     <span>{error}</span>
                   </div>
                 )}
-                {infoMessage && (
-                  <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">
-                    <CheckCircle className="mt-0.5 size-4 shrink-0" />
-                    <span>{infoMessage}</span>
-                  </div>
-                )}
                 <div className="flex justify-center gap-2">
                   {[0, 1, 2, 3, 4, 5].map((i) => (
                     <Input
@@ -695,25 +542,17 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
                   {busy ? 'Verifying…' : 'Verify email code'}
                 </Button>
                 <div className="flex items-center justify-between text-xs">
-                  <button
-                    type="button"
-                    className={`transition-colors ${resendCooldown > 0 || busy ? 'text-slate-500 cursor-not-allowed' : 'text-blue-400 hover:underline cursor-pointer'}`}
-                    disabled={busy || resendCooldown > 0}
-                    onClick={() => void resendEmailOtp()}
-                  >
-                    {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
+                  <button type="button" className="text-blue-400 hover:underline" disabled={busy} onClick={() => void resendEmailOtp()}>
+                    Resend code
                   </button>
                   <button
                     type="button"
-                    className="text-slate-400 hover:underline cursor-pointer"
+                    className="text-slate-400 hover:underline"
                     onClick={() => { setStep('credentials'); setOtpCode(''); setChallengeToken(''); setError(''); }}
                   >
                     Back to login
                   </button>
                 </div>
-                <p className="text-[11px] text-center text-slate-500">
-                  Tip: Please check your Spam or Junk folder if the email does not appear in your primary inbox.
-                </p>
               </CardContent>
             </Card>
           </motion.div>
