@@ -237,8 +237,7 @@ export function PositionRail({ serverUrl, accessToken, compact = false }: any) {
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-zinc-100 truncate">{posName(p)}</div>
                     <div className="text-[11px] text-zinc-500 mt-0.5">
-                      Qty {Math.abs(posQty(p))} · Avg {money(p?.buyAvg ?? p?.averagePrice ?? p?.avgPrice ?? 0)} · LTP{" "}
-                      {money(p?.ltp ?? p?.lastPrice ?? p?.last_price ?? 0)}
+                      Qty {posTradedQty(p) || "—"} · Avg {money(posAvg(p))} · LTP {money(posLtp(p))}
                     </div>
                   </div>
                   <div className={`text-base font-bold tabular-nums ${pnlClass(pnl)}`}>{signed(pnl)}</div>
@@ -810,13 +809,9 @@ function PositionTable({ title, rows, total, showExit, serverUrl, accessToken }:
                 return (
                   <tr key={i}>
                     <td className="px-3 py-2 text-zinc-100">{posName(p)}</td>
-                    <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{Math.abs(posQty(p))}</td>
-                    <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">
-                      {money(p?.buyAvg ?? p?.averagePrice ?? p?.avgPrice ?? 0)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">
-                      {money(p?.ltp ?? p?.lastPrice ?? p?.last_price ?? 0)}
-                    </td>
+                    <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{posTradedQty(p) || "—"}</td>
+                    <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{money(posAvg(p))}</td>
+                    <td className="px-3 py-2 text-right text-zinc-300 tabular-nums">{money(posLtp(p))}</td>
                     <td className={`px-3 py-2 text-right font-semibold tabular-nums ${pnlClass(pnl)}`}>{signed(pnl)}</td>
                     {showExit && (
                       <td className="px-3 py-2 text-right">
