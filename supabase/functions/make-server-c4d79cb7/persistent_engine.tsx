@@ -40,7 +40,6 @@ async function sendEmailAsync(template: string, userId: string, data: any = {}) 
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
-        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
         apikey: SUPABASE_SERVICE_KEY,
       },
       body: JSON.stringify({ template, userId, data }),
@@ -296,43 +295,6 @@ function _inferIndexName(sym: string): string {
   if (s.includes("SENSEX")) return "SENSEX";
   return "NIFTY";
 }
-
-// 🧮 Index option lot sizes. A lot size of 1 is NEVER valid for index options —
-// falling back to 1 made lotCount == raw share quantity (e.g. 195), which
-// multiplied the user's configured Target/SL by ~65-75x so they could never be hit.
-const _INDEX_LOT_SIZE: Record<string, number> = { NIFTY: 65, BANKNIFTY: 30, SENSEX: 20 };
-function _resolveLotSize(indexName: string, ...candidates: any[]): number {
-  for (const c of candidates) {
-    const n = Number(c);
-    if (Number.isFinite(n) && n > 1) return n;
-  }
-  return _INDEX_LOT_SIZE[(indexName || "NIFTY").toUpperCase()] || 65;
-}
-
-/**
- * 🛡️ RISK SANITY CLAMP
- * An option BUY can never lose more than the premium paid, so a stop-loss larger
- * than the notional is unreachable (the position then only ever exits via
- * "closed externally" or an AI reversal). Target is capped at 5x notional.
- */
-function _sanitizeRisk(
-  target: number,
-  stopLoss: number,
-  entryPrice: number,
-  quantity: number,
-): { target: number; stopLoss: number; clamped: boolean } {
-  const notional = Math.abs(Number(entryPrice) || 0) * Math.abs(Number(quantity) || 0);
-  let t = Number(target) || 0;
-  let s = Number(stopLoss) || 0;
-  if (notional <= 0) return { target: t, stopLoss: s, clamped: false };
-  const maxSL = notional;            // cannot lose more than the premium paid
-  const maxTgt = notional * 5;       // 500% of premium is already extreme
-  let clamped = false;
-  if (s > maxSL) { s = +(notional * 0.5).toFixed(2); clamped = true; }
-  if (t > maxTgt) { t = +(notional * 1.0).toFixed(2); clamped = true; }
-  return { target: t, stopLoss: s, clamped };
-}
-
 async function computeManualLotRisk(
   userId: string,
   indexName: string,
@@ -453,16 +415,7 @@ async function loadEngineCredentials(
           ? !!(await BrokerRouter.getGrowwCredentials(userId))?.accessToken
           : broker === "upstox"
             ? !!(await BrokerRouter.getUpstoxCredentials(userId))?.accessToken
-            : broker === "fyers"
-              ? !!(await BrokerRouter.getFyersCredentials(userId))?.accessToken
-              : broker === "angelone"
-                ? !!(await BrokerRouter.getAngelOneCredentials(userId))?.jwtToken
-                : broker === "aliceblue"
-                  ? !!(await BrokerRouter.getAliceblueCredentials(userId))?.sessionId
-                  : broker === "5paisa"
-                    ? !!(await BrokerRouter.getFivepaisaCredentials(userId))?.accessToken
-                    : false;
-
+            : false;
     if (!connected) return null;
 
     const central = await getCentralCredentials();
@@ -508,107 +461,6 @@ interface EngineConfig {
  * ⚡ SINGLETON PATTERN - ONE ENGINE PER USER
  */
 class PersistentTradingEngine {
-  /**
-   * A broker accepting an exit request does not mean the position was closed.
-   * Wait for the exit order to be fully filled before mutating monitor state or
-   * sending a "Position Closed" notification.
-   */
-  private async confirmExitFilled(
-    userId: string,
-    exitResult: any,
-    position: any,
-    dhanService: any,
-  ): Promise<{ confirmed: boolean; error?: string }> {
-    const exitOrderId = String(exitResult?.orderId || "").trim();
-    if (!exitOrderId) {
-      if (!exitResult?.success) {
-        return { confirmed: false, error: exitResult?.error || "Broker did not return an exit order ID" };
-      }
-      // Some brokers accept and fill an exit without echoing an order ID.
-      // Never assume the fill — verify against the broker's live position book.
-      const gone = await this.positionGoneAtBroker(userId, position, dhanService);
-      if (gone === true) return { confirmed: true };
-      return {
-        confirmed: false,
-        error: gone === false
-          ? "Exit accepted but position still open at broker"
-          : "Exit accepted but fill could not be verified (no order ID, position book unavailable)",
-      };
-    }
-
-    const expectedQuantity = Math.abs(Number(position?.quantity || 0));
-    const filledStatuses = new Set(["COMPLETE", "COMPLETED", "FILLED", "EXECUTED", "TRADED", "SUCCESS"]);
-    const failedStatuses = new Set(["REJECTED", "CANCELLED", "CANCELED", "FAILED", "ERROR"]);
-    let lastStatus = "PENDING";
-    let statusApiResponded = false;
-
-    for (let attempt = 0; attempt < 8; attempt++) {
-      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750));
-      const status = await BrokerRouter.getOrderStatusSmart(
-        userId,
-        exitOrderId,
-        () => dhanService.getOrderStatus(exitOrderId),
-      ).catch(() => null);
-      if (status) statusApiResponded = true;
-      const rawStatus = String(
-        status?.orderStatus || status?.order_status || status?.status || status?.raw?.orderStatus || "PENDING",
-      ).toUpperCase();
-      lastStatus = rawStatus;
-      const tradedQuantity = Math.abs(Number(
-        status?.tradedQuantity ?? status?.filledQty ?? status?.filled_quantity ?? status?.quantity ?? 0,
-      ));
-
-      if (failedStatuses.has(rawStatus)) {
-        return { confirmed: false, error: `Exit order ${rawStatus}` };
-      }
-      if (filledStatuses.has(rawStatus) && (expectedQuantity === 0 || tradedQuantity === 0 || tradedQuantity >= expectedQuantity)) {
-        return { confirmed: true };
-      }
-    }
-
-    // Order-status APIs are unreliable for several brokers, so instead of either
-    // stalling forever or blindly assuming a fill, fall back to the broker's own
-    // position book — that is the source of truth for "is this trade still open?".
-    const gone = await this.positionGoneAtBroker(userId, position, dhanService);
-    if (gone === true) {
-      console.warn(
-        `⚠️ Exit ${exitOrderId} unconfirmed by order status (last: ${lastStatus}) but position is gone from the broker position book — treating as filled`,
-      );
-      return { confirmed: true };
-    }
-
-    const reason = gone === false
-      ? `Exit order not filled (last status: ${lastStatus}) — position still open at broker`
-      : `Exit order not filled (last status: ${lastStatus}, statusApiResponded: ${statusApiResponded}) — could not verify against broker positions`;
-    console.warn(`⚠️ ${reason}`);
-    return { confirmed: false, error: reason };
-  }
-
-  /**
-   * Source-of-truth check: is this position still present (non-zero qty) in the
-   * broker's live position book?
-   * @returns true = gone (exit really filled), false = still open, null = unknown
-   */
-  private async positionGoneAtBroker(
-    userId: string,
-    position: any,
-    dhanService: any,
-  ): Promise<boolean | null> {
-    try {
-      const brokerPositions = await BrokerRouter.getPositionsSmart(userId, () => dhanService.getPositions());
-      if (!Array.isArray(brokerPositions)) return null;
-      const stillOpen = brokerPositions.some(
-        (bp: any) => positionsMatch(bp, position) && Math.abs(Number(bp?.netQty ?? bp?.net_qty ?? 0)) > 0,
-      );
-      return !stillOpen;
-    } catch (e) {
-      console.warn(`⚠️ positionGoneAtBroker lookup failed: ${(e as any)?.message || e}`);
-      return null;
-    }
-  }
-
-
-
   private static instances: Map<string, NodeJS.Timeout> = new Map();
   private static engineStates: Map<string, EngineState> = new Map();
   private static activeLoops: Set<string> = new Set();
@@ -1051,44 +903,29 @@ class PersistentTradingEngine {
               const cfg =
                 findSymbolConfigForPosition({ ...pos, symbol: sym, securityId: sid }, userConfiguredSymbols) || {};
               const idxName = sym.includes("BANKNIFTY") ? "BANKNIFTY" : sym.includes("SENSEX") ? "SENSEX" : "NIFTY";
-              const lotSize = _resolveLotSize(idxName, cfg.lotSize, pos.lotSize, pos.lot_size);
+              const lotSize = Number(cfg.lotSize) || Number(pos.lotSize) || Number(pos.lot_size) || 1;
 
-              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by LOT COUNT (never by raw
-              // share quantity) so manual buys in the broker app get proportional SL/Target.
+              // 🧮 LOT-BASED AUTO RISK: scale target/SL/trailing by lot count from the broker qty
+              // so manual buys in Dhan (e.g., 2 or 3 lots) get proportional SL/Target/Trailing.
               const autoRisk = await computeManualLotRisk(userId, idxName, qty, lotSize, cfg.moneyness);
-              // The user's configured amounts are TOTALS for the lots they configured, so
-              // convert to per-lot first and re-scale to the lots actually held.
-              const cfgLots = Math.max(1, Math.round(Math.abs(Number(cfg.quantity) || lotSize) / lotSize));
-              const rescale = (v: any, fallback: number) => {
-                const n = Number(v);
-                return n > 0 ? +((n / cfgLots) * autoRisk.lotCount).toFixed(2) : fallback;
-              };
-              const rawTarget = rescale(cfg.targetAmount, autoRisk.targetAmount);
-              const rawStopLoss = rescale(cfg.stopLossAmount, autoRisk.stopLossAmount);
-              const _safe = _sanitizeRisk(rawTarget, rawStopLoss, entry, qty);
-              if (_safe.clamped) {
-                console.warn(
-                  `🛡️ [RISK-CLAMP] ${sym}: Tgt ₹${rawTarget}/SL ₹${rawStopLoss} exceeded premium notional (₹${(entry * qty).toFixed(2)}) → Tgt ₹${_safe.target} SL ₹${_safe.stopLoss}`,
-                );
-              }
-              const cfgTarget = _safe.target;
-              const cfgStopLoss = _safe.stopLoss;
+              const cfgTarget = Number(cfg.targetAmount) > 0
+                ? Number(cfg.targetAmount) * autoRisk.lotCount
+                : autoRisk.targetAmount;
+              const cfgStopLoss = Number(cfg.stopLossAmount) > 0
+                ? Number(cfg.stopLossAmount) * autoRisk.lotCount
+                : autoRisk.stopLossAmount;
               const cfgTrailingEnabled = cfg.trailingEnabled !== undefined
                 ? !!cfg.trailingEnabled
                 : autoRisk.trailingEnabled;
-              const cfgTrailingActivation = Math.min(
-                rescale(cfg.trailingActivationAmount, autoRisk.trailingActivationAmount),
-                Math.max(1, cfgTarget * 0.8),
-              );
-              const cfgTargetJump = Math.min(
-                rescale(cfg.targetJumpAmount, autoRisk.targetJumpAmount),
-                Math.max(1, cfgTarget * 0.5),
-              );
-              const cfgSlJump = Math.min(
-                rescale(cfg.stopLossJumpAmount, autoRisk.stopLossJumpAmount),
-                Math.max(1, cfgStopLoss * 0.5),
-              );
-
+              const cfgTrailingActivation = Number(cfg.trailingActivationAmount) > 0
+                ? Number(cfg.trailingActivationAmount) * autoRisk.lotCount
+                : autoRisk.trailingActivationAmount;
+              const cfgTargetJump = Number(cfg.targetJumpAmount) > 0
+                ? Number(cfg.targetJumpAmount) * autoRisk.lotCount
+                : autoRisk.targetJumpAmount;
+              const cfgSlJump = Number(cfg.stopLossJumpAmount) > 0
+                ? Number(cfg.stopLossJumpAmount) * autoRisk.lotCount
+                : autoRisk.stopLossJumpAmount;
 
               const orderId = pos.orderId || pos.order_id || `auto-${userId}-${sid || Array.from(keys)[0] || sym}`;
 
@@ -1258,19 +1095,22 @@ class PersistentTradingEngine {
           this.lastCandleFireKey = key;
           // 🛰️ Publish the shared central signal FIRST (independent of any user engine)
           // so every user's tick reuses the exact same signal from cache instantly.
+          inflight.push(
+            this.publishCentralSignals(istNow).catch((e: any) =>
+              console.error(`❌ [CENTRAL-PUB] ${e?.message || e}`)
+            ),
+          );
+
           lastLatencyMs = msIntoMinute;
           fires++;
           console.log(
             `⚡ [CANDLE-WATCH] Minute boundary ${h}:${String(m).padStart(2, "0")} → firing engine tick at +${msIntoMinute}ms`,
           );
-          // Publish first, then run users. Previously these were started in parallel,
-          // so a fast user tick could miss the shared cache and independently analyse
-          // a different candle set. Keep this chain ordered for one canonical result.
+          // Fire immediately (forced: bypass the 1-minute cron lock) and keep polling.
           inflight.push(
-            this.publishCentralSignals(istNow)
-              .catch((e: any) => console.error(`❌ [CENTRAL-PUB] ${e?.message || e}`))
-              .then(() => this.runCronTick(true))
-              .catch((e: any) => console.error(`❌ [CANDLE-WATCH] Tick failed: ${e?.message || e}`)),
+            this.runCronTick(true).catch((e: any) =>
+              console.error(`❌ [CANDLE-WATCH] Tick failed: ${e?.message || e}`)
+            ),
           );
         }
 
@@ -1278,13 +1118,10 @@ class PersistentTradingEngine {
           this.lastCandleRetryKey = key;
           fires++;
           console.log(`🔁 [CANDLE-WATCH] Safety re-fire at +${msIntoMinute}ms for ${h}:${String(m).padStart(2, "0")}`);
-          // Re-fetch and overwrite the shared signal after the broker's settlement
-          // window. The first +700ms pass may legitimately not contain the just-closed bar.
           inflight.push(
-            this.publishCentralSignals(istNow, true)
-              .catch((e: any) => console.error(`❌ [CENTRAL-PUB] Retry failed: ${e?.message || e}`))
-              .then(() => this.runCronTick(true))
-              .catch((e: any) => console.error(`❌ [CANDLE-WATCH] Retry tick failed: ${e?.message || e}`)),
+            this.runCronTick(true).catch((e: any) =>
+              console.error(`❌ [CANDLE-WATCH] Retry tick failed: ${e?.message || e}`)
+            ),
           );
         }
 
@@ -1542,18 +1379,16 @@ class PersistentTradingEngine {
             if (primary.source === "user") {
               console.warn(`🟡 [CENTRAL] ${indexName} fell back to user market data (${userId})`);
             }
-            // Dhan timestamps are bar OPEN times. At 09:45, a bar stamped 09:45 is
-            // forming and only timestamps before 09:45 are safe. This must exactly
-            // match the central publisher or fallback analysis can flip the signal.
+            // ⚡ Dhan index candles use close-time timestamps (09:30 means 09:15-09:30 CLOSED).
+            // Keep the latest bar as soon as its timestamp is <= the current closed boundary;
+            // only strip future/actively-forming close timestamps.
             const stripForming = (arr: any[], tfMin: number) => {
               if (!arr || arr.length < 2) return arr;
+              const lastTs = arr[arr.length - 1]?.timestamp ?? 0;
+              const lastTsMs = lastTs < 1e12 ? lastTs * 1000 : lastTs;
               const tfMs = tfMin * 60 * 1000;
-              const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
-              return arr.filter((c: any) => {
-                const raw = Number(c?.timestamp || 0);
-                const timestampMs = raw > 0 && raw < 1e12 ? raw * 1000 : raw;
-                return timestampMs > 0 && timestampMs < formingStartMs;
-              });
+              const currentClosedBoundaryMs = Math.floor(Date.now() / tfMs) * tfMs;
+              return lastTsMs > currentClosedBoundaryMs ? arr.slice(0, -1) : arr;
             };
             // ⚡ BUG FIX 1: Resample primary lower-TF candles into 15m if separate 15m feed is sparse/stale.
             const resampleTo15m = (arr: any[], srcTfMin: number) => {
@@ -1601,11 +1436,8 @@ class PersistentTradingEngine {
               } else {
                 // Cooldown/streak state is GLOBAL (not per-user) so the strategy output is
                 // identical for every user on the same candle.
-                // 5M and 15M are independent strategy streams. Sharing these keys let
-                // a 5M decision suppress/change the simultaneous 15M decision.
-                const signalStateKey = `${indexName}:${tfMin}`;
-                const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${signalStateKey}`)) || 0;
-                const lastSignalDirection = (await kv.get(`central:last_signal_dir:${signalStateKey}`)) || "WAIT";
+                const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${indexName}`)) || 0;
+                const lastSignalDirection = (await kv.get(`central:last_signal_dir:${indexName}`)) || "WAIT";
                 const lastStopLossTimestamp = (await kv.get(`central:last_sl_ts:${indexName}`)) || 0;
                 const lastStopLossDirection = (await kv.get(`central:last_sl_dir:${indexName}`)) || null;
                 const consecutiveLossCount = Number((await kv.get(`central:loss_streak:${indexName}`)) || 0);
@@ -1623,17 +1455,17 @@ class PersistentTradingEngine {
                   lastLossTimestamp,
                   consecutiveLossThreshold: 3,
                   consecutiveLossCooldownMs: 30 * 60 * 1000,
-                  minimumBarsBetweenSignals: tfMin === 15 ? 3 : 2,
+                  minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
                   blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
                 });
                 (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
                 (sig as any).signalSource = primary.source === "central" ? "CENTRAL_DATA" : "USER_DATA";
                 if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
                   await kv.set(
-                    `central:last_signal_ts:${signalStateKey}`,
+                    `central:last_signal_ts:${indexName}`,
                     ohlcData[ohlcData.length - 1].timestamp || Date.now(),
                   );
-                  await kv.set(`central:last_signal_dir:${signalStateKey}`, sig.action);
+                  await kv.set(`central:last_signal_dir:${indexName}`, sig.action);
                 }
                 await saveCentralSignal(indexName, tfMin, currentCandleTimestamp, sig);
                 aiSignal = { signal: sig };
@@ -1797,30 +1629,15 @@ class PersistentTradingEngine {
               ((normalizeOptionType(p.optionType || p.symbolName) === "CE" && action === "BUY_PUT") ||
                 (normalizeOptionType(p.optionType || p.symbolName) === "PE" && action === "BUY_CALL")),
           );
-          // Protect open positions from noisy candle-to-candle direction changes,
-          // but do NOT hold a losing trade against a fresh opposite signal.
-          //  • Position already losing  → exit on any decent counter-signal (>=68%).
-          //  • Position in profit/flat  → only a very strong counter-signal (>=90%)
-          //    after 70% of the SL is gone can flip it.
           const reversalPnl = Number(reversalPosition?.pnl || 0);
-          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.7);
-          const reversalConfirmed =
-            Boolean(reversalPosition) &&
-            ((confidence >= 68 && reversalPnl < 0) ||
-              (confidence >= 90 && reversalPnl <= -reversalSL));
-          if (reversalPosition && !reversalConfirmed) {
-            console.log(
-              `🛡️ ${indexName} reversal ignored — confidence ${confidence}% (need 68% while losing / 90% otherwise), P&L ₹${reversalPnl.toFixed(2)}`,
-            );
-          }
-          if (reversalPosition && reversalConfirmed) {
+          const reversalSL = Math.max(300, Number(reversalPosition?.stopLossAmount || 0) * 0.5);
+          if (reversalPosition && confidence >= 90 && reversalPnl <= -reversalSL) {
             const exitReason = `Market Reversal (${normalizeOptionType(reversalPosition.optionType || reversalPosition.symbolName) || "OLD"} → ${action === "BUY_CALL" ? "CE" : "PE"}, ${confidence}% confidence)`;
             const exitResult = await BrokerRouter.placeOrderSmart(
               userId,
               { dhanClientId, dhanAccessToken },
               {
                 securityId: reversalPosition.securityId,
-                symbol: reversalPosition.symbolName,
                 transactionType: "SELL",
                 exchangeSegment:
                   reversalPosition.exchangeSegment || (reversalPosition.index === "SENSEX" ? "BSE_FNO" : "NSE_FNO"),
@@ -1835,8 +1652,7 @@ class PersistentTradingEngine {
                 amoTime: "",
               },
             );
-            const exitConfirmation = await this.confirmExitFilled(userId, exitResult, reversalPosition, dhanService);
-            if (exitConfirmation.confirmed) {
+            if (exitResult.orderId || exitResult.success) {
               reversalPosition.status = "CLOSED";
               await supabaseAdmin
                 .from("position_monitor_state")
@@ -1865,14 +1681,7 @@ class PersistentTradingEngine {
               }).catch((e) => console.error("FCM push (close) failed:", e));
               state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
             } else {
-              const failure = exitConfirmation.error || exitResult.error || "Exit was not confirmed";
-              console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${failure}`);
-              sendPushToUser(userId, {
-                title: `⚠️ Exit not confirmed: ${reversalPosition.symbolName}`,
-                body: `${failure}. Position monitoring remains active; check your broker immediately.`,
-                targetUrl: "/dashboard",
-                data: { type: "EXIT_FAILED", symbol: String(reversalPosition.symbolName || "") },
-              }).catch((e) => console.error("FCM push (exit failure) failed:", e));
+              console.log(`❌ REVERSAL EXIT FAILED for ${reversalPosition.symbolName}: ${exitResult.error}`);
               return;
             }
           }
@@ -2132,26 +1941,14 @@ class PersistentTradingEngine {
             const sameIndexPosition = state.activePositions.find(
               (p: any) => p.status === "ACTIVE" && p.index && indexName && p.index === indexName,
             );
-            // Apply the same guarded reversal rule used by the central signal path.
-            // This prevents manual/configured symbols from bypassing the protection.
             const sameIndexPnl = Number(sameIndexPosition?.pnl || 0);
-            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.7);
-            const isOppositeSignal =
-              Boolean(sameIndexPosition) &&
-              Boolean(targetOptionType) &&
-              normalizeOptionType(sameIndexPosition?.optionType || sameIndexPosition?.symbolName) !== targetOptionType;
-            const sameIndexReversalConfirmed =
-              isOppositeSignal &&
-              ((confidence >= 68 && sameIndexPnl < 0) ||
-                (confidence >= 90 && sameIndexPnl <= -sameIndexSL));
-            if (isOppositeSignal && !sameIndexReversalConfirmed) {
-              console.log(
-                `🛡️ ${indexName} configured-symbol reversal ignored — confidence ${confidence}% (need 68% while losing / 90% otherwise), P&L ₹${sameIndexPnl.toFixed(2)}`,
-              );
-            }
+            const sameIndexSL = Math.max(300, Number(sameIndexPosition?.stopLossAmount || 0) * 0.5);
             if (
               sameIndexPosition &&
-              sameIndexReversalConfirmed
+              confidence >= 90 &&
+              sameIndexPnl <= -sameIndexSL &&
+              targetOptionType &&
+              normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) !== targetOptionType
             ) {
               const exitReason = `Market Reversal (${normalizeOptionType(sameIndexPosition.optionType || sameIndexPosition.symbolName) || "OLD"} → ${targetOptionType})`;
               const exitResult = await BrokerRouter.placeOrderSmart(
@@ -2159,7 +1956,6 @@ class PersistentTradingEngine {
                 { dhanClientId, dhanAccessToken },
                 {
                   securityId: sameIndexPosition.securityId,
-                  symbol: sameIndexPosition.symbolName,
                   transactionType: "SELL",
                   exchangeSegment:
                     sameIndexPosition.exchangeSegment || (sameIndexPosition.index === "SENSEX" ? "BSE_FNO" : "NSE_FNO"),
@@ -2174,8 +1970,7 @@ class PersistentTradingEngine {
                   amoTime: "",
                 },
               );
-              const exitConfirmation = await this.confirmExitFilled(userId, exitResult, sameIndexPosition, dhanService);
-              if (exitConfirmation.confirmed) {
+              if (exitResult.orderId || exitResult.success) {
                 sameIndexPosition.status = "CLOSED";
                 await supabaseAdmin
                   .from("position_monitor_state")
@@ -2206,8 +2001,7 @@ class PersistentTradingEngine {
                 }
                 state.activePositions = state.activePositions.filter((p: any) => p.status === "ACTIVE");
               } else {
-                const failure = exitConfirmation.error || exitResult.error || "Exit was not confirmed";
-                console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${failure}`);
+                console.log(`❌ REVERSAL EXIT FAILED for ${sameIndexPosition.symbolName}: ${exitResult.error}`);
                 return;
               }
             }
@@ -2230,7 +2024,7 @@ class PersistentTradingEngine {
               );
               const activeOptionType = normalizeOptionType(activePosition?.optionType || activePosition?.symbolName);
               console.log(
-                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${activePosition?.symbolName || symbol.name}, ${activeOptionType || "UNKNOWN"}). Skipping ${action}; same-direction signal (opposite direction auto-flips).`,
+                `⏸️ ALREADY RUNNING - Position open for ${indexName} (${activePosition?.symbolName || symbol.name}, ${activeOptionType || "UNKNOWN"}). Skipping ${action}; same-index reversal requires 90% confidence.`,
               );
               await this.appendSharedLog(userId, {
                 type: "SKIP",
@@ -2293,20 +2087,6 @@ class PersistentTradingEngine {
                   success: false,
                   error: orderError?.message || String(orderError),
                   code: orderError?.code || null,
-                };
-              }
-
-              // A broker can echo an order ID and still reject the order — that is a
-              // FAILED entry, not a position. Treat it exactly like an order failure.
-              const placedStatus = String(
-                orderResult?.orderStatus || orderResult?.status || "",
-              ).toUpperCase();
-              if (orderResult.orderId && ["REJECTED", "CANCELLED", "CANCELED", "FAILED", "ERROR", "EXPIRED"].includes(placedStatus)) {
-                orderResult = {
-                  ...orderResult,
-                  orderId: null,
-                  success: false,
-                  error: orderResult?.error || orderResult?.message || `Broker ${placedStatus} the order`,
                 };
               }
 
@@ -2666,7 +2446,7 @@ class PersistentTradingEngine {
               ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                   higherTimeframeData: real15mData,
                   timeframeMinutes: tfMin,
-                  minimumBarsBetweenSignals: tfMin === 15 ? 3 : 2,
+                  minimumBarsBetweenSignals: 1, // ⚡ FAST MODE
                 })
               : null;
           monitorSignalCache.set(indexName, signal);
@@ -2687,68 +2467,7 @@ class PersistentTradingEngine {
         );
 
         // Check if position is closed
-        if (!dhanPos) {
-          const missingCount = Number((position as any).missingBrokerPositionCount || 0) + 1;
-          (position as any).missingBrokerPositionCount = missingCount;
-          // Position APIs can briefly return an empty/stale snapshot. Never declare a live
-          // trade closed from one response; require ten consecutive successful monitor ticks.
-          if (missingCount < 10) {
-            console.warn(`⚠️ ${position.symbolName} absent from broker positions (${missingCount}/10); keeping monitor active`);
-            continue;
-          }
-        } else {
-          (position as any).missingBrokerPositionCount = 0;
-          (position as any).everSeenAtBroker = true;
-        }
-
-        // 🚫 ENTRY ORDER REJECTED — this trade NEVER opened at the broker.
-        // A rejected/cancelled entry must never be reported as a closed position
-        // and must never touch the engine on/off state.
-        if (!dhanPos && !(position as any).everSeenAtBroker) {
-          const entryStatusRaw = await BrokerRouter.getOrderStatusSmart(
-            userId,
-            String(position.orderId),
-            () => dhanService.getOrderStatus(String(position.orderId)),
-          ).catch(() => null);
-          const entryStatus = String(
-            entryStatusRaw?.orderStatus || entryStatusRaw?.order_status || entryStatusRaw?.status ||
-            entryStatusRaw?.raw?.orderStatus || "",
-          ).toUpperCase();
-          if (["REJECTED", "CANCELLED", "CANCELED", "FAILED", "ERROR", "EXPIRED"].includes(entryStatus)) {
-            console.warn(`🚫 Entry order ${position.orderId} ${entryStatus} — clearing monitor row silently (no position was ever opened)`);
-            position.status = "CLOSED";
-            await supabaseAdmin
-              .from("position_monitor_state")
-              .update({
-                is_active: false,
-                // "housekeeping:" prefix keeps the DB triggers silent — no
-                // "Position Closed" push and no engine shutdown.
-                exit_reason: `housekeeping: entry order ${entryStatus.toLowerCase()} — position never opened`,
-                exited_at: new Date().toISOString(),
-                pnl: 0,
-              })
-              .eq("user_id", userId)
-              .eq("order_id", position.orderId)
-              .eq("is_active", true);
-
-            await supabaseAdmin
-              .from("trading_orders")
-              .update({ status: "failed", error_message: `Broker ${entryStatus}` })
-              .eq("user_id", userId)
-              .eq("dhan_order_id", String(position.orderId));
-
-            await this.appendSharedLog(userId, {
-              type: "ERROR",
-              timestamp: Date.now(),
-              symbol: position.symbolName,
-              message: `🚫 ORDER ${entryStatus}: ${position.symbolName} — no position was opened. Engine keeps running.`,
-              data: { orderId: position.orderId, status: entryStatus },
-            });
-            continue;
-          }
-        }
-
-        if (!dhanPos || Number(dhanPos.netQty ?? dhanPos.quantity ?? 0) === 0) {
+        if (!dhanPos || dhanPos.netQty === 0) {
           // Try to read realized P&L from Dhan so we can record it
           const realizedPnl = parseFloat(
             dhanPos?.realizedProfit || dhanPos?.realizedPnl || dhanPos?.realizedPnL || position.pnl || 0,
@@ -2758,11 +2477,9 @@ class PersistentTradingEngine {
             `🚪 Position CLOSED externally: ${position.symbolName} | Realized P&L: ₹${realizedPnl.toFixed(2)}`,
           );
           position.status = "CLOSED";
+          state.stats.totalPnL += realizedPnl;
 
-          // Only the monitor invocation that actually transitions this row may
-          // record an external close. A concurrent AI/SL exit may already have
-          // saved the real reason; never overwrite it with the generic label.
-          const { data: externallyClosedRow } = await supabaseAdmin
+          await supabaseAdmin
             .from("position_monitor_state")
             .update({
               is_active: false,
@@ -2771,17 +2488,7 @@ class PersistentTradingEngine {
               pnl: realizedPnl,
             })
             .eq("user_id", userId)
-            .eq("order_id", position.orderId)
-            .eq("is_active", true)
-            .select("id")
-            .maybeSingle();
-
-          if (!externallyClosedRow) {
-            console.log(`ℹ️ ${position.symbolName} was already closed by another exit path; preserving its recorded reason`);
-            continue;
-          }
-
-          state.stats.totalPnL += realizedPnl;
+            .eq("order_id", position.orderId);
 
           // ⚡ Record into signal_stats so wallet auto-debit can read today's profit
           await this.updatePnLStats(userId, realizedPnl);
@@ -2820,38 +2527,20 @@ class PersistentTradingEngine {
         // 🔁 LOT CHANGE DETECTION: user added/removed lots manually in Dhan app.
         // Recompute target/SL/trailing scaled to the new lot count and persist.
         if (brokerQty > 0 && trackedQty > 0 && brokerQty !== trackedQty) {
+          const lotSize = Number(position.lotSize) || Number(dhanPos.lotSize) || Number(dhanPos.lot_size) || 1;
           const idxName = position.index || _inferIndexName(position.symbolName || "");
-          const lotSize = _resolveLotSize(idxName, position.lotSize, dhanPos.lotSize, dhanPos.lot_size);
           const newRisk = await computeManualLotRisk(userId, idxName, brokerQty, lotSize, position.moneyness);
-          const oldLots = Math.max(1, Math.round(trackedQty / lotSize));
-          // Derive PER-LOT values from the current totals and re-scale — never multiply the
-          // running totals repeatedly (that compounded into unreachable Target/SL).
-          const perLot = (v: any, fb: number) => {
-            const n = Number(v) || 0;
-            return n > 0 ? n / oldLots : fb / Math.max(1, newRisk.lotCount);
-          };
-          const nextTarget = +(perLot(position.targetAmount, newRisk.targetAmount) * newRisk.lotCount).toFixed(2);
-          const nextSL = +(perLot(position.stopLossAmount, newRisk.stopLossAmount) * newRisk.lotCount).toFixed(2);
-          const safe = _sanitizeRisk(nextTarget, nextSL, entryPrice, brokerQty);
+          const oldLots = Math.max(1, Math.round(trackedQty / Math.max(1, lotSize)));
+          const scale = newRisk.lotCount / oldLots;
           position.quantity = brokerQty;
-          position.targetAmount = safe.target || newRisk.targetAmount;
-          position.stopLossAmount = safe.stopLoss || newRisk.stopLossAmount;
-          position.currentTargetAmount = position.targetAmount;
-          position.currentStopLossAmount = position.stopLossAmount;
-          position.trailingActivationAmount = Math.min(
-            +(perLot(position.trailingActivationAmount, newRisk.trailingActivationAmount) * newRisk.lotCount).toFixed(2) || newRisk.trailingActivationAmount,
-            Math.max(1, position.targetAmount * 0.8),
-          );
-          position.targetJumpAmount = Math.min(
-            +(perLot(position.targetJumpAmount, newRisk.targetJumpAmount) * newRisk.lotCount).toFixed(2) || newRisk.targetJumpAmount,
-            Math.max(1, position.targetAmount * 0.5),
-          );
-          position.stopLossJumpAmount = Math.min(
-            +(perLot(position.stopLossJumpAmount, newRisk.stopLossJumpAmount) * newRisk.lotCount).toFixed(2) || newRisk.stopLossJumpAmount,
-            Math.max(1, position.stopLossAmount * 0.5),
-          );
+          position.targetAmount = +(Number(position.targetAmount || 0) * scale).toFixed(2) || newRisk.targetAmount;
+          position.stopLossAmount = +(Number(position.stopLossAmount || 0) * scale).toFixed(2) || newRisk.stopLossAmount;
+          position.currentTargetAmount = +(Number(position.currentTargetAmount || position.targetAmount) * scale).toFixed(2);
+          position.currentStopLossAmount = +(Number(position.currentStopLossAmount || position.stopLossAmount) * scale).toFixed(2);
+          position.trailingActivationAmount = +(Number(position.trailingActivationAmount || 0) * scale).toFixed(2) || newRisk.trailingActivationAmount;
+          position.targetJumpAmount = +(Number(position.targetJumpAmount || 0) * scale).toFixed(2) || newRisk.targetJumpAmount;
+          position.stopLossJumpAmount = +(Number(position.stopLossJumpAmount || 0) * scale).toFixed(2) || newRisk.stopLossJumpAmount;
           position.trailingStep = position.stopLossJumpAmount;
-
           console.log(`🔁 [LOT-CHANGE] ${position.symbolName}: qty ${trackedQty}→${brokerQty} (${oldLots}→${newRisk.lotCount} lots) | Tgt ₹${position.targetAmount} SL ₹${position.stopLossAmount} TrailStep ₹${position.stopLossJumpAmount}`);
           await supabaseAdmin.from("position_monitor_state").update({
             quantity: brokerQty,
@@ -2905,40 +2594,6 @@ class PersistentTradingEngine {
             position.stopLossJumpAmount = Math.round(_baseSL * 0.35);
           }
         }
-
-        // 🛡️ RUNTIME RISK CLAMP — repairs already-persisted inflated rows (Aug 20+ bug):
-        // an unreachable SL/Target meant the position could only exit via "closed externally"
-        // or an AI reversal, so profitable moves were never banked.
-        {
-          const safe = _sanitizeRisk(_baseTarget, _baseSL, entryPrice, quantity);
-          if (safe.clamped) {
-            console.warn(
-              `🛡️ [RISK-CLAMP] ${position.symbolName}: stored Tgt ₹${_baseTarget}/SL ₹${_baseSL} > premium notional ₹${(entryPrice * quantity).toFixed(2)} → Tgt ₹${safe.target} SL ₹${safe.stopLoss}`,
-            );
-            _baseTarget = safe.target;
-            _baseSL = safe.stopLoss;
-            position.targetAmount = _baseTarget;
-            position.stopLossAmount = _baseSL;
-            position.currentTargetAmount = Math.min(Number(position.currentTargetAmount || _baseTarget), _baseTarget);
-            position.currentStopLossAmount = Math.min(Number(position.currentStopLossAmount || _baseSL), _baseSL);
-            if (Number(position.trailingActivationAmount) > _baseTarget * 0.8) {
-              position.trailingActivationAmount = +(_baseTarget * 0.5).toFixed(2);
-            }
-            if (Number(position.targetJumpAmount) > _baseTarget * 0.5) {
-              position.targetJumpAmount = +(_baseTarget * 0.25).toFixed(2);
-            }
-            if (Number(position.stopLossJumpAmount) > _baseSL * 0.5) {
-              position.stopLossJumpAmount = +(_baseSL * 0.33).toFixed(2);
-              position.trailingStep = position.stopLossJumpAmount;
-            }
-            await supabaseAdmin.from("position_monitor_state").update({
-              target_amount: _baseTarget,
-              stop_loss_amount: _baseSL,
-              trailing_step: position.stopLossJumpAmount || null,
-            }).eq("user_id", userId).eq("order_id", position.orderId);
-          }
-        }
-
 
         let _activation = Number(position.trailingActivationAmount ?? 0);
         let _slJump = Number(position.stopLossJumpAmount ?? 0);
@@ -3174,23 +2829,22 @@ class PersistentTradingEngine {
           const isAlignedWithMarket = positionDirection === marketMomentum;
           marketFavorable = isAlignedWithMarket && momentumStrength >= 3;
 
-          // 🔒 RULE: a running position is only closed on a STRONG opposite signal.
-          // A single low-confidence flip is market noise and must not close a live
-          // trade that can still recover. Sideways / WAIT / neutral also keep running.
-          const _oppositeAction =
-            normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BUY_PUT" : "BUY_CALL";
-          const _isOppositeSignal = currentSignal.action === _oppositeAction;
-
-          const _oppositeSignalConfirmed =
-            _isOppositeSignal && Number(currentSignal.confidence || 0) >= 80 && momentumStrength >= 4;
-
-          if (_oppositeSignalConfirmed) {
+          if (
+            (normalizeOptionType(position.optionType || position.symbolName) === "CE" &&
+              currentSignal.action === "BUY_PUT" &&
+              Number(currentSignal.confidence || 0) >= 90) ||
+            (normalizeOptionType(position.optionType || position.symbolName) === "PE" &&
+              currentSignal.action === "BUY_CALL" &&
+              Number(currentSignal.confidence || 0) >= 90)
+          ) {
             signalShouldExit = true;
-            signalExitReason = `Strong Signal Flip (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence, momentum ${momentumStrength}/6)`;
-          } else if (_isOppositeSignal) {
-            monitorReasoning = `⚠️ HOLD - Unconfirmed flip ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6); waiting for strong confirmation`;
+            signalExitReason = `Strong Market Reversal (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence)`;
+          } else if (!isAlignedWithMarket && momentumStrength >= 4 && pnl < -Math.max(300, Number(position.stopLossAmount || 0) * 0.5)) {
+            // Only exit on "Market Not Favorable" when market is STRONGLY against (4/6 indicators)
+            // AND we're already in meaningful loss (>= 50% of SL). Prevents exiting on transient blips.
+            signalShouldExit = true;
+            signalExitReason = `Market Strongly Against (${marketMomentum} ${momentumStrength}/6 vs ${positionDirection}, P&L ₹${pnl.toFixed(2)})`;
           } else if (isAlignedWithMarket && momentumStrength >= 3) {
-
             monitorReasoning = `✅ HOLD - ${marketMomentum} momentum matches ${positionDirection} position (${momentumStrength}/6 confirmations)`;
           } else {
             monitorReasoning = `⚠️ WATCH - Market ${marketMomentum}, AI ${currentSignal.action} (${currentSignal.confidence || 0}%), P&L ₹${pnl.toFixed(2)}`;
@@ -3262,7 +2916,6 @@ class PersistentTradingEngine {
           // FIX G: winning exit resets consecutive-loss streak.
           try {
             await kv.set(`loss_streak:${userId}:${position.index}`, 0);
-            await kv.set(`central:loss_streak:${position.index}`, 0);
           } catch (_e) {
             /* non-fatal */
           }
@@ -3273,7 +2926,6 @@ class PersistentTradingEngine {
           exitReason = `Stop Loss Hit (SL: ₹${effectiveSL.toFixed(2)}, Current: ₹${pnl.toFixed(2)})`;
           // FIX D: persist last SL hit so AdvancedAI applies the 2-bar revenge-trade cooldown.
           // FIX G: increment consecutive-loss streak for 30-min lockout after 3 in a row.
-          // Mirrored to central:* keys so the shared publisher applies the same cooldown.
           try {
             const slDir =
               position.action === "BUY_CALL" || /CE$/i.test(position.symbolName || "") ? "BUY_CALL" : "BUY_PUT";
@@ -3283,15 +2935,9 @@ class PersistentTradingEngine {
             const prevStreak = Number((await kv.get(`loss_streak:${userId}:${position.index}`)) || 0);
             await kv.set(`loss_streak:${userId}:${position.index}`, prevStreak + 1);
             await kv.set(`last_loss_ts:${userId}:${position.index}`, now);
-            await kv.set(`central:last_sl_ts:${position.index}`, now);
-            await kv.set(`central:last_sl_dir:${position.index}`, slDir);
-            const prevCentral = Number((await kv.get(`central:loss_streak:${position.index}`)) || 0);
-            await kv.set(`central:loss_streak:${position.index}`, prevCentral + 1);
-            await kv.set(`central:last_loss_ts:${position.index}`, now);
           } catch (_e) {
             /* non-fatal */
           }
-
         }
 
         // Profit-lock stop: only valid AFTER trailing actually activated (never on a fresh 0 SL).
@@ -3318,58 +2964,57 @@ class PersistentTradingEngine {
         const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
         const _withinGrace = _ageMs < 45_000;
 
-        // 🔒 Direction-flip gate: predictive exits require an opposite signal with
-        // at least 80% confidence and 4/6 momentum confirmations. This prevents a
-        // temporary counter-move from closing a position just before recovery.
-        const _oppActionNow = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
-        const _flipSignalNow =
-          !!currentSignal &&
-          currentSignal.action === _oppActionNow &&
-          Number(currentSignal.confidence || 0) >= 80 &&
-          momentumStrength >= 4;
-
-        // 1) PROFIT PROTECTION — only on a confirmed direction flip with heavy give-back.
+        // 1) PROFIT PROTECTION — exit only when trend has ACTUALLY reversed against us with
+        //    meaningful give-back. Skip if market bias is still aligned (let winners run).
+        //    Prevents premature exits on short-term P&L wiggles inside a trending move.
+        const _bearishAgainstUs =
+          !!currentSignal && !_alignedNow && momentumStrength >= 3; // market bias flipped against us
         if (
           !shouldExit &&
           !_withinGrace &&
-          _flipSignalNow &&
           (position.highestPnl || 0) > 0 &&
           pnl > 0 &&
-          !_strongWith
+          !_strongWith &&
+          _bearishAgainstUs // require market to have actually turned, not just P&L blip
         ) {
           const peak = position.highestPnl || 0;
           const profitFloor = _baseTgtForCalc > 0 ? _baseTgtForCalc * 0.6 : Math.max(300, peak * 0.6);
           const inProfitZone = peak >= profitFloor;
-          const heavyGiveBack = giveBackPct >= 70;
+          const heavyGiveBack = giveBackPct >= 70; // was 55 — too eager
           const reversingMomentum = momentumScore < 0;
           if (inProfitZone && heavyGiveBack && reversingMomentum) {
             shouldExit = true;
-            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, signal flipped ${currentSignal?.action})`;
+            exitReason = `Profit Protection (Peak ₹${peak.toFixed(2)} → Now ₹${pnl.toFixed(2)}, Give-back ${giveBackPct.toFixed(0)}%, market flipped ${marketMomentum})`;
           }
         }
 
-        // 2) EARLY LOSS CUT — only when the signal has actually flipped to the opposite side.
-        if (!shouldExit && !_withinGrace && _flipSignalNow && pnl < 0 && _baseSLForCalc > 0 && momentumScore < 0) {
+        // 2) EARLY LOSS CUT — exit before full SL when market is strongly against us.
+        if (!shouldExit && !_withinGrace && pnl < 0 && _baseSLForCalc > 0 && _strongAgainst && momentumScore < 0) {
           const lossPct = Math.abs(pnl) / _baseSLForCalc;
           if (lossPct >= 0.45) {
             shouldExit = true;
-            exitReason = `Early Reversal Cut (signal flipped to ${currentSignal?.action}, Loss ₹${pnl.toFixed(2)} = ${(lossPct * 100).toFixed(0)}% of SL)`;
+            exitReason = `Early Reversal Cut (${marketMomentum} strongly against ${_posDir}, Loss ₹${pnl.toFixed(2)} = ${(lossPct * 100).toFixed(0)}% of SL)`;
           }
         }
 
-        // 3) AI REVERSAL CONFIRMED — opposite-direction signal.
-        if (!shouldExit && !_withinGrace && _flipSignalNow) {
+        // 3) AI REVERSAL CONFIRMED — lower confidence required when momentum strongly confirms.
+        if (!shouldExit && !_withinGrace && currentSignal) {
+          const opp = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
           const conf = Number(currentSignal.confidence || 0);
-          shouldExit = true;
-          exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%)`;
+          if (currentSignal.action === opp && conf >= 75 && _strongAgainst) {
+            shouldExit = true;
+            exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%, momentum ${momentumStrength}/6 against)`;
+          }
         }
 
-        // 4) Signal-flip exit from the monitor block (final safety net).
+        // 4) Original strong-reversal signal-based exit (90%+ conf) — kept as final safety net.
         if (!shouldExit && !_withinGrace && signalShouldExit) {
-          shouldExit = true;
-          exitReason = signalExitReason;
+          // Suppress if strongly with trend AND in healthy profit (let winners run)
+          if (!(_strongWith && pnl > 0 && giveBackPct < 40)) {
+            shouldExit = true;
+            exitReason = signalExitReason;
+          }
         }
-
 
         (position as any).monitorDecision = shouldExit ? "EXIT" : monitorDecision;
 
@@ -3378,7 +3023,6 @@ class PersistentTradingEngine {
 
           const exitParams = {
             securityId: position.securityId,
-            symbol: position.symbolName,
             transactionType: "SELL",
             exchangeSegment: position.exchangeSegment || (position.index === "SENSEX" ? "BSE_FNO" : "NSE_FNO"),
             productType: "INTRADAY",
@@ -3401,8 +3045,7 @@ class PersistentTradingEngine {
             exitParams,
           );
 
-          const exitConfirmation = await this.confirmExitFilled(userId, exitResult, position, dhanService);
-          if (exitConfirmation.confirmed) {
+          if (exitResult.orderId || exitResult.success) {
             console.log(`✅ EXIT ORDER PLACED! ${exitReason}`);
             position.status = "CLOSED";
             state.stats.totalPnL += pnl;
@@ -3482,21 +3125,7 @@ class PersistentTradingEngine {
               });
             } catch {}
           } else {
-            const failure = exitConfirmation.error || exitResult.error || "Exit was not confirmed";
-            console.log(`❌ EXIT ORDER FAILED: ${failure}`);
-            await this.appendSharedLog(userId, {
-              type: "EXIT_FAILED",
-              timestamp: Date.now(),
-              symbol: position.symbolName,
-              message: `⚠️ EXIT NOT CONFIRMED: ${position.symbolName} | ${failure} | Monitoring continues`,
-              reason: failure,
-            });
-            sendPushToUser(userId, {
-              title: `⚠️ Exit not confirmed: ${position.symbolName}`,
-              body: `${failure}. Position monitoring remains active; check your broker immediately.`,
-              targetUrl: "/dashboard",
-              data: { type: "EXIT_FAILED", symbol: String(position.symbolName || "") },
-            }).catch((e) => console.error("FCM push (exit failure) failed:", e));
+            console.log(`❌ EXIT ORDER FAILED: ${exitResult.error}`);
           }
         }
       }
@@ -3714,7 +3343,6 @@ class PersistentTradingEngine {
         exchange_segment: normalizedExchangeSegment,
         symbol_id: String(symbol.securityId || symbol.symbolId || symbol.symbol_id || "") || null,
         status: status,
-        broker: String(orderResult?.broker || (await BrokerRouter.getActiveBroker(userId)) || "dhan"),
         error_message: orderResult.error || null,
         raw_response: orderResult || {},
       });
@@ -4076,10 +3704,7 @@ class PersistentTradingEngine {
     { name: "SENSEX", securityId: "51" },
   ];
 
-  static async publishCentralSignals(
-    istNow: Date = new Date(Date.now() + 5.5 * 60 * 60 * 1000),
-    forceRefresh = false,
-  ) {
+  static async publishCentralSignals(istNow: Date = new Date(Date.now() + 5.5 * 60 * 60 * 1000)) {
     const minuteOfDay = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
     const tfs = [5, 15].filter((tf) => (minuteOfDay - (9 * 60 + 15)) % tf === 0);
     if (tfs.length === 0) return { published: 0 };
@@ -4088,122 +3713,36 @@ class PersistentTradingEngine {
     if (!creds) return { published: 0, reason: "no central credentials" };
 
     let published = 0;
-    for (const tf of tfs) {
-      const pending = await Promise.all(
+    await Promise.all(
+      tfs.flatMap((tf) =>
         this.CENTRAL_PUBLISH_INDEXES.map(async (idx) => {
           try {
             const stamp = this.getCurrentCandleTimestamp(istNow, tf);
-            // A candle's first published decision is immutable. The +6s retry may fill
-            // a missing candle, but must never replace a signal already traded at +700ms.
             if (await getCachedCentralSignal(idx.name, tf, stamp)) return;
 
-            const tfMs = tf * 60 * 1000;
-            const toMs = (t: any) => {
-              const n = Number(t || 0);
-              return n > 0 && n < 1e12 ? n * 1000 : n;
-            };
-            // Broker candle timestamps are the bar's OPEN time. At 09:45 the freshly
-            // closed 15m bar therefore carries 09:30 — the bar stamped 09:45 is still
-            // forming and must never be analysed (that was the source of CE→PE flips).
-            const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
-            const closedStartMs = formingStartMs - tfMs;
-
-            const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null, forceRefresh);
-            const rawCandles = primary.candles || [];
-            const candles = rawCandles.filter((c: any) => toMs(c?.timestamp) < formingStartMs);
+            const primary = await getCentralOHLC(idx.securityId, String(tf), 150, null);
+            const candles = primary.candles || [];
             if (candles.length < 30) return;
-            const lastClosedMs = toMs(candles[candles.length - 1]?.timestamp);
-            if (!lastClosedMs || lastClosedMs < closedStartMs) {
-              console.warn(
-                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} not published — last closed bar ${
-                  new Date(lastClosedMs).toISOString()
-                } is behind ${new Date(closedStartMs).toISOString()}`,
-              );
-              return;
-            }
-            const htfRaw = tf < 15 ? (await getCentralOHLC(idx.securityId, "15", 100, null)).candles || [] : [];
-            const htfClosed = htfRaw.filter(
-              (c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / (15 * 60 * 1000)) * 15 * 60 * 1000,
-            );
-            const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
-
-            // 1h context (same as the pre-central per-user path used)
-            let hourly: any[] = [];
-            try {
-              const h = (await getCentralOHLC(idx.securityId, "60", 40, null)).candles || [];
-              const hourMs = 60 * 60 * 1000;
-              hourly = h.filter((c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / hourMs) * hourMs);
-            } catch (_e) {
-              hourly = [];
-            }
-
-            // 🛡️ ANTI-WHIPSAW STATE (restored): the pre-central path fed the strategy
-            // last-signal / stop-loss cooldown / loss-streak context. Without it the
-            // publisher happily emitted CE then PE on the next candle.
-            const signalStateKey = `${idx.name}:${tf}`;
-            const lastSignalTimestamp = (await kv.get(`central:last_signal_ts:${signalStateKey}`)) || 0;
-            const lastSignalDirection = (await kv.get(`central:last_signal_dir:${signalStateKey}`)) || "WAIT";
-            const lastStopLossTimestamp = (await kv.get(`central:last_sl_ts:${idx.name}`)) || 0;
-            const lastStopLossDirection = (await kv.get(`central:last_sl_dir:${idx.name}`)) || null;
-            const consecutiveLossCount = Number((await kv.get(`central:loss_streak:${idx.name}`)) || 0);
-            const lastLossTimestamp = Number((await kv.get(`central:last_loss_ts:${idx.name}`)) || 0);
+            const htf =
+              tf < 15 ? (await getCentralOHLC(idx.securityId, "15", 100, null)).candles || candles : candles;
 
             const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
               higherTimeframeData: htf,
-              hourlyTimeframeData: hourly,
               timeframeMinutes: tf,
-              lastSignalTimestamp,
-              lastSignalDirection,
-              lastStopLossTimestamp,
-              lastStopLossDirection,
-              stopLossCooldownBars: 2,
-              consecutiveLossCount,
-              lastLossTimestamp,
-              consecutiveLossThreshold: 3,
-              consecutiveLossCooldownMs: 30 * 60 * 1000,
-              minimumBarsBetweenSignals: tf === 15 ? 3 : 2,
+              minimumBarsBetweenSignals: 1,
               blockNewEntriesAfterMinutes: 15 * 60 + 15,
             });
-            const istHHMM = (ms: number) => {
-              const d = new Date(ms + 5.5 * 60 * 60 * 1000);
-              return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-            };
-            // The stamp is the candle CLOSE. Refuse to file a decision under a stamp
-            // that does not match the bar it was actually computed from — that is what
-            // made 15M history read "09:30 PUT" when the PUT really fired at 11:15.
-            const derivedClose = istHHMM(lastClosedMs + tfMs);
-            if (derivedClose !== stamp) {
-              console.warn(
-                `⏳ [CENTRAL-PUB] ${idx.name} ${tf}m skipped — bar closes ${derivedClose}, expected stamp ${stamp}`,
-              );
-              return;
-            }
-            (sig as any).timestamp = lastClosedMs;
-            (sig as any).candleOpenIst = istHHMM(lastClosedMs);
-            (sig as any).candleCloseIst = derivedClose;
-            (sig as any).barCloseAt = new Date(formingStartMs).toISOString();
+            (sig as any).timestamp = candles[candles.length - 1]?.timestamp || Date.now();
             (sig as any).signalSource = "CENTRAL_DATA";
-
-            return { idx, tf, stamp, sig, signalStateKey, lastClosedMs };
+            await saveCentralSignal(idx.name, tf, stamp, sig);
+            published++;
+            console.log(`🛰️ [CENTRAL-PUB] ${idx.name} ${tf}m ${stamp} → ${sig.action} (${sig.confidence}%)`);
           } catch (e: any) {
             console.error(`❌ [CENTRAL-PUB] ${idx.name} ${tf}m: ${e?.message || e}`);
-            return null;
           }
         })
-      );
-
-      const ready = pending.filter(Boolean) as any[];
-
-      for (const r of ready) {
-        if (r.sig.action === "BUY_CALL" || r.sig.action === "BUY_PUT") {
-          await kv.set(`central:last_signal_ts:${r.signalStateKey}`, r.lastClosedMs || Date.now());
-          await kv.set(`central:last_signal_dir:${r.signalStateKey}`, r.sig.action);
-        }
-        await saveCentralSignal(r.idx.name, r.tf, r.stamp, r.sig);
-        published++;
-        console.log(`🛰️ [CENTRAL-PUB] ${r.idx.name} ${r.tf}m ${r.stamp} → ${r.sig.action} (${r.sig.confidence}%)`);
-      }
-    }
+      )
+    );
     return { published };
   }
 }

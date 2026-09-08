@@ -103,10 +103,7 @@ export class DhanService {
 
     const requestedInterval = Math.max(1, parseInt(interval, 10) || 15);
     const yahooInterval = requestedInterval === 60 ? '60m' : requestedInterval === 15 ? '15m' : requestedInterval === 5 ? '5m' : '1m';
-    // Keep enough completed history for EMA50, ADX and trend/drift detection when
-    // Dhan is rate-limited. A short fallback window can contain only the current
-    // session and makes the signal engine return WAIT regardless of the move.
-    const range = yahooInterval === '1m' ? '5d' : '60d';
+    const range = yahooInterval === '1m' ? '5d' : '7d';
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=${yahooInterval}&range=${range}`;
 
     try {

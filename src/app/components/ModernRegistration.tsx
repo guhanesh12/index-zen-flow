@@ -147,7 +147,7 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
   };
 
   // 📧 Send Email OTP
-  const handleSendEmailOtp = async (resend = false) => {
+  const handleSendEmailOtp = async () => {
     setEmailErr('');
     setEmailMsg('');
     const email = (form.getValues('email') || '').trim();
@@ -161,7 +161,7 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
       const res = await fetch(`${serverUrl}/auth/email-otp/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ email, name, resend }),
+        body: JSON.stringify({ email, name }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || 'Failed to send OTP');
@@ -369,7 +369,7 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${publicAnonKey}`
         },
-        body: JSON.stringify({ phone: formData.mobile, resend: true })
+        body: JSON.stringify({ phone: formData.mobile })
       });
 
       if (!response.ok) {
@@ -592,7 +592,7 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
                     {!emailVerified && (
                       <Button
                         type="button"
-                        onClick={() => handleSendEmailOtp(emailOtpSent)}
+                        onClick={handleSendEmailOtp}
                         disabled={emailSending}
                         className="h-11 bg-cyan-600 hover:bg-cyan-700 text-white text-sm px-4 whitespace-nowrap"
                       >

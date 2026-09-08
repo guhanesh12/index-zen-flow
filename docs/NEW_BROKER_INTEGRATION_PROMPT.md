@@ -10,17 +10,17 @@ Everything else below is already written so nothing has to be explained again.
 ```
 Integrate a new broker into IndexPilot exactly like Dhan / Zerodha / Groww / Upstox.
 
-BROKER NAME: <<5paisa>>
-BROKER ID (lowercase, no spaces): <<5paisa>>
+BROKER NAME: <<BROKER NAME>>
+BROKER ID (lowercase, no spaces): <<brokerid>>
 BRAND COLOUR (optional): <<#hex>>
 
 DOCUMENTATION URLS
-- Authentication / login / token: <<https://xstream.5paisa.com/dev-docs/user-authentication-system/oauth-login>>
-- Funds / margin / limits:        <<https://xstream.5paisa.com/dev-docs/funds-management-system/margin>>
-- Place order:                    <<https://xstream.5paisa.com/dev-docs/order-management-system/place-order>>
-- Order book / order status / cancel: <<hhttps://xstream.5paisa.com/dev-docs/order-management-system/place-order>>
-- Positions:                      <<https://xstream.5paisa.com/dev-docs/portfolio-management-system/netwise-positions>
-- Instruments / contract master:  <<https://xstream.5paisa.com/dev-docs/docFundamentals/scrip-master>>
+- Authentication / login / token: <<url>>
+- Funds / margin / limits:        <<url>>
+- Place order:                    <<url>>
+- Order book / order status / cancel: <<url>>
+- Positions:                      <<url>>
+- Instruments / contract master:  <<url>>
 - (optional) LTP / quotes:        <<url>>
 
 Follow docs/BROKER_INTEGRATION_PLAYBOOK.md exactly and do ALL of the following,
