@@ -189,7 +189,6 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
 
     // Calculate winning streak
     const sortedDates = Array.from(dailyStats.keys()).sort();
-    let winningStreak = 0;
     let currentStreak = 0;
     let maxStreak = 0;
 
@@ -257,10 +256,14 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
         setLastSyncTime(new Date().toLocaleTimeString());
         return true;
       } else if (data.error) {
-        console.error('❌ Sync error:', data.error);
+        if (typeof data.error === 'string' && data.error.toLowerCase().includes('credentials not configured')) {
+          console.info('ℹ️ Trades sync skipped: Dhan credentials not configured yet');
+        } else {
+          console.warn('⚠️ Sync note:', data.error);
+        }
       }
-    } catch (error) {
-      console.error('❌ Failed to sync real trades:', error);
+    } catch (error: any) {
+      console.warn('⚠️ Could not sync real trades:', error?.message || error);
     } finally {
       autoSyncInProgressRef.current = false;
       setSyncing(false);
@@ -290,10 +293,12 @@ export function TradingJournal({ accessToken, serverUrl, userId }: TradingJourna
     };
 
     // Auto-sync logic:
-    // 1. On mount: if last sync was NOT today, sync immediately (catches yesterday's
-    //    booked P&L when user opens app the next day).
+    // 1. On mount: if last sync was NOT today and broker is configured, sync immediately
     // 2. After market close (15:30 IST) on weekdays: sync once per day.
     const tick = () => {
+      const storedClientId = localStorage.getItem('dhan_client_id');
+      if (!storedClientId) return;
+
       const now = new Date();
       const totalMin = now.getHours() * 60 + now.getMinutes();
       const afterMarketClose = isWeekday() && totalMin >= 15 * 60 + 30;

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <rect width="100" height="100" rx="22" fill="#ffffff" />
+  <rect width="98" height="98" x="1" y="1" rx="21" fill="none" stroke="#e2e8f0" stroke-width="1.5" />
+  <!-- Angel One Logo Symbol -->
+  <!-- Orange Triangles Matrix (1, 2, 3, 4) -->
+  <g fill="#FF5500">
+    <!-- Row 1: 1 triangle -->
+    <polygon points="41,35 37,42 45,42" />
+    
+    <!-- Row 2: 2 triangles -->
+    <polygon points="35,45 31,52 39,52" />
+    <polygon points="46,45 42,52 50,52" />
+    
+    <!-- Row 3: 3 triangles -->
+    <polygon points="29,55 25,62 33,62" />
+    <polygon points="40,55 36,62 44,62" />
+    <polygon points="51,55 47,62 55,62" />
+    
+    <!-- Row 4: 4 triangles -->
+    <polygon points="23,65 19,72 27,72" />
+    <polygon points="34,65 30,72 38,72" />
+    <polygon points="45,65 41,72 49,72" />
+    <polygon points="56,65 52,72 60,72" />
+  </g>
+  <!-- Green Right Side Triangle / Chevron -->
+  <polygon points="63,28 78,72 63,72" fill="#00A859" />
+</svg>

@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { CheckCircle2, AlertTriangle, RefreshCw, Key, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchWithAuth, getAccessToken } from '../utils/apiClient';
+import { BrokerLogo } from '../brokerLogos';
 
 interface GrowwConnectProps {
   serverUrl: string;
@@ -100,7 +101,7 @@ export function GrowwConnect({ serverUrl, accessToken, onConnected }: GrowwConne
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <span className="size-2.5 rounded-full" style={{ backgroundColor: '#00b386' }} />
+          <BrokerLogo id="groww" name="Groww" size={26} />
           Groww Trade API
           {connected ? (
             <span className="text-emerald-400 text-xs flex items-center gap-1">

@@ -8,6 +8,7 @@ import { TrendingUp, Award, RefreshCw, Info } from 'lucide-react';
 import { projectId } from '@/utils-ext/supabase/info';
 import { supabase } from '@/utils-ext/supabase/client';
 import { getBaseUrl } from '../utils/apiService';
+import { fetchWithAuth } from '../utils/apiClient';
 
 interface PricingTier {
   min: number;
@@ -96,13 +97,19 @@ export function ProfitDashboard({ accessToken }: { accessToken: string }) {
       setRefreshing(true);
       setError(null);
       
-      console.log('🔍 ProfitDashboard: Loading data...', { serverUrl, hasToken: !!accessToken });
-      
       // ⚡ GET FRESH TOKEN before API calls
       const freshToken = await getFreshAccessToken();
+      if (!freshToken) {
+        console.info('ℹ️ ProfitDashboard: Authentication token not available yet, skipping load');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      console.log('🔍 ProfitDashboard: Loading data...', { serverUrl, hasToken: !!freshToken });
       
       // Load daily stats
-      const statsResponse = await fetch(`${serverUrl}/wallet/daily-stats`, {
+      const statsResponse = await fetchWithAuth(`${serverUrl}/wallet/daily-stats`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${freshToken}`,
@@ -114,15 +121,12 @@ export function ProfitDashboard({ accessToken }: { accessToken: string }) {
       
       if (!statsResponse.ok) {
         const errorText = await statsResponse.text();
-        console.error('❌ Daily stats error:', errorText);
-        
         if (statsResponse.status === 401) {
-          console.error('⚠️ Authentication expired. Retrying with fresh token...');
-          // Token was refreshed - the next interval will use it
+          console.warn('⚠️ Authentication expired. Retrying with fresh token on next cycle...');
           return;
         }
-        
-        throw new Error(`Failed to load daily stats: ${statsResponse.status}`);
+        console.warn('⚠️ Daily stats response status:', statsResponse.status, errorText);
+        return;
       }
       
       const statsData = await statsResponse.json();
@@ -130,7 +134,7 @@ export function ProfitDashboard({ accessToken }: { accessToken: string }) {
       setDailyStats(statsData);
       
       // Load wallet balance
-      const balanceResponse = await fetch(`${serverUrl}/wallet/balance`, {
+      const balanceResponse = await fetchWithAuth(`${serverUrl}/wallet/balance`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${freshToken}`,
@@ -142,17 +146,17 @@ export function ProfitDashboard({ accessToken }: { accessToken: string }) {
       
       if (!balanceResponse.ok) {
         const errorText = await balanceResponse.text();
-        console.error('❌ Wallet balance error:', errorText);
-        throw new Error(`Failed to load wallet balance: ${balanceResponse.status}`);
+        console.warn('⚠️ Wallet balance response status:', balanceResponse.status, errorText);
+        return;
       }
       
       const balanceData = await balanceResponse.json();
       console.log('✅ Wallet balance loaded:', balanceData);
       setWalletBalance(balanceData);
       
-    } catch (error) {
-      console.error('❌ Failed to load profit dashboard data:', error);
-      setError(error instanceof Error ? error.message : 'An unknown error occurred');
+    } catch (error: any) {
+      console.warn('⚠️ Could not load profit dashboard data:', error?.message || error);
+      setError(error instanceof Error ? error.message : 'Unable to connect to profit service');
       // Clear any partial data on error
       setDailyStats(null);
       setWalletBalance(null);

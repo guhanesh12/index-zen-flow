@@ -977,8 +977,8 @@ export function IntegratedTradingEngine({ serverUrl, accessToken, onLog }: Integ
         {activePositions.length > 0 && (
           <div className="space-y-2">
             <h4 className="text-sm font-medium text-zinc-300">Active Positions</h4>
-            {activePositions.map((position) => (
-              <div key={position.orderId} className="p-3 bg-zinc-800 rounded-lg border border-zinc-700">
+            {activePositions.map((position, idx) => (
+              <div key={`${position.orderId || 'pos'}-${idx}`} className="p-3 bg-zinc-800 rounded-lg border border-zinc-700">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-medium text-zinc-100">

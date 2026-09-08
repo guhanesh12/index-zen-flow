@@ -169,10 +169,7 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
 
     // Close the server-side admin session (check-out timestamp + audit event).
     try {
-      const base = (import.meta as any).env?.VITE_SUPABASE_URL
-        ? `${(import.meta as any).env.VITE_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/make-server-c4d79cb7`
-        : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
-      fetch(`${base}/admin/session/logout`, {
+      fetchWithApiFallback('/admin/session/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${realAccessToken}` },
         body: JSON.stringify({ sessionId: sessionStorage.getItem('admin_session_id'), reason: 'manual' }),

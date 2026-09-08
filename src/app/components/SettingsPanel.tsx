@@ -25,7 +25,7 @@ import { FivepaisaConnect } from "./FivepaisaConnect";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
-import { BrokerLogo } from "../brokerLogos";
+import { BrokerLogo, ALL_8_BROKERS, getBrokerMeta } from "../brokerLogos";
 
 
 interface SettingsPanelProps {
@@ -62,8 +62,8 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
   const [showSwitchDialog, setShowSwitchDialog] = useState(false);
   const [brokerAvailability, setBrokerAvailability] = useState<Record<string, boolean>>({ dhan: false, zerodha: false, groww: false, upstox: false, fyers: false, angelone: false, aliceblue: false, '5paisa': false });
 
-  // 🔀 Brokers the admin has switched ON (common registry — new brokers appear automatically)
-  const [enabledBrokers, setEnabledBrokers] = useState<any[]>([]);
+  // 🔀 Brokers the admin has switched ON (common registry — all 8 supported Indian brokers)
+  const [enabledBrokers, setEnabledBrokers] = useState<any[]>(ALL_8_BROKERS);
 
   const getFreshToken = async (): Promise<string | null> => {
     try {
@@ -81,28 +81,38 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       setBrokerLoading(true);
       const tok = await getFreshToken();
       const res = await fetchWithAuth(`${serverUrl}/broker/active`, {
-        headers: { Authorization: `Bearer ${tok}` },
+        headers: tok ? { Authorization: `Bearer ${tok}` } : {},
       });
       const data = await res.json();
       if (res.ok && data?.success) {
         setBrokerAvailability(data.available || {});
-        setEnabledBrokers(Array.isArray(data.brokers) ? data.brokers : []);
-        // Only treat a broker as "chosen" once the user actually picked/connected one.
-        const anyConnected = Object.values(data.available || {}).some(Boolean);
-        const explicit = !!data.chosen || anyConnected;
-        setActiveBroker(explicit ? String(data.activeBroker) : null);
-        if (explicit) localStorage.setItem('indexpilot_broker_choice', data.activeBroker);
+        if (Array.isArray(data.brokers) && data.brokers.length > 0) {
+          const merged = ALL_8_BROKERS.map((def) => {
+            const found = data.brokers.find((b: any) => b.id === def.id);
+            return found ? { ...def, ...found } : def;
+          });
+          setEnabledBrokers(merged);
+        } else {
+          setEnabledBrokers(ALL_8_BROKERS);
+        }
+        // Ensure active broker reflects current state without being erroneously overridden
+        const cachedChoice = localStorage.getItem('indexpilot_broker_choice');
+        const brokerToSet = data?.activeBroker || cachedChoice || 'dhan';
+        setActiveBroker(brokerToSet);
+        localStorage.setItem('indexpilot_broker_choice', brokerToSet);
+      } else {
+        const cachedChoice = localStorage.getItem('indexpilot_broker_choice') || 'dhan';
+        setActiveBroker(cachedChoice);
       }
     } catch (e) {
       console.error('broker/active failed', e);
-      setActiveBroker((localStorage.getItem('indexpilot_broker_choice') as any) || null);
+      setActiveBroker((localStorage.getItem('indexpilot_broker_choice') as any) || 'dhan');
     } finally {
       setBrokerLoading(false);
     }
   };
 
   const chooseBroker = async (broker: string) => {
-
     setSwitchingBroker(true);
     try {
       const tok = await getFreshToken();
@@ -116,11 +126,23 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       localStorage.setItem('indexpilot_broker_choice', broker);
       setActiveBroker(broker);
       setShowSwitchDialog(false);
-      toast.success(
-        broker === 'zerodha'
-          ? 'Zerodha Kite selected — login to place orders'
-          : 'Dhan selected — connect your Dhan API to place orders'
-      );
+      
+      const brokerNames: Record<string, string> = {
+        dhan: 'Dhan',
+        upstox: 'Upstox',
+        zerodha: 'Zerodha Kite',
+        groww: 'Groww',
+        fyers: 'FYERS',
+        angelone: 'Angel One',
+        aliceblue: 'AliceBlue',
+        '5paisa': '5paisa'
+      };
+      const bName = brokerNames[broker] || broker;
+      toast.success(`${bName} selected as active broker`);
+      
+      // Dispatch global event so all components refresh
+      window.dispatchEvent(new CustomEvent('broker-switched', { detail: { broker, brokerName: bName } }));
+      
       await loadActiveBroker();
       await loadCredentials();
       onSettingsSaved();
@@ -171,20 +193,29 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
 
   const loadCredentials = async () => {
     try {
+      const cachedDhanClientId = localStorage.getItem('dhan_client_id');
       const freshToken = await getFreshToken();
-      if (!freshToken) return;
+      if (!freshToken) {
+        if (cachedDhanClientId) {
+          setCredentials(prev => ({ ...prev, dhanClientId: cachedDhanClientId }));
+        }
+        return;
+      }
 
       const response = await fetchWithAuth(`${serverUrl}/api-credentials`, {
         headers: { Authorization: `Bearer ${freshToken}` }
       });
       if (!response.ok) {
         console.error(`❌ Failed to load credentials: ${response.status} ${response.statusText}`);
+        if (cachedDhanClientId) {
+          setCredentials(prev => ({ ...prev, dhanClientId: cachedDhanClientId }));
+        }
         return;
       }
       const data = await response.json();
       if (data.credentials) {
         setCredentials({
-          dhanClientId: data.credentials.dhanClientId || "",
+          dhanClientId: data.credentials.dhanClientId || cachedDhanClientId || "",
           dhanAccessToken: data.credentials.dhanAccessToken || "",
           tokenUpdatedAt: data.credentials.tokenUpdatedAt || null
         });
@@ -195,9 +226,15 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
           localStorage.setItem('dhan_client_id', data.credentials.dhanClientId);
           console.log('✅ Dhan Client ID cached to localStorage');
         }
+      } else if (cachedDhanClientId) {
+        setCredentials(prev => ({ ...prev, dhanClientId: cachedDhanClientId }));
       }
     } catch (error) {
       console.error("Failed to load credentials:", error);
+      const cachedDhanClientId = localStorage.getItem('dhan_client_id');
+      if (cachedDhanClientId) {
+        setCredentials(prev => ({ ...prev, dhanClientId: cachedDhanClientId }));
+      }
     }
   };
 
@@ -571,25 +608,35 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
             {enabledBrokers.length === 0 && (
               <p className="text-sm text-zinc-400">No broker is available right now. Please try again later.</p>
             )}
-            {enabledBrokers.map((b: any) => (
-              <button
-                key={b.id}
-                type="button"
-                disabled={switchingBroker}
-                onClick={() => chooseBroker(b.id)}
-                className="group text-left rounded-2xl border border-zinc-800 hover:border-emerald-600 hover:shadow-[0_0_0_1px_rgba(16,185,129,0.25)] bg-zinc-950 p-4 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60"
-              >
-                <div className="flex items-center gap-3">
-                  <BrokerLogo id={b.id} name={b.name} color={b.color} size={44} />
-                  <div className="min-w-0">
-                    <span className="font-semibold text-zinc-100 block truncate">{b.name}</span>
-                    <p className="text-xs text-zinc-400 mt-0.5 capitalize truncate">
-                      {(b.features || []).join(' · ').replace(/-/g, ' ')}
-                    </p>
+            {enabledBrokers.map((b: any) => {
+              const meta = getBrokerMeta(b.id) || b;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  disabled={switchingBroker}
+                  onClick={() => chooseBroker(b.id)}
+                  className="group text-left rounded-2xl border border-zinc-800 hover:border-cyan-500/60 hover:shadow-lg bg-[#0a101f] p-3.5 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <BrokerLogo id={b.id} name={b.name} size={48} className="shrink-0 shadow-md" />
+                    <div className="min-w-0">
+                      <span className="font-bold text-white text-base block truncate group-hover:text-cyan-300 transition-colors">
+                        {meta.name}
+                      </span>
+                      <p className="text-xs text-zinc-400 mt-0.5 truncate">
+                        {meta.featureTagline || 'Orders · Positions · Funds · Instruments · Static Ip'}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </button>
-            ))}
+                  <div className="shrink-0">
+                    <span className="w-6 h-6 rounded-full bg-[#00BA63] flex items-center justify-center text-white shadow-sm shadow-emerald-500/30">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </CardContent>
         </Card>
       ) : (
@@ -780,9 +827,9 @@ export function SettingsPanel({ serverUrl, accessToken, onSettingsSaved, onGoToS
       <TabsContent value="token">
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Key className="w-5 h-5" />
-          API Configuration
+        <CardTitle className="flex items-center gap-2 text-zinc-100">
+          <BrokerLogo id="dhan" name="Dhan" size={26} />
+          Dhan API Configuration
         </CardTitle>
         <CardDescription className="text-zinc-400">
           Configure your Dhan API credentials. Dhan access token needs to be updated daily.

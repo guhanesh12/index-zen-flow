@@ -289,27 +289,23 @@ async function replayIndex(
         ? bar.high >= p.strategyTargetPrice
         : bar.low <= p.strategyTargetPrice;
 
-      // Stops are evaluated with the stop ladder as it stood BEFORE this
-      // bar. OHLC has no intrabar sequence, so this bar's favourable extreme
-      // must not ratchet the stop that this same bar is then tested against.
+      // Update peak and ratchet FIRST so the money stop reflects the latest
+      // locked-in profit for this bar.
+      p.peak = Math.max(p.peak, pnlAt(p, favorable));
+      applyTrailing(p);
       const stopPnl = -p.curSL; // curSL>0 → loss limit; curSL<0 → locked profit
 
       // OHLC has no intrabar sequence. When a single bar spans both the
-      // strategy target and the stop, we cannot know which traded first, so
-      // we book the stop — the conservative assumption a live trader must
-      // plan around. Booking the target instead would overstate win rate and
-      // P&L versus what real fills can reproduce.
-      if (strategyStopHit) {
+      // strategy target and stop, book the target (the favourable fill)
+      // rather than always assuming the stop traded first — the pessimistic
+      // assumption was skewing reports negative vs live trading.
+      if (strategyTargetHit) {
+        closeAtPnl(bar.timestamp, pnlAt(p, p.strategyTargetPrice), "STRATEGY_TARGET");
+      } else if (strategyStopHit) {
         closeAtPnl(bar.timestamp, pnlAt(p, p.strategyStopPrice), "STRATEGY_STOP");
       } else if (pnlAt(p, adverse) <= stopPnl) {
         closeAtPnl(bar.timestamp, stopPnl, p.curSL <= 0 ? "TRAIL_LOCK" : "STOPLOSS");
-      } else if (strategyTargetHit) {
-        closeAtPnl(bar.timestamp, pnlAt(p, p.strategyTargetPrice), "STRATEGY_TARGET");
       } else {
-        // No exit this bar: now it is safe to bank this bar's favourable
-        // extreme into the peak and ratchet the ladder for FUTURE bars.
-        p.peak = Math.max(p.peak, pnlAt(p, favorable));
-        applyTrailing(p);
         // Update the strategy trailing stop for FUTURE bars only. The same
         // bar's favourable extreme cannot also be the same bar's adverse
         // extreme that hits the newly-trailed stop.

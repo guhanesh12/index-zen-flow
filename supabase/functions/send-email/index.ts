@@ -478,15 +478,17 @@ Deno.serve(async (req) => {
     // regular user), because it can produce arbitrary branded email.
     const INTERNAL_KEY = Deno.env.get("INTERNAL_SYNC_KEY") || "";
     const providedInternal = req.headers.get("x-internal-key") || "";
-    const isInternal = !!INTERNAL_KEY && providedInternal === INTERNAL_KEY;
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const apiKey = req.headers.get("apikey") || "";
+    const isServiceRole = (!!SERVICE_KEY && (token === SERVICE_KEY || apiKey === SERVICE_KEY));
+    const isInternal = isServiceRole || (!!INTERNAL_KEY && providedInternal === INTERNAL_KEY);
 
     let sessionUserId: string | null = null;
     if (!isInternal) {
-      const authHeader = req.headers.get("authorization") || "";
-      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
-      // Reject calls whose Bearer is just the public anon key (no real user).
-      if (!token || token === anonKey || token === SERVICE_KEY) {
+      // Reject calls whose Bearer is just the public anon key or empty (no real user).
+      if (!token || token === anonKey) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
           status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });

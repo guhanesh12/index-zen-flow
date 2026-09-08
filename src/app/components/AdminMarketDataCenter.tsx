@@ -9,6 +9,7 @@ import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { Satellite, RefreshCw, ShieldCheck, AlertTriangle, Radio } from 'lucide-react';
 import { AdminCentralSignalHistory } from './AdminCentralSignalHistory';
+import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 
 interface Props {
   serverUrl: string;
@@ -64,19 +65,30 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
     try {
       setLoading(true);
       const [sRes, sigRes] = await Promise.all([
-        fetch(`${serverUrl}/admin/market-data/status`, { headers }),
-        fetch(`${serverUrl}/admin/market-data/signals?tf=5,15`, { headers }),
+        fetchWithApiFallback('/admin/market-data/status', { headers }),
+        fetchWithApiFallback('/admin/market-data/signals?tf=5,15', { headers }),
       ]);
       const s = await sRes.json().catch(() => null);
       const sig = await sigRes.json().catch(() => null);
-      if (s?.success) {
+      if (s && typeof s === 'object' && s.success !== false) {
         setStatus(s);
-        setClientId(s.clientId || '');
-        setEnabled(s.enabled ?? true);
+        if (s.clientId) setClientId(s.clientId);
+        if (s.enabled !== undefined) setEnabled(s.enabled);
+      } else {
+        setStatus({
+          configured: false,
+          status: 'not_configured',
+          lastError: s?.error || null,
+        });
       }
       if (sig?.success) setSignals(sig.signals);
     } catch (e: any) {
-      console.error('market data status failed', e);
+      console.warn('Market data status handled:', e);
+      setStatus({
+        configured: false,
+        status: 'error',
+        lastError: e?.message || 'Failed to connect to market data service',
+      });
     } finally {
       setLoading(false);
     }
@@ -85,13 +97,12 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
   const loadFeed = useCallback(async () => {
     try {
       setFeedLoading(true);
-      const r = await fetch(`${serverUrl}/admin/market-data/candles`, { headers });
+      const r = await fetchWithApiFallback('/admin/market-data/candles', { headers });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d?.error) throw new Error(d?.error || `HTTP ${r.status}`);
       setFeed(d);
     } catch (e: any) {
       setFeed(null);
-      toast.error(e.message || 'Live candle fetch failed');
     } finally {
       setFeedLoading(false);
     }
@@ -110,7 +121,7 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
     if (!token.trim() && !status?.configured) return toast.error('Access token is required');
     try {
       setSaving(true);
-      const r = await fetch(`${serverUrl}/admin/market-data/save`, {
+      const r = await fetchWithApiFallback('/admin/market-data/save', {
         method: 'POST',
         headers,
         body: JSON.stringify({ clientId: clientId.trim(), accessToken: token.trim(), enabled }),
@@ -130,7 +141,7 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
   const test = async () => {
     try {
       setTesting(true);
-      const r = await fetch(`${serverUrl}/admin/market-data/test`, {
+      const r = await fetchWithApiFallback('/admin/market-data/test', {
         method: 'POST',
         headers,
         body: JSON.stringify(token.trim() ? { clientId: clientId.trim(), accessToken: token.trim() } : {}),

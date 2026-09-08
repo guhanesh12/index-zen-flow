@@ -131,7 +131,7 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
           email: data.email,
           password: data.password,
         }),
-        25000
+        30000
       );
 
       if (signInError) throw signInError;
