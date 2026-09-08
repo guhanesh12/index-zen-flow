@@ -1073,19 +1073,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             })()}
           </div>
 
-          {/* ⚡⚡⚡ PERSISTENT ENGINE - ALWAYS MOUNTED, CONDITIONALLY VISIBLE ⚡⚡⚡ */}
-          {/* This stays mounted even when switching tabs to keep the engine running */}
-          {walletBalance >= 89 && (
-            <div 
-              className={activeTab === "dashboard" ? "block space-y-6" : "hidden"}
-            >
-              <EnhancedTradingEngine
-                serverUrl={serverUrl}
-                accessToken={accessToken}
-                onLog={addLog}
-              />
-            </div>
-          )}
 
           {/* Dashboard Tab Content */}
           <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-500">
