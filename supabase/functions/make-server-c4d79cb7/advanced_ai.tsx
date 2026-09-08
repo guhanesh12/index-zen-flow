@@ -3210,8 +3210,11 @@ export class AdvancedAI {
       lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout =
       lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    // ⚡ FIX: Relaxed late-entry gate from 15:15 → 15:25 IST so the 15:15 candle close still produces a tradeable signal.
-    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 25; // 15:25 IST
+    // ⚡ GUARD 1: no fresh intraday entries after 14:15 IST on the 15m strategy
+    // (late-day entries had no time to reach target and produced the largest losses).
+    const lastEntryMinute =
+      options.blockNewEntriesAfterMinutes ??
+      (timeframeMinutes >= 15 ? 14 * 60 + 15 : 15 * 60 + 25);
     const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish =
