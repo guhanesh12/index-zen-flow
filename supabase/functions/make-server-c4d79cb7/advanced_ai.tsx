@@ -2714,7 +2714,11 @@ export class AdvancedAI {
         ? options.lastSignalTimestamp * 1000
         : options.lastSignalTimestamp
       : 0;
-    const minimumBarsBetweenSignals = options.minimumBarsBetweenSignals ?? 1; // ⚡ FAST MODE default 1 bar
+    // A 15m setup must be allowed to develop before another alert is emitted.
+    // Three bars prevents one market leg being counted/sent as several trades;
+    // 5m remains faster because its bars contain less information.
+    const minimumBarsBetweenSignals =
+      options.minimumBarsBetweenSignals ?? (timeframeMinutes === 15 ? 3 : 2);
     const barsSinceLastSignal =
       lastSignalTsMs > 0
         ? (currentTsMs - lastSignalTsMs) / (timeframeMinutes * 60 * 1000)
@@ -3975,12 +3979,12 @@ export class AdvancedAI {
       confidence = 38;
       bias = "Neutral";
       reasoning = `WAIT: (deprecated HTF block — kept for cascade structure).`;
-    } else if (action === "WAIT" && weakMidSessionTrap) {
+    } else if (weakMidSessionTrap) {
       action = "WAIT";
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Mid-session trap only because ADX is weak/not rising, volume is weak, and VWAP is flat.`;
-    } else if (action === "WAIT" && trendExhausted) {
+    } else if (trendExhausted) {
       // FIX 6: trend exhaustion guard
       action = "WAIT";
       confidence = 35;
@@ -4140,6 +4144,26 @@ export class AdvancedAI {
         bias = "Bullish";
         confidence = 38;
         reasoning = `⏸️ WAIT: Bearish pullback inside bullish structure (${htfAlign === "bull" ? "15m bullish" : marketRegime.type}). PUT requires CHoCH plus two closed bearish candles losing EMA9 and VWAP.`;
+      }
+    }
+
+    // ===== 15M SELECTIVE ENTRY GATE =====
+    // Multi-session replay showed that generic score entries and immediate
+    // support/rejection reversals created most losses. Keep 15m alerts for
+    // confirmed continuation only: a directional drift or a closed level break.
+    // This also stops several adjacent bars from being presented as independent
+    // trades on the same move. The faster 5m strategy is intentionally unchanged.
+    if (action !== "WAIT" && timeframeMinutes === 15) {
+      const isConfirmedContinuation =
+        reasoning.startsWith("📉 DRIFT") ||
+        reasoning.startsWith("📈 DRIFT") ||
+        reasoning.startsWith("📉 BREAKDOWN") ||
+        reasoning.startsWith("📈 BREAKOUT");
+      if (!isConfirmedContinuation) {
+        action = "WAIT";
+        bias = "Neutral";
+        confidence = 38;
+        reasoning = "⏸️ WAIT: 15m entry lacks a confirmed directional drift or closed level break.";
       }
     }
 

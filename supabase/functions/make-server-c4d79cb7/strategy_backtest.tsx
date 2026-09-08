@@ -347,6 +347,7 @@ async function replayIndex(
         enforceClosedCandle: false,
         lastSignalTimestamp: lastSignalTs || undefined,
         lastSignalDirection: lastDir,
+        minimumBarsBetweenSignals: 3,
       });
     } catch (_e) {
       continue;

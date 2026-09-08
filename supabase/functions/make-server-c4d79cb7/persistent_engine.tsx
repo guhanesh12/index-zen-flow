@@ -1623,7 +1623,7 @@ class PersistentTradingEngine {
                   lastLossTimestamp,
                   consecutiveLossThreshold: 3,
                   consecutiveLossCooldownMs: 30 * 60 * 1000,
-                  minimumBarsBetweenSignals: 1, // ⚡ FAST MODE: reduced 2→1 (still directional, opposite reversal allowed)
+                  minimumBarsBetweenSignals: tfMin === 15 ? 3 : 2,
                   blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
                 });
                 (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
@@ -2666,7 +2666,7 @@ class PersistentTradingEngine {
               ? AdvancedAI.generateAdvancedSignal(ohlcData, 100000, {
                   higherTimeframeData: real15mData,
                   timeframeMinutes: tfMin,
-                  minimumBarsBetweenSignals: 1, // ⚡ FAST MODE
+                  minimumBarsBetweenSignals: tfMin === 15 ? 3 : 2,
                 })
               : null;
           monitorSignalCache.set(indexName, signal);
@@ -4161,7 +4161,7 @@ class PersistentTradingEngine {
               lastLossTimestamp,
               consecutiveLossThreshold: 3,
               consecutiveLossCooldownMs: 30 * 60 * 1000,
-              minimumBarsBetweenSignals: 1,
+              minimumBarsBetweenSignals: tf === 15 ? 3 : 2,
               blockNewEntriesAfterMinutes: 15 * 60 + 15,
             });
             const istHHMM = (ms: number) => {
