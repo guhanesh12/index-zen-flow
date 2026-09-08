@@ -4260,6 +4260,7 @@ export class AdvancedAI {
     // trades on the same move. The faster 5m strategy is intentionally unchanged.
     if (action !== "WAIT" && timeframeMinutes === 15) {
       const isConfirmedContinuation =
+        reasoning.startsWith("🚀 IGNITION") ||
         reasoning.startsWith("📉 DRIFT") ||
         reasoning.startsWith("📈 DRIFT") ||
         reasoning.startsWith("📉 BREAKDOWN") ||
