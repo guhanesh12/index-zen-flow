@@ -4130,12 +4130,12 @@ export class AdvancedAI {
         lastCandle.close < ema9 &&
         lastCandle.close < vwap;
 
-      if (action === "BUY_CALL" && bearishContext && !confirmedBullishReversal) {
+      if (action === "BUY_CALL" && bearishContext && !supportReclaimEntry && !confirmedBullishReversal) {
         action = "WAIT";
         bias = "Bearish";
         confidence = 38;
         reasoning = `⏸️ WAIT: Bullish pullback inside bearish structure (${htfAlign === "bear" ? "15m bearish" : marketRegime.type}). CALL requires CHoCH plus two closed bullish candles reclaiming EMA9 and VWAP.`;
-      } else if (action === "BUY_PUT" && bullishContext && !confirmedBearishReversal) {
+      } else if (action === "BUY_PUT" && bullishContext && !resistanceRejectEntry && !confirmedBearishReversal) {
         action = "WAIT";
         bias = "Bullish";
         confidence = 38;
