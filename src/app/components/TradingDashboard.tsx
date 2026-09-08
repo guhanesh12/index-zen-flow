@@ -85,6 +85,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   
   // Get userId from accessToken (JWT decode)
   const [userId, setUserId] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
   
   useEffect(() => {
     // Decode JWT to get user ID
