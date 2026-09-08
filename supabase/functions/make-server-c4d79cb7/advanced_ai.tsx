@@ -3469,12 +3469,30 @@ export class AdvancedAI {
       rsi < reversalRsiPrev &&
       rsi >= 32;
 
+    // A fresh ignition bar (strong body clearing the last 3 bars in the direction of
+    // VWAP) means the range is breaking RIGHT NOW — the sideways return must not
+    // swallow the first bar of a new leg, which is exactly the entry we want.
+    const ignRange = Math.max(lastCandle.high - lastCandle.low, 1e-9);
+    const ignBodyPct = Math.abs(lastCandle.close - lastCandle.open) / ignRange;
+    const ign3High = Math.max(...ohlcData.slice(-4, -1).map((c) => c.high));
+    const ign3Low = Math.min(...ohlcData.slice(-4, -1).map((c) => c.low));
+    const ignitionCandidate =
+      ohlcData.length >= 10 &&
+      ignBodyPct >= 0.4 &&
+      ((lastCandle.close > lastCandle.open &&
+        lastCandle.close > ign3High &&
+        lastCandle.close > vwap) ||
+        (lastCandle.close < lastCandle.open &&
+          lastCandle.close < ign3Low &&
+          lastCandle.close < vwap));
+
     // Strict: ADX must be weak, slopes flat, ATR low, AND (VWAP flat OR squeeze). Override if trending.
     const noTradeZone =
       !inTrendingRegime &&
       !structuredTrend &&
       !supportReclaimEntry &&
       !resistanceRejectEntry &&
+      !ignitionCandidate &&
       adx < 18 &&
       ((slopesFlat && atrLow) || (vwapFlat && squeezeWithoutExpansion));
 
