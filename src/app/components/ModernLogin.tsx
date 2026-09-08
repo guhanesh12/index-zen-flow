@@ -117,12 +117,25 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
 
     try {
       console.log('🔐 Attempting login...');
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
+      // Never let the button spin forever if the auth service is slow/unreachable
+      const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+        Promise.race([
+          p,
+          new Promise<T>((_, reject) =>
+            setTimeout(() => reject(new Error('AUTH_TIMEOUT')), ms)
+          ),
+        ]);
+
+      const { data: signInData, error: signInError } = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: data.email,
+          password: data.password,
+        }),
+        25000
+      );
 
       if (signInError) throw signInError;
+
 
       if (!signInData.session) {
         throw new Error('Failed to create session');
@@ -161,13 +174,19 @@ export default function ModernLogin({ onLoginSuccess, onSwitchToSignup, onBackTo
       // 📊 Track failed login
       trackLogin(data.email, 'failed');
       
-      if (err.message.includes('Invalid login credentials')) {
+      const msg = String(err?.message || '');
+      if (msg === 'AUTH_TIMEOUT') {
+        setError('Login service is not responding right now. Please wait a moment and try again.');
+      } else if (msg.includes('Invalid login credentials')) {
         setError('Invalid email or password. Please try again.');
-      } else if (err.message.includes('Email not confirmed')) {
+      } else if (msg.includes('Email not confirmed')) {
         setError('Please verify your email address before logging in.');
+      } else if (/fetch|network|timeout|504|521|525/i.test(msg)) {
+        setError('Network/auth server issue. Please try again in a minute.');
       } else {
-        setError(err.message || 'Login failed. Please try again.');
+        setError(msg || 'Login failed. Please try again.');
       }
+
     }
     // Don't reset loading on success - keep button disabled during redirect
   };

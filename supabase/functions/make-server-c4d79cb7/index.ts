@@ -4,6 +4,7 @@ declare const EdgeRuntime: { waitUntil?: (promise: Promise<any>) => void } | und
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
+import { z } from "npm:zod@3.25.76";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
 import { DhanService } from "./dhan_service.tsx";
@@ -11,6 +12,7 @@ import { ChatGPTService } from "./chatgpt_service.tsx";
 import { BackendAI } from "./backend_ai.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import { BacktestEngine } from "./backtesting.tsx";
+import { runStrategyBacktest, replaySegment, buildReport, BACKTEST_COST } from "./strategy_backtest.tsx";
 import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
@@ -33,6 +35,14 @@ import { GrowwService } from "./groww_service.tsx";
 import { syncGrowwInstruments, ensureGrowwInstruments, getGrowwInstrumentStatus } from "./groww_instruments.tsx";
 import { UpstoxService, buildUpstoxLoginUrl, exchangeUpstoxCode } from "./upstox_service.tsx";
 import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStatus } from "./upstox_instruments.tsx";
+import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode, fyersTokenExpiry } from "./fyers_service.tsx";
+import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
+import { AngelOneService, ANGELONE_API, angeloneLogin, angeloneTokenExpiry } from "./angelone_service.tsx";
+import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
+import { AliceblueService, ALICEBLUE_API, aliceblueVendorSession, aliceblueAuthUrl, aliceblueTokenExpiry } from "./aliceblue_service.tsx";
+import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
+import { FivepaisaService, FIVEPAISA_API, buildFivepaisaLoginUrl, exchangeFivepaisaRequestToken, fivepaisaTokenExpiry } from "./fivepaisa_service.tsx";
+import { syncFivepaisaInstruments, ensureFivepaisaInstruments, getFivepaisaInstrumentStatus } from "./fivepaisa_instruments.tsx";
 
 
 
@@ -214,6 +224,19 @@ async function validateAdminAuth(c: any): Promise<{ authorized: boolean; error?:
       .eq('role', 'admin')
       .maybeSingle();
     if (roleRow) return { authorized: true };
+
+    // Fallback: an active admin_profiles row is also a valid admin identity
+    // (covers newly created admins / super admin before role sync).
+    const { data: adminProfile } = await supabase
+      .from('admin_profiles')
+      .select('user_id, status')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (adminProfile) {
+      await supabase.from('user_roles').insert({ user_id: user.id, role: 'admin' }).select().maybeSingle();
+      return { authorized: true };
+    }
   } catch (e) {
     console.error('[ADMIN AUTH] role lookup failed', e);
   }
@@ -243,23 +266,6 @@ async function requireCronOrAdmin(c: any): Promise<{ ok: boolean }> {
 
 
 
-// ⚡ FAST userId EXTRACTION: Decode JWT payload without signature verification
-// Used for trading endpoints where speed matters and userId is the only requirement.
-// Security: credentials are always fetched from KV store — unknown userIds return 400 not data.
-function extractUserIdFromJwt(token: string): string | null {
-  try {
-    if (!token || token.length < 20) return null;
-    const payloadPart = token.split('.')[1];
-    if (!payloadPart) return null;
-    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const payload = JSON.parse(atob(padded));
-    return payload.sub || null;
-  } catch {
-    return null;
-  }
-}
-
 function parseJwtPayload(token: string): any | null {
   try {
     if (!token || token.length < 20) return null;
@@ -273,10 +279,14 @@ function parseJwtPayload(token: string): any | null {
   }
 }
 
-function getFastUserIdFromRequest(c: any): string | null {
-  const bearerToken = c.req.header('Authorization')?.split(' ')[1] || '';
-  return extractUserIdFromJwt(bearerToken);
+// 🔒 SECURE userId resolution: always verifies the JWT signature via Supabase Auth.
+// Never derive the acting user from an unverified token payload.
+async function getFastUserIdFromRequest(c: any): Promise<string | null> {
+  const { user, error } = await validateAuth(c, 1);
+  if (error || !user?.id) return null;
+  return user.id;
 }
+
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timer: any;
@@ -316,25 +326,9 @@ async function resolveAuthenticatedUser(accessToken: string): Promise<{ user: an
     return { user, error: null };
   }
 
-  const fallbackUserId = typeof payload?.sub === 'string' ? payload.sub : null;
-  const shouldFallback =
-    !!fallbackUserId &&
-    payload?.role === 'authenticated' &&
-    (!error ||
-      error?.message?.includes('Auth session missing') ||
-      error?.message?.includes('Invalid JWT') ||
-      error?.message?.includes('invalid') ||
-      error?.message?.includes('JWT'));
-
-  if (shouldFallback) {
-    const { data, error: adminError } = await supabase.auth.admin.getUserById(fallbackUserId);
-    if (!adminError && data?.user) {
-      console.log(`✅ Auth fallback succeeded for user ${fallbackUserId}`);
-      return { user: data.user, error: null };
-    }
-  }
-
+  // 🔒 No unverified fallback: a token whose signature cannot be verified is never trusted.
   return { user: null, error: error || { message: 'Invalid or expired JWT token', code: 401 } };
+
 }
 
 // ⚡ AUTH HELPER: Validate access token and return user (WITH RETRY LOGIC)
@@ -466,6 +460,126 @@ app.use(
     credentials: false,
   }),
 );
+
+// ═══════════════════════════════════════════════════════════════
+// 🧾 ADMIN ACTIVITY FOOTPRINT MIDDLEWARE
+// Records EVERY state-changing admin request into admin_audit_events:
+// who (actor), what (action + module), which user (target), which
+// change (sanitised payload), from where (ip / device / browser).
+// ═══════════════════════════════════════════════════════════════
+const AUDIT_SKIP_PATTERNS = [
+  /\/health$/, /\/cron\//, /engine-tick/, /heartbeat/, /market-data\/(quote|ltp|ohlc)/,
+  /\/ai-chat/, /\/push\/subscribe/, /positions\/refresh/,
+];
+const AUDIT_SENSITIVE_KEYS = /pass|secret|token|otp|pin|key|authorization|code/i;
+
+function sanitiseAuditPayload(value: any, depth = 0): any {
+  if (value === null || value === undefined) return value;
+  if (depth > 3) return '…';
+  if (Array.isArray(value)) return value.slice(0, 20).map((v) => sanitiseAuditPayload(v, depth + 1));
+  if (typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value).slice(0, 40)) {
+      out[k] = AUDIT_SENSITIVE_KEYS.test(k) ? '***' : sanitiseAuditPayload(v, depth + 1);
+    }
+    return out;
+  }
+  if (typeof value === 'string') return value.length > 300 ? `${value.slice(0, 300)}…` : value;
+  return value;
+}
+
+function deviceOfUA(ua: string): string {
+  const s = (ua || '').toLowerCase();
+  if (/ipad|tablet/.test(s)) return 'Tablet';
+  if (/iphone|android|mobile/.test(s)) return 'Mobile';
+  if (!s) return 'Unknown';
+  return 'Desktop';
+}
+function browserOfUA(ua: string): string {
+  const s = ua || '';
+  if (/Edg\//.test(s)) return 'Edge';
+  if (/OPR\//.test(s)) return 'Opera';
+  if (/Chrome\//.test(s)) return 'Chrome';
+  if (/Safari\//.test(s)) return 'Safari';
+  if (/Firefox\//.test(s)) return 'Firefox';
+  return 'Unknown';
+}
+
+function auditModuleOfPath(path: string): string {
+  const clean = path.replace('/make-server-c4d79cb7', '');
+  const seg = clean.split('/').filter(Boolean);
+  if (!seg.length) return 'core';
+  if (seg[0] === 'admin' && seg[1]) return `admin:${seg[1]}`;
+  return seg[0];
+}
+
+app.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase();
+  const path = c.req.path || '';
+  const auditable = method !== 'GET' && method !== 'OPTIONS' && !AUDIT_SKIP_PATTERNS.some((r) => r.test(path));
+  let bodyClone: Request | null = null;
+  if (auditable) {
+    try { bodyClone = c.req.raw.clone(); } catch { bodyClone = null; }
+  }
+
+  await next();
+
+  if (!auditable) return;
+  // Fire-and-forget — auditing must never slow down or break a request.
+  (async () => {
+    try {
+      const authHeader = c.req.header('authorization') || '';
+      const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+      const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+      let actorId: string | null = null;
+      let actorEmail: string | null = null;
+      if (token && token !== anonKey) {
+        const { data } = await supabase.auth.getUser(token);
+        actorId = data?.user?.id || null;
+        actorEmail = data?.user?.email || null;
+      }
+
+      // Only log admin actors (or blocked/anonymous attempts on /admin routes).
+      const isAdminPath = path.includes('/admin');
+      let isAdminActor = false;
+      if (actorId) {
+        const { data: prof } = await supabase
+          .from('admin_profiles').select('email, full_name, is_super_admin')
+          .eq('user_id', actorId).maybeSingle();
+        if (prof) { isAdminActor = true; actorEmail = prof.email || actorEmail; }
+      }
+      if (!isAdminActor && !isAdminPath) return;
+
+      let payload: any = null;
+      if (bodyClone) {
+        try { payload = await bodyClone.json(); } catch { payload = null; }
+      }
+      const targetUserId =
+        payload?.target_user_id || payload?.targetUserId || payload?.user_id || payload?.userId || null;
+
+      const ua = c.req.header('user-agent') || '';
+      const status = c.res.status >= 500 ? 'failed' : c.res.status >= 400 ? 'blocked' : 'success';
+
+      await supabase.from('admin_audit_events').insert({
+        actor_user_id: actorId,
+        actor_email: actorEmail,
+        action: `${method} ${path.replace('/make-server-c4d79cb7', '')}`,
+        module: auditModuleOfPath(path),
+        target_user_id: typeof targetUserId === 'string' && /^[0-9a-f-]{36}$/i.test(targetUserId) ? targetUserId : null,
+        target_resource: typeof targetUserId === 'string' ? targetUserId : null,
+        ip_address: clientIpOf(c),
+        user_agent: ua.slice(0, 500),
+        device: deviceOfUA(ua),
+        browser: browserOfUA(ua),
+        status,
+        details: { httpStatus: c.res.status, payload: sanitiseAuditPayload(payload) },
+      });
+    } catch (e) {
+      console.warn('[ADMIN AUDIT MW] failed', e);
+    }
+  })();
+});
+
 
 // ⚡ Health check endpoint (MUST be public, no auth required)
 app.get("/make-server-c4d79cb7/health", (c) => {
@@ -722,11 +836,28 @@ app.get("/make-server-c4d79cb7/auth/test-2factor", async (c) => {
 // 🔥 NEW: Send OTP for signup using 2factor.in
 app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
   try {
-    const { phone, email, name } = await c.req.json();
+    const { phone, email, name, resend } = await c.req.json();
 
     if (!phone || !/^[0-9]{10}$/.test(phone)) {
       return c.json({ error: 'Invalid phone number. Must be 10 digits.' }, 400);
     }
+
+    // 🛡️ Duplicate-send guard: only one OTP per 60s unless the user
+    // explicitly taps "Resend OTP" (resend === true).
+    if (!resend) {
+      const prev = await kv.get(`otp_session:${phone}`);
+      if (prev?.timestamp && Date.now() - prev.timestamp < 60_000) {
+        console.log(`⏳ OTP already sent to ${phone} recently — skipping duplicate send`);
+        return c.json({
+          success: true,
+          message: 'OTP already sent',
+          sessionId: prev.sessionId,
+          throttled: true,
+        });
+      }
+    }
+
+
 
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     if (!apiKey) {
@@ -760,7 +891,7 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
     if (email) {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, 'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '' },
         body: JSON.stringify({
           template: 'otp',
           to: email,
@@ -981,7 +1112,7 @@ app.post("/make-server-c4d79cb7/auth/register-direct", async (c) => {
 // 📧 Send Email OTP (independent of mobile OTP)
 app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
   try {
-    const { email, name } = await c.req.json();
+    const { email, name, resend } = await c.req.json();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return c.json({ error: 'Valid email is required' }, 400);
     }
@@ -992,14 +1123,24 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
       return c.json({ error: 'An account with this email already exists. Please sign in instead.' }, 400);
     }
 
+    const otpKey = `email_otp:${email.toLowerCase()}`;
+
+    // 🛡️ Duplicate-send guard: only one email OTP per 60s unless the user
+    // explicitly taps "Resend".
+    const existing = await kv.get(otpKey);
+    if (!resend && existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
+      return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
+    }
+
+
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
-    await kv.set(`email_otp:${email.toLowerCase()}`, { code, expiresAt, attempts: 0 });
+    await kv.set(otpKey, { code, expiresAt, attempts: 0, lastSentAt: Date.now() });
 
     // Send email via send-email function
     const emailRes = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, 'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '' },
       body: JSON.stringify({
         template: 'otp',
         to: email,
@@ -2068,6 +2209,22 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       const groww = await BrokerRouter.getGrowwService(user.id);
       if (!groww) return c.json({ error: "Groww not connected" }, 400);
       funds = await groww.getFundLimits();
+    } else if (activeBroker === 'fyers') {
+      const fyers = await BrokerRouter.getFyersService(user.id);
+      if (!fyers) return c.json({ error: "Fyers not connected" }, 400);
+      funds = await fyers.getFundLimits();
+    } else if (activeBroker === '5paisa') {
+      const fivepaisa = await BrokerRouter.getFivepaisaService(user.id);
+      if (!fivepaisa) return c.json({ error: "5paisa not connected" }, 400);
+      funds = await fivepaisa.getFundLimits();
+    } else if (activeBroker === 'aliceblue') {
+      const aliceblue = await BrokerRouter.getAliceblueService(user.id);
+      if (!aliceblue) return c.json({ error: "Aliceblue not connected" }, 400);
+      funds = await aliceblue.getFundLimits();
+    } else if (activeBroker === 'angelone') {
+      const angelone = await BrokerRouter.getAngelOneService(user.id);
+      if (!angelone) return c.json({ error: "Angel One not connected" }, 400);
+      funds = await angelone.getFundLimits();
     } else if (activeBroker === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(user.id);
       if (!upstox) return c.json({ error: "Upstox not connected" }, 400);
@@ -2086,24 +2243,28 @@ app.get("/make-server-c4d79cb7/fund-limits", async (c) => {
       funds = await dhanService.getFundLimits();
     }
     
-    // ✅ FIX: Save broker funds to KV store for admin panel display
+    // ✅ FIX: Save broker funds to KV store for admin panel display (per-broker + legacy key)
     if (funds && funds.availableBalance !== undefined) {
       try {
-        await kv.set(`broker_funds:${user.id}`, {
+        const snapshot = {
+          broker: activeBroker,
           availableBalance: funds.availableBalance,
           sodLimit: funds.sodLimit || 0,
           collateralAmount: funds.collateralAmount || 0,
           utilizationAmount: funds.utilizationAmount || 0,
           blockedPayinAmount: funds.blockedPayinAmount || 0,
           lastUpdated: new Date().toISOString()
-        });
-        console.log(`✅ Saved broker funds for user ${user.id}: ₹${funds.availableBalance}`);
+        };
+        await kv.set(`broker_funds:${activeBroker}:${user.id}`, snapshot);
+        await kv.set(`broker_funds:${user.id}`, snapshot);
+        console.log(`✅ Saved ${activeBroker} funds for user ${user.id}: ₹${funds.availableBalance}`);
       } catch (err: any) {
         console.error(`❌ Error saving broker funds for ${user.id}:`, err.message);
       }
     }
     
-    return c.json({ success: true, funds });
+    return c.json({ success: true, broker: activeBroker, brokerName: BrokerRegistry.brokerLabel(activeBroker), funds });
+
   } catch (error) {
     console.log(`Fund limits error: ${error}`);
     
@@ -2243,7 +2404,9 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
 
     // 🔀 Broker-aware positions (Zerodha → Kite portfolio, Dhan → unchanged)
     const activeBrokerPos = await BrokerRouter.getActiveBroker(effectiveUserId);
-    const cachedPositions = await safeKVGet(`last_positions:${effectiveUserId}`, []);
+    // 🔒 Cache is per-broker — never fall back to another broker's positions.
+    const positionsCacheKey = `last_positions:${activeBrokerPos}:${effectiveUserId}`;
+    const cachedPositions = await safeKVGet(positionsCacheKey, []);
     let positions: any[] = [];
 
     if (activeBrokerPos === 'zerodha') {
@@ -2252,6 +2415,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Zerodha (Kite) session not found. Login again from Broker Setup.'
         });
       }
@@ -2262,16 +2426,62 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Groww session not found. Connect Groww again from Broker Setup.'
         });
       }
       positions = await withTimeout(groww.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'fyers') {
+      const fyers = await BrokerRouter.getFyersService(effectiveUserId);
+      if (!fyers) {
+        return c.json({
+          success: true,
+          positions: [],
+          broker: activeBrokerPos,
+          warning: 'Fyers session not found. Connect Fyers again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(fyers.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === '5paisa') {
+      const fivepaisa = await BrokerRouter.getFivepaisaService(effectiveUserId);
+      if (!fivepaisa) {
+        return c.json({
+          success: true,
+          positions: [],
+          broker: activeBrokerPos,
+          warning: '5paisa session not found. Connect 5paisa again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(fivepaisa.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'aliceblue') {
+      const aliceblue = await BrokerRouter.getAliceblueService(effectiveUserId);
+      if (!aliceblue) {
+        return c.json({
+          success: true,
+          positions: [],
+          broker: activeBrokerPos,
+          warning: 'Aliceblue session not found. Connect Aliceblue again from Broker Setup.'
+        });
+      }
+      positions = await withTimeout(aliceblue.getPositions(), 4500, cachedPositions || []);
+    } else if (activeBrokerPos === 'angelone') {
+      const angelone = await BrokerRouter.getAngelOneService(effectiveUserId);
+      if (!angelone) {
+        return c.json({
+          success: true,
+          positions: [],
+          broker: activeBrokerPos,
+          warning: 'Angel One session not found. Login again from Broker Setup → Angel One.'
+        });
+      }
+      positions = await withTimeout(angelone.getPositions(), 4500, cachedPositions || []);
     } else if (activeBrokerPos === 'upstox') {
       const upstox = await BrokerRouter.getUpstoxService(effectiveUserId);
       if (!upstox) {
         return c.json({
           success: true,
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Upstox session not found. Connect Upstox again from Broker Setup.'
         });
       }
@@ -2283,6 +2493,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
         return c.json({ 
           success: true, 
           positions: [],
+          broker: activeBrokerPos,
           warning: 'Dhan credentials not configured. Please configure in Settings tab.'
         });
       }
@@ -2295,6 +2506,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
       positions = await withTimeout(dhanService.getPositions(), 4500, cachedPositions || []);
     }
     if (positions && positions !== cachedPositions) {
+      runBackgroundTask(kv.set(positionsCacheKey, positions));
       runBackgroundTask(kv.set(`last_positions:${effectiveUserId}`, positions));
     }
     
@@ -2316,7 +2528,7 @@ app.get("/make-server-c4d79cb7/positions", async (c) => {
     console.log('💰 Total P&L:', (totalRealized + totalUnrealized).toFixed(2));
     console.log('=======================================================');
     
-    return c.json({ success: true, positions });
+    return c.json({ success: true, broker: activeBrokerPos, brokerName: BrokerRegistry.brokerLabel(activeBrokerPos), positions });
   } catch (error) {
     console.log(`Positions error: ${error}`);
     
@@ -3143,7 +3355,7 @@ app.post("/make-server-c4d79cb7/ai-analysis", async (c) => {
 // Get logs
 app.get("/make-server-c4d79cb7/logs", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
     const logs = await getMergedUserLogs(userId);
@@ -3285,7 +3497,7 @@ app.post("/make-server-c4d79cb7/get-ai-signal", async (c) => {
     });
 
     // Get market data with 50 candles using cached OHLC
-    const securityId = index === 'NIFTY' ? '13' : '25';
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const marketData = await dhanService.getMarketQuote(securityId, 'IDX_I');
 
     if (!marketData || !marketData.candles || marketData.candles.length < 50) {
@@ -3754,7 +3966,7 @@ app.post("/make-server-c4d79cb7/ai-trading-signal", async (c) => {
 
     // ⚡ PARALLEL FETCH (SAVE 200-500ms)
     const fetchStart = performance.now();
-    const securityId = index === 'BANKNIFTY' ? '25' : '13'; // NIFTY = 13, BANKNIFTY = 25
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const candleCount = Math.max(candles || 50, 250) + 1; // enough candles for stable EMA/ADX + running candle
     const candleInterval = interval || '5'; // Default to 5-minute candles
     
@@ -4204,6 +4416,13 @@ app.post("/make-server-c4d79cb7/backend-ai-signal", async (c) => {
     if (!accessToken) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
+
+    // 🔒 Verify the JWT against Supabase Auth before doing any work
+    const { data: { user: authedUser }, error: authError } = await supabase.auth.getUser(accessToken);
+    if (authError || !authedUser) {
+      return c.json({ error: 'Unauthorized - invalid token' }, 401);
+    }
+
     
     const credentialsRaw = await kv.get('api_credentials');
     if (!credentialsRaw) {
@@ -4219,7 +4438,7 @@ app.post("/make-server-c4d79cb7/backend-ai-signal", async (c) => {
       accessToken: credentials.dhanAccessToken 
     });
     
-    const securityId = index === 'NIFTY' ? '13' : index === 'BANKNIFTY' ? '25' : '13';
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 100);
     const dataEnd = performance.now();
     
@@ -4299,7 +4518,7 @@ app.post("/make-server-c4d79cb7/monitor-position", async (c) => {
       clientId: credentials.dhanClientId, 
       accessToken: credentials.dhanAccessToken 
     });
-    const securityId = index === 'NIFTY' ? '13' : index === 'BANKNIFTY' ? '25' : '13';
+    const securityId = ({ NIFTY: '13', BANKNIFTY: '25', SENSEX: '51' } as Record<string, string>)[String(index).toUpperCase()] || '13';
     const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 100);
     
     if (!ohlcData || ohlcData.length === 0) {
@@ -4395,22 +4614,15 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
 
     
     // ⚡ FIX: Use user-specific credentials key (same as other endpoints)
-    const credentials = await kv.get(`api_credentials:${effectiveUserId}`);
-    if (!credentials) {
-      console.error('❌ No credentials found for user:', effectiveUserId);
-      return c.json({ error: 'API credentials not configured. Please configure in Settings.' }, 400);
-    }
-    
-    if (!credentials.dhanAccessToken) {
-      console.error('❌ Dhan access token missing');
-      return c.json({ error: 'Dhan access token not configured. Please configure in Settings.' }, 400);
-    }
+    const credentials = (await kv.get(`api_credentials:${effectiveUserId}`)) || {};
     
     console.log(`✅ Credentials loaded for user: ${effectiveUserId}`);
     console.log(`⚡ Using timeframe: ${interval}M (selected by user)`);
     
     // ⚡⚡⚡ MULTI-SYMBOL SUPPORT: Process all active indices ⚡⚡⚡
-    const activeIndices = indices && indices.length > 0 ? indices : [index];
+    const activeIndices = (indices && indices.length > 0 ? indices : [index])
+      .map((value: any) => String(value || '').toUpperCase())
+      .filter((value: string) => ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(value));
     console.log(`\n🎯 Processing ${activeIndices.length} indices: ${activeIndices.join(', ')}`);
     
     const dhanService = new DhanService({ 
@@ -4434,7 +4646,45 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
       try {
         const securityId = getSecurityId(idx);
         console.log(`\n📊 Fetching ${idx} data (security ID: ${securityId})...`);
-        
+
+        // The central publisher is the canonical source of tradable decisions, but it is
+        // only trusted when it belongs to the candle that just closed (or the one before,
+        // to tolerate settlement lag). A stale or missing central signal must NOT be
+        // served as "live" — we fall back to the local analysis below in that case.
+        const _tfMinutes = Number(interval);
+        const _tfBoundaryMs = _tfMinutes * 60 * 1000;
+        const _istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        const _stampFor = (offsetBoundaries: number) => {
+          const d = new Date(Math.floor(_istNow.getTime() / _tfBoundaryMs) * _tfBoundaryMs - offsetBoundaries * _tfBoundaryMs);
+          return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+        };
+        const _freshStamps = [_stampFor(0), _stampFor(1)];
+
+        const central = await CentralMarketData.getLatestCentralSignal(idx, _tfMinutes).catch(() => null);
+        const centralFresh = !!central?.signal && _freshStamps.includes(String(central.candleStamp));
+        if (centralFresh) {
+          results.push({
+            index: idx,
+            signal: {
+              ...central.signal,
+              index: idx,
+              timeframe: `${interval}M`,
+              candleClose: central.candleStamp,
+              central: true,
+            },
+            candlesProcessed: Number(central.signal?.candlesAnalyzed || 0),
+            processingTime: Math.round(performance.now() - dataStart),
+            source: 'CENTRAL_SIGNAL',
+          });
+          continue;
+        }
+
+        if (central?.signal) {
+          console.log(`⚠️ ${idx}: central ${interval}M signal is stale (candle ${central.candleStamp}, expected ${_freshStamps.join('/')}) — recomputing locally`);
+        } else {
+          console.log(`⚠️ ${idx}: no central ${interval}M signal published — recomputing locally`);
+        }
+
         // ⚡ CRITICAL: Add 500ms delay between requests to avoid Dhan rate limiting (optimized for multi-symbol)
         // Note: Global rate limiter already adds 600ms between ALL Dhan API calls
         if (results.length > 0) {
@@ -4443,7 +4693,12 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         }
         
         // Professional MTF: entry timeframe + REAL 15m + REAL 1H trend candles.
-        const ohlcData = await dhanService.getOHLCData(securityId, interval.toString(), 50);
+        // Prefer the shared central data feed so all users analyse identical candles;
+        // the user's own Dhan token is used only as a fallback.
+        const ohlcData = (await CentralMarketData.getCentralOHLC(securityId, interval.toString(), 50, dhanService)
+          .then((r: any) => r.candles)
+          .catch(() => null)) || (await dhanService.getOHLCData(securityId, interval.toString(), 50));
+
         const real15mData = interval === '15' ? ohlcData : await dhanService.getOHLCData(securityId, '15', 80);
         // FIX 3: 1H higher timeframe (best-effort, non-blocking on failure)
         let real1hData: any[] = [];
@@ -4519,7 +4774,7 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           lastLossTimestamp,
           consecutiveLossThreshold: 3,
           consecutiveLossCooldownMs: 30 * 60 * 1000,
-          minimumBarsBetweenSignals: 1, // ⚡ ULTRA FAST: allow every newly closed candle; duplicate orders still protected separately
+          minimumBarsBetweenSignals: Number(interval) === 15 ? 3 : 2,
         });
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
@@ -5016,6 +5271,440 @@ app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
 });
 
 // ============================================
+// 🧪 INDEXPILOTAI STRATEGY BACKTEST (wallet-metered)
+// ============================================
+
+app.post('/make-server-c4d79cb7/backtest/strategy/run', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const strategy = String(body.strategy || 'indexpilotai');
+    const requested: string[] = Array.isArray(body.indices) && body.indices.length
+      ? body.indices
+      : ['NIFTY', 'BANKNIFTY', 'SENSEX'];
+    const indices = requested
+      .map((s: string) => String(s).toUpperCase())
+      .filter((s: string) => ['NIFTY', 'BANKNIFTY', 'SENSEX'].includes(s)) as any[];
+    const initialCapital = Math.max(10000, Math.min(50000000, Number(body.initialCapital) || 100000));
+    const toDate = String(body.toDate || '').slice(0, 10);
+    const fromDate = String(body.fromDate || '').slice(0, 10);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+      return c.json({ success: false, error: 'Invalid date range' }, 400);
+    }
+    const spanDays = (new Date(`${toDate}T00:00:00Z`).getTime() - new Date(`${fromDate}T00:00:00Z`).getTime()) / 86400000;
+    if (spanDays < 28) return c.json({ success: false, error: 'Minimum duration is 1 month' }, 400);
+    if (spanDays > 370) return c.json({ success: false, error: 'Maximum duration is 1 year' }, 400);
+    if (!indices.length) return c.json({ success: false, error: 'Select at least one index' }, 400);
+
+    // ---- wallet debit (₹5 per run)
+    const wallet = (await kv.get(`wallet:${user.id}`)) || { balance: 0, totalProfit: 0, totalDeducted: 0 };
+    const balance = Number(wallet.balance || 0);
+    if (balance < BACKTEST_COST) {
+      return c.json({
+        success: false,
+        error: `Insufficient wallet balance. Backtest costs ₹${BACKTEST_COST}, available ₹${balance}.`,
+        required: BACKTEST_COST,
+        available: balance,
+      }, 402);
+    }
+
+    // debit first so a long run cannot be started twice on the same balance
+    const newBalance = Number((balance - BACKTEST_COST).toFixed(2));
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Number(wallet.totalDeducted || 0) + BACKTEST_COST,
+      updatedAt: new Date().toISOString(),
+    });
+
+    let report;
+    try {
+      report = await runStrategyBacktest({ strategy, indices, initialCapital, fromDate, toDate });
+    } catch (runErr: any) {
+      // refund on failure
+      const cur = (await kv.get(`wallet:${user.id}`)) || { balance: 0 };
+      await kv.set(`wallet:${user.id}`, {
+        ...cur,
+        balance: Number((Number(cur.balance || 0) + BACKTEST_COST).toFixed(2)),
+        totalDeducted: Math.max(0, Number(cur.totalDeducted || 0) - BACKTEST_COST),
+        updatedAt: new Date().toISOString(),
+      });
+      return c.json({ success: false, error: runErr?.message || 'Backtest failed' }, 500);
+    }
+
+    const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
+    walletTx.push({
+      id: `bt_${Date.now()}`,
+      type: 'debit',
+      amount: BACKTEST_COST,
+      description: `Strategy backtest (${strategy}) ${fromDate} → ${toDate}`,
+      balanceAfter: newBalance,
+      timestamp: new Date().toISOString(),
+    });
+    await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
+
+    // ---- persist for the user + admin views
+    try {
+      const supabaseSrv = createClient(
+        Deno.env.get('SUPABASE_URL') || '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+      );
+      await supabaseSrv.from('strategy_backtests').insert({
+        user_id: user.id,
+        user_email: user.email || null,
+        strategy,
+        indices,
+        initial_capital: initialCapital,
+        from_date: fromDate,
+        to_date: toDate,
+        cost: BACKTEST_COST,
+        summary: report.summary,
+        by_index: report.byIndex,
+        report: {
+          daily: report.daily,
+          weekly: report.weekly,
+          monthly: report.monthly,
+          yearly: report.yearly,
+          equityCurve: report.equityCurve,
+          trades: report.trades.slice(-200),
+        },
+      });
+    } catch (persistErr: any) {
+      console.error('⚠️ backtest persist failed:', persistErr?.message);
+    }
+
+    return c.json({ success: true, walletBalance: newBalance, cost: BACKTEST_COST, report });
+  } catch (e: any) {
+    console.error('❌ strategy backtest error', e);
+    return c.json({ success: false, error: e?.message || 'Backtest failed' }, 500);
+  }
+});
+
+// ============================================================
+// Segmented backtest flow (keeps every request inside the edge
+// function CPU budget — long runs used to be killed mid-flight)
+// begin → segment (per index / per slice) → finalize
+// ============================================================
+
+const BT_INDICES = ['NIFTY', 'BANKNIFTY', 'SENSEX'];
+
+function btSlices(fromDate: string, toDate: string) {
+  const out: { from: string; to: string }[] = [];
+  const end = new Date(`${toDate}T00:00:00Z`).getTime();
+  const STEP = 45 * 86400000;
+  for (let s = new Date(`${fromDate}T00:00:00Z`).getTime(); s <= end; s += STEP + 86400000) {
+    const to = Math.min(s + STEP, end);
+    out.push({ from: new Date(s).toISOString().slice(0, 10), to: new Date(to).toISOString().slice(0, 10) });
+    if (to >= end) break;
+  }
+  return out;
+}
+
+app.post('/make-server-c4d79cb7/backtest/strategy/begin', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const strategy = String(body.strategy || 'indexpilotai');
+    const requested: string[] = Array.isArray(body.indices) && body.indices.length ? body.indices : BT_INDICES;
+    const indices = requested.map((s: string) => String(s).toUpperCase()).filter((s: string) => BT_INDICES.includes(s));
+    const initialCapital = Math.max(10000, Math.min(50000000, Number(body.initialCapital) || 100000));
+    const fromDate = String(body.fromDate || '').slice(0, 10);
+    const toDate = String(body.toDate || '').slice(0, 10);
+    const rawLots = body.lots && typeof body.lots === 'object' ? body.lots : {};
+    const lots: Record<string, number> = {};
+    for (const idx of BT_INDICES) {
+      lots[idx] = Math.max(0, Math.min(50, Math.floor(Number(rawLots[idx]) || 0)));
+    }
+    const maxTradesPerDay = Math.max(0, Math.min(20, Math.floor(Number(body.maxTradesPerDay) || 0)));
+    const minConfidence = Math.max(0, Math.min(95, Math.floor(Number(body.minConfidence) || 0)));
+
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+      return c.json({ success: false, error: 'Invalid date range' }, 400);
+    }
+    const spanDays = (new Date(`${toDate}T00:00:00Z`).getTime() - new Date(`${fromDate}T00:00:00Z`).getTime()) / 86400000;
+    if (spanDays < 28) return c.json({ success: false, error: 'Minimum duration is 1 month' }, 400);
+    if (spanDays > 370) return c.json({ success: false, error: 'Maximum duration is 1 year' }, 400);
+    if (!indices.length) return c.json({ success: false, error: 'Select at least one index' }, 400);
+
+    const wallet = (await kv.get(`wallet:${user.id}`)) || { balance: 0, totalDeducted: 0 };
+    const balance = Number(wallet.balance || 0);
+    if (balance < BACKTEST_COST) {
+      return c.json({
+        success: false,
+        error: `Insufficient wallet balance. Backtest costs ₹${BACKTEST_COST}, available ₹${balance}.`,
+      }, 402);
+    }
+    const newBalance = Number((balance - BACKTEST_COST).toFixed(2));
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Number(wallet.totalDeducted || 0) + BACKTEST_COST,
+      updatedAt: new Date().toISOString(),
+    });
+    const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
+    walletTx.push({
+      id: `bt_${Date.now()}`,
+      type: 'debit',
+      amount: BACKTEST_COST,
+      description: `Strategy backtest (${strategy}) ${fromDate} → ${toDate}`,
+      balanceAfter: newBalance,
+      timestamp: new Date().toISOString(),
+    });
+    await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
+    const runId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const tasks: { index: string; from: string; to: string }[] = [];
+    for (const idx of indices) for (const s of btSlices(fromDate, toDate)) tasks.push({ index: idx, from: s.from, to: s.to });
+
+    await kv.set(`backtest:run:${user.id}:${runId}`, {
+      strategy, indices, initialCapital, fromDate, toDate, lots, maxTradesPerDay, minConfidence,
+      trades: [], done: 0, total: tasks.length,
+      createdAt: new Date().toISOString(),
+    });
+
+    return c.json({ success: true, runId, tasks, walletBalance: newBalance, cost: BACKTEST_COST });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to start backtest' }, 500);
+  }
+});
+
+app.post('/make-server-c4d79cb7/backtest/strategy/segment', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const runId = String(body.runId || '');
+    const index = String(body.index || '').toUpperCase();
+    const from = String(body.from || '').slice(0, 10);
+    const to = String(body.to || '').slice(0, 10);
+    if (!runId || !BT_INDICES.includes(index)) return c.json({ success: false, error: 'Invalid segment' }, 400);
+
+    const key = `backtest:run:${user.id}:${runId}`;
+    const state = await kv.get(key);
+    if (!state) return c.json({ success: false, error: 'Backtest session expired, please run again' }, 404);
+
+    const trades = await replaySegment({
+      index: index as any,
+      fromDate: from,
+      toDate: to,
+      capital: state.initialCapital / Math.max(1, (state.indices || []).length),
+      lots: Number(state.lots?.[index] || 0),
+      maxTradesPerDay: Number(state.maxTradesPerDay || 0),
+      minConfidence: Number(state.minConfidence || 0),
+    });
+
+
+    // Each segment writes to its OWN key — concurrent segments can never
+    // overwrite each other's trades (finalize aggregates them by prefix).
+    await kv.set(`backtest:seg:${user.id}:${runId}:${index}:${from}:${to}`, { trades });
+
+    return c.json({ success: true, trades: trades.length });
+  } catch (e: any) {
+    console.error('❌ backtest segment error', e);
+    return c.json({ success: false, error: e?.message || 'Segment failed' }, 500);
+  }
+});
+
+app.post('/make-server-c4d79cb7/backtest/strategy/finalize', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const runId = String(body.runId || '');
+    const key = `backtest:run:${user.id}:${runId}`;
+    const state = await kv.get(key);
+    if (!state) return c.json({ success: false, error: 'Backtest session expired, please run again' }, 404);
+
+    const segPrefix = `backtest:seg:${user.id}:${runId}:`;
+    const segRows = await kv.getByPrefix(segPrefix).catch(() => []);
+    const allTrades = [
+      ...(state.trades || []),
+      ...segRows.flatMap((r: any) => (r?.value?.trades || [])),
+    ];
+
+    const report = buildReport(allTrades, {
+      strategy: state.strategy,
+      indices: state.indices,
+      initialCapital: state.initialCapital,
+      fromDate: state.fromDate,
+      toDate: state.toDate,
+    });
+
+    try {
+      const supabaseSrv = createClient(
+        Deno.env.get('SUPABASE_URL') || '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+      );
+      await supabaseSrv.from('strategy_backtests').insert({
+        user_id: user.id,
+        user_email: user.email || null,
+        strategy: state.strategy,
+        indices: state.indices,
+        initial_capital: state.initialCapital,
+        from_date: state.fromDate,
+        to_date: state.toDate,
+        cost: BACKTEST_COST,
+        summary: report.summary,
+        by_index: report.byIndex,
+        report: {
+          daily: report.daily,
+          weekly: report.weekly,
+          monthly: report.monthly,
+          yearly: report.yearly,
+          equityCurve: report.equityCurve,
+          trades: report.trades.slice(-200),
+        },
+      });
+    } catch (persistErr: any) {
+      console.error('⚠️ backtest persist failed:', persistErr?.message);
+    }
+
+    await kv.del(key).catch(() => {});
+    if (segRows.length) await kv.mdel(segRows.map((r: any) => r.key)).catch(() => {});
+    const wallet = (await kv.get(`wallet:${user.id}`)) || {};
+    return c.json({ success: true, report, walletBalance: Number(wallet.balance || 0) });
+  } catch (e: any) {
+    console.error('❌ backtest finalize error', e);
+    return c.json({ success: false, error: e?.message || 'Failed to build report' }, 500);
+  }
+});
+
+// Abort a started (but unfinished) backtest and refund the ₹5 charge
+app.post('/make-server-c4d79cb7/backtest/strategy/abort', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const runId = String(body.runId || '');
+    if (!runId) return c.json({ success: false, error: 'runId required' }, 400);
+
+    const key = `backtest:run:${user.id}:${runId}`;
+    const state = await kv.get(key);
+    // Only refund once — the run record acts as the idempotency guard
+    if (!state) return c.json({ success: true, refunded: false });
+    await kv.del(key).catch(() => {});
+    const segRows = await kv.getByPrefix(`backtest:seg:${user.id}:${runId}:`).catch(() => []);
+    if (segRows.length) await kv.mdel(segRows.map((r: any) => r.key)).catch(() => {});
+
+    const wallet = (await kv.get(`wallet:${user.id}`)) || { balance: 0, totalDeducted: 0 };
+    const newBalance = Number((Number(wallet.balance || 0) + BACKTEST_COST).toFixed(2));
+    await kv.set(`wallet:${user.id}`, {
+      ...wallet,
+      balance: newBalance,
+      totalDeducted: Math.max(0, Number(wallet.totalDeducted || 0) - BACKTEST_COST),
+      updatedAt: new Date().toISOString(),
+    });
+    const walletTx = (await kv.get(`wallet_transactions:${user.id}`)) || [];
+    walletTx.push({
+      id: `btr_${Date.now()}`,
+      type: 'credit',
+      amount: BACKTEST_COST,
+      description: 'Refund — backtest failed',
+      balanceAfter: newBalance,
+      timestamp: new Date().toISOString(),
+    });
+    await kv.set(`wallet_transactions:${user.id}`, walletTx);
+
+    return c.json({ success: true, refunded: true, walletBalance: newBalance });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Refund failed' }, 500);
+  }
+});
+
+
+
+
+
+// User's own backtest history
+app.get('/make-server-c4d79cb7/backtest/strategy/history', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+
+    const supabaseSrv = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    );
+    const { data, error } = await supabaseSrv
+      .from('strategy_backtests')
+      .select('id, strategy, indices, initial_capital, from_date, to_date, cost, summary, by_index, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    return c.json({ success: true, runs: data || [] });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to load history' }, 500);
+  }
+});
+
+// Single stored run (own or admin)
+app.get('/make-server-c4d79cb7/backtest/strategy/run/:id', async (c) => {
+  try {
+    const { user, error: authError } = await validateAuth(c);
+    if (authError || !user) return c.json({ success: false, error: 'Unauthorized' }, 401);
+    const admin = await validateAdminAuth(c);
+
+    const supabaseSrv = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    );
+    let q = supabaseSrv.from('strategy_backtests').select('*').eq('id', c.req.param('id'));
+    if (!admin.authorized) q = q.eq('user_id', user.id);
+    const { data, error } = await q.maybeSingle();
+    if (error) throw error;
+    if (!data) return c.json({ success: false, error: 'Not found' }, 404);
+    return c.json({ success: true, run: data });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to load run' }, 500);
+  }
+});
+
+// Admin: user-wise backtest activity
+app.get('/make-server-c4d79cb7/admin/strategy-backtests', async (c) => {
+  try {
+    const admin = await validateAdminAuth(c);
+    if (!admin.authorized) return c.json({ success: false, error: 'Unauthorized' }, admin.error?.code || 403);
+
+    const supabaseSrv = createClient(
+      Deno.env.get('SUPABASE_URL') || '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+    );
+    const { data, error } = await supabaseSrv
+      .from('strategy_backtests')
+      .select('id, user_id, user_email, strategy, indices, initial_capital, from_date, to_date, cost, summary, by_index, created_at')
+      .order('created_at', { ascending: false })
+      .limit(300);
+    if (error) throw error;
+
+    const rows = data || [];
+    const ids = Array.from(new Set(rows.map((r: any) => r.user_id).filter(Boolean)));
+    const nameMap: Record<string, string> = {};
+    if (ids.length) {
+      const { data: profs } = await supabaseSrv.from('profiles').select('id, full_name, email').in('id', ids);
+      for (const p of profs || []) nameMap[p.id] = p.full_name || p.email || p.id;
+    }
+
+    const runs = rows.map((r: any) => ({ ...r, user_name: nameMap[r.user_id] || r.user_email || r.user_id }));
+    const revenue = runs.reduce((s: number, r: any) => s + Number(r.cost || 0), 0);
+    return c.json({ success: true, runs, totalRuns: runs.length, revenue });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Failed to load backtests' }, 500);
+  }
+});
+
+
+// ============================================
 // 📊 TRADING JOURNAL ROUTES
 // ============================================
 
@@ -5425,7 +6114,7 @@ app.post("/make-server-c4d79cb7/wallet/initialize", async (c) => {
 // Get wallet balance
 app.get("/make-server-c4d79cb7/wallet/balance", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ code: 401, message: 'Unauthorized' }, 401);
 
     const wallet = await safeKVGet(`wallet:${userId}`, { balance: 0, totalProfit: 0, totalDeducted: 0 }, 1);
@@ -5610,7 +6299,7 @@ app.post("/make-server-c4d79cb7/wallet/verify-payment", async (c) => {
     try {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, 'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '' },
         body: JSON.stringify({
           template: 'wallet_recharge',
           userId: user.id,
@@ -6640,6 +7329,625 @@ app.get("/make-server-c4d79cb7/vps-power/my-status", async (c) => {
   }
 });
 
+// ==================== 🔧 VPS ORDER-SERVER UPGRADE (multi-broker) ====================
+// Old VPS images (< 1.4.0) only proxy Dhan. Every other broker then falls back to
+// the Supabase edge IP and gets rejected ("only allowed from whitelisted IP").
+// These routes upgrade the running VPS so ALL brokers route through the static IP.
+
+app.get("/make-server-c4d79cb7/vps/upgrade-status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    let version = "unknown";
+    let multiBrokerReady = false;
+    try {
+      const h = await fetch(`http://${ip}:3000/health`, { signal: AbortSignal.timeout(4000) });
+      version = String((await h.json())?.version || "unknown");
+    } catch { /* unreachable */ }
+    try {
+      const probe = await fetch(`http://${ip}:3000/broker-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(4000),
+      });
+      multiBrokerReady = probe.status !== 404;
+    } catch { /* unreachable */ }
+    return c.json({
+      success: true,
+      ip,
+      version,
+      latestVersion: VPSProvisioning.ORDER_SERVER_VERSION,
+      multiBrokerReady,
+      upgradeRequired: !multiBrokerReady,
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 400);
+  }
+});
+
+app.post("/make-server-c4d79cb7/vps/upgrade", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    if (!ip) return c.json({ success: false, error: "No dedicated VPS found for your account." }, 400);
+
+    // 1️⃣ Preferred: in-place push (images ≥ 1.4.0 expose /self-update)
+    const pushed = await VPSProvisioning.pushServerUpdate(ip);
+    if (pushed.success) {
+      return c.json({ success: true, ip, method: "self-update", message: "VPS upgraded — all brokers now route through your static IP." });
+    }
+
+    // 2️⃣ Legacy image: mint a one-time token and hand back a copy-paste command
+    const token = crypto.randomUUID().replace(/-/g, "");
+    await kv.set(`vps_upgrade_token:${token}`, { userId: user.id, ip, at: Date.now() });
+    const origin = new URL(c.req.url).origin;
+    const url = `${origin}/functions/v1/make-server-c4d79cb7/vps/upgrade-script/${token}`;
+    return c.json({
+      success: false,
+      needsManualRun: true,
+      ip,
+      reason: pushed.error,
+      command: `curl -sL "${url}" | bash`,
+      instructions: [
+        "Open DigitalOcean → Droplets → your droplet → Console (Access tab)",
+        "Paste the command below and press Enter",
+        "Wait for '✅ Upgrade complete', then place an order again",
+      ],
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 400);
+  }
+});
+
+// Serves the upgrade bash script for a one-time token (valid 30 minutes).
+app.get("/make-server-c4d79cb7/vps/upgrade-script/:token", async (c) => {
+  const token = c.req.param("token");
+  const rec = (await kv.get(`vps_upgrade_token:${token}`)) as any;
+  if (!rec || Date.now() - Number(rec.at || 0) > 30 * 60 * 1000) {
+    return c.text("# invalid or expired upgrade token\n", 403);
+  }
+  return c.text(VPSProvisioning.generateUpgradeScript(), 200, { "Content-Type": "text/x-shellscript" });
+});
+
+// ==================== 🤖 FULLY AUTOMATIC VPS DEPLOY ====================
+// No console, no copy-paste command. Tries an in-place push first; if the image
+// is too old to accept it, the droplet is destroyed and re-created automatically
+// with the latest multi-broker order server.
+
+async function vpsHealthInfo(ip: string): Promise<{ version: string; multiBrokerReady: boolean; reachable: boolean }> {
+  let version = "unknown";
+  let reachable = false;
+  let multiBrokerReady = false;
+  try {
+    const h = await fetch(`http://${ip}:3000/health`, { signal: AbortSignal.timeout(4000) });
+    if (h.ok) {
+      reachable = true;
+      version = String((await h.json())?.version || "unknown");
+    }
+  } catch { /* unreachable */ }
+  try {
+    const probe = await fetch(`http://${ip}:3000/broker-request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(4000),
+    });
+    multiBrokerReady = probe.status !== 404;
+  } catch { /* unreachable */ }
+  return { version, multiBrokerReady, reachable };
+}
+
+/**
+ * Try every in-place deployment channel a VPS image may expose.
+ * NEVER destroys the droplet — the user's whitelisted IP must stay the same.
+ */
+async function deployInPlace(ip: string): Promise<{ ok: boolean; channel?: string; error?: string }> {
+  const apiKey = Deno.env.get("ORDER_SERVER_API_KEY") || "";
+  const script = VPSProvisioning.generateUpgradeScript();
+
+  // 1) Modern images (>= 1.4.0): POST /self-update
+  const pushed = await VPSProvisioning.pushServerUpdate(ip);
+  if (pushed.success) return { ok: true, channel: "self-update" };
+
+  // 2) Legacy bootstrap channels that some images expose
+  const attempts: Array<{ url: string; body: string; headers: Record<string, string>; channel: string }> = [
+    {
+      url: `http://${ip}:3000/exec`,
+      body: JSON.stringify({ script }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      channel: "exec",
+    },
+    {
+      url: `http://${ip}:8080/deploy`,
+      body: script,
+      headers: { "Content-Type": "text/plain" },
+      channel: "boot-agent",
+    },
+  ];
+  for (const a of attempts) {
+    try {
+      const r = await fetch(a.url, { method: "POST", headers: a.headers, body: a.body, signal: AbortSignal.timeout(8000) });
+      if (r.ok) return { ok: true, channel: a.channel };
+    } catch { /* try next */ }
+  }
+  return { ok: false, error: pushed.error || "No in-place update channel available on this VPS image" };
+}
+
+app.post("/make-server-c4d79cb7/vps/auto-deploy", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    if (!ip) return c.json({ success: false, error: "No dedicated VPS found for your account." }, 400);
+
+    const before = await vpsHealthInfo(ip);
+    if (before.multiBrokerReady && before.version === VPSProvisioning.ORDER_SERVER_VERSION) {
+      return c.json({
+        success: true,
+        method: "already-latest",
+        ip,
+        version: before.version,
+        message: `Your VPS already runs v${before.version} — all brokers route through ${ip}.`,
+      });
+    }
+
+    const deployed = await deployInPlace(ip);
+
+    // Verify the restart actually landed on the multi-broker server
+    let after = before;
+    if (deployed.ok) {
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 2500));
+        after = await vpsHealthInfo(ip);
+        if (after.multiBrokerReady) break;
+      }
+    }
+
+    if (after.multiBrokerReady) {
+      return c.json({
+        success: true,
+        method: deployed.channel || "self-update",
+        ip,
+        version: after.version,
+        message: `Order server deployed on the SAME IP ${ip} (v${after.version}). All 8 brokers now place orders from this IP — no re-whitelisting needed.`,
+      });
+    }
+
+    // ❌ Never destroy / recreate: the whitelisted IP must never change.
+    // Legacy images (< 1.4.0) expose no remote update channel at all, so the only
+    // way to upgrade them in place is one command in the droplet console. Hand it
+    // back ready-to-paste instead of failing with a bare error.
+    if (before.reachable) {
+      const token = crypto.randomUUID().replace(/-/g, "");
+      await kv.set(`vps_upgrade_token:${token}`, { userId: user.id, ip, at: Date.now() });
+      const origin = new URL(c.req.url).origin;
+      const url = `${origin}/functions/v1/make-server-c4d79cb7/vps/upgrade-script/${token}`;
+      return c.json({
+        success: false,
+        needsManualScript: true,
+        ip,
+        version: before.version,
+        reachable: true,
+        command: `curl -sL "${url}" | bash`,
+        instructions: [
+          "DigitalOcean → Droplets → your droplet → Access → Launch Droplet Console",
+          "Paste the command below and press Enter",
+          "Wait for '✅ Upgrade complete', then press 'Check version' here",
+        ],
+        error: `Your VPS (${ip}) runs the old image v${before.version}, which has no remote update channel. Your IP is unchanged — run this one command once and every future update will be fully automatic.`,
+      });
+    }
+
+    return c.json(
+      {
+        success: false,
+        ip,
+        version: before.version,
+        reachable: false,
+        error: `VPS ${ip} is not reachable on port 3000. Power it on, then run Auto deploy again.`,
+      },
+      502,
+    );
+
+  } catch (e: any) {
+    console.error("❌ auto-deploy error:", e);
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
+
+// ==================== 🧪 BROKER TEST ORDER (restricted) ====================
+const TEST_ORDER_EMAILS = (Deno.env.get("TEST_ORDER_EMAILS") || "guhanesh1234@gmail.com")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+function isTestOrderAllowed(email?: string | null) {
+  return !!email && TEST_ORDER_EMAILS.includes(String(email).toLowerCase());
+}
+
+app.get("/make-server-c4d79cb7/broker/test-order/eligibility", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    return c.json({ success: true, allowed: isTestOrderAllowed(user.email) });
+  } catch (e: any) {
+    return c.json({ success: false, allowed: false, error: e.message }, 200);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/test-order", async (c) => {
+  const steps: Array<{ step: string; ok: boolean; detail: string }> = [];
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    if (!isTestOrderAllowed(user.email)) {
+      return c.json({ success: false, error: "Test orders are restricted to the approved test account." }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({} as any));
+    const dryRun = body.dryRun !== false && !body.placeReal; // default: connectivity only
+
+    // 1) Active broker + connection
+    const broker = await BrokerRouter.getActiveBroker(user.id);
+    const connected = await BrokerRouter.isBrokerConnected(user.id, broker);
+    steps.push({
+      step: "Broker connection",
+      ok: connected,
+      detail: connected ? `${broker.toUpperCase()} is connected` : `${broker.toUpperCase()} is NOT connected — login again in Broker Setup`,
+    });
+    if (!connected) {
+      return c.json({ success: false, broker, steps, message: `❌ ${broker.toUpperCase()} is not connected.` }, 200);
+    }
+
+    // 2) VPS / static IP
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    const health = ip ? await vpsHealthInfo(ip) : { version: "none", multiBrokerReady: false, reachable: false };
+    steps.push({
+      step: "Static IP VPS",
+      ok: !!ip && health.reachable,
+      detail: !ip
+        ? "No dedicated IP assigned"
+        : health.reachable
+        ? `${ip} online · order-server v${health.version}`
+        : `${ip} is not reachable — power ON the VPS`,
+    });
+    steps.push({
+      step: "Multi-broker routing",
+      ok: health.multiBrokerReady,
+      detail: health.multiBrokerReady
+        ? "All brokers proxy through your static IP"
+        : "Order server is too old (no /broker-request) — run Auto deploy on the VPS card",
+    });
+
+    if (dryRun) {
+      const allOk = steps.every((s) => s.ok);
+      return c.json({
+        success: allOk,
+        broker,
+        ip,
+        steps,
+        message: allOk
+          ? `✅ ${broker.toUpperCase()} is ready — orders will be placed from ${ip}.`
+          : `⚠️ ${broker.toUpperCase()} is not fully ready. Fix the red steps above, then retest.`,
+      });
+    }
+
+    // 3) Real test order
+    if (!body.securityId) {
+      return c.json({ success: false, broker, steps, message: "Pick a symbol before placing a real test order." }, 400);
+    }
+    const credentials = (await kv.get(`api_credentials:${user.id}`)) as any || {};
+    const testOrder = {
+      securityId: String(body.securityId),
+      transactionType: body.transactionType === "SELL" ? "SELL" : "BUY",
+      exchangeSegment: body.exchangeSegment === "NFO" ? "NSE_FNO" : (body.exchangeSegment || "NSE_FNO"),
+      productType: "INTRADAY",
+      orderType: "MARKET",
+      validity: "DAY",
+      quantity: Math.max(1, Number(body.quantity) || 1),
+      disclosedQuantity: 0,
+      price: 0,
+      triggerPrice: 0,
+      afterMarketOrder: false,
+      symbolName: body.symbolName,
+      tradingSymbol: body.symbolName,
+      index: body.index,
+    };
+
+    try {
+      const result = await BrokerRouter.placeOrderSmart(user.id, credentials, testOrder);
+      const orderId = result?.orderId || result?.correlationId;
+      const status = String(result?.orderStatus || result?.status || "").toUpperCase();
+      const ok = !!orderId && result?.success !== false;
+      steps.push({
+        step: "Order placement",
+        ok,
+        detail: ok ? `Order ${orderId} ${status || "PLACED"}` : (result?.message || "Broker rejected the order"),
+      });
+      return c.json({
+        success: ok,
+        broker,
+        ip,
+        orderId,
+        status,
+        raw: result,
+        steps,
+        message: ok
+          ? `✅ TEST ORDER SUCCESS — ${broker.toUpperCase()} order ${orderId} placed from ${ip}. Square it off in your broker app.`
+          : `❌ TEST ORDER FAILED — ${result?.message || result?.error || "broker rejected the order"}`,
+      });
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      steps.push({ step: "Order placement", ok: false, detail: msg });
+      return c.json({
+        success: false,
+        broker,
+        ip,
+        steps,
+        errorCode: e?.code,
+        message: `❌ TEST ORDER FAILED — ${msg.replace(/^[A-Z_]+:/, "").trim()}`,
+      }, 200);
+    }
+  } catch (e: any) {
+    return c.json({ success: false, steps, message: `❌ Test failed — ${e.message}` }, 500);
+  }
+});
+
+// ==================== 🤖 AUTO SIGNAL FLOW CHECK (restricted) ====================
+// Replays EXACTLY what the engine does when a signal fires — central signal →
+// auto slot → instrument_master contract → quantity (lots × lot size) →
+// active-broker symbol mapping → (optional) real order. Nothing is placed
+// unless placeReal === true.
+app.post("/make-server-c4d79cb7/broker/test-order/signal-flow", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+    if (!isTestOrderAllowed(user.email)) {
+      return c.json({ success: false, error: "Signal-flow tests are restricted to the approved test account." }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({} as any));
+    const placeReal = body.placeReal === true;
+    const forcedAction = body.action === "BUY_PUT" ? "BUY_PUT" : body.action === "BUY_CALL" ? "BUY_CALL" : null;
+
+    const broker = await BrokerRouter.getActiveBroker(user.id);
+    const connected = await BrokerRouter.isBrokerConnected(user.id, broker);
+    const ip = (await getUserOrderPlacementIP(user.id))?.ipAddress;
+    const health = ip ? await vpsHealthInfo(ip) : { version: "none", multiBrokerReady: false, reachable: false };
+
+    const env = [
+      { step: "Active broker", ok: connected, detail: connected ? `${broker.toUpperCase()} connected` : `${broker.toUpperCase()} NOT connected — login again in Broker Setup` },
+      { step: "Static IP VPS", ok: !!ip && health.reachable, detail: !ip ? "No dedicated IP assigned" : health.reachable ? `${ip} online · order-server v${health.version}` : `${ip} unreachable — power ON the VPS` },
+      { step: "Multi-broker routing", ok: health.multiBrokerReady, detail: health.multiBrokerReady ? "All brokers proxy through your static IP" : "Order server too old — run Auto deploy" },
+    ];
+
+    // Enabled auto slots (what the engine actually trades)
+    const { data: slots } = await supabase
+      .from("user_symbol_config")
+      .select("slot, index_name, moneyness, lot_count, enabled, target_per_lot, stop_loss_per_lot, trailing_enabled, trailing_activation_per_lot, trailing_step_per_lot")
+      .eq("user_id", user.id)
+      .eq("enabled", true)
+      .order("slot");
+
+    if (!slots || slots.length === 0) {
+      return c.json({
+        success: false,
+        broker,
+        ip,
+        steps: env,
+        slots: [],
+        message: "⚠️ No enabled auto slots found. Add a slot in Symbols → Auto, then retest.",
+      });
+    }
+
+    const INDEX_SECURITY: Record<string, string> = { NIFTY: "13", BANKNIFTY: "25", SENSEX: "51" };
+    const MONEYNESS_MULT: Record<string, { tgt: number; sl: number }> = {
+      ITM2: { tgt: 0.70, sl: 1.30 }, ITM1: { tgt: 0.85, sl: 1.15 }, ATM: { tgt: 1.00, sl: 1.00 },
+      OTM1: { tgt: 1.20, sl: 0.85 }, OTM2: { tgt: 1.50, sl: 0.70 },
+    };
+
+    const spotCache = new Map<string, number>();
+    async function getSpot(index: string): Promise<number> {
+      if (spotCache.has(index)) return spotCache.get(index)!;
+      let px = 0;
+      try {
+        const { candles } = await CentralMarketData.getCentralOHLC(INDEX_SECURITY[index] || "13", "5", 5);
+        px = Number(candles?.[candles.length - 1]?.close) || 0;
+      } catch { /* ignore */ }
+      spotCache.set(index, px);
+      return px;
+    }
+
+    async function mapForBroker(order: any): Promise<{ ok: boolean; detail: string }> {
+      try {
+        switch (broker) {
+          case "dhan":
+            return order.securityId
+              ? { ok: true, detail: `Dhan securityId ${order.securityId}` }
+              : { ok: false, detail: "No Dhan securityId on contract" };
+          case "zerodha":
+          case "kite": {
+            const r = await BrokerRouter.resolveKiteSymbol(order);
+            return r?.tradingsymbol ? { ok: true, detail: `Kite ${r.exchange}:${r.tradingsymbol}` } : { ok: false, detail: "No Zerodha tradingsymbol — sync Kite instruments" };
+          }
+          case "groww": {
+            const r = await BrokerRouter.resolveGrowwSymbol(order);
+            return r?.tradingSymbol ? { ok: true, detail: `Groww ${r.tradingSymbol}` } : { ok: false, detail: "No Groww trading symbol — sync Groww instruments" };
+          }
+          case "upstox": {
+            const r = await BrokerRouter.resolveUpstoxSymbol(order);
+            return r?.instrumentKey ? { ok: true, detail: `Upstox ${r.instrumentKey}` } : { ok: false, detail: "No Upstox instrument key — sync Upstox instruments" };
+          }
+          case "fyers": {
+            const r = await BrokerRouter.resolveFyersSymbol(order);
+            return r?.symbol ? { ok: true, detail: `Fyers ${r.symbol}` } : { ok: false, detail: "No Fyers symbol — sync Fyers instruments" };
+          }
+          case "angelone": {
+            const r = await BrokerRouter.resolveAngelOneSymbol(order);
+            return r?.symbolToken ? { ok: true, detail: `Angel One ${r.tradingSymbol} (${r.symbolToken})` } : { ok: false, detail: "No Angel One token — sync Angel One instruments" };
+          }
+          case "aliceblue": {
+            const r = await BrokerRouter.resolveAliceblueSymbol(order);
+            return r?.symbolToken ? { ok: true, detail: `Aliceblue ${r.tradingSymbol} (${r.symbolToken})` } : { ok: false, detail: "No Aliceblue token — sync Aliceblue instruments" };
+          }
+          case "5paisa": {
+            const r = await BrokerRouter.resolveFivepaisaSymbol(order);
+            return r?.scripCode ? { ok: true, detail: `5paisa scrip ${r.scripCode}` } : { ok: false, detail: "No 5paisa ScripCode — sync 5paisa instruments" };
+          }
+          default:
+            return { ok: false, detail: `Unknown broker ${broker}` };
+        }
+      } catch (e: any) {
+        return { ok: false, detail: `Mapping error: ${e?.message || e}` };
+      }
+    }
+
+    const results: any[] = [];
+    for (const slot of slots) {
+      const index = String(slot.index_name || "NIFTY").toUpperCase();
+      const steps: Array<{ step: string; ok: boolean; detail: string }> = [];
+
+      // 1) Signal source (central publisher — same one the engine reads)
+      let action = forcedAction;
+      let signalDetail = "";
+      if (!action) {
+        const s5 = await CentralMarketData.getLatestCentralSignal(index, 5).catch(() => null);
+        const s15 = await CentralMarketData.getLatestCentralSignal(index, 15).catch(() => null);
+        const pick = s5 || s15;
+        const a = String(pick?.signal?.action || "").toUpperCase();
+        if (a === "BUY_CALL" || a === "BUY_PUT") {
+          action = a as any;
+          signalDetail = `Live central signal ${a} @ ${pick?.candleStamp || "?"} (conf ${Math.round(Number(pick?.signal?.confidence) || 0)}%)`;
+        } else {
+          action = "BUY_CALL";
+          signalDetail = "No live signal yet today — simulated BUY_CALL for the check";
+        }
+      } else {
+        signalDetail = `Forced ${action} for the check`;
+      }
+      steps.push({ step: "Signal", ok: true, detail: signalDetail });
+
+      // 2) Spot
+      const spot = await getSpot(index);
+      steps.push({ step: "Spot price", ok: spot > 0, detail: spot > 0 ? `${index} @ ${spot}` : `${index} spot unavailable — engine would skip this slot` });
+
+      let order: any = null;
+      if (spot > 0) {
+        // 3) Contract from instrument master
+        const optionType = action === "BUY_CALL" ? "CE" : "PE";
+        const r = await resolveAutoSymbol({
+          index_name: index as any,
+          ltp: spot,
+          option_type: optionType as any,
+          moneyness: (slot.moneyness || "ATM") as any,
+        }).catch(() => null);
+
+        steps.push({
+          step: "Contract",
+          ok: !!r,
+          detail: r ? `${r.symbol} (id ${r.security_id}, lot ${r.lot_size}, exp ${r.expiry_date})` : `No ${slot.moneyness} ${optionType} contract in instrument_master — refresh instruments`,
+        });
+
+        if (r) {
+          const lotCount = Math.max(1, Number(slot.lot_count) || 1);
+          const quantity = Number(r.lot_size) * lotCount;
+          steps.push({ step: "Quantity", ok: quantity > 0, detail: `${lotCount} lot × ${r.lot_size} = ${quantity} qty` });
+
+          const mm = MONEYNESS_MULT[slot.moneyness] || MONEYNESS_MULT.ATM;
+          const tgtPerLot = Number(slot.target_per_lot) || 6000;
+          const slPerLot = Number(slot.stop_loss_per_lot) || 3000;
+          const target = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
+          const stop = +(slPerLot * lotCount * mm.sl).toFixed(2);
+          steps.push({
+            step: "Risk",
+            ok: target > 0 && stop > 0,
+            detail: `Target ₹${target} · SL ₹${stop} · Trailing ${slot.trailing_enabled ? "ON" : "OFF"}`,
+          });
+
+          order = await BrokerRouter.normalizeOrderContract({
+            securityId: String(r.security_id),
+            transactionType: "BUY",
+            exchangeSegment: r.exchange_segment,
+            productType: "INTRADAY",
+            orderType: "MARKET",
+            validity: "DAY",
+            quantity,
+            price: 0,
+            triggerPrice: 0,
+            symbolName: r.symbol,
+            tradingSymbol: r.symbol,
+            index,
+            lotSize: r.lot_size,
+          });
+
+          // 4) Broker mapping
+          const map = await mapForBroker(order);
+          steps.push({ step: `${broker.toUpperCase()} mapping`, ok: map.ok, detail: map.detail });
+        }
+      }
+
+      const slotOk = steps.every((s) => s.ok);
+      const row: any = {
+        slot: slot.slot,
+        index,
+        moneyness: slot.moneyness,
+        action,
+        lots: Number(slot.lot_count) || 1,
+        symbol: order?.symbolName || null,
+        quantity: order?.quantity || null,
+        ok: slotOk,
+        steps,
+      };
+
+      // 5) Optional real order for this slot
+      if (placeReal && slotOk && order && (!body.slot || Number(body.slot) === Number(slot.slot))) {
+        try {
+          const credentials = ((await kv.get(`api_credentials:${user.id}`)) as any) || {};
+          const res = await BrokerRouter.placeOrderSmart(user.id, credentials, order);
+          const orderId = res?.orderId || res?.correlationId;
+          row.placed = !!orderId && res?.success !== false;
+          row.orderId = orderId;
+          row.steps.push({
+            step: "Real order",
+            ok: !!row.placed,
+            detail: row.placed ? `Order ${orderId} placed from ${ip || "edge"}` : res?.message || "Broker rejected the order",
+          });
+          row.ok = row.placed;
+        } catch (e: any) {
+          const msg = String(e?.message || e).replace(/^[A-Z_]+:/, "").trim();
+          row.steps.push({ step: "Real order", ok: false, detail: msg });
+          row.ok = false;
+        }
+      }
+
+      results.push(row);
+    }
+
+    const envOk = env.every((s) => s.ok);
+    const allOk = envOk && results.every((r) => r.ok);
+    return c.json({
+      success: allOk,
+      broker,
+      ip,
+      steps: env,
+      slots: results,
+      message: allOk
+        ? `✅ Auto signal flow is ready — ${results.length} slot(s) map cleanly to ${broker.toUpperCase()} and would be ordered from ${ip || "edge"}.`
+        : `⚠️ ${results.filter((r) => !r.ok).length} of ${results.length} slot(s) (or the environment) would fail. Fix the red rows and retest.`,
+    });
+  } catch (e: any) {
+    return c.json({ success: false, message: `❌ Signal-flow check failed — ${e.message}` }, 500);
+  }
+});
+
+
+
+
 // CRON: shutdown all (called by pg_cron at 15:31 IST). No auth — internal sync key OR anon.
 app.post("/make-server-c4d79cb7/vps-power/auto-shutdown", async (c) => {
   const gate = await requireCronOrAdmin(c);
@@ -6937,25 +8245,44 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
               // stale or missing → compute live from the central feed AND publish it so
               // every user engine reuses the exact same signal for this candle.
               const sec = CENTRAL_INDEX_IDS[idx];
+              const tfMs = tf * 60 * 1000;
+              const toMs = (t: any) => {
+                const n = Number(t || 0);
+                return n > 0 && n < 1e12 ? n * 1000 : n;
+              };
+              // Candle timestamps are bar OPEN times: at 09:45 the newly closed 15m
+              // bar is stamped 09:30. Drop the still-forming bar and require the last
+              // closed bar to be the one that just completed.
+              const formingStartMs = Math.floor(Date.now() / tfMs) * tfMs;
+              const closedStartMs = formingStartMs - tfMs;
               const primary = await CentralMarketData.getCentralOHLC(sec, String(tf), 150, null);
-              const candles = primary.candles || [];
+              const candles = (primary.candles || []).filter((c: any) => toMs(c?.timestamp) < formingStartMs);
               if (candles.length < 30) {
                 out[idx][`${tf}m`] = null;
                 return;
               }
-              const htf = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles : candles;
+              const htfRaw = tf < 15 ? (await CentralMarketData.getCentralOHLC(sec, '15', 100, null)).candles || [] : [];
+              const htfClosed = htfRaw.filter(
+                (c: any) => toMs(c?.timestamp) < Math.floor(Date.now() / (15 * 60 * 1000)) * 15 * 60 * 1000,
+              );
+              const htf = tf < 15 ? (htfClosed.length >= 15 ? htfClosed : candles) : candles;
+              const lastMs = toMs(candles[candles.length - 1]?.timestamp);
+              if (!lastMs || lastMs < closedStartMs) {
+                out[idx][`${tf}m`] = null;
+                return;
+              }
+              // READ-ONLY preview: the admin panel must never publish a signal that
+              // engines will trade — it lacks the anti-whipsaw state the publisher uses.
               const sig = AdvancedAI.generateAdvancedSignal(candles, 100000, {
                 higherTimeframeData: htf,
                 timeframeMinutes: tf,
               });
-              const lastTs = candles[candles.length - 1]?.timestamp;
-              const ms = Number(lastTs) < 1e12 ? Number(lastTs) * 1000 : Number(lastTs);
               const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
               const bucket = Math.floor(istNow.getUTCMinutes() / tf) * tf;
               const stamp = `${String(istNow.getUTCHours()).padStart(2, '0')}:${String(bucket).padStart(2, '0')}`;
-              await CentralMarketData.saveCentralSignal(idx, tf, stamp, sig).catch(() => {});
               out[idx][`${tf}m`] = shapeCentralSignal(sig, stamp, Date.now(), true);
-              out[idx][`${tf}m`].lastBarAt = new Date(ms).toISOString();
+
+              out[idx][`${tf}m`].lastBarAt = new Date(lastMs).toISOString();
 
             } catch (e: any) {
               out[idx][`${tf}m`] = { error: e?.message || String(e) };
@@ -6977,6 +8304,91 @@ app.get("/make-server-c4d79cb7/admin/market-data/signals", async (c) => {
     return c.json({ error: e.message }, 500);
   }
 });
+
+// 🗂️ Central signal HISTORY — every published 5m/15m signal, date + time wise.
+// Rows are read from the date-scoped KV keys written by saveCentralSignal():
+//   central_signal:YYYY-MM-DD:INDEX:TF:HH:MM
+app.get("/make-server-c4d79cb7/admin/market-data/signal-history", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const today = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}-${String(istNow.getUTCDate()).padStart(2, '0')}`;
+    const date = String(c.req.query('date') || today).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'date must be YYYY-MM-DD' }, 400);
+
+    const rows = await kv.getByPrefix(`central_signal:${date}:`).catch(() => []);
+    const entries = (rows || [])
+      .map((r: any) => {
+        // key = central_signal:DATE:INDEX:TF:HH:MM
+        const parts = String(r.key || '').split(':');
+        const indexName = parts[2];
+        const tf = Number(parts[3]);
+        const stamp = `${parts[4]}:${parts[5]}`;
+        const sig = r.value?.signal || null;
+        if (!indexName || !tf || !sig) return null;
+
+        // The stamp is the candle CLOSE time. The bar actually analysed is the one
+        // that OPENED tf minutes earlier — surface both so entries can be audited
+        // against the chart without guessing which candle produced the decision.
+        const istHHMM = (ms: number) => {
+          const d = new Date(ms + 5.5 * 60 * 60 * 1000);
+          return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+        };
+        const rawTs = Number(sig.timestamp || 0);
+        const barOpenMs = rawTs > 0 && rawTs < 1e12 ? rawTs * 1000 : rawTs;
+        const barOpen = barOpenMs > 0 ? istHHMM(barOpenMs) : null;
+        const barClose = barOpenMs > 0 ? istHHMM(barOpenMs + tf * 60 * 1000) : null;
+        const publishedAt = r.value?.at || null;
+        const publishedIst = publishedAt ? istHHMM(Number(publishedAt)) : null;
+        // A healthy publish lands within seconds of the bar close. Anything else
+        // means the row was written off a stale or still-forming candle.
+        const stale = !!barClose && barClose !== stamp;
+        const delaySec = publishedAt && barOpenMs > 0
+          ? Math.round((Number(publishedAt) - (barOpenMs + tf * 60 * 1000)) / 1000)
+          : null;
+
+        return {
+          date,
+          index: indexName,
+          timeframe: `${tf}m`,
+          tf,
+          candleStamp: stamp,
+          barOpen,
+          barClose,
+          stale,
+          delaySec,
+          publishedAt,
+          publishedIst,
+          action: sig.action || 'WAIT',
+          confidence: Number(sig.confidence || 0),
+          bias: sig.bias || null,
+          marketState: sig.marketState || sig.market_state || null,
+          reason: sig.reasoning || sig.reason || null,
+          confirmations: {
+            total: sig.confirmations?.total ?? sig.confirmations?.passed?.length ?? 0,
+            required: sig.confirmations?.required ?? 0,
+          },
+        };
+
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => (a.candleStamp < b.candleStamp ? 1 : a.candleStamp > b.candleStamp ? -1 : a.tf - b.tf));
+
+    // Which dates are available (last 30 days that have at least one signal)
+    const allKeys = await kv.getByPrefix('central_signal:').catch(() => []);
+    const dates = Array.from(
+      new Set((allKeys || []).map((r: any) => String(r.key || '').split(':')[1]).filter((d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d))),
+    ).sort().reverse().slice(0, 30);
+
+    return c.json({ success: true, date, dates, count: entries.length, signals: entries });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+
 
 
 // 📊 Live proof that the central feed works: latest 5m + 15m candles per index,
@@ -7907,12 +9319,20 @@ app.post("/make-server-c4d79cb7/admin/users", async (c) => {
     
     console.log(`👤 Admin: Creating new user ${email}`);
 
-    // Create auth user
+    // Create auth user with a strong random one-time password (never a fixed literal).
+    // The user sets their own password via the password-reset / invite flow.
+    const randomPassword = (() => {
+      const bytes = new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+      return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+    })();
+
     const { data: authUser, error: createError } = await supabase.auth.admin.createUser({
       email,
-      password: 'TempPassword123!', // User should change this
+      password: randomPassword,
       email_confirm: true,
-      user_metadata: { name, phone, city, state, communityId }
+      user_metadata: { name, phone, city, state, communityId, must_reset_password: true }
     });
 
     if (createError || !authUser.user) {
@@ -7940,6 +9360,14 @@ app.post("/make-server-c4d79cb7/admin/users", async (c) => {
     });
 
     await kv.set(`engine_running:${userId}`, false);
+
+    // Best-effort: email the user a secure password-setup link so they set their own password
+    try {
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email);
+      if (resetErr) console.warn('⚠️ Password setup email failed:', resetErr.message);
+    } catch (e) {
+      console.warn('⚠️ Password setup email error:', e);
+    }
 
     console.log(`✅ Admin: User ${email} created successfully with ID ${userId}`);
     return c.json({ success: true, userId });
@@ -9062,7 +10490,7 @@ function isSameUserNotification(existing: any, incoming: any) {
 
 app.get("/make-server-c4d79cb7/user/notifications", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ success: false, message: 'Unauthorized' }, 401);
 
     const notifications = await safeKVGet(`user_notifications:${userId}`, []);
@@ -9260,17 +10688,24 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
     const { candleInterval, symbols } = body;
     const activeSymbols = Array.isArray(symbols) ? symbols : [];
 
-    // Get user credentials
-    const userCredentials = await kv.get(`api_credentials:${user.id}`);
-    if (!userCredentials) {
-      return c.json({ error: 'API credentials not configured' }, 400);
+    // Credentials are broker-aware: only Dhan uses the legacy api_credentials KV.
+    // Any other active broker (Fyers, Zerodha, Groww, Upstox, Angel One, Aliceblue, 5paisa)
+    // authenticates through broker_credentials via the BrokerRouter.
+    const engineBroker = await BrokerRouter.getActiveBroker(user.id);
+    const userCredentials = (await kv.get(`api_credentials:${user.id}`)) as any;
+    const credentials = (userCredentials || {}) as any;
+
+    if (engineBroker === 'dhan') {
+      if (!credentials.dhanClientId || !credentials.dhanAccessToken) {
+        return c.json({ error: 'Dhan API credentials not configured. Connect Dhan in Broker Setup.' }, 400);
+      }
+    } else {
+      const connected = await BrokerRouter.isBrokerConnected(user.id, engineBroker).catch(() => true);
+      if (connected === false) {
+        return c.json({ error: `${engineBroker} is not connected. Please connect it in Broker Setup.` }, 400);
+      }
     }
 
-    const credentials = userCredentials as any;
-    
-    if (!credentials.dhanClientId || !credentials.dhanAccessToken) {
-      return c.json({ error: 'Dhan credentials not configured' }, 400);
-    }
 
     console.log(`\n🚀 ============ START PERSISTENT ENGINE ============`);
     console.log(`   User: ${user.id}`);
@@ -9316,6 +10751,7 @@ app.post("/make-server-c4d79cb7/engine/start", async (c) => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
           apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
         },
         body: JSON.stringify({
@@ -9910,25 +11346,164 @@ app.delete("/make-server-c4d79cb7/admin/instruments/delete-all", async (c) => {
 
 // ==================== ADMIN AUTHENTICATION ====================
 
+// 🔐 Hotkey-bound admin access window: after a valid hotkey press, the admin
+// has exactly 60 seconds to log in, and only with the credentials that own
+// that hotkey. Anything else → restricted mode + audit log entry.
+const ADMIN_HOTKEY_WINDOW_MS = 60 * 1000;
+
+function clientIpOf(c: any): string | null {
+  try {
+    const h = c.req.header('x-forwarded-for') || c.req.header('cf-connecting-ip') || '';
+    return h ? String(h).split(',')[0].trim() : null;
+  } catch { return null; }
+}
+
+async function logAdminSecurityEvent(entry: {
+  action: string;
+  email?: string | null;
+  userId?: string | null;
+  status?: 'success' | 'failed' | 'blocked';
+  metadata?: Record<string, any>;
+  c?: any;
+}) {
+  try {
+    await supabase.from('security_audit_log').insert({
+      actor_user_id: entry.userId ?? null,
+      actor_email: entry.email ?? null,
+      action: entry.action,
+      resource: 'admin_panel',
+      ip_address: entry.c ? clientIpOf(entry.c) : null,
+      user_agent: entry.c ? (entry.c.req.header('user-agent') || '').slice(0, 500) : null,
+      status: entry.status ?? 'success',
+      metadata: entry.metadata ?? {},
+    });
+  } catch (err) {
+    console.warn('[ADMIN AUDIT] insert failed:', err);
+  }
+}
+
+// Returns the hotkey that must own the given admin identity.
+async function expectedHotkeyForAdmin(email: string, profile: any): Promise<string> {
+  const fromProfile = String(profile?.hotkey || '').trim().toUpperCase();
+  if (fromProfile) return fromProfile;
+  if (String(email || '').toLowerCase() === PERMANENT_SUPER_ADMIN_EMAIL) return 'GUHAN';
+  return '';
+}
+
+// Collects every registered admin hotkey with its owner.
+// Sources: admin_profiles.hotkey (per-admin, created in Admin Management),
+// legacy KV entries, plus the permanent super admin fallback (GUHAN).
+async function loadAdminHotkeyOwners(): Promise<Array<{ hotkey: string; email: string; name: string; username: string }>> {
+  const out: Array<{ hotkey: string; email: string; name: string; username: string }> = [];
+  const push = (hotkey: string, email = '', name = '', username = '') => {
+    const hk = String(hotkey || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!hk) return;
+    if (out.some((o) => o.hotkey === hk)) return;
+    out.push({ hotkey: hk, email, name, username });
+  };
+
+  try {
+    const { data } = await supabase
+      .from('admin_profiles')
+      .select('email, full_name, username, hotkey, status')
+      .not('hotkey', 'is', null);
+    for (const p of data || []) {
+      if (String(p.status || 'active').toLowerCase() !== 'active') continue;
+      push(p.hotkey, p.email || '', p.full_name || '', p.username || '');
+    }
+  } catch (e) {
+    console.warn('[HOTKEY] admin_profiles lookup failed', e);
+  }
+
+  try {
+    const stored = await kv.getByPrefix('admin:hotkey:');
+    for (const h of stored) {
+      const v: any = h.value || h;
+      push(typeof v === 'string' ? v : v.hotkey, v?.email || '', v?.name || '', '');
+    }
+  } catch { /* ignore */ }
+
+  push('GUHAN', PERMANENT_SUPER_ADMIN_EMAIL, 'Super Admin', '');
+  return out;
+}
+
+async function createHotkeyAccessCode(hotkey: string) {
+  const uniqueCode = Array.from({ length: 12 }, () =>
+    'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
+  ).join('');
+  const codeData = {
+    code: uniqueCode,
+    hotkey: hotkey.toUpperCase(),
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + ADMIN_HOTKEY_WINDOW_MS).toISOString(),
+    used: false,
+  };
+  await kv.set(`admin_hotkey_code_${uniqueCode}`, JSON.stringify(codeData));
+  return uniqueCode;
+}
+
+// 🔐 Resolve a typed key sequence WITHOUT ever exposing the hotkey list.
+// The client sends the letters typed so far; the server replies whether it is
+// an exact match (and opens the 1-minute window) or still a valid prefix.
+app.post("/make-server-c4d79cb7/admin/hotkey/resolve", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const sequence = String(body?.sequence || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+    if (!sequence) return c.json({ match: false, prefix: false });
+
+    const owners = await loadAdminHotkeyOwners();
+    const exact = owners.find((o) => o.hotkey === sequence);
+
+    if (!exact) {
+      const prefix = owners.some((o) => o.hotkey.startsWith(sequence));
+      return c.json({ match: false, prefix });
+    }
+
+    const uniqueCode = await createHotkeyAccessCode(exact.hotkey);
+    await logAdminSecurityEvent({
+      action: 'admin_hotkey_pressed',
+      email: exact.email || null,
+      status: 'success',
+      metadata: { hotkey: exact.hotkey, owner: exact.email || null, windowSeconds: ADMIN_HOTKEY_WINDOW_MS / 1000 },
+      c,
+    });
+
+    return c.json({
+      match: true,
+      prefix: false,
+      uniqueCode,
+      hotkey: exact.hotkey,
+      ownerEmail: exact.email || '',
+      ownerName: exact.name || '',
+      ownerUsername: exact.username || '',
+      expiresIn: ADMIN_HOTKEY_WINDOW_MS / 1000,
+    });
+  } catch (error: any) {
+    console.error('[HOTKEY RESOLVE] error', error);
+    return c.json({ match: false, prefix: false }, 200);
+  }
+});
+
 // Generate unique code for admin hotkey access
+
 app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
   try {
     const { hotkey } = await c.req.json();
     
     console.log(`🔐 Generating unique code for hotkey: ${hotkey}`);
     
-    // Verify hotkey is valid — check against all stored hotkeys in KV
-    const storedHotkeys = await kv.getByPrefix('admin:hotkey:');
-    const validHotkeys: string[] = [
-      'GUHAN', // permanent default fallback
-      ...storedHotkeys.map((h: any) => {
-        const v = h.value || h;
-        return (typeof v === 'string' ? v : v.hotkey || '').toUpperCase();
-      }).filter(Boolean)
-    ];
+    // Verify hotkey is valid — per-admin hotkeys + legacy KV + permanent fallback
+    const validHotkeys: string[] = (await loadAdminHotkeyOwners()).map((o) => o.hotkey);
+
     
     if (!validHotkeys.includes(hotkey.toUpperCase())) {
       console.log(`❌ Invalid hotkey: ${hotkey} | Valid: ${validHotkeys.join(', ')}`);
+      await logAdminSecurityEvent({
+        action: 'admin_hotkey_invalid',
+        status: 'blocked',
+        metadata: { hotkey: String(hotkey || '').toUpperCase() },
+        c,
+      });
       return c.json({
         success: false,
         message: 'Invalid hotkey'
@@ -9940,22 +11515,29 @@ app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
       'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
     ).join('');
     
-    // Store unique code in KV with timestamp (expires in 1 hour)
+    // Store unique code in KV — valid for exactly 1 minute after the press
     const codeData = {
       code: uniqueCode,
       hotkey: hotkey.toUpperCase(),
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
+      expiresAt: new Date(Date.now() + ADMIN_HOTKEY_WINDOW_MS).toISOString(),
       used: false,
     };
     await kv.set(`admin_hotkey_code_${uniqueCode}`, JSON.stringify(codeData));
     
     console.log(`✅ Generated unique code: ${uniqueCode}`);
+
+    await logAdminSecurityEvent({
+      action: 'admin_hotkey_pressed',
+      status: 'success',
+      metadata: { hotkey: hotkey.toUpperCase(), windowSeconds: ADMIN_HOTKEY_WINDOW_MS / 1000 },
+      c,
+    });
     
     return c.json({
       success: true,
       uniqueCode: uniqueCode,
-      expiresIn: 3600, // 1 hour in seconds
+      expiresIn: ADMIN_HOTKEY_WINDOW_MS / 1000,
     });
   } catch (error: any) {
     console.error('Error generating unique code:', error);
@@ -9965,6 +11547,7 @@ app.post("/make-server-c4d79cb7/admin/generate-unique-code", async (c) => {
     }, 500);
   }
 });
+
 
 // Verify unique code from URL
 app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
@@ -10030,8 +11613,51 @@ app.post("/make-server-c4d79cb7/admin/verify-url-code", async (c) => {
 
 const ADMIN_2FA_ENROLLED_PREFIX = 'admin_2fa_enrolled:';
 const ADMIN_2FA_CHALLENGE_PREFIX = 'admin_2fa_challenge:';
-const ADMIN_2FA_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
+const ADMIN_2FA_CHALLENGE_TTL_MS = 15 * 60 * 1000; // 15 minutes (enough time to scan QR + set up authenticator)
+const ADMIN_EMAIL_OTP_TTL_MS = 10 * 60 * 1000; // emailed OTP validity
+const PERMANENT_SUPER_ADMIN_EMAIL = 'guhanesh.v@smilykart.com';
+
+async function sha256Hex(value: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function maskEmail(email: string): string {
+  const [user, domain] = String(email || '').split('@');
+  if (!domain) return '***';
+  const head = user.slice(0, 2);
+  return `${head}${'*'.repeat(Math.max(user.length - 2, 2))}@${domain}`;
+}
+
+// Mails a one-time login code to the admin's registered address.
+async function sendAdminEmailOtp(email: string, name: string, otp: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+        apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
+        'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
+      },
+      body: JSON.stringify({
+        to: email,
+        name,
+        subject: `Admin login code ${otp}`,
+        html: `<p>Hi ${name},</p>
+<p>Your IndexPilot admin login code is:</p>
+<p style="font-size:26px;font-weight:700;letter-spacing:6px">${otp}</p>
+<p>It expires in 10 minutes. After entering it you will still need your Google Authenticator code.</p>
+<p>If you did not start this login, secure your account immediately — the attempt has been logged.</p>`,
+      }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('[ADMIN EMAIL OTP] send failed', e);
+    return false;
+  }
+}
+
 
 const ADMIN_ROLE_KEYS = [
   'dashboard', 'users', 'transactions', 'instruments', 'journals', 'settings',
@@ -10213,8 +11839,8 @@ function verifyTotpServerSide(secretBase32: string, code: string, label: string)
       period: 30,
       secret: OTPAuth.Secret.fromBase32(secretBase32),
     });
-    // window: 1 → tolerate ±30s clock skew
-    return totp.validate({ token: (code || '').trim(), window: 1 }) !== null;
+    // window: 2 → tolerate ±60s clock skew between phone and server
+    return totp.validate({ token: (code || '').replace(/\D/g, '').trim(), window: 2 }) !== null;
   } catch (e) {
     console.error('[ADMIN 2FA] verify error', e);
     return false;
@@ -10223,7 +11849,7 @@ function verifyTotpServerSide(secretBase32: string, code: string, label: string)
 
 app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   try {
-    const { email, password } = await c.req.json();
+    const { email, password, uniqueCode } = await c.req.json();
 
     const DEFAULT_ADMIN_EMAIL = getPermanentSuperAdminEmail();
     const DEFAULT_ADMIN_PASSWORD = getDefaultAdminPassword();
@@ -10234,6 +11860,40 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
 
+    // ── 🔒 RESTRICTED MODE: hotkey-bound access window ────────────────
+    // Admin login is only possible inside the 1-minute window opened by a
+    // valid hotkey press, and only for the admin who owns that hotkey.
+    const code = String(uniqueCode || '').trim().toUpperCase();
+    let pressedHotkey = '';
+    if (!code) {
+      await logAdminSecurityEvent({
+        action: 'admin_login_restricted_no_hotkey', email: identifier, status: 'blocked',
+        metadata: { reason: 'no_hotkey_session' }, c,
+      });
+      return c.json({ success: false, restricted: true, message: 'Restricted mode: admin access requires a valid hotkey press.' }, 403);
+    }
+    {
+      const rawCode = await kv.get(`admin_hotkey_code_${code}`);
+      const codeData = rawCode ? (typeof rawCode === 'string' ? JSON.parse(rawCode) : rawCode) : null;
+      if (!codeData) {
+        await logAdminSecurityEvent({
+          action: 'admin_login_restricted_invalid_code', email: identifier, status: 'blocked',
+          metadata: { code, reason: 'invalid_or_unknown_code' }, c,
+        });
+        return c.json({ success: false, restricted: true, message: 'Restricted mode: hotkey session invalid. Press your hotkey again.' }, 403);
+      }
+      const pressedAt = new Date(codeData.createdAt || 0).getTime();
+      if (!pressedAt || Date.now() - pressedAt > ADMIN_HOTKEY_WINDOW_MS) {
+        await kv.del(`admin_hotkey_code_${code}`);
+        await logAdminSecurityEvent({
+          action: 'admin_login_restricted_window_expired', email: identifier, status: 'blocked',
+          metadata: { code, hotkey: codeData.hotkey, secondsElapsed: Math.round((Date.now() - pressedAt) / 1000) }, c,
+        });
+        return c.json({ success: false, restricted: true, message: 'Restricted mode: 1-minute hotkey window expired. Press your hotkey again.' }, 403);
+      }
+      pressedHotkey = String(codeData.hotkey || '').toUpperCase();
+    }
+
     const profile = await findAdminProfileForLogin(identifier);
     const isDefaultSuperAdminLogin = identifier === DEFAULT_ADMIN_EMAIL && !!DEFAULT_ADMIN_PASSWORD;
     const loginEmail = (profile?.email || (isDefaultSuperAdminLogin ? DEFAULT_ADMIN_EMAIL : '')).trim().toLowerCase();
@@ -10242,6 +11902,33 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
 
+    // The hotkey pressed must belong to the account being logged in.
+    // Accept ANY hotkey registered to this admin (profile hotkey, KV legacy entry,
+    // or the permanent super-admin fallback) — not just one canonical value.
+    const requiredHotkey = await expectedHotkeyForAdmin(loginEmail, profile);
+    const hotkeyOwners = await loadAdminHotkeyOwners();
+    const pressedOwner = hotkeyOwners.find((o) => o.hotkey === pressedHotkey);
+    const ownerEmail = String(pressedOwner?.email || '').trim().toLowerCase();
+    const ownerUsername = String(pressedOwner?.username || '').trim().toLowerCase();
+    const hotkeyAuthorized =
+      (!!requiredHotkey && requiredHotkey === pressedHotkey) ||
+      (!!ownerEmail && ownerEmail === loginEmail) ||
+      (!!ownerUsername && ownerUsername === identifier) ||
+      (loginEmail === PERMANENT_SUPER_ADMIN_EMAIL && !!pressedOwner);
+
+    if (!hotkeyAuthorized) {
+      await logAdminSecurityEvent({
+        action: 'admin_login_restricted_hotkey_mismatch', email: loginEmail, status: 'blocked',
+        metadata: { pressedHotkey, requiredHotkey: requiredHotkey || null, ownerEmail: ownerEmail || null }, c,
+      });
+      return c.json({
+        success: false,
+        restricted: true,
+        message: 'Restricted mode: this hotkey is not authorized for these credentials. This attempt has been logged.',
+      }, 403);
+    }
+
+
     let authUser: any = null;
     if (isDefaultSuperAdminLogin && passwordText === DEFAULT_ADMIN_PASSWORD) {
       const ensured = await ensureSuperAdminAuthSession(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD);
@@ -10249,6 +11936,10 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     } else {
       const valid = await validateAdminPassword(loginEmail, passwordText);
       if (!valid.ok || !valid.user) {
+        await logAdminSecurityEvent({
+          action: 'admin_login_failed', email: loginEmail, status: 'failed',
+          metadata: { pressedHotkey, reason: 'bad_password' }, c,
+        });
         return c.json({ success: false, message: 'Invalid email or password' }, 401);
       }
       authUser = valid.user;
@@ -10262,6 +11953,12 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       console.warn('[ADMIN LOGIN] profile/auth user mismatch', { profileUserId: profile.user_id, authUserId: authUser.id });
       return c.json({ success: false, message: 'Invalid email or password' }, 401);
     }
+
+    await logAdminSecurityEvent({
+      action: 'admin_login_hotkey_verified', email: loginEmail, userId: authUser.id, status: 'success',
+      metadata: { pressedHotkey }, c,
+    });
+
 
     const forcedPermanentSuperAdmin = loginEmail === PERMANENT_SUPER_ADMIN_EMAIL;
     const adminProfile = profile || {
@@ -10278,69 +11975,161 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       adminProfile.status = 'active';
     }
 
-    // Look up enrolled 2FA secret (server-side only)
-    const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${loginEmail}`);
+    // ── STEP 2 GATE: email OTP ──────────────────────────────────────
+    // The admin must confirm a 6-digit code mailed to their registered
+    // address BEFORE the Google Authenticator step is even offered.
     const challengeToken = newChallengeToken();
 
-    if (enrolledSecret) {
-      await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
-        email: loginEmail,
-        userId: adminProfile.user_id || authUser.id,
-        isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
-        hotkey: adminProfile.hotkey || null,
-        fullName: adminProfile.full_name || null,
-        roleLabel: adminProfile.role_label || null,
-        secret: enrolledSecret,
-        pending: false,
-        expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
-      }));
-      return c.json({
-        success: true,
-        requires2fa: true,
-        setupRequired: false,
-        challengeToken,
-      });
-    }
+    // 🛡️ Duplicate-send guard: if a code was mailed to this admin in the last
+    // 60s (double-submit / retry), reuse the SAME code and do not mail again.
+    const otpCooldownKey = `admin_login_otp_cd:${loginEmail}`;
+    const cooldownRaw = await kv.get(otpCooldownKey);
+    const cooldown = typeof cooldownRaw === 'string' ? JSON.parse(cooldownRaw) : cooldownRaw;
+    const reuse = cooldown?.code && cooldown?.sentAt && Date.now() - cooldown.sentAt < 60_000;
+    const emailOtp = reuse ? String(cooldown.code) : String(Math.floor(100000 + Math.random() * 900000));
 
-    // First-time setup: generate secret server-side, store pending on challenge only
-    const newSecret = new OTPAuth.Secret({ size: 20 });
-    const totp = new OTPAuth.TOTP({
-      issuer: 'IndexpilotAI',
-      label: loginEmail,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      secret: newSecret,
-    });
-    const otpauthUrl = totp.toString();
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
       email: loginEmail,
       userId: adminProfile.user_id || authUser.id,
-        isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
-      hotkey: adminProfile.hotkey || null,
+      isSuperAdmin: forcedPermanentSuperAdmin || !!adminProfile.is_super_admin,
+      hotkey: adminProfile.hotkey || pressedHotkey || null,
       fullName: adminProfile.full_name || null,
       roleLabel: adminProfile.role_label || null,
-      secret: newSecret.base32,
-      pending: true,
+      emailVerified: false,
+      emailOtpHash: await sha256Hex(emailOtp),
+      emailOtpExpiresAt: Date.now() + ADMIN_EMAIL_OTP_TTL_MS,
+      emailOtpAttempts: 0,
       expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
     }));
 
+    let mailed = true;
+    if (reuse) {
+      console.log('⏳ Admin email OTP already sent recently — reusing code, not re-sending');
+    } else {
+      mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+      await kv.set(otpCooldownKey, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
+      await logAdminSecurityEvent({
+        action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
+        status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
+      });
+    }
+
+
     return c.json({
       success: true,
-      requires2fa: true,
-      setupRequired: true,
+      emailOtpRequired: true,
       challengeToken,
-      otpauthUrl,
-      // Secret is returned ONCE for user to type into authenticator manually if
-      // QR scanning fails. It is not usable without also knowing the admin
-      // credentials that produced this challenge.
-      secretBase32: newSecret.base32,
+      maskedEmail: maskEmail(loginEmail),
+      mailed,
     });
   } catch (error: any) {
     console.error('Admin login error:', error);
     return c.json({ success: false, message: error.message || 'Login failed' }, 500);
   }
 });
+
+// Step 2: verify the emailed OTP, then hand out the Google Authenticator step.
+app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
+  try {
+    const { challengeToken, code } = await c.req.json();
+    if (!challengeToken || !code) {
+      return c.json({ success: false, message: 'challengeToken and code required' }, 400);
+    }
+    const key = `${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`;
+    const raw = await kv.get(key);
+    if (!raw) return c.json({ success: false, message: 'Session expired. Please log in again.' }, 401);
+    const ch = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!ch?.email || !ch.expiresAt || ch.expiresAt < Date.now()) {
+      await kv.del(key);
+      return c.json({ success: false, message: 'Session expired. Please log in again.' }, 401);
+    }
+    if (!ch.emailOtpExpiresAt || ch.emailOtpExpiresAt < Date.now()) {
+      return c.json({ success: false, message: 'Email code expired. Request a new one.' }, 401);
+    }
+    if ((ch.emailOtpAttempts || 0) >= 5) {
+      await kv.del(key);
+      await logAdminSecurityEvent({ action: 'admin_login_email_otp_locked', email: ch.email, status: 'blocked', c });
+      return c.json({ success: false, message: 'Too many wrong codes. Please log in again.' }, 429);
+    }
+
+    const ok = (await sha256Hex(String(code).trim())) === ch.emailOtpHash;
+    if (!ok) {
+      ch.emailOtpAttempts = (ch.emailOtpAttempts || 0) + 1;
+      await kv.set(key, JSON.stringify(ch));
+      await logAdminSecurityEvent({
+        action: 'admin_login_email_otp_failed', email: ch.email, status: 'failed',
+        metadata: { attempts: ch.emailOtpAttempts }, c,
+      });
+      return c.json({ success: false, message: 'Invalid email code' }, 401);
+    }
+
+    ch.emailVerified = true;
+    ch.emailOtpHash = null;
+
+    // Now resolve the Google Authenticator step.
+    const enrolledSecret = await kv.get(`${ADMIN_2FA_ENROLLED_PREFIX}${ch.email}`);
+    let otpauthUrl: string | null = null;
+    let secretBase32: string | null = null;
+    if (enrolledSecret) {
+      ch.secret = enrolledSecret;
+      ch.pending = false;
+    } else {
+      const newSecret = new OTPAuth.Secret({ size: 20 });
+      const totp = new OTPAuth.TOTP({
+        issuer: 'IndexpilotAI', label: ch.email, algorithm: 'SHA1', digits: 6, period: 30, secret: newSecret,
+      });
+      otpauthUrl = totp.toString();
+      secretBase32 = newSecret.base32;
+      ch.secret = newSecret.base32;
+      ch.pending = true;
+    }
+    ch.expiresAt = Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS;
+    await kv.set(key, JSON.stringify(ch));
+
+    await logAdminSecurityEvent({
+      action: 'admin_login_email_otp_verified', email: ch.email, userId: ch.userId, status: 'success', c,
+    });
+
+    return c.json({
+      success: true,
+      requires2fa: true,
+      setupRequired: !enrolledSecret,
+      challengeToken,
+      otpauthUrl,
+      secretBase32,
+    });
+  } catch (error: any) {
+    console.error('Admin email OTP verify error:', error);
+    return c.json({ success: false, message: error.message || 'Verification failed' }, 500);
+  }
+});
+
+// Resend the emailed OTP for an active login challenge.
+app.post("/make-server-c4d79cb7/admin/email-otp/resend", async (c) => {
+  try {
+    const { challengeToken } = await c.req.json();
+    const key = `${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken || ''}`;
+    const raw = challengeToken ? await kv.get(key) : null;
+    if (!raw) return c.json({ success: false, message: 'Session expired. Please log in again.' }, 401);
+    const ch = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (ch.emailVerified) return c.json({ success: false, message: 'Email already verified' }, 400);
+
+    const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
+    ch.emailOtpHash = await sha256Hex(emailOtp);
+    ch.emailOtpExpiresAt = Date.now() + ADMIN_EMAIL_OTP_TTL_MS;
+    ch.emailOtpAttempts = 0;
+    await kv.set(key, JSON.stringify(ch));
+
+    const mailed = await sendAdminEmailOtp(ch.email, ch.fullName || 'Admin', emailOtp);
+    await logAdminSecurityEvent({
+      action: 'admin_login_email_otp_resent', email: ch.email, status: mailed ? 'success' : 'failed', c,
+    });
+    return c.json({ success: true, mailed, maskedEmail: maskEmail(ch.email) });
+  } catch (error: any) {
+    return c.json({ success: false, message: error.message || 'Resend failed' }, 500);
+  }
+});
+
 
 app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
   try {
@@ -10357,10 +12146,34 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       await kv.del(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
       return c.json({ success: false, message: 'Challenge expired. Please log in again.' }, 401);
     }
+    if (!challenge.emailVerified) {
+      return c.json({ success: false, message: 'Email verification required before Google Authenticator.' }, 401);
+    }
+
 
     const ok = verifyTotpServerSide(challenge.secret, String(code), challenge.email);
     if (!ok) {
-      return c.json({ success: false, message: 'Invalid verification code' }, 401);
+      // Recovery: if the stored (enrolled) secret no longer matches the admin's
+      // authenticator app, drop it after 3 misses so the next login re-enrols
+      // with a fresh QR instead of locking the admin out forever.
+      challenge.twoFaAttempts = (challenge.twoFaAttempts || 0) + 1;
+      let reset = false;
+      if (challenge.twoFaAttempts >= 3) {
+        await kv.del(`${ADMIN_2FA_ENROLLED_PREFIX}${challenge.email}`);
+        await kv.del(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`);
+        reset = true;
+      } else {
+        await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify(challenge));
+      }
+      return c.json({
+        success: false,
+        reset,
+        errorCode: reset ? 'TOTP_RESET' : 'INVALID_TOTP',
+        attemptsRemaining: reset ? null : Math.max(0, 3 - challenge.twoFaAttempts),
+        message: reset
+          ? 'Authenticator reset. Please log in again and scan the new QR code.'
+          : 'Invalid verification code',
+      }, 401);
     }
 
     // Consume challenge, promote pending secret to enrolled
@@ -10418,6 +12231,29 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       console.warn('[ADMIN 2FA VERIFY] super-admin seed skipped:', seedErr);
     }
 
+    // 🕒 Open an admin session record (check-in). Powers the online/offline
+    // list plus login/logout duration reporting in the admin panel.
+    let adminSessionId: string | null = null;
+    try {
+      const ua = c.req.header('user-agent') || '';
+      const { data: sessRow } = await supabase.from('admin_sessions').insert({
+        admin_user_id: uid,
+        admin_email: challenge.email,
+        admin_name: fullName,
+        hotkey: hotkey || null,
+        login_method: challenge.pending ? 'hotkey+email_otp+totp_setup' : 'hotkey+email_otp+totp',
+        ip_address: clientIpOf(c),
+        user_agent: ua.slice(0, 500),
+        device: deviceOfUA(ua),
+        browser: browserOfUA(ua),
+      }).select('id').maybeSingle();
+      adminSessionId = sessRow?.id || null;
+    } catch (sErr) {
+      console.warn('[ADMIN 2FA VERIFY] session record failed:', sErr);
+    }
+
+
+
     const uniqueCode = Array.from({ length: 8 }, () =>
       'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]
     ).join('');
@@ -10437,6 +12273,8 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
       success: true,
       accessToken: sessionData.session.access_token,
       uniqueCode,
+      adminSessionId,
+
       admin: {
         id: uid,
         user_id: uid,
@@ -10451,6 +12289,89 @@ app.post("/make-server-c4d79cb7/admin/2fa/verify", async (c) => {
   } catch (error: any) {
     console.error('Admin 2FA verify error:', error);
     return c.json({ success: false, message: error.message || 'Verification failed' }, 500);
+  }
+});
+
+// 💓 Session heartbeat — keeps the admin marked online.
+app.post("/make-server-c4d79cb7/admin/session/heartbeat", async (c) => {
+  try {
+    const { sessionId } = await c.req.json().catch(() => ({}));
+    const token = (c.req.header('authorization') || '').replace('Bearer ', '').trim();
+    const { data: u } = await supabase.auth.getUser(token);
+    const uid = u?.user?.id;
+    if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
+    const now = new Date().toISOString();
+    if (sessionId) {
+      await supabase.from('admin_sessions').update({ last_seen_at: now }).eq('id', sessionId).is('logout_at', null);
+    } else {
+      await supabase.from('admin_sessions').update({ last_seen_at: now })
+        .eq('admin_user_id', uid).is('logout_at', null);
+    }
+    await supabase.from('admin_profiles').update({ is_online: true, last_seen_at: now }).eq('user_id', uid);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
+  }
+});
+
+// 🚪 Admin logout — closes the session (check-out) and records the reason.
+app.post("/make-server-c4d79cb7/admin/session/logout", async (c) => {
+  try {
+    const { sessionId, reason } = await c.req.json().catch(() => ({}));
+    const token = (c.req.header('authorization') || '').replace('Bearer ', '').trim();
+    const { data: u } = await supabase.auth.getUser(token);
+    const uid = u?.user?.id;
+    if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
+    const now = new Date().toISOString();
+    const q = supabase.from('admin_sessions')
+      .update({ logout_at: now, last_seen_at: now, logout_reason: reason || 'manual' })
+      .is('logout_at', null);
+    if (sessionId) await q.eq('id', sessionId);
+    else await q.eq('admin_user_id', uid);
+
+    await supabase.from('admin_profiles').update({ is_online: false, last_seen_at: now }).eq('user_id', uid);
+    await supabase.from('admin_audit_events').insert({
+      actor_user_id: uid, actor_email: u?.user?.email || null,
+      action: 'admin_logout', module: 'auth', status: 'success',
+      ip_address: clientIpOf(c), user_agent: c.req.header('user-agent') || null,
+      details: { reason: reason || 'manual' },
+    });
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
+  }
+});
+
+// 📋 Admin sessions list (check-in / check-out report) — admins only.
+app.get("/make-server-c4d79cb7/admin/sessions", async (c) => {
+  try {
+    const token = (c.req.header('authorization') || '').replace('Bearer ', '').trim();
+    const { data: u } = await supabase.auth.getUser(token);
+    const uid = u?.user?.id;
+    if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
+    const { data: prof } = await supabase.from('admin_profiles')
+      .select('is_super_admin,status').eq('user_id', uid).maybeSingle();
+    if (!prof || prof.status !== 'active') return c.json({ success: false, message: 'Forbidden' }, 403);
+
+    const from = c.req.query('from');
+    const to = c.req.query('to');
+    let q = supabase.from('admin_sessions').select('*').order('login_at', { ascending: false }).limit(500);
+    if (from) q = q.gte('login_at', from);
+    if (to) q = q.lte('login_at', to);
+    if (!prof.is_super_admin) q = q.eq('admin_user_id', uid);
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const STALE_MS = 3 * 60 * 1000;
+    const sessions = (data || []).map((s: any) => {
+      const start = new Date(s.login_at).getTime();
+      const end = s.logout_at ? new Date(s.logout_at).getTime() : new Date(s.last_seen_at).getTime();
+      const online = !s.logout_at && Date.now() - new Date(s.last_seen_at).getTime() < STALE_MS;
+      return { ...s, online, duration_minutes: Math.max(0, Math.round((end - start) / 60000)) };
+    });
+    return c.json({ success: true, sessions });
+  } catch (e: any) {
+    return c.json({ success: false, message: e.message }, 500);
   }
 });
 
@@ -11020,7 +12941,7 @@ app.post('/make-server-c4d79cb7/support/create', async (c) => {
     try {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, 'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '' },
         body: JSON.stringify({
           template: 'ticket_created',
           userId: user.id,
@@ -11191,7 +13112,7 @@ app.post('/make-server-c4d79cb7/admin/support/reply', async (c) => {
     try {
       fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, 'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '' },
         body: JSON.stringify({
           template: 'ticket_reply',
           userId: ticket.userId,
@@ -12083,7 +14004,7 @@ app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
         const wallet = await kv.get(`wallet:${p.user_id}`).catch(() => null);
         await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')! },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, 'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '' },
           body: JSON.stringify({
             template: 'daily_premarket',
             to: p.email,
@@ -12140,6 +14061,37 @@ app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
   }
 });
 
+// 🧹 A monitored position can only belong to the CURRENT trading day. Rows left
+// active from an earlier session (engine crash / externally squared-off trade)
+// showed up as a phantom "HOLD" and blocked new entries for that index.
+async function deactivateStalePositionRows(userId: string) {
+  try {
+    const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const istMidnightUtc = new Date(
+      Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - 5.5 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const { data } = await supabase
+      .from('position_monitor_state')
+      .update({
+        is_active: false,
+        exit_reason: 'Auto-cleared: stale position from a previous session',
+        exited_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .lt('created_at', istMidnightUtc)
+      .select('order_id');
+
+    if (data?.length) {
+      console.log(`🧹 [POSITION-MONITOR] Cleared ${data.length} stale position(s) for ${userId}`);
+    }
+  } catch (e: any) {
+    console.warn('⚠️ stale position cleanup failed:', e?.message || e);
+  }
+}
+
 // GET /position-monitor/list  → all active monitored positions for the user
 // Used by mobile app to render the Position Monitor UI
 app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
@@ -12148,6 +14100,7 @@ app.get("/make-server-c4d79cb7/position-monitor/list", async (c) => {
     if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const userId = user.id;
 
+    await deactivateStalePositionRows(userId);
 
     const { data, error } = await supabase
       .from('position_monitor_state')
@@ -12169,6 +14122,7 @@ app.get("/make-server-c4d79cb7/positions/monitor/active", async (c) => {
     const { user, error: authErr } = await validateAuth(c);
     if (authErr || !user) return c.json({ error: authErr?.message || 'Unauthorized' }, authErr?.code || 401);
     const userId = user.id;
+    await deactivateStalePositionRows(userId);
 
 
     const { data, error } = await supabase
@@ -12674,7 +14628,7 @@ app.post("/make-server-c4d79cb7/backend-engine/execute", async (c) => {
  */
 app.get("/make-server-c4d79cb7/engine/db-status", async (c) => {
   try {
-    const userId = getFastUserIdFromRequest(c);
+    const userId = await getFastUserIdFromRequest(c);
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
 
     // Get engine state from DB
@@ -13583,6 +15537,10 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
     const kite = await BrokerRouter.getKiteCredentials(user.id);
     const groww = await BrokerRouter.getGrowwCredentials(user.id);
     const upstox = await BrokerRouter.getUpstoxCredentials(user.id);
+    const fyers = await BrokerRouter.getFyersCredentials(user.id);
+    const angelone = await BrokerRouter.getAngelOneCredentials(user.id);
+    const aliceblue = await BrokerRouter.getAliceblueCredentials(user.id);
+    const fivepaisa = await BrokerRouter.getFivepaisaCredentials(user.id);
     const dhanCreds = await kv.get(`api_credentials:${user.id}`);
     const choice = await kv.get(`broker_choice:${user.id}`);
     const catalog = await BrokerRegistry.listEnabledBrokers();
@@ -13591,6 +15549,10 @@ app.get("/make-server-c4d79cb7/broker/active", async (c) => {
       zerodha: !!(kite?.apiKey && kite?.accessToken),
       groww: !!groww?.accessToken,
       upstox: !!upstox?.accessToken,
+      fyers: !!(fyers?.appId && fyers?.accessToken),
+      angelone: !!(angelone?.apiKey && angelone?.jwtToken),
+      aliceblue: !!(aliceblue?.userId && aliceblue?.sessionId),
+      "5paisa": !!(fivepaisa?.accessToken && fivepaisa?.clientCode),
     };
 
     return c.json({
@@ -13614,8 +15576,8 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
     const body = await c.req.json().catch(() => ({}));
     const broker = String(body?.broker || "").toLowerCase();
-    if (!["dhan", "zerodha", "groww", "upstox"].includes(broker)) {
-      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww' or 'upstox'" }, 400);
+    if (!["dhan", "zerodha", "groww", "upstox", "fyers", "angelone", "aliceblue", "5paisa"].includes(broker)) {
+      return c.json({ error: "broker must be 'dhan', 'zerodha', 'groww', 'upstox', 'fyers', 'angelone', 'aliceblue' or '5paisa'" }, 400);
     }
     // Admin can switch a broker OFF for everyone.
     try {
@@ -13638,6 +15600,10 @@ app.post("/make-server-c4d79cb7/broker/active", async (c) => {
     if (broker === "zerodha") instrumentSync = await ensureKiteInstruments(false);
     if (broker === "groww") instrumentSync = await ensureGrowwInstruments(false);
     if (broker === "upstox") instrumentSync = await ensureUpstoxInstruments(false);
+    if (broker === "fyers") instrumentSync = await ensureFyersInstruments(false);
+    if (broker === "angelone") instrumentSync = await ensureAngelOneInstruments(false);
+    if (broker === "aliceblue") instrumentSync = await ensureAliceblueInstruments(false);
+    if (broker === "5paisa") instrumentSync = await ensureFivepaisaInstruments(false);
 
 
     return c.json({ success: true, activeBroker: broker, switchedFrom: current, instrumentSync });
@@ -14156,6 +16122,1001 @@ app.post("/make-server-c4d79cb7/broker/upstox/instruments/sync", async (c) => {
   }
 });
 
+// ═══════════════════════ FYERS ═══════════════════════
+
+function fyersRedirectUri() {
+  return brokerRedirectUri("fyers");
+}
+
+function effectiveFyersRedirect(creds: any) {
+  const saved = String(creds?.redirectUri || "").trim();
+  if (!saved || saved.includes("supabase.co")) return fyersRedirectUri();
+  return saved;
+}
+
+function sanitizeFyers(creds: any) {
+  if (!creds) return null;
+  return {
+    app_id_set: !!creds.appId,
+    app_secret_set: !!creds.appSecret,
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    redirect_uri: effectiveFyersRedirect(creds),
+    fyers_user_id: creds.fyersUserId || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
+    last_error: creds.lastError || null,
+  };
+}
+
+app.get("/make-server-c4d79cb7/broker/fyers/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFyersCredentials(user.id);
+    const quick = String(c.req.query("quick") || "") === "1";
+    let liveCheck: any = null;
+    if (!quick && creds?.accessToken && creds?.appId) {
+      const svc = new FyersService({
+        appId: creds.appId,
+        accessToken: creds.accessToken,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "fyers"),
+      });
+      // Never let a slow broker/proxy call hang the status request — the UI
+      // would abort and wrongly show "not connected".
+      liveCheck = await withTimeout(svc.verify(), 6000, { ok: null, error: "timeout" } as any);
+      if (liveCheck?.ok !== null) {
+        await BrokerRouter.saveFyersCredentials(user.id, {
+          lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+          lastError: liveCheck.ok ? null : liveCheck.error,
+        } as any);
+        await BrokerRouter.mirrorFyersStatus(user.id, {
+          last_status: liveCheck.ok ? "connected" : "token_invalid",
+          last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+        });
+        if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+          await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+        }
+      }
+    }
+    const refreshed = await BrokerRouter.getFyersCredentials(user.id);
+    const expiry = refreshed?.tokenExpiry ? Date.parse(refreshed.tokenExpiry) : NaN;
+    const tokenValid = !!refreshed?.accessToken && (!Number.isFinite(expiry) || expiry > Date.now());
+    return c.json({
+      success: true,
+      fyers: sanitizeFyers(refreshed),
+      // A saved, unexpired token means the OAuth login succeeded even when the
+      // live probe could not complete in time.
+      connected: liveCheck?.ok === true || (liveCheck?.ok !== false && tokenValid),
+      tokenValid,
+      redirectUri: fyersRedirectUri(),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+      balance: liveCheck?.balance ?? null,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+
+/** Save the Fyers app id + secret (from myapi.fyers.in → Create App). */
+app.post("/make-server-c4d79cb7/broker/fyers/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const appId = String(body?.appId || body?.apiKey || "").trim();
+    const appSecret = String(body?.appSecret || body?.apiSecret || "").trim();
+    const accessToken = String(body?.accessToken || "").trim();
+    if (!accessToken && (appId.length < 5 || appSecret.length < 5)) {
+      return c.json({ error: "Fyers App ID and Secret ID are required" }, 400);
+    }
+
+    const currentBroker = await BrokerRouter.getActiveBroker(user.id);
+    if (currentBroker !== "fyers") await BrokerRouter.selectBroker(user.id, "fyers" as any);
+
+    let balance: number | null = null;
+    if (accessToken && appId) {
+      const svc = new FyersService({
+        appId,
+        accessToken,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "fyers"),
+      });
+      const check = await svc.verify();
+      if (!check.ok) return c.json({ error: check.error || "Fyers rejected this access token" }, 400);
+      balance = typeof check.balance === "number" ? check.balance : null;
+    }
+
+    const creds = await BrokerRouter.saveFyersCredentials(user.id, {
+      appId: appId || undefined,
+      appSecret: appSecret || undefined,
+      redirectUri: (() => { const r = String(body?.redirectUri || "").trim(); return r && !r.includes("supabase.co") ? r : fyersRedirectUri(); })(),
+      accessToken: accessToken || undefined,
+      lastStatus: accessToken ? "connected" : "keys_saved",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorFyersStatus(user.id, {
+      last_status: accessToken ? "connected" : "keys_saved",
+      last_error: null,
+    });
+    await kv.set(`broker_choice:${user.id}`, { broker: "fyers", at: new Date().toISOString() });
+    await BrokerRouter.setBrokerConnected(user.id, !!accessToken);
+
+    if (balance !== null) {
+      await kv.set(`broker_funds:${user.id}`, {
+        availableBalance: balance,
+        sodLimit: balance,
+        collateralAmount: 0,
+        utilizationAmount: 0,
+        blockedPayinAmount: 0,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+
+    const instrumentSync = await ensureFyersInstruments(false);
+    return c.json({
+      success: true,
+      fyers: sanitizeFyers(creds),
+      redirectUri: fyersRedirectUri(),
+      activeBroker: "fyers",
+      connected: !!accessToken,
+      balance,
+      instrumentSync,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/fyers/login-url", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFyersCredentials(user.id);
+    if (!creds?.appId) return c.json({ error: "Save your Fyers App ID and Secret ID first" }, 400);
+    const state = crypto.randomUUID();
+    await kv.set(`fyers_oauth_state:${state}`, { userId: user.id, at: Date.now() });
+    const redirectUri = effectiveFyersRedirect(creds);
+    return c.json({
+      success: true,
+      url: buildFyersLoginUrl(creds.appId, redirectUri, state),
+      redirectUri,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Fyers redirects the browser here with ?auth_code=&state= — public by design. */
+app.get("/make-server-c4d79cb7/broker/fyers/callback", async (c) => {
+  const html = (title: string, msg: string, ok: boolean) =>
+    c.html(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:420px"><h2 style="color:${ok ? "#34d399" : "#f87171"}">${title}</h2>
+<p style="color:#94a3b8">${msg}</p><p style="color:#64748b;font-size:13px">You can close this window and return to IndexPilot.</p></div>
+<script>setTimeout(function(){window.close()},2500)</script></body></html>`);
+  try {
+    const authCode = c.req.query("auth_code") || c.req.query("code") || "";
+    const state = c.req.query("state") || "";
+    if (!authCode || !state) return html("Fyers login failed", "Missing authorization code.", false);
+    const st = await kv.get(`fyers_oauth_state:${state}`);
+    if (!st?.userId || Date.now() - Number(st.at || 0) > 10 * 60_000) {
+      await kv.del(`fyers_oauth_state:${state}`);
+      return html("Fyers login failed", "This login link has expired. Try again.", false);
+    }
+    await kv.del(`fyers_oauth_state:${state}`);
+
+    const creds = await BrokerRouter.getFyersCredentials(st.userId);
+    if (!creds?.appId || !creds?.appSecret) {
+      return html("Fyers login failed", "App ID / Secret ID missing. Save them again in Broker Setup.", false);
+    }
+
+    const tok = await exchangeFyersAuthCode({
+      appId: creds.appId,
+      appSecret: creds.appSecret,
+      authCode,
+    });
+
+    await BrokerRouter.saveFyersCredentials(st.userId, {
+      accessToken: tok.accessToken,
+      refreshToken: tok.refreshToken,
+      tokenExpiry: fyersTokenExpiry(tok.accessToken),
+      lastStatus: "connected",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorFyersStatus(st.userId, { last_status: "connected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(st.userId)) === "fyers") {
+      await BrokerRouter.setBrokerConnected(st.userId, true);
+    }
+    await ensureFyersInstruments(false);
+
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Fyers connected</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:420px"><h2 style="color:#34d399">Fyers connected</h2><p style="color:#94a3b8">Funds, positions and orders now route through Fyers.</p></div>
+<script>try{if(window.opener){window.opener.postMessage({source:'fyers',ok:true},'*');setTimeout(function(){window.close()},1200)}else{try{localStorage.setItem('fyers_connected_at',String(Date.now()))}catch(e){}setTimeout(function(){window.location.replace('https://indexpilotai.com/dashboard?broker=fyers&connected=1')},1500)}}catch(e){}</script></body></html>`);
+  } catch (err: any) {
+    const raw = String(err?.message || err);
+    const low = raw.toLowerCase();
+    let hint = "";
+    if (low.includes("segment")) {
+      hint = `Your Fyers account works, but no trading segment is active. Enable <b>F&O (Derivatives)</b> in the Fyers app and login again.`;
+    } else if (low.includes("redirect")) {
+      hint = `The redirect URI registered in your Fyers app does not match. Register exactly:<br>
+        <code style="color:#22d3ee;word-break:break-all">${fyersRedirectUri()}</code>`;
+    } else if (low.includes("invalid") && (low.includes("app") || low.includes("secret") || low.includes("hash"))) {
+      hint = "App ID or Secret ID is wrong. Re-copy them from myapi.fyers.in → My Apps and save again.";
+    }
+    return html(
+      "Fyers login failed",
+      `${raw.slice(0, 200)}${hint ? `<br><br><span style="color:#cbd5e1">${hint}</span>` : ""}
+       <br><br><span style="color:#475569;font-size:12px">Redirect URI used: ${fyersRedirectUri()}</span>`,
+      false,
+    );
+  }
+});
+
+/**
+ * Mobile app finishes the Fyers OAuth itself: the RN WebView intercepts the
+ * callback URL and posts the auth_code here instead of letting the server page load.
+ */
+app.post("/make-server-c4d79cb7/broker/fyers/consume", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({} as any));
+    const authCode = String(body?.authCode || body?.auth_code || body?.code || "").trim();
+    const state = String(body?.state || "").trim();
+    if (!authCode) return c.json({ success: false, error: "Missing auth code" }, 400);
+
+    // State is optional here (the app already proved identity with its JWT),
+    // but when present it must belong to this user.
+    if (state) {
+      const st = await kv.get(`fyers_oauth_state:${state}`);
+      if (st?.userId && st.userId !== user.id) {
+        return c.json({ success: false, error: "This login link belongs to another account" }, 403);
+      }
+      await kv.del(`fyers_oauth_state:${state}`);
+    }
+
+    const creds = await BrokerRouter.getFyersCredentials(user.id);
+    if (!creds?.appId || !creds?.appSecret) {
+      return c.json({ success: false, error: "App ID / Secret ID missing. Save them again in Broker Setup." }, 400);
+    }
+
+    try {
+      const tok = await exchangeFyersAuthCode({
+        appId: creds.appId,
+        appSecret: creds.appSecret,
+        authCode,
+      });
+      await BrokerRouter.saveFyersCredentials(user.id, {
+        accessToken: tok.accessToken,
+        refreshToken: tok.refreshToken,
+        tokenExpiry: fyersTokenExpiry(tok.accessToken),
+        lastStatus: "connected",
+        lastError: null,
+      } as any);
+      await BrokerRouter.mirrorFyersStatus(user.id, { last_status: "connected", last_error: null });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+        await BrokerRouter.setBrokerConnected(user.id, true);
+      }
+      await ensureFyersInstruments(false);
+      return c.json({ success: true, connected: true, broker: "fyers" });
+    } catch (ex: any) {
+      const msg = String(ex?.message || ex).slice(0, 300);
+      await BrokerRouter.saveFyersCredentials(user.id, { lastStatus: "token_invalid", lastError: msg } as any);
+      await BrokerRouter.mirrorFyersStatus(user.id, { last_status: "token_invalid", last_error: msg });
+      return c.json({ success: false, connected: false, error: msg }, 400);
+    }
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/fyers/verify", async (c) => {
+
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getFyersService(user.id);
+    if (!svc) return c.json({ success: false, error: "Fyers is not connected" }, 400);
+    const check = await svc.verify();
+    await BrokerRouter.saveFyersCredentials(user.id, {
+      lastStatus: check.ok ? "connected" : "token_invalid",
+      lastError: check.ok ? null : check.error,
+    } as any);
+    await BrokerRouter.mirrorFyersStatus(user.id, {
+      last_status: check.ok ? "connected" : "token_invalid",
+      last_error: check.ok ? null : String(check.error || "").slice(0, 400),
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+      await BrokerRouter.setBrokerConnected(user.id, !!check.ok);
+    }
+    return c.json({ success: check.ok, ...check });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/fyers/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearFyersCredentials(user.id);
+    await BrokerRouter.mirrorFyersStatus(user.id, { last_status: "disconnected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "fyers") {
+      await BrokerRouter.setBrokerConnected(user.id, false);
+    }
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/fyers/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getFyersInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/fyers/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const result = await syncFyersInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    return c.json({ success: true, ...result });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// ===========================================================================
+// ANGEL ONE (SmartAPI) — Client Code + MPIN + TOTP login (no OAuth redirect)
+// Docs: https://smartapi.angelone.in/docs
+// ===========================================================================
+
+// --- GET angelone status ---------------------------------------------------
+app.get("/make-server-c4d79cb7/broker/angelone/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getAngelOneCredentials(user.id);
+    const canAutoReconnect = !!(creds?.apiKey && creds?.clientCode && creds?.password && creds?.totpSecret);
+    let liveCheck: any = null;
+    if (creds?.apiKey && (creds?.jwtToken || canAutoReconnect)) {
+      // Auto-mints a fresh daily session from the saved credentials when needed,
+      // so the user never has to retype anything the next morning.
+      const svc = await BrokerRouter.getAngelOneService(user.id);
+      liveCheck = svc ? await svc.verify() : { ok: false, error: "service unavailable" };
+      if (!liveCheck.ok && canAutoReconnect) {
+        const refreshed = await BrokerRouter.ensureAngelOneSession(user.id, { force: true });
+        if (refreshed?.jwtToken) {
+          const svc2 = await BrokerRouter.getAngelOneService(user.id);
+          if (svc2) liveCheck = await svc2.verify();
+        }
+      }
+      await BrokerRouter.saveAngelOneCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      });
+      await BrokerRouter.mirrorAngelOneStatus(user.id, {
+        status: liveCheck.ok ? "connected" : "token_invalid",
+        client_id: creds.clientCode || null,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    return c.json({
+      success: true,
+      connected: !!liveCheck?.ok,
+      hasApiKey: !!creds?.apiKey,
+      hasSession: !!creds?.jwtToken,
+      savedCredentials: canAutoReconnect,
+      apiKeyMasked: creds?.apiKey ? `${String(creds.apiKey).slice(0, 4)}••••${String(creds.apiKey).slice(-2)}` : null,
+      clientCode: creds?.clientCode || null,
+      userName: creds?.angeloneUserName || null,
+      balance: liveCheck?.balance ?? null,
+      lastStatus: creds?.lastStatus || null,
+      lastError: liveCheck?.ok ? null : (liveCheck?.error || creds?.lastError || null),
+
+      // SmartAPI "Add App" form requires a Redirect URL + Primary Static IP even
+      // though the actual login is Client Code + MPIN + TOTP (no OAuth exchange).
+      redirectUri: brokerRedirectUri("angelone"),
+      postbackUrl: `${PUBLIC_API_BASE}/functions/v1/make-server-c4d79cb7/broker/angelone/postback`,
+      staticIp: await (async () => {
+        try { return (await getUserOrderPlacementIP(user.id))?.ipAddress || null; } catch { return null; }
+      })(),
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** SmartAPI requires a Redirect URL on the app form. Angel One never exchanges a
+ *  code here (login is TOTP based) — this page only confirms the URL is valid. */
+app.get("/make-server-c4d79cb7/broker/angelone/callback", (c) =>
+  c.html(`<!doctype html><html><head><meta charset="utf-8"><title>Angel One</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:440px"><h2 style="color:#34d399">Angel One redirect URL is live</h2>
+<p style="color:#94a3b8">This URL is only used to satisfy the SmartAPI app form. Log in from IndexPilot &rarr; Broker Setup with your Client Code, MPIN and TOTP.</p></div></body></html>`),
+);
+
+/** Optional postback endpoint for SmartAPI order updates. */
+app.post("/make-server-c4d79cb7/broker/angelone/postback", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    await kv.set(`angelone_postback:${Date.now()}`, body);
+  } catch { /* ignore */ }
+  return c.json({ status: "ok" });
+});
+
+// --- POST angelone login (apiKey + clientCode + mpin + TOTP code/secret) ----
+app.post("/make-server-c4d79cb7/broker/angelone/login", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    try { await BrokerRegistry.assertBrokerEnabled("angelone"); }
+    catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
+
+    const body = await c.req.json().catch(() => ({}));
+    const loginSchema = z.object({
+      apiKey: z.string().trim().min(5, "Enter your SmartAPI Trading API Key").max(128),
+      clientCode: z.string().trim().min(3, "Enter your Angel One Client Code").max(32).regex(/^[A-Za-z0-9]+$/, "Angel One Client Code contains invalid characters"),
+      password: z.string().trim().min(4, "Enter your Angel One MPIN / password").max(128),
+      totp: z.string().max(32).optional().default("").transform((value) => value.replace(/\s+/g, "")),
+      totpSecret: z.string().max(128).optional().default("").transform((value) => value.toUpperCase().replace(/[\s=-]/g, "")),
+    }).superRefine((value, ctx) => {
+      if (!value.totp && !value.totpSecret) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totp"], message: "Enter the current 6-digit TOTP code or your Base32 TOTP secret" });
+      } else if (value.totp && !/^\d{6}$/.test(value.totp)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totp"], message: "TOTP code must contain exactly 6 digits" });
+      } else if (value.totpSecret && (value.totpSecret.length < 8 || !/^[A-Z2-7]+$/.test(value.totpSecret))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totpSecret"], message: "TOTP secret must be a valid Base32 key from SmartAPI" });
+      }
+    });
+    const parsed = loginSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ success: false, error: parsed.error.issues[0]?.message || "Invalid Angel One login details" }, 400);
+    }
+    const { apiKey, password, totp, totpSecret } = parsed.data;
+    const clientCode = parsed.data.clientCode.toUpperCase();
+
+    let session;
+    try {
+      session = await angeloneLogin({
+        apiKey,
+        clientCode,
+        password,
+        totpSecret,
+        totp,
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "angelone", ANGELONE_API),
+        publicIp: await getUserOrderPlacementIP(user.id).then((v) => v.ipAddress).catch(() => undefined),
+      });
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      await BrokerRouter.saveAngelOneCredentials(user.id, { lastStatus: "login_failed", lastError: msg });
+      return c.json({ success: false, error: msg }, 400);
+    }
+
+    await BrokerRouter.saveAngelOneCredentials(user.id, {
+      apiKey,
+      clientCode,
+      password,
+      totpSecret: totpSecret || undefined,
+      jwtToken: session.jwtToken,
+      refreshToken: session.refreshToken,
+      feedToken: session.feedToken,
+      tokenExpiry: angeloneTokenExpiry(session.jwtToken),
+      lastStatus: "connected",
+      lastError: null,
+    });
+
+    // ONE USER = ONE BROKER
+    await BrokerRouter.selectBroker(user.id, "angelone" as any);
+    await kv.set(`broker_choice:${user.id}`, { broker: "angelone", at: new Date().toISOString() });
+
+    const svc = await BrokerRouter.getAngelOneService(user.id);
+    let profile: any = null;
+    let funds: any = null;
+    try { profile = await svc?.getProfile(); } catch (_) { /* non-fatal */ }
+    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+    if (profile?.name) {
+      await BrokerRouter.saveAngelOneCredentials(user.id, { angeloneUserName: String(profile.name) });
+    }
+
+    await BrokerRouter.mirrorAngelOneStatus(user.id, {
+      status: "connected",
+      client_id: clientCode,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Scrip master is ~37 MB — never block the login response on it.
+    try {
+      const job = ensureAngelOneInstruments(false);
+      // deno-lint-ignore no-explicit-any
+      const rt: any = (globalThis as any).EdgeRuntime;
+      if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
+    } catch (_) { /* non-fatal */ }
+
+    return c.json({
+      success: true,
+      connected: true,
+      clientCode,
+      userName: profile?.name || null,
+      funds,
+      instrumentSync: { started: true },
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST angelone reconnect (uses the credentials saved on first login) ----
+app.post("/make-server-c4d79cb7/broker/angelone/reconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getAngelOneCredentials(user.id);
+    if (!creds?.apiKey || !creds?.clientCode || !creds?.password || !creds?.totpSecret) {
+      return c.json({ success: false, error: "No saved Angel One credentials. Login once with API key, client code, MPIN and TOTP secret." }, 400);
+    }
+    const refreshed = await BrokerRouter.ensureAngelOneSession(user.id, { force: true });
+    if (!refreshed?.jwtToken) {
+      return c.json({ success: false, error: refreshed?.lastError || "Angel One re-login failed" }, 400);
+    }
+    await BrokerRouter.selectBroker(user.id, "angelone" as any);
+    const svc = await BrokerRouter.getAngelOneService(user.id);
+    let funds: any = null;
+    try { funds = await svc?.getFundLimits(); } catch (_) { /* non-fatal */ }
+    await BrokerRouter.mirrorAngelOneStatus(user.id, {
+      status: "connected",
+      client_id: creds.clientCode,
+      updated_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, connected: true, clientCode: creds.clientCode, userName: creds.angeloneUserName || null, funds });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+
+// --- POST angelone verify (live funds ping) --------------------------------
+app.post("/make-server-c4d79cb7/broker/angelone/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getAngelOneService(user.id);
+    if (!svc) return c.json({ success: false, connected: false, error: "Angel One is not connected" }, 400);
+    const res = await svc.verify();
+    await BrokerRouter.saveAngelOneCredentials(user.id, {
+      lastStatus: res.ok ? "connected" : "token_invalid",
+      lastError: res.ok ? null : res.error,
+    });
+    return c.json({ success: true, connected: res.ok, balance: res.balance ?? null, error: res.error || null });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- POST angelone disconnect ----------------------------------------------
+app.post("/make-server-c4d79cb7/broker/angelone/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearAngelOneCredentials(user.id);
+    await BrokerRouter.mirrorAngelOneStatus(user.id, {
+      status: "disconnected",
+      updated_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, connected: false });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// --- Angel One instrument master -------------------------------------------
+app.get("/make-server-c4d79cb7/broker/angelone/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getAngelOneInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/angelone/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const job = syncAngelOneInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    const rt: any = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
+    return c.json({ success: true, started: true, message: "Angel One instrument sync started" }, 202);
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+
+
+
+
+// ===========================================================================
+// ALICEBLUE (ANT API v2) — User ID + API key login (no OAuth redirect)
+// Docs: https://v2api.aliceblueonline.com/
+// ===========================================================================
+
+app.get("/make-server-c4d79cb7/broker/aliceblue/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getAliceblueCredentials(user.id);
+    const savedCredentials = !!(creds?.apiSecret && (creds?.appCode || creds?.authCode) && creds?.userId);
+    let liveCheck: any = null;
+
+    if (savedCredentials) {
+      // Mints a fresh daily session from the saved key when needed, so the user
+      // never has to retype anything the next morning.
+      const svc = await BrokerRouter.getAliceblueService(user.id);
+      liveCheck = svc ? await svc.verify() : { ok: false, error: creds?.lastError || "session unavailable" };
+      if (!liveCheck.ok) {
+        const refreshed = await BrokerRouter.ensureAliceblueSession(user.id, { force: true });
+        if (refreshed?.sessionId) {
+          const svc2 = await BrokerRouter.getAliceblueService(user.id);
+          if (svc2) liveCheck = await svc2.verify();
+        }
+      }
+      await BrokerRouter.saveAliceblueCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      });
+      await BrokerRouter.mirrorAliceblueStatus(user.id, {
+        status: liveCheck.ok ? "connected" : "token_invalid",
+        client_id: creds?.userId || null,
+        updated_at: new Date().toISOString(),
+      });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "aliceblue") {
+        await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+      }
+    }
+
+    const refreshedCreds = await BrokerRouter.getAliceblueCredentials(user.id);
+    return c.json({
+      success: true,
+      connected: !!liveCheck?.ok,
+      savedCredentials,
+      hasSession: !!refreshedCreds?.sessionId,
+      clientCode: refreshedCreds?.userId || null,
+      appCode: refreshedCreds?.appCode || null,
+      apiSecretMasked: refreshedCreds?.apiSecret
+        ? `${String(refreshedCreds.apiSecret).slice(0, 4)}••••${String(refreshedCreds.apiSecret).slice(-2)}`
+        : null,
+      authMethod: "vendor",
+      loginUrl: refreshedCreds?.appCode ? aliceblueAuthUrl(refreshedCreds.appCode) : null,
+      balance: liveCheck?.balance ?? null,
+      lastStatus: refreshedCreds?.lastStatus || null,
+      lastError: liveCheck?.ok ? null : (liveCheck?.error || refreshedCreds?.lastError || null),
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+
+      // The ANT "Create App" form requires this redirect URL and static IP.
+      redirectUri: brokerRedirectUri("aliceblue"),
+      postbackUrl: `${PUBLIC_API_BASE}/functions/v1/make-server-c4d79cb7/broker/aliceblue/postback`,
+      staticIp: await (async () => {
+        try { return (await getUserOrderPlacementIP(user.id))?.ipAddress || null; } catch { return null; }
+      })(),
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Optional postback endpoint for ANT order updates. */
+app.post("/make-server-c4d79cb7/broker/aliceblue/postback", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    await kv.set(`aliceblue_postback:${Date.now()}`, body);
+  } catch { /* ignore */ }
+  return c.json({ status: "ok" });
+});
+
+/** Shared: persist a fresh Aliceblue session and light everything up. */
+async function finalizeAliceblueConnection(appUserId: string, abUserId: string, patch: Record<string, any>) {
+  await BrokerRouter.selectBroker(appUserId, "aliceblue" as any);
+  await BrokerRouter.saveAliceblueCredentials(appUserId, {
+    userId: abUserId,
+    sessionDate: new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10),
+    tokenExpiry: patch?.sessionId ? aliceblueTokenExpiry(String(patch.sessionId)) : null,
+    lastStatus: "connected",
+    lastError: null,
+    ...patch,
+  });
+  await kv.set(`broker_choice:${appUserId}`, { broker: "aliceblue", at: new Date().toISOString() });
+
+  const svc = await BrokerRouter.getAliceblueService(appUserId);
+  if (!svc) throw new Error("Aliceblue session could not be created");
+  const verification = await svc.verify();
+  if (!verification.ok) {
+    await BrokerRouter.setBrokerConnected(appUserId, false);
+    await BrokerRouter.saveAliceblueCredentials(appUserId, { lastStatus: "token_invalid", lastError: verification.error });
+    throw new Error(verification.error || "Aliceblue rejected the session");
+  }
+  const funds = await svc.getFundLimits();
+  if (funds) {
+    await kv.set(`broker_funds:${appUserId}`, {
+      availableBalance: funds.availableBalance,
+      sodLimit: funds.sodLimit,
+      collateralAmount: funds.collateralAmount,
+      utilizationAmount: funds.utilizationAmount,
+      blockedPayinAmount: 0,
+      lastUpdated: new Date().toISOString(),
+    });
+  }
+  await BrokerRouter.setBrokerConnected(appUserId, true);
+  await BrokerRouter.mirrorAliceblueStatus(appUserId, {
+    status: "connected",
+    client_id: abUserId,
+    updated_at: new Date().toISOString(),
+  });
+
+  // Contract masters are ~10 MB — never block the response on them.
+  try {
+    const job = ensureAliceblueInstruments(false);
+    const rt: any = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
+  } catch (_) { /* non-fatal */ }
+
+  return funds;
+}
+
+const abPage = (title: string, color: string, msg: string) =>
+  `<!doctype html><html><head><meta charset="utf-8"><title>Aliceblue</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:460px"><h2 style="color:${color}">${title}</h2>
+<p style="color:#94a3b8">${msg}</p></div>
+<script>try{window.opener&&window.opener.postMessage({source:'aliceblue',ok:${color === "#34d399"}},'*');setTimeout(()=>window.close(),2500);}catch(e){}</script>
+</body></html>`;
+
+/**
+ * Aliceblue vendor redirect: /callback?authCode=...&userId=...
+ * Exchanges SHA256(userId + authCode + apiSecret) for the userSession.
+ */
+app.get("/make-server-c4d79cb7/broker/aliceblue/callback", async (c) => {
+  const authCode = String(c.req.query("authCode") || c.req.query("authcode") || "").trim();
+  const abUserId = String(c.req.query("userId") || c.req.query("userid") || "").trim().toUpperCase();
+
+  if (!authCode || !abUserId) {
+    return c.html(abPage(
+      "Aliceblue redirect URL is live",
+      "#34d399",
+      "Paste this URL as the Redirect URL in the Aliceblue developer portal, then connect from IndexPilot &rarr; Broker Setup.",
+    ));
+  }
+
+  try {
+    // Aliceblue only issues an App Code + API secret; the userId arrives here on
+    // the redirect. Resolve the pending login by userId when we already know it,
+    // otherwise fall back to the most recent pending login (20 min window).
+    let pending = (await kv.get(`aliceblue_pending:${abUserId}`)) as any;
+    if (!pending?.appUserId) {
+      const last = (await kv.get("aliceblue_pending_last")) as any;
+      if (last?.appUserId && Date.now() - new Date(last.at || 0).getTime() < 20 * 60_000) pending = last;
+    }
+    if (!pending?.appUserId) {
+      return c.html(abPage("Login session not found", "#f87171",
+        "Start the connection again from IndexPilot &rarr; Broker Setup &rarr; Aliceblue."));
+    }
+    const creds = await BrokerRouter.getAliceblueCredentials(pending.appUserId);
+    const apiSecret = String(pending.apiSecret || creds?.apiSecret || "");
+    if (!apiSecret) {
+      return c.html(abPage("API secret missing", "#f87171", "Re-enter your App Code and API secret in IndexPilot and try again."));
+    }
+
+
+    const session = await aliceblueVendorSession({ userId: abUserId, authCode, apiSecret });
+    await finalizeAliceblueConnection(pending.appUserId, session.clientId || abUserId, {
+      authCode,
+      apiSecret,
+      appCode: creds?.appCode || pending.appCode || null,
+      authMethod: "vendor",
+      sessionId: session.sessionId,
+    });
+    try { await kv.del(`aliceblue_pending:${abUserId}`); } catch { /* ignore */ }
+    try { await kv.del("aliceblue_pending_last"); } catch { /* ignore */ }
+
+    return c.html(abPage("Aliceblue connected", "#34d399", "You can close this window and return to IndexPilot."));
+  } catch (e: any) {
+    return c.html(abPage("Aliceblue login failed", "#f87171", String(e?.message || e)));
+  }
+});
+
+/**
+ * Start the vendor login: saves App Code + API secret and returns the Aliceblue
+ * login URL (https://ant.aliceblueonline.com/?appcode=...).
+ *
+ * Per the ANT docs the trader only receives an App Code + API secret; the
+ * Aliceblue User ID comes back on the redirect, so it is optional here.
+ */
+const aliceblueVendorStart = async (c: any, preBody?: any) => {
+  const { user, error } = await validateAuth(c);
+  if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+  try { await BrokerRegistry.assertBrokerEnabled("aliceblue"); }
+  catch (e: any) { return c.json({ error: e?.message || "Broker disabled" }, 403); }
+
+  const body = preBody ?? (await c.req.json().catch(() => ({})));
+  const abUserId = String(body?.userId || body?.clientCode || "").trim().toUpperCase();
+  const appCode = String(body?.appCode || "").trim();
+  const apiSecret = String(body?.apiSecret || "").trim();
+  if (!appCode || !apiSecret) {
+    return c.json({ success: false, error: "Aliceblue App Code and API secret are required" }, 400);
+  }
+
+  await BrokerRouter.saveAliceblueCredentials(user.id, {
+    ...(abUserId ? { userId: abUserId } : {}),
+    appCode, apiSecret, authMethod: "vendor", lastStatus: "pending_login", lastError: null,
+  });
+  const pending = { appUserId: user.id, appCode, apiSecret, at: new Date().toISOString() };
+  if (abUserId) await kv.set(`aliceblue_pending:${abUserId}`, pending);
+  await kv.set("aliceblue_pending_last", pending);
+
+
+  return c.json({ success: true, loginUrl: aliceblueAuthUrl(appCode), requiresLogin: true });
+};
+
+app.post("/make-server-c4d79cb7/broker/aliceblue/vendor-start", (c) => aliceblueVendorStart(c));
+
+
+/** Manual paste of the authCode returned on the redirect URL. */
+app.post("/make-server-c4d79cb7/broker/aliceblue/exchange", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const creds = await BrokerRouter.getAliceblueCredentials(user.id);
+    const abUserId = String(body?.userId || creds?.userId || "").trim().toUpperCase();
+    const authCode = String(body?.authCode || "").trim();
+    const apiSecret = String(body?.apiSecret || creds?.apiSecret || "").trim();
+    if (!abUserId || !authCode || !apiSecret) {
+      return c.json({ success: false, error: "User ID, authCode and API secret are required" }, 400);
+    }
+    const session = await aliceblueVendorSession({ userId: abUserId, authCode, apiSecret });
+    const funds = await finalizeAliceblueConnection(user.id, session.clientId || abUserId, {
+      authCode, apiSecret, authMethod: "vendor", sessionId: session.sessionId,
+    });
+    return c.json({ success: true, connected: true, clientCode: session.clientId || abUserId, funds });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
+/**
+ * Connect handler. Aliceblue's current v2 API requires the approved vendor
+ * App Code flow; the deprecated retail getAPIEncpkey flow is not offered.
+ */
+const aliceblueLoginHandler = async (c: any) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    if (String(body?.apiSecret || "").trim() && String(body?.appCode || "").trim()) return await aliceblueVendorStart(c, body);
+    return c.json({ success: false, error: "Aliceblue v2 requires an approved App Code and API secret. The old retail API-key login is no longer supported by Aliceblue." }, 400);
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+};
+
+
+app.post("/make-server-c4d79cb7/broker/aliceblue/login", aliceblueLoginHandler);
+/** Alias kept for shape-compatibility with the OAuth brokers. */
+app.post("/make-server-c4d79cb7/broker/aliceblue/save-keys", aliceblueLoginHandler);
+
+/** Re-mint today's session from the credentials saved on first login. */
+app.post("/make-server-c4d79cb7/broker/aliceblue/reconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getAliceblueCredentials(user.id);
+    if (!creds?.userId || !(creds?.apiSecret && creds?.authCode)) {
+      return c.json({ success: false, error: "No valid Aliceblue v2 login. Connect with an approved App Code and API secret." }, 400);
+    }
+    const refreshed = await BrokerRouter.ensureAliceblueSession(user.id, { force: true });
+    if (!refreshed?.sessionId) {
+      return c.json({ success: false, error: refreshed?.lastError || "Aliceblue re-login failed" }, 400);
+    }
+    if ((await BrokerRouter.getActiveBroker(user.id)) !== "aliceblue") {
+      await BrokerRouter.selectBroker(user.id, "aliceblue" as any);
+      await BrokerRouter.saveAliceblueCredentials(user.id, refreshed);
+    }
+    const svc = await BrokerRouter.getAliceblueService(user.id);
+    if (!svc) return c.json({ success: false, error: "Aliceblue session unavailable" }, 400);
+    const check = await svc.verify();
+    if (!check.ok) return c.json({ success: false, error: check.error || "Aliceblue session is invalid" }, 400);
+    const funds = await svc.getFundLimits();
+    await BrokerRouter.setBrokerConnected(user.id, true);
+    await BrokerRouter.mirrorAliceblueStatus(user.id, {
+      status: "connected",
+      client_id: creds.userId,
+      updated_at: new Date().toISOString(),
+    });
+    return c.json({ success: true, connected: true, clientCode: creds.userId, funds });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/aliceblue/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getAliceblueService(user.id);
+    if (!svc) return c.json({ success: false, connected: false, error: "Aliceblue is not connected" }, 400);
+    const res = await svc.verify();
+    await BrokerRouter.saveAliceblueCredentials(user.id, {
+      lastStatus: res.ok ? "connected" : "token_invalid",
+      lastError: res.ok ? null : res.error,
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "aliceblue") {
+      await BrokerRouter.setBrokerConnected(user.id, !!res.ok);
+    }
+    return c.json({ success: res.ok, connected: res.ok, balance: res.balance ?? null, error: res.error || null });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/aliceblue/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearAliceblueCredentials(user.id);
+    await BrokerRouter.mirrorAliceblueStatus(user.id, {
+      status: "disconnected",
+      updated_at: new Date().toISOString(),
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "aliceblue") {
+      await BrokerRouter.setBrokerConnected(user.id, false);
+    }
+    return c.json({ success: true, connected: false });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/aliceblue/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getAliceblueInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/aliceblue/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const job = syncAliceblueInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    });
+    const rt: any = (globalThis as any).EdgeRuntime;
+    if (rt?.waitUntil) rt.waitUntil(job); else job.catch(() => {});
+    return c.json({ success: true, started: true, message: "Aliceblue instrument sync started" }, 202);
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
 
 
 // --- GET kite status -------------------------------------------------------
@@ -14384,6 +17345,397 @@ ${ok ? `<p><a href="${dashboardUrl}">Open dashboard now →</a></p>` : ""}
 </body></html>`;
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 });
+
+
+// ============================================================================
+// 🟡 5PAISA (Xstream Open API) — OAuth login, funds, status, instruments
+// Docs: https://xstream.5paisa.com/dev-docs/user-authentication-system/oauth-login
+// ============================================================================
+
+function fivepaisaRedirectUri() {
+  return brokerRedirectUri("5paisa");
+}
+
+/** Ignore legacy *.supabase.co redirect URIs saved before the api.indexpilotai.com switch. */
+function effectiveFivepaisaRedirect(creds: any) {
+  const saved = String(creds?.redirectUri || "").trim();
+  if (!saved || saved.includes("supabase.co")) return fivepaisaRedirectUri();
+  return saved;
+}
+
+function sanitizeFivepaisa(creds: any) {
+  if (!creds) return null;
+  return {
+    app_key_set: !!creds.appKey,
+    encryption_key_set: !!creds.encryptionKey,
+    user_key_set: !!creds.userKey,
+    access_token_set: !!creds.accessToken,
+    access_token_expiry: creds.tokenExpiry || null,
+    redirect_uri: effectiveFivepaisaRedirect(creds),
+    client_code: creds.clientCode || null,
+    client_name: creds.clientName || null,
+    segments: creds.segments || null,
+    last_status: creds.lastStatus || (creds.accessToken ? "connected" : "not_connected"),
+    last_error: creds.lastError || null,
+  };
+}
+
+app.get("/make-server-c4d79cb7/broker/5paisa/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFivepaisaCredentials(user.id);
+    let liveCheck: any = null;
+    const tokenAlive = !!creds?.accessToken &&
+      (!creds?.tokenExpiry || Date.parse(creds.tokenExpiry) > Date.now());
+
+    if (tokenAlive) {
+      const svc = new FivepaisaService({
+        accessToken: creds!.accessToken!,
+        appKey: creds!.appKey,
+        clientCode: creds!.clientCode || "",
+        proxy: await BrokerRouter.makeBrokerProxy(user.id, "5paisa", FIVEPAISA_API),
+      });
+      liveCheck = await Promise.race([
+        svc.verify(),
+        new Promise<any>((r) => setTimeout(() => r({ ok: true, skipped: true }), 6000)),
+      ]);
+      await BrokerRouter.saveFivepaisaCredentials(user.id, {
+        lastStatus: liveCheck.ok ? "connected" : "token_invalid",
+        lastError: liveCheck.ok ? null : liveCheck.error,
+      } as any);
+      await BrokerRouter.mirrorFivepaisaStatus(user.id, {
+        last_status: liveCheck.ok ? "connected" : "token_invalid",
+        last_error: liveCheck.ok ? null : String(liveCheck.error || "").slice(0, 400),
+      });
+      if ((await BrokerRouter.getActiveBroker(user.id)) === "5paisa") {
+        await BrokerRouter.setBrokerConnected(user.id, !!liveCheck.ok);
+      }
+    }
+
+    const refreshed = await BrokerRouter.getFivepaisaCredentials(user.id);
+    return c.json({
+      success: true,
+      fivepaisa: sanitizeFivepaisa(refreshed),
+      connected: tokenAlive && liveCheck?.ok !== false,
+      clientCode: refreshed?.clientCode || null,
+      redirectUri: fivepaisaRedirectUri(),
+      liveCheck,
+      activeBroker: await BrokerRouter.getActiveBroker(user.id),
+      balance: liveCheck?.balance ?? null,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Save the 5paisa API credentials (App Key / Encryption Key / User Key). */
+app.post("/make-server-c4d79cb7/broker/5paisa/save-keys", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    try { await BrokerRegistry.assertBrokerEnabled("5paisa"); }
+    catch (e: any) { return c.json({ success: false, error: e?.message || "Broker disabled" }, 403); }
+
+    const body = await c.req.json().catch(() => ({}));
+    const appKey = String(body?.appKey || body?.vendorKey || "").trim();
+    const encryptionKey = String(body?.encryptionKey || body?.encryKey || "").trim();
+    const userKey = String(body?.userKey || body?.userId || "").trim();
+    if (appKey.length < 5 || encryptionKey.length < 5 || userKey.length < 3) {
+      return c.json({ error: "5paisa App Key, Encryption Key and User Key are required" }, 400);
+    }
+
+    // one user = one broker
+    if ((await BrokerRouter.getActiveBroker(user.id)) !== "5paisa") {
+      await BrokerRouter.selectBroker(user.id, "5paisa" as any);
+    }
+
+    const creds = await BrokerRouter.saveFivepaisaCredentials(user.id, {
+      appKey,
+      encryptionKey,
+      userKey,
+      redirectUri: (() => {
+        const r = String(body?.redirectUri || "").trim();
+        return r && !r.includes("supabase.co") ? r : fivepaisaRedirectUri();
+      })(),
+      lastStatus: "keys_saved",
+      lastError: null,
+    } as any);
+    await BrokerRouter.mirrorFivepaisaStatus(user.id, { last_status: "keys_saved", last_error: null });
+    await kv.set(`broker_choice:${user.id}`, { broker: "5paisa", at: new Date().toISOString() });
+
+    // Shared contract download — never block the login path on it.
+    // Supabase's Hono adapter does not expose ExecutionContext. Start the
+    // best-effort sync without reading c.executionCtx, whose getter throws.
+    ensureFivepaisaInstruments(false).catch((error) =>
+      console.warn("[5PAISA] Background instrument sync failed:", error?.message || error)
+    );
+
+    return c.json({
+      success: true,
+      fivepaisa: sanitizeFivepaisa(creds),
+      redirectUri: fivepaisaRedirectUri(),
+      loginUrl: buildFivepaisaLoginUrl(appKey, effectiveFivepaisaRedirect(creds)),
+      activeBroker: "5paisa",
+      connected: false,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Build the 5paisa OAuth dialog URL. */
+app.get("/make-server-c4d79cb7/broker/5paisa/login-url", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const creds = await BrokerRouter.getFivepaisaCredentials(user.id);
+    if (!creds?.appKey) return c.json({ error: "Save your 5paisa App Key, Encryption Key and User Key first" }, 400);
+    const state = crypto.randomUUID();
+    await kv.set(`fivepaisa_oauth_state:${state}`, { userId: user.id, at: Date.now() });
+    await kv.set("fivepaisa_oauth_last", { userId: user.id, at: Date.now() });
+    const redirectUri = effectiveFivepaisaRedirect(creds);
+    return c.json({
+      success: true,
+      url: buildFivepaisaLoginUrl(creds.appKey, redirectUri, state),
+      redirectUri,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+/** Shared: persist a fresh 5paisa session and light everything up. */
+async function finalizeFivepaisaConnection(appUserId: string, tok: any) {
+  await BrokerRouter.saveFivepaisaCredentials(appUserId, {
+    accessToken: tok.accessToken,
+    clientCode: tok.clientCode,
+    clientName: tok.clientName,
+    segments: tok.segments,
+    tokenExpiry: fivepaisaTokenExpiry(),
+    lastStatus: "connected",
+    lastError: null,
+  } as any);
+  await BrokerRouter.mirrorFivepaisaStatus(appUserId, { last_status: "connected", last_error: null });
+  if ((await BrokerRouter.getActiveBroker(appUserId)) === "5paisa") {
+    await BrokerRouter.setBrokerConnected(appUserId, true);
+  }
+
+  const svc = await BrokerRouter.getFivepaisaService(appUserId);
+  let balance: number | null = null;
+  if (svc) {
+    const check = await svc.verify();
+    if (check.ok && typeof check.balance === "number") {
+      balance = check.balance;
+      await kv.set(`broker_funds:${appUserId}`, {
+        availableBalance: balance,
+        sodLimit: balance,
+        collateralAmount: 0,
+        utilizationAmount: 0,
+        blockedPayinAmount: 0,
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+  }
+  return balance;
+}
+
+/** 5paisa redirects the browser here with ?RequestToken=&State= — public by design. */
+/** Pull a RequestToken out of a raw token, a full redirect URL, or a query string. */
+function extractFivepaisaRequestToken(input: string): string {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  if (!/[?&=]/.test(raw)) return raw;
+  try {
+    const qs = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : raw;
+    const p = new URLSearchParams(qs);
+    return String(
+      p.get("RequestToken") || p.get("requestToken") || p.get("request_token") || "",
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+const fivepaisaCallbackHandler = async (c: any) => {
+  const page = (title: string, color: string, msg: string) =>
+    c.html(`<!doctype html><html><head><meta charset="utf-8"><title>5paisa</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:460px"><h2 style="color:${color}">${title}</h2>
+<p style="color:#94a3b8">${msg}</p></div>
+<script>try{window.opener&&window.opener.postMessage({source:'5paisa',ok:${color === "#34d399"}},'*');setTimeout(()=>window.close(),2500);}catch(e){}</script>
+</body></html>`);
+  try {
+    const q = c.req.query();
+    // 5paisa sends the token as a query param, but some vendor apps POST a form body.
+    let form: Record<string, any> = {};
+    if (c.req.method === "POST") {
+      form = await c.req.parseBody().catch(() => ({}));
+    }
+    const requestToken = String(
+      q.RequestToken || q.requestToken || q.request_token ||
+      form.RequestToken || form.requestToken || form.request_token || "",
+    ).trim();
+
+    const state = String(q.State || q.state || form.State || form.state || "").trim();
+    if (!requestToken) {
+      return page(
+        "5paisa redirect URL is live",
+        "#38bdf8",
+        `Register this exact URL in the 5paisa developer portal, then connect from IndexPilot &rarr; Broker Setup.<br><br>
+         <code style="color:#22d3ee;word-break:break-all">${fivepaisaRedirectUri()}</code>`,
+      );
+    }
+
+    let st = state ? await kv.get(`fivepaisa_oauth_state:${state}`) : null;
+    if (!st?.userId) {
+      const last = (await kv.get("fivepaisa_oauth_last")) as any;
+      if (last?.userId && Date.now() - Number(last.at || 0) < 20 * 60_000) st = last;
+    }
+    if (!st?.userId) {
+      return page("5paisa login failed", "#f87171", "This login link has expired. Start again from Broker Setup &rarr; 5paisa.");
+    }
+    if (state) await kv.del(`fivepaisa_oauth_state:${state}`).catch(() => {});
+
+    const creds = await BrokerRouter.getFivepaisaCredentials(st.userId);
+    if (!creds?.appKey || !creds?.encryptionKey || !creds?.userKey) {
+      return page("5paisa login failed", "#f87171", "App Key / Encryption Key / User Key missing. Save them again in Broker Setup.");
+    }
+
+    const tok = await exchangeFivepaisaRequestToken({
+      appKey: creds.appKey,
+      encryptionKey: creds.encryptionKey,
+      userKey: creds.userKey,
+      requestToken,
+    });
+    await finalizeFivepaisaConnection(st.userId, tok);
+
+    ensureFivepaisaInstruments(false).catch((error) =>
+      console.warn("[5PAISA] Background instrument sync failed:", error?.message || error)
+    );
+
+    return page("5paisa connected ✅", "#34d399", "Your 5paisa account is linked. Funds, positions and orders now route through 5paisa. You can close this window.");
+  } catch (err: any) {
+    const raw = String(err?.message || err);
+    const low = raw.toLowerCase();
+    let hint = raw;
+    if (low.includes("segment") || low.includes("not activated")) {
+      hint = "Your 5paisa account works, but the F&O (Derivatives) segment is not activated. Enable it in the 5paisa app, then login again.";
+    } else if (low.includes("redirect") || low.includes("responseurl")) {
+      hint = `The redirect URL registered in your 5paisa app does not match. Register exactly:<br>
+        <code style="color:#22d3ee;word-break:break-all">${fivepaisaRedirectUri()}</code>`;
+    } else if (low.includes("key") || low.includes("invalid")) {
+      hint = "App Key, Encryption Key or User Key is wrong. Re-copy them from the 5paisa developer portal and save again.";
+    }
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>5paisa</title></head>
+<body style="font-family:system-ui;background:#0b0f16;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center;max-width:460px"><h2 style="color:#f87171">5paisa login failed</h2>
+<p style="color:#94a3b8">${hint}</p>
+<p style="color:#475569;font-size:12px">Redirect URI used: ${fivepaisaRedirectUri()}</p></div>
+</body></html>`);
+  }
+};
+
+app.get("/make-server-c4d79cb7/broker/5paisa/callback", fivepaisaCallbackHandler);
+app.post("/make-server-c4d79cb7/broker/5paisa/callback", fivepaisaCallbackHandler);
+
+/** Fallback — paste the RequestToken (or the whole redirect URL) manually. */
+app.post("/make-server-c4d79cb7/broker/5paisa/exchange", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const requestToken = extractFivepaisaRequestToken(body?.requestToken || body?.url || "");
+    if (requestToken.length < 10) {
+      return c.json({
+        success: false,
+        error: "Paste the RequestToken (or the full redirect URL containing ?RequestToken=…) from the 5paisa login redirect",
+      }, 400);
+    }
+    const creds = await BrokerRouter.getFivepaisaCredentials(user.id);
+    if (!creds?.appKey || !creds?.encryptionKey || !creds?.userKey) {
+      return c.json({ success: false, error: "Save your 5paisa App Key, Encryption Key and User Key first" }, 400);
+    }
+    const tok = await exchangeFivepaisaRequestToken({
+      appKey: creds.appKey,
+      encryptionKey: creds.encryptionKey,
+      userKey: creds.userKey,
+      requestToken,
+    });
+    const balance = await finalizeFivepaisaConnection(user.id, tok);
+    const job = ensureFivepaisaInstruments(false);
+    (c.executionCtx as any)?.waitUntil?.(job);
+    return c.json({ success: true, connected: true, clientCode: tok.clientCode, balance });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 400);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/5paisa/verify", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const svc = await BrokerRouter.getFivepaisaService(user.id);
+    if (!svc) return c.json({ success: false, connected: false, error: "5paisa is not connected" }, 400);
+    const check = await svc.verify();
+    await BrokerRouter.saveFivepaisaCredentials(user.id, {
+      lastStatus: check.ok ? "connected" : "token_invalid",
+      lastError: check.ok ? null : check.error,
+    } as any);
+    await BrokerRouter.mirrorFivepaisaStatus(user.id, {
+      last_status: check.ok ? "connected" : "token_invalid",
+      last_error: check.ok ? null : String(check.error || "").slice(0, 400),
+    });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "5paisa") {
+      await BrokerRouter.setBrokerConnected(user.id, !!check.ok);
+    }
+    return c.json({ success: check.ok, connected: check.ok, ...check });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/5paisa/disconnect", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    await BrokerRouter.clearFivepaisaCredentials(user.id);
+    await BrokerRouter.mirrorFivepaisaStatus(user.id, { last_status: "disconnected", last_error: null });
+    if ((await BrokerRouter.getActiveBroker(user.id)) === "5paisa") {
+      await BrokerRouter.setBrokerConnected(user.id, false);
+    }
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/broker/5paisa/instruments/status", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    return c.json({ success: true, ...(await getFivepaisaInstrumentStatus()) });
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/broker/5paisa/instruments/sync", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ error: error?.message || "Unauthorized" }, error?.code || 401);
+    const body = await c.req.json().catch(() => ({}));
+    const job = syncFivepaisaInstruments({
+      force: body?.force !== false,
+      expiries: Number(body?.expiries) || 2,
+    }).catch((e) => console.error("[FIVEPAISA_INSTRUMENTS] sync failed:", e?.message || e));
+    (c.executionCtx as any)?.waitUntil?.(job);
+    return c.json({ success: true, started: true, message: "5paisa instrument sync started" }, 202);
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
 
 const FUNCTION_ROUTE_PREFIX = "/make-server-c4d79cb7";
 const SUPABASE_FUNCTIONS_PREFIX = `/functions/v1${FUNCTION_ROUTE_PREFIX}`;

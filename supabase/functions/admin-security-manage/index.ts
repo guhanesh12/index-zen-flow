@@ -14,7 +14,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const SUPA_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-const PERMANENT_SUPER_ADMIN_EMAIL = 'airoboengin@smilykart.com';
+const PERMANENT_SUPER_ADMIN_EMAIL = 'guhanesh.v@smilykart.com';
 const TAB_KEYS = new Set([
   'dashboard', 'users', 'transactions', 'support', 'landing', 'adminUsers',
   'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'audit',

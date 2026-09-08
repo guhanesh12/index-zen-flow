@@ -16,7 +16,7 @@ export function TermsAndConditions() {
         title="Terms & Conditions - IndexPilotAI"
         description="Terms and Conditions for using IndexPilotAI algorithmic trading platform. User agreement, platform rules, and legal disclaimers for algorithmic trading services."
         keywords="terms and conditions, user agreement, platform terms, trading terms, IndexPilotAI terms"
-        canonical="/terms"
+        canonical="https://www.indexpilotai.com/terms"
       />
       
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -38,9 +38,9 @@ export function TermsAndConditions() {
             <CardHeader className="border-b border-slate-700">
               <div className="flex items-center gap-3 mb-2">
                 <Scale className="size-8 text-blue-400" />
-                <CardTitle className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
                   Terms and Conditions
-                </CardTitle>
+              </h1>
               </div>
               <p className="text-sm text-slate-400">Last Updated: 01/04/2026</p>
             </CardHeader>

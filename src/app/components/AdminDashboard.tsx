@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect, useCallback } from 'react';
+import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 import { motion, AnimatePresence } from 'motion/react';
 import { AdminSideNav } from './AdminSideNav';
 
@@ -16,7 +17,10 @@ import { AdminReferrals } from './AdminReferrals';
 import { AdminCommunication } from './AdminCommunication';
 import { AdminMobileAppUpdate } from './AdminMobileAppUpdate';
 import { AdminAIChatLogs } from './AdminAIChatLogs';
+import { AdminMarketDataCenter } from './AdminMarketDataCenter';
+import { AdminBacktests } from './AdminBacktests';
 import { AdminAuditLogViewer } from './AdminAuditLogViewer';
+import { AdminSessionsPanel } from './AdminSessionsPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -48,7 +52,7 @@ export type { AdminUser, AdminDashboardProps } from './AdminTypes';
 
 const ADMIN_MAIN_TAB_KEYS = [
   'dashboard', 'users', 'transactions', 'support', 'landing', 'adminUsers',
-  'adminManagement', 'settings', 'referrals', 'communication', 'mobile', 'aiChats', 'audit',
+  'adminManagement', 'settings', 'marketData', 'referrals', 'communication', 'mobile', 'aiChats', 'audit', 'sessions',
 ];
 
 export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedHotkey }: AdminDashboardProps) {
@@ -71,6 +75,35 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
   useEffect(() => {
     setRealAccessToken(accessToken);
   }, [accessToken]);
+
+  // 💓 Session heartbeat — keeps this admin marked online and powers the
+  // check-in / check-out duration report in the Admin Sessions tab.
+  useEffect(() => {
+    if (!realAccessToken) return;
+    const base = (import.meta as any).env?.VITE_SUPABASE_URL
+      ? `${(import.meta as any).env.VITE_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/make-server-c4d79cb7`
+      : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
+    const sessionId = sessionStorage.getItem('admin_session_id') || null;
+    const beat = () => {
+      fetchWithApiFallback('/admin/session/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${realAccessToken}` },
+        body: JSON.stringify({ sessionId }),
+        keepalive: true,
+      }).catch(() => {});
+    };
+    beat();
+    const t = setInterval(beat, 60000);
+    const onUnload = () => {
+      navigator.sendBeacon?.(
+        `${base}/admin/session/heartbeat`,
+        new Blob([JSON.stringify({ sessionId })], { type: 'application/json' }),
+      );
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => { clearInterval(t); window.removeEventListener('beforeunload', onUnload); };
+  }, [realAccessToken]);
+
 
   // Check for existing admin session on mount
   useEffect(() => {
@@ -133,6 +166,21 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
         userAgent: navigator.userAgent,
       });
     }
+
+    // Close the server-side admin session (check-out timestamp + audit event).
+    try {
+      const base = (import.meta as any).env?.VITE_SUPABASE_URL
+        ? `${(import.meta as any).env.VITE_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/make-server-c4d79cb7`
+        : 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/make-server-c4d79cb7';
+      fetch(`${base}/admin/session/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${realAccessToken}` },
+        body: JSON.stringify({ sessionId: sessionStorage.getItem('admin_session_id'), reason: 'manual' }),
+        keepalive: true,
+      }).catch(() => {});
+      sessionStorage.removeItem('admin_session_id');
+    } catch { /* ignore */ }
+
 
     // Clear current admin tracking
     localStorage.removeItem('current_admin_email');
@@ -413,6 +461,18 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
+          {canAccessTab('marketData') && (
+            <TabsContent value="marketData">
+              <AdminMarketDataCenter serverUrl={serverUrl} accessToken={realAccessToken} />
+            </TabsContent>
+          )}
+
+          {canAccessTab('backtests') && (
+            <TabsContent value="backtests">
+              <AdminBacktests />
+            </TabsContent>
+          )}
+
           {canAccessTab('referrals') && (
             <TabsContent value="referrals">
               <AdminReferrals accessToken={realAccessToken} />
@@ -441,6 +501,12 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
           {canAccessTab('audit') && (
             <TabsContent value="audit">
               <AdminAuditLogViewer />
+            </TabsContent>
+          )}
+
+          {canAccessTab('sessions') && (
+            <TabsContent value="sessions">
+              <AdminSessionsPanel accessToken={realAccessToken} />
             </TabsContent>
           )}
         </Tabs>

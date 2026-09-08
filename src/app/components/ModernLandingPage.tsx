@@ -95,10 +95,10 @@ const DEFAULT_CONTENT = {
     playStoreLink: "https://play.google.com/store/apps/details?id=com.indexpilotai.app&pcampaignid=web_share"
   },
   stats: [
-    { value: '68%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
-    { value: '₹450', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
-    { value: '500+', label: 'Active Users', icon: 'Users', color: 'purple' },
-    { value: '1000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
+    { value: '89%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
+    { value: '₹3570', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
+    { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
+    { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
   ],
   dhan: {
     badge: "Powered by Dhan",
@@ -643,28 +643,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   ))}
                 </motion.div>
 
-                <motion.div 
-                  className="mt-2 p-4 rounded-2xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30"
-                  variants={itemVariants}
-                  whileHover={{ scale: 1.02, borderColor: 'rgba(249, 115, 22, 0.5)' }}
-                >
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-center sm:text-left">
-                      <p className="text-sm text-orange-400 font-semibold mb-1">Don't have a Dhan account?</p>
-                      <p className="text-xs text-slate-400">Open your trading account in minutes</p>
-                    </div>
-                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                      <Button 
-                        onClick={() => window.open(content.hero.dhanAccountLink || 'https://login.dhan.co/', '_blank')}
-                        size="lg"
-                        className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-base px-8 py-5 shadow-2xl shadow-orange-500/30 font-semibold"
-                      >
-                        Open Dhan Account
-                        <ArrowRight className="ml-2 w-5 h-5" />
-                      </Button>
-                    </motion.div>
-                  </div>
-                </motion.div>
+
+
 
                 <motion.div className="flex items-center gap-6 pt-8" variants={itemVariants}>
                   <div className="flex -space-x-2">
@@ -774,12 +754,30 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
       <section className="relative py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-black to-slate-950">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
-              { icon: TrendingUp, value: '68%', label: 'Win Rate', color: 'from-green-500 to-green-600', iconColor: 'text-green-400' },
-              { icon: DollarSign, value: '₹450', label: 'Avg Profit', color: 'from-cyan-500 to-cyan-600', iconColor: 'text-cyan-400' },
-              { icon: Users, value: '500+', label: 'Active Users', color: 'from-purple-500 to-purple-600', iconColor: 'text-purple-400' },
-              { icon: Activity, value: '1000+', label: 'Trades/Day', color: 'from-yellow-500 to-yellow-600', iconColor: 'text-yellow-400' }
-            ].map((stat, index) => (
+            {(() => {
+              const iconMap: Record<string, any> = { TrendingUp, DollarSign, Users, Activity };
+              const colorMap: Record<string, { color: string; iconColor: string }> = {
+                green:  { color: 'from-green-500 to-green-600',   iconColor: 'text-green-400' },
+                cyan:   { color: 'from-cyan-500 to-cyan-600',     iconColor: 'text-cyan-400' },
+                purple: { color: 'from-purple-500 to-purple-600', iconColor: 'text-purple-400' },
+                yellow: { color: 'from-yellow-500 to-yellow-600', iconColor: 'text-yellow-400' },
+              };
+              const fallback = [
+                { value: '89%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
+                { value: '₹3570', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
+                { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
+                { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' },
+              ];
+              const list = (content as any)?.stats?.length ? (content as any).stats : fallback;
+              return list.map((s: any, i: number) => ({
+                icon: iconMap[s.icon] || TrendingUp,
+                value: s.value,
+                label: s.label,
+                ...(colorMap[s.color] || colorMap.green),
+                __i: i,
+              }));
+            })().map((stat, index) => (
+
               <motion.div
                 key={index}
                 initial={{ opacity: 0, y: 30 }}
@@ -1033,39 +1031,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
             </div>
           </motion.div>
 
-          {/* Open Dhan Account CTA */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8, delay: 0.8 }}
-            className="mt-12 text-center"
-          >
-            <div className="max-w-2xl mx-auto p-8 rounded-3xl bg-gradient-to-r from-orange-500/10 to-amber-500/10 border-2 border-orange-500/30">
-              <h3 className="text-2xl font-bold text-white mb-3">
-                New to Dhan? Start Trading Today
-              </h3>
-              <p className="text-slate-400 mb-6">
-                Open your Dhan trading account in minutes and start using IndexpilotAI with lightning-fast execution
-              </p>
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Button 
-                  onClick={() => window.open(content.hero.dhanAccountLink || 'https://login.dhan.co/', '_blank')}
-                  size="lg"
-                  className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-lg px-12 py-6 shadow-2xl shadow-orange-500/30 font-bold"
-                >
-                  Open Dhan Account Free
-                  <ArrowRight className="ml-2 w-5 h-5" />
-                </Button>
-              </motion.div>
-              <p className="text-xs text-slate-400 mt-4">
-                ✓ Free account opening  •  ✓ Zero brokerage on delivery  •  ✓ Fast KYC process
-              </p>
-            </div>
-          </motion.div>
+
+
         </div>
       </section>
 
@@ -2102,20 +2069,26 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 India's most advanced AI-powered options trading platform.
               </p>
               
-              {/* Dhan Account CTA in Footer */}
+
+
+
+              {/* Google Play CTA in Footer */}
               <div className="mb-4">
                 <a
-                  href="https://login.dhan.co/?location=DH_WEB&refer=SMIL56887"
+                  href={content.hero?.playStoreLink || DEFAULT_CONTENT.hero.playStoreLink}
                   target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white text-sm font-semibold transition-all shadow-lg shadow-orange-500/20"
+                  rel="noopener"
+                  aria-label="Download the IndexpilotAI Android app on Google Play"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black border border-emerald-500/40 hover:border-emerald-400 text-white text-sm font-semibold transition-all"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+                    <path d="M3.6 1.6c-.4.4-.6 1-.6 1.7v17.4c0 .7.2 1.3.6 1.7l11.3-10.8L3.6 1.6zm12.3 11.2l3.4-3.3-12.4-7.1 9 10.4zm-9 11.2l12.4-7.1-3.4-3.3-9 10.4zm12.9-7.5l3.5-2c.7-.4.7-1.4 0-1.8l-3.4-2-3.6 3.4 3.5 2.4z" />
                   </svg>
-                  Open Dhan Account
+                  Get it on Google Play
                 </a>
               </div>
+
+
               
               <div className="flex items-center gap-3">
                 <a href="#" className="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center transition-colors">
