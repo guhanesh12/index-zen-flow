@@ -3570,8 +3570,14 @@ export class AdvancedAI {
       adx > 35 &&
       marketStructure.type === "DOWNTREND" &&
       marketStructure.choch !== "BULL";
-    const allowBullish = strongBullish && !volatilitySpike && !blockBullByTrend;
-    const allowBearish = strongBearish && !volatilitySpike && !blockBearByTrend;
+    // A trend-biased score must never turn a counter-trend candle into an entry.
+    // Continuation entries are taken only after the closed candle resumes in the
+    // trade direction; a green pullback in a downtrend is not itself a PUT and a
+    // red pullback in an uptrend is not itself a CALL.
+    const allowBullish =
+      strongBullish && isBullish && !volatilitySpike && !blockBullByTrend;
+    const allowBearish =
+      strongBearish && isBearish && !volatilitySpike && !blockBearByTrend;
 
     if (volatilitySpike) {
       action = "WAIT";
@@ -4087,6 +4093,53 @@ export class AdvancedAI {
         } else {
           reasoning += ` ✅ Counter-trend allowed: ${nearSupport ? "At support" : "Bollinger squeeze"}.`;
         }
+      }
+    }
+
+    // ===== MULTI-TIMEFRAME COUNTER-TREND REVERSAL GATE =====
+    // A single large rebound candle after an opening sell-off can clear the prior
+    // candle high while the 15m structure remains bearish. That is a pullback, not
+    // a confirmed reversal. Require CHoCH + two-bar follow-through + EMA9/VWAP
+    // reclaim before allowing a CALL against bearish context (and mirror for PUT).
+    // This deliberately waits for closed-candle confirmation rather than trying to
+    // predict the exact bottom/top.
+    if (action !== "WAIT") {
+      const prev2Candle = ohlcData[ohlcData.length - 3];
+      const bearishContext =
+        htfAlign === "bear" ||
+        marketRegime.type === "TRENDING_DOWN" ||
+        (ema9 < ema21 && lastCandle.close < vwap);
+      const bullishContext =
+        htfAlign === "bull" ||
+        marketRegime.type === "TRENDING_UP" ||
+        (ema9 > ema21 && lastCandle.close > vwap);
+      const confirmedBullishReversal =
+        marketStructure.choch === "BULL" &&
+        prevCandle.close > prevCandle.open &&
+        lastCandle.close > lastCandle.open &&
+        lastCandle.close > prevCandle.high &&
+        prevCandle.low > prev2Candle.low &&
+        lastCandle.close > ema9 &&
+        lastCandle.close > vwap;
+      const confirmedBearishReversal =
+        marketStructure.choch === "BEAR" &&
+        prevCandle.close < prevCandle.open &&
+        lastCandle.close < lastCandle.open &&
+        lastCandle.close < prevCandle.low &&
+        prevCandle.high < prev2Candle.high &&
+        lastCandle.close < ema9 &&
+        lastCandle.close < vwap;
+
+      if (action === "BUY_CALL" && bearishContext && !confirmedBullishReversal) {
+        action = "WAIT";
+        bias = "Bearish";
+        confidence = 38;
+        reasoning = `⏸️ WAIT: Bullish pullback inside bearish structure (${htfAlign === "bear" ? "15m bearish" : marketRegime.type}). CALL requires CHoCH plus two closed bullish candles reclaiming EMA9 and VWAP.`;
+      } else if (action === "BUY_PUT" && bullishContext && !confirmedBearishReversal) {
+        action = "WAIT";
+        bias = "Bullish";
+        confidence = 38;
+        reasoning = `⏸️ WAIT: Bearish pullback inside bullish structure (${htfAlign === "bull" ? "15m bullish" : marketRegime.type}). PUT requires CHoCH plus two closed bearish candles losing EMA9 and VWAP.`;
       }
     }
 
