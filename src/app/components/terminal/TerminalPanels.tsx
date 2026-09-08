@@ -389,6 +389,29 @@ function SignalDetailDialog({ detail, onClose }: any) {
                 </div>
               ))}
             </div>
+            {(Array.isArray(res) && res.length > 0) || (Array.isArray(sup) && sup.length > 0) ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-red-400 mb-1">Resistance</div>
+                  {(Array.isArray(res) ? res : []).slice(0, 3).map((r: any, i: number) => (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="text-zinc-500">R{i + 1}</span>
+                      <span className="text-zinc-200 tabular-nums">{Number(r).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-emerald-400 mb-1">Support</div>
+                  {(Array.isArray(sup) ? sup : []).slice(0, 3).map((s: any, i: number) => (
+                    <div key={i} className="flex justify-between text-sm">
+                      <span className="text-zinc-500">S{i + 1}</span>
+                      <span className="text-zinc-200 tabular-nums">{Number(s).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {(sig.reasoning || sig.reason) && (
               <div className="rounded-lg border border-zinc-800 p-3">
                 <div className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1">Why this signal</div>
