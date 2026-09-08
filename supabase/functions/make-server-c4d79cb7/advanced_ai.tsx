@@ -276,6 +276,8 @@ export interface AdvancedSignalOptions {
   consecutiveLossThreshold?: number; // default 3
   consecutiveLossCooldownMs?: number; // default 30 * 60 * 1000
   blockNewEntriesAfterMinutes?: number; // default 15:00 IST — no fresh intraday entries after this
+  blockNewEntriesBeforeMinutes?: number; // default 09:45 IST on 15m — skip opening-noise candles
+
 }
 
 export class AdvancedAI {
@@ -3229,7 +3231,14 @@ export class AdvancedAI {
     const lastEntryMinute =
       options.blockNewEntriesAfterMinutes ??
       (timeframeMinutes >= 15 ? 14 * 60 + 15 : 15 * 60 + 25);
-    const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
+    // ⚡ GUARD 3: no fresh 15m entries in the first two candles (09:15 / 09:30) —
+    // opening noise produced the biggest cluster of losses.
+    const firstEntryMinute =
+      options.blockNewEntriesBeforeMinutes ??
+      (timeframeMinutes >= 15 ? 9 * 60 + 45 : 9 * 60 + 15);
+    const lateNewEntryBlocked =
+      _istMinSess >= lastEntryMinute || _istMinSess < firstEntryMinute;
+
 
     const strongBullish =
       (confirmationBullish || ultraFastOpeningBull) &&
