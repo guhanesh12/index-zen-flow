@@ -8,6 +8,7 @@ import { fetchWithAuth } from "../../utils/apiClient";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { BrokerLogo } from "../../brokerLogos";
+import { AlertSystem } from "../AlertSystem";
 import {
   Activity,
   ArrowDownRight,
