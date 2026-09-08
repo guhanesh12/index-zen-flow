@@ -3806,7 +3806,7 @@ export class AdvancedAI {
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
-    } else if (reversalTooSoon && (reversalBlocksBull || reversalBlocksBear)) {
+    } else if ((action === "BUY_CALL" && reversalBlocksBull) || (action === "BUY_PUT" && reversalBlocksBear)) {
       action = "WAIT";
       confidence = 35;
       bias = "Neutral";
