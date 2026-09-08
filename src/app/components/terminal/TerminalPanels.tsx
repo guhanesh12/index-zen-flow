@@ -52,6 +52,42 @@ export const posName = (p: any) =>
 export const posSecurityId = (p: any) =>
   p?.securityId || p?.security_id || p?.instrument_token || p?.token || p?.symbolId || "";
 
+const num = (...vals: any[]) => {
+  for (const v of vals) {
+    const n = Number(v);
+    if (v !== undefined && v !== null && v !== "" && Number.isFinite(n) && n !== 0) return n;
+  }
+  return 0;
+};
+
+/** Traded quantity — falls back to buy/sell legs so closed rows are never blank. */
+export const posTradedQty = (p: any) => {
+  const net = Math.abs(posQty(p));
+  if (net) return net;
+  return Math.abs(
+    num(p?.buyQty, p?.buyQuantity, p?.buy_quantity, p?.dayBuyQty, p?.sellQty, p?.sellQuantity, p?.sell_quantity, p?.totalQty)
+  );
+};
+
+export const posAvg = (p: any) =>
+  num(
+    p?.buyAvg, p?.averagePrice, p?.avgPrice, p?.average_price, p?.costPrice, p?.buy_avg,
+    p?.buyAvgPrice, p?.netAvgPrice, p?.sellAvg
+  );
+
+export const posLtp = (p: any) => {
+  const live = num(
+    p?.ltp, p?.lastPrice, p?.last_price, p?.lastTradedPrice, p?.currentPrice, p?.close, p?.closePrice
+  );
+  if (live) return live;
+  // closed leg: derive the effective exit price from the P&L when the broker sends no LTP
+  const qty = posTradedQty(p);
+  const avg = posAvg(p);
+  const pnl = posPnL(p);
+  if (qty && avg && pnl) return avg + pnl / qty;
+  return avg;
+};
+
 /** Live positions with a fast refresh (default 1s). */
 export function useLivePositions(serverUrl?: string, accessToken?: string, ms = 1000) {
   const [positions, setPositions] = useState<any[]>([]);
