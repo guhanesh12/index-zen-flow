@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from './ui/alert';
 import { CheckCircle2, AlertTriangle, RefreshCw, Key, Download, Copy, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchWithAuth, getAccessToken } from '../utils/apiClient';
-import { BrokerLogo } from '../brokerLogos';
 
 interface AliceblueConnectProps {
   serverUrl: string;
@@ -191,8 +190,8 @@ export function AliceblueConnect({ serverUrl, accessToken, onConnected }: Aliceb
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <BrokerLogo id="aliceblue" name="Alice Blue" size={26} />
-          Alice Blue
+          <span className="size-2.5 rounded-full" style={{ backgroundColor: '#2563eb' }} />
+          Aliceblue
           {connected ? (
             <span className="text-emerald-400 text-xs flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3" /> connected

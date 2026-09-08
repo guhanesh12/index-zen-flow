@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from './ui/alert';
 import { CheckCircle2, AlertTriangle, RefreshCw, Key, Download, ExternalLink, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchWithAuth, getAccessToken } from '../utils/apiClient';
-import { BrokerLogo } from '../brokerLogos';
 
 interface FyersConnectProps {
   serverUrl: string;
@@ -179,7 +178,7 @@ export function FyersConnect({ serverUrl, accessToken, onConnected }: FyersConne
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <BrokerLogo id="fyers" name="Fyers" size={26} />
+          <span className="size-2.5 rounded-full" style={{ backgroundColor: '#0ea5e9' }} />
           Fyers
           {connected ? (
             <span className="text-emerald-400 text-xs flex items-center gap-1">

@@ -318,7 +318,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     try {
       localStorage.setItem('engine_signals', JSON.stringify(multiSymbolSignals));
       localStorage.setItem('engine_signals_time', Date.now().toString());
-      window.dispatchEvent(new CustomEvent('engine-signals-updated', { detail: multiSymbolSignals }));
     } catch (e) {
       console.error('Failed to save signals to localStorage:', e);
     }
@@ -350,7 +349,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const [candleInterval, setCandleInterval] = useState<'5' | '15'>(() => {
     // ⚡ RESTORE SAVED TIMEFRAME ON MOUNT
     const saved = localStorage.getItem('engine_interval');
-    const validSaved = (saved === '5' || saved === '15') ? saved : '5';
+    const validSaved = (saved === '5' || saved === '15') ? saved : '15';
     console.log(`🔧 Initial timeframe load: ${validSaved}M (from localStorage: ${saved})`);
     return validSaved as '5' | '15';
   });
@@ -408,8 +407,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const heartbeatCheckRef = useRef<NodeJS.Timeout | null>(null); // ⚡ HEARTBEAT CHECKER
   const exitingPositionsRef = useRef<Set<string>>(new Set()); // ⚡⚡⚡ CRITICAL: Track positions being exited (by orderId)
   const lastExitOrderTimeRef = useRef<number>(0); // ⚡⚡⚡ CRITICAL: Rate limit exit orders (prevent Dhan API throttle)
-  const candleIntervalRef = useRef<'5' | '15'>((localStorage.getItem('engine_interval') === '15' ? '15' : '5')); // ⚡⚡⚡ CRITICAL: Store current timeframe to avoid closure issues
-  const lastUserTimeframeChangeRef = useRef<number>(0); // ⚡ Track user-initiated timeframe switch
+  const candleIntervalRef = useRef<'5' | '15'>('15'); // ⚡⚡⚡ CRITICAL: Store current timeframe to avoid closure issues
   const lastAIRequestTimeRef = useRef<number>(0); // ⚡⚡⚡ CRITICAL: Prevent rate limit - track last AI request time
   const lastProcessedCandleRef = useRef<string>(''); // ⚡⚡⚡ CRITICAL: Use REF not state - immediate sync update to prevent duplicates!
   const exitFailureCountRef = useRef<Map<string, { count: number; lastAttempt: number }>>(new Map()); // ⚡⚡⚡ NEW: Track exit failures per position (PREVENT INFINITE RETRY LOOP)
@@ -417,8 +415,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   const activePositionsRef = useRef<ActivePosition[]>([]); // ⚡ REF to avoid stale closures in intervals
   const syncEngineStateInFlightRef = useRef(false); // ⚡ Prevent overlapping dashboard refresh calls
 
-  const getDetectedPositionOrderId = (position: any, idx?: number) => {
-    const rawId = position.exchangeOrderNo ||
+  const getDetectedPositionOrderId = (position: any) => {
+    return String(
+      position.exchangeOrderNo ||
       position.exchangeOrderId ||
       position.orderId ||
       position.orderNo ||
@@ -426,18 +425,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       position.dhanOrderId ||
       position.clientOrderId ||
       position.correlationId ||
-      position.positionId ||
-      position.id;
-
-    if (rawId) return String(rawId);
-
-    const secId = position.securityId || 'unknown';
-    const sym = position.tradingSymbol || position.symbol || 'unknown';
-    const prod = position.productType || position.product || '';
-    const posType = position.positionType || '';
-    const suffix = `${prod ? `_${prod}` : ''}${posType ? `_${posType}` : ''}${idx !== undefined ? `_${idx}` : ''}`;
-
-    return `dhan_${secId}_${sym}${suffix}`;
+      `dhan_${position.securityId || 'unknown'}_${position.tradingSymbol || 'unknown'}`
+    );
   };
 
   const detectPositionIndex = (position: any): 'NIFTY' | 'BANKNIFTY' | 'SENSEX' => {
@@ -738,10 +727,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           const orderFlow = signal.volumeAnalysis?.orderFlow || signal.volume_analysis?.orderFlow;
 
           let bull = 0, bear = 0;
-          if (trendDirection === 'BULLISH') bull++; else bear++;
-          if (isPriceAboveVWAP) bull++; else bear++;
-          if (rsiBull) bull++; else bear++;
-          if (macdBull) bull++; else bear++;
+          trendDirection === 'BULLISH' ? bull++ : bear++;
+          isPriceAboveVWAP ? bull++ : bear++;
+          rsiBull ? bull++ : bear++;
+          macdBull ? bull++ : bear++;
           if (orderFlow === 'BULLISH') bull++;
           else if (orderFlow === 'BEARISH') bear++;
 
@@ -994,22 +983,13 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       console.log('🎯 Auto-symbol config updated! Reloading slots...');
       loadAutoSymbolSlots();
     };
-    const handleIntervalChanged = (e: any) => {
-      const newInterval = e.detail?.interval;
-      if (newInterval === '5' || newInterval === '15') {
-        candleIntervalRef.current = newInterval;
-        setCandleInterval(newInterval);
-      }
-    };
     
     window.addEventListener('credentials-updated', handleCredentialsUpdate);
     window.addEventListener('auto-symbol-config-updated', handleAutoSymbolUpdate);
-    window.addEventListener('engine-interval-changed', handleIntervalChanged);
     
     return () => {
       window.removeEventListener('credentials-updated', handleCredentialsUpdate);
       window.removeEventListener('auto-symbol-config-updated', handleAutoSymbolUpdate);
-      window.removeEventListener('engine-interval-changed', handleIntervalChanged);
     };
   }, []);
 
@@ -1024,8 +1004,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
   useEffect(() => {
     // Check if engine was running before
     const wasRunning = localStorage.getItem('engine_running') === 'true';
-    const saved = localStorage.getItem('engine_interval');
-    const savedInterval = (saved === '5' || saved === '15') ? saved : '5';
+    const savedInterval = localStorage.getItem('engine_interval') || '15';
     const manualStop = localStorage.getItem('engine_manual_stop') === 'true'; // NEW: Track intentional stops
     
     console.log('\n🔍 ============ ENGINE STATE CHECK ============');
@@ -1062,19 +1041,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       const data = await response.json();
       if (!data.success) return;
 
-      const rawBackendInterval = data.engine?.strategySettings?.candleInterval || data.engine?.candleInterval;
-      const backendInterval = String(rawBackendInterval || '').replace(/[^0-9]/g, '');
-      if (
-        (backendInterval === '5' || backendInterval === '15') && 
-        backendInterval !== candleIntervalRef.current &&
-        Date.now() - lastUserTimeframeChangeRef.current > 15000
-      ) {
+      const backendInterval = data.engine?.strategySettings?.candleInterval;
+      if ((backendInterval === '5' || backendInterval === '15') && backendInterval !== candleIntervalRef.current) {
         console.log(`☁️ Syncing timeframe from backend: ${candleIntervalRef.current}M → ${backendInterval}M`);
-        const validBackendInterval = backendInterval as '5' | '15';
-        candleIntervalRef.current = validBackendInterval;
-        localStorage.setItem('engine_interval', validBackendInterval);
-        setCandleInterval(validBackendInterval);
-        window.dispatchEvent(new CustomEvent('engine-interval-changed', { detail: { interval: validBackendInterval } }));
+        candleIntervalRef.current = backendInterval;
+        localStorage.setItem('engine_interval', backendInterval);
+        setCandleInterval(backendInterval);
       }
 
       if (data.engine?.lastHeartbeat) {
@@ -1104,40 +1076,32 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       
       // ⚡ SYNC POSITIONS FROM BACKEND (replace local with backend source of truth)
       if (data.positions) {
-        const backendSeenIds = new Set<string>();
-        const backendPositions: ActivePosition[] = data.positions.map((p: any, idx: number) => {
-          let bOrderId = String(p.order_id || p.orderId || p.id || `back_${idx}`);
-          if (backendSeenIds.has(bOrderId)) {
-            bOrderId = `${bOrderId}_${idx}`;
-          }
-          backendSeenIds.add(bOrderId);
-          return {
-            symbolId: p.symbol_id || bOrderId,
-            orderId: bOrderId,
-            symbolName: p.symbol,
-            securityId: p.symbol_id || '',
-            optionType: (p.symbol?.includes('CE') ? 'CE' : 'PE') as 'CE' | 'PE',
-            entryPrice: p.entry_price || 0,
-            currentPrice: p.current_price || 0,
-            quantity: p.quantity || 1,
-            targetAmount: p.target_amount || 3000,
-            stopLossAmount: p.stop_loss_amount || 2000,
-            // ⚡ Use dynamic (trailing/edited) values when available, fallback to base
-            currentTarget: p.raw_position?.currentTargetAmount ?? p.target_amount,
-            currentStopLoss: p.raw_position?.currentStopLossAmount ?? p.stop_loss_amount,
-            trailingEnabled: p.trailing_enabled || false,
-            trailingActivationAmount: p.raw_position?.trailingActivationAmount || 0,
-            targetJumpAmount: p.raw_position?.targetJumpAmount || 0,
-            stopLossJumpAmount: p.raw_position?.stopLossJumpAmount || 0,
-            trailingActivated: p.raw_position?.trailingActivated || false,
-            highestPnL: p.highest_pnl || 0,
-            pnl: p.pnl || 0,
-            entryTime: new Date(p.created_at).getTime(),
-            index: (p.index_name || 'NIFTY') as 'NIFTY' | 'BANKNIFTY' | 'SENSEX',
-            productType: 'INTRADAY',
-            exchangeSegment: p.exchange_segment || 'NSE_FNO'
-          };
-        });
+        const backendPositions: ActivePosition[] = data.positions.map((p: any) => ({
+          symbolId: p.symbol_id || p.order_id,
+          orderId: p.order_id,
+          symbolName: p.symbol,
+          securityId: p.symbol_id || '',
+          optionType: (p.symbol?.includes('CE') ? 'CE' : 'PE') as 'CE' | 'PE',
+          entryPrice: p.entry_price || 0,
+          currentPrice: p.current_price || 0,
+          quantity: p.quantity || 1,
+          targetAmount: p.target_amount || 3000,
+          stopLossAmount: p.stop_loss_amount || 2000,
+          // ⚡ Use dynamic (trailing/edited) values when available, fallback to base
+          currentTarget: p.raw_position?.currentTargetAmount ?? p.target_amount,
+          currentStopLoss: p.raw_position?.currentStopLossAmount ?? p.stop_loss_amount,
+          trailingEnabled: p.trailing_enabled || false,
+          trailingActivationAmount: p.raw_position?.trailingActivationAmount || 0,
+          targetJumpAmount: p.raw_position?.targetJumpAmount || 0,
+          stopLossJumpAmount: p.raw_position?.stopLossJumpAmount || 0,
+          trailingActivated: p.raw_position?.trailingActivated || false,
+          highestPnL: p.highest_pnl || 0,
+          pnl: p.pnl || 0,
+          entryTime: new Date(p.created_at).getTime(),
+          index: (p.index_name || 'NIFTY') as 'NIFTY' | 'BANKNIFTY' | 'SENSEX',
+          productType: 'INTRADAY',
+          exchangeSegment: p.exchange_segment || 'NSE_FNO'
+        }));
         
         const backendOrderIds = new Set(backendPositions.map(p => p.orderId));
         const currentOrderIds = new Set(activePositionsRef.current.map(p => p.orderId));
@@ -1487,11 +1451,11 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       });
       
       if (!response.ok) {
-        console.warn(`⚠️ Could not fetch credentials: ${response.status} ${response.statusText}`);
+        console.error(`❌ Failed to fetch credentials: ${response.status} ${response.statusText}`);
         if (storedClientId) {
           console.log('⚡ Using localStorage fallback:', storedClientId);
         } else {
-          console.info('ℹ️ Dhan credentials not configured yet');
+          console.error('❌ NO FALLBACK AVAILABLE - Client ID not set!');
         }
         return;
       }
@@ -1502,13 +1466,11 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         // ⚡ Save to localStorage for future fallback
         localStorage.setItem('dhan_client_id', data.credentials.dhanClientId);
         console.log('✅ Dhan Client ID loaded from server:', data.credentials.dhanClientId);
-      } else if (storedClientId) {
-        setDhanClientId(storedClientId);
-      } else {
-        console.info('ℹ️ Dhan Client ID not configured yet (can be linked in Broker Settings)');
+      } else if (!storedClientId) {
+        console.error('❌ No dhanClientId in API response and no localStorage fallback!');
       }
     } catch (error) {
-      console.warn('⚠️ Could not load Dhan Client ID:', error);
+      console.error('Failed to load Dhan Client ID:', error);
       // ⚡ Try localStorage one more time on error
       const storedClientId = localStorage.getItem('dhan_client_id');
       if (storedClientId && !dhanClientId) {
@@ -1564,20 +1526,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           } catch (err) {
             console.error('Failed to load position metadata:', err);
           }
-
-          // ⚡ LOAD SYMBOLS LIST (from state or localStorage fallback)
-          let currentSymbols: any[] = tradingSymbols;
-          if (!currentSymbols || currentSymbols.length === 0) {
-            try {
-              currentSymbols = JSON.parse(localStorage.getItem('trading_symbols') || '[]');
-            } catch {
-              currentSymbols = [];
-            }
-          }
           
           // Convert Dhan positions to our ActivePosition format
-          const seenOrderIds = new Set<string>();
-          const convertedPositions: ActivePosition[] = openPositions.map((p: any, idx: number) => {
+          const convertedPositions: ActivePosition[] = openPositions.map((p: any) => {
             // Determine option type from trading symbol (CE/PE)
             const optionType = p.tradingSymbol?.includes('CE') ? 'CE' : 
                               p.tradingSymbol?.includes('PE') ? 'PE' : 'CE';
@@ -1593,11 +1544,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             const pnl = (currentPrice - entryPrice) * Math.abs(netQty);
             
             // ⚡ RETRIEVE SAVED METADATA OR USE DYNAMIC CALCULATION
-            let orderId = getDetectedPositionOrderId(p, idx);
-            if (seenOrderIds.has(orderId)) {
-              orderId = `${orderId}_${idx}`;
-            }
-            seenOrderIds.add(orderId);
+            const orderId = getDetectedPositionOrderId(p);
             const positionIndex = detectPositionIndex(p);
             const savedMeta = positionMetadata[orderId];
             
@@ -1628,9 +1575,9 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
               console.log(`✅ RESTORED Position ${orderId} from saved metadata:`, { targetAmount, stopLossAmount });
             } else {
               // Try to find matching symbol configuration
-              const matchingSymbol = currentSymbols.find((s: any) => 
+              const matchingSymbol = symbols.find(s => 
                 s.name === p.tradingSymbol || 
-                (s.securityId && s.securityId === p.securityId)
+                (s.securityId === p.securityId && s.securityId)
               );
               
               if (matchingSymbol) {
@@ -2160,17 +2107,12 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
 
       if (openPositions.length > 0) {
         // Convert ALL Dhan positions to active positions format
-        const seenForceCheckIds = new Set<string>();
-        const convertedPositions = openPositions.map((p: any, idx: number) => {
+        const convertedPositions = openPositions.map((p: any) => {
           const netQty = p.netQty ?? p.buyQty - p.sellQty;
           const entryPrice = parseFloat(p.buyAvg || p.costPrice || p.averagePrice || 0);
           const currentPrice = parseFloat(p.lastPrice || p.ltp || p.lastTradedPrice || p.dayBuyValue / (p.buyQty || 1) || 0);
           const pnl = parseFloat(p.unrealizedProfit || p.unrealizedPnl || p.pnl || p.realizedProfit || ((currentPrice - entryPrice) * Math.abs(netQty)));
-          let orderId = getDetectedPositionOrderId(p, idx);
-          if (seenForceCheckIds.has(orderId)) {
-            orderId = `${orderId}_${idx}`;
-          }
-          seenForceCheckIds.add(orderId);
+          const orderId = getDetectedPositionOrderId(p);
           const optionType = (p.tradingSymbol || '').includes('PE') ? 'PE' : 'CE';
           const positionIndex = detectPositionIndex(p);
           const savedMeta = positionMetadata[orderId];
@@ -4623,11 +4565,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                 value={candleInterval} 
                 onValueChange={(val: '5' | '15') => {
                   console.log(`⚡ TIMEFRAME CHANGED: ${candleInterval}M → ${val}M`);
-                  candleIntervalRef.current = val;
-                  lastUserTimeframeChangeRef.current = Date.now();
-                  localStorage.setItem('engine_interval', val);
                   setCandleInterval(val);
-                  void saveEngineState(isRunningRef.current, val, { syncServerEngine: isRunningRef.current });
+                  void saveEngineState(isRunningRef.current, val, { syncServerEngine: false });
                 }} 
                 disabled={isRunning}
               >
@@ -5063,13 +5002,13 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {activePositions.map((pos, idx) => {
+              {activePositions.map((pos) => {
                 const monitorStatus = positionMonitoringStatus[pos.orderId];
                 const isHolding = monitorStatus?.decision === 'HOLD';
                 const isExiting = monitorStatus?.decision === 'EXIT';
                 
                 return (
-                  <div key={`${pos.orderId || pos.symbolId || 'pos'}-${idx}`} className={`p-4 rounded-lg border-2 ${
+                  <div key={pos.orderId} className={`p-4 rounded-lg border-2 ${
                     isExiting ? 'bg-red-950/30 border-red-600' : 
                     isHolding ? 'bg-green-950/30 border-green-600' : 
                     'bg-zinc-800 border-zinc-700'
@@ -5261,7 +5200,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
             </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {activePositions.map((pos, idx) => {
+              {activePositions.map((pos) => {
                 const monitorStatus = positionMonitoringStatus[pos.orderId];
                 const isHolding = monitorStatus?.decision === 'HOLD';
                 const isExiting = monitorStatus?.decision === 'EXIT';
@@ -5269,7 +5208,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                 // Show loading state if monitoring data not yet available
                 if (!monitorStatus) {
                   return (
-                    <div key={`${pos.orderId || pos.symbolId || 'pos'}-${idx}`} className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
+                    <div key={pos.orderId} className="p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg">
                       <div className="flex items-center gap-3 text-zinc-400">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-500"></div>
                         <span className="text-sm">Initializing real-time monitoring for <span className="font-bold text-purple-400">{pos.symbolName}</span>...</span>
@@ -5279,7 +5218,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
                 }
                 
                 return (
-                  <div key={`${pos.orderId || pos.symbolId || 'pos'}-${idx}`} className="space-y-3">
+                  <div key={pos.orderId} className="space-y-3">
                     {/* Monitoring Card - Shows immediately when position activates */}
                     <div className={`p-4 rounded-lg border-2 transition-all duration-300 ${
                       isExiting ? 'bg-red-950/40 border-red-500 shadow-lg shadow-red-500/20 animate-pulse' : 'bg-green-950/40 border-green-500 shadow-lg shadow-green-500/20'

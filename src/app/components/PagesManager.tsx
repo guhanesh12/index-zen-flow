@@ -8,7 +8,6 @@ import {
 import { Button } from './ui/button';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { getBaseUrl } from '../utils/apiService';
-import { fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
 
 interface Page {
   id: string;
@@ -42,30 +41,19 @@ export default function PagesManager({ accessToken }: PagesManagerProps) {
   const loadPages = async () => {
     try {
       setLoading(true);
-      const response = await fetchWithApiFallback('/landing/pages', {
+      const response = await fetch(`${serverUrl}/landing/pages`, {
         headers: {
           'Authorization': `Bearer ${accessToken}`
         }
       });
-      if (!response.ok) {
-        setPages([]);
-        return;
-      }
-      const text = await response.text();
-      let data: any = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        setPages([]);
-        return;
-      }
+      const data = await response.json();
       
-      if (data?.success && Array.isArray(data.pages)) {
+      if (data.success) {
         setPages(data.pages);
       }
     } catch (error: any) {
-      console.warn('Error loading pages:', error);
-      setPages([]);
+      console.error('Error loading pages:', error);
+      showMessage('error', error.message);
     } finally {
       setLoading(false);
     }
@@ -74,7 +62,7 @@ export default function PagesManager({ accessToken }: PagesManagerProps) {
   const savePage = async (page: Page) => {
     try {
       setSaving(true);
-      const response = await fetchWithApiFallback('/landing/pages', {
+      const response = await fetch(`${serverUrl}/landing/pages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -105,7 +93,7 @@ export default function PagesManager({ accessToken }: PagesManagerProps) {
 
     try {
       setSaving(true);
-      const response = await fetchWithApiFallback(`/landing/pages/${pageId}`, {
+      const response = await fetch(`${serverUrl}/landing/pages/${pageId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${accessToken}`

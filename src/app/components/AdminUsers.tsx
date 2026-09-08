@@ -82,6 +82,16 @@ interface AdminUsersProps {
 }
 
 export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
+  // Early return if missing required props
+  if (!serverUrl || !accessToken) {
+    console.error('❌ [ADMIN USERS] Missing required props!', { serverUrl, accessToken });
+    return (
+      <div className="p-8 text-center">
+        <p className="text-red-400">Error: Missing server URL or access token</p>
+      </div>
+    );
+  }
+  
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -354,14 +364,6 @@ export function AdminUsers({ serverUrl, accessToken }: AdminUsersProps) {
       console.error('❌ [ADMIN USERS] Error exporting CSV:', error);
     }
   };
-
-  if (!serverUrl || !accessToken) {
-    return (
-      <div className="p-8 text-center">
-        <p className="text-red-400">Error: Missing server URL or access token</p>
-      </div>
-    );
-  }
 
   const stats = {
     total: users.length,

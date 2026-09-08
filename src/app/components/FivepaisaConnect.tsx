@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from './ui/alert';
 import { CheckCircle2, AlertTriangle, RefreshCw, Key, Download, Copy, Loader2, LogIn } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchWithAuth, getAccessToken } from '../utils/apiClient';
-import { BrokerLogo } from '../brokerLogos';
 
 interface FivepaisaConnectProps {
   serverUrl: string;
@@ -217,7 +216,7 @@ export function FivepaisaConnect({ serverUrl, accessToken, onConnected }: Fivepa
     <Card className="bg-zinc-900 border-zinc-800">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <BrokerLogo id="5paisa" name="5paisa" size={26} />
+          <span className="size-2.5 rounded-full" style={{ backgroundColor: '#e11d48' }} />
           5paisa (Xstream API)
           {connected ? (
             <span className="ml-auto inline-flex items-center gap-1 text-xs text-emerald-400">

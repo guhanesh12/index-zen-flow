@@ -5,9 +5,8 @@ import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { Plus, MessageSquare, CheckCircle2, Clock, Building2, ExternalLink } from 'lucide-react';
+import { Plus, MessageSquare, CheckCircle2, Clock, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { BrokerLogo, ALL_8_BROKERS } from '../brokerLogos';
 
 interface BrokerRequestProps {
   serverUrl: string;
@@ -22,20 +21,27 @@ export function BrokerRequest({ serverUrl, accessToken }: BrokerRequestProps) {
     additionalDetails: ''
   });
 
-  const additionalBrokers = [
+  const allBrokers = [
+    'Zerodha',
+    'Upstox',
+    'Angel One (Angel Broking)',
     'ICICI Direct',
+    'HDFC Securities',
     'Kotak Securities',
-    'HDFC Sky',
-    'Shoonya (Finvasia)',
-    'Tradejini',
-    'Motilal Oswal',
+    '5Paisa',
     'Sharekhan',
+    'Motilal Oswal',
     'Axis Direct',
-    'Geojit',
-    'Paytm Money',
-    'Espresso (Sharekhan)',
+    'Edelweiss',
     'IIFL Securities',
-    'Other / Custom API'
+    'Groww',
+    'Paytm Money',
+    'Fyers',
+    'Alice Blue',
+    'Finvasia',
+    'Prostocks',
+    'Swastika',
+    'Other (Please specify in details)'
   ];
 
   const handleSubmitRequest = async () => {
@@ -93,36 +99,27 @@ export function BrokerRequest({ serverUrl, accessToken }: BrokerRequestProps) {
     <>
       <Card className="bg-slate-900/50 border-slate-800">
         <CardHeader>
-          <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
-            <CardTitle className="flex items-center gap-2 text-white">
-              <Building2 className="w-5 h-5 text-purple-400" />
-              Integrated Brokers Ecosystem
-            </CardTitle>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
-              8 Brokers Active
-            </span>
-          </div>
+          <CardTitle className="flex items-center gap-2 text-white">
+            <Building2 className="w-5 h-5 text-purple-400" />
+            Broker Integration
+          </CardTitle>
           <CardDescription className="text-slate-400">
-            IndexpilotAI natively supports 8 major Indian brokers. Need an additional broker? Submit a request below.
+            Currently supporting Dhan. Need another broker? Request integration.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              {ALL_8_BROKERS.map((broker) => (
-                <div
-                  key={broker.id}
-                  className="flex items-center gap-2.5 p-2.5 bg-slate-950/70 border border-slate-800/90 rounded-xl hover:border-slate-700 transition-all"
-                >
-                  <BrokerLogo id={broker.id} name={broker.name} color={broker.color} size={34} className="shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-white text-xs font-semibold truncate">{broker.name}</p>
-                    <p className="text-[10px] text-emerald-400 flex items-center gap-1 font-medium">
-                      <CheckCircle2 className="w-2.5 h-2.5 inline" /> Live
-                    </p>
-                  </div>
+            <div className="flex items-center justify-between p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <p className="text-white font-semibold">Dhan</p>
+                  <p className="text-xs text-slate-400">Fully Integrated</p>
                 </div>
-              ))}
+              </div>
+              <div className="text-emerald-400 text-xs font-semibold bg-emerald-500/20 px-3 py-1 rounded-full">
+                ACTIVE
+              </div>
             </div>
 
             <Button
@@ -130,11 +127,11 @@ export function BrokerRequest({ serverUrl, accessToken }: BrokerRequestProps) {
               className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Request Additional Broker Integration
+              Request New Broker Integration
             </Button>
 
             <p className="text-xs text-slate-500 text-center">
-              Want to use another broker (e.g. Kotak Securities, ICICI Direct)? Submit a request and our dev team will review it.
+              Want to use another broker? Submit a request and we'll work on the integration
             </p>
           </div>
         </CardContent>
@@ -149,7 +146,7 @@ export function BrokerRequest({ serverUrl, accessToken }: BrokerRequestProps) {
               Request Broker Integration
             </DialogTitle>
             <DialogDescription className="text-slate-400">
-              Select the broker you&apos;d like us to integrate next with IndexpilotAI
+              Select the broker you'd like us to integrate with IndexpilotAI
             </DialogDescription>
           </DialogHeader>
 
@@ -163,7 +160,7 @@ export function BrokerRequest({ serverUrl, accessToken }: BrokerRequestProps) {
                 className="w-full mt-2 px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all cursor-pointer"
               >
                 <option value="" className="bg-slate-900 text-slate-400">Choose a broker...</option>
-                {additionalBrokers.map((broker) => (
+                {allBrokers.map((broker) => (
                   <option key={broker} value={broker} className="bg-slate-900 text-white">
                     {broker}
                   </option>

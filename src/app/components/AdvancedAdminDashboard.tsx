@@ -23,12 +23,10 @@ import {
   CheckCircle,
   XCircle,
   Calendar,
-  Signal,
-  Building2
+  Signal
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAllowedTabs } from '@/hooks/useAllowedTabs';
-import { BrokerLogo, ALL_8_BROKERS } from '../brokerLogos';
 import { 
   LineChart, 
   Line, 
@@ -563,46 +561,6 @@ export function AdvancedAdminDashboard({ serverUrl, accessToken }: AdminDashboar
               suffix={` (${stats.totalUsers > 0 ? ((stats.profitableUsers / stats.totalUsers) * 100).toFixed(1) : 0}%)`}
             />
           </div>
-
-          {/* 🏦 Supported Indian Brokers Ecosystem Card */}
-          <Card className="border-cyan-500/20 bg-slate-900/80 backdrop-blur-sm">
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Building2 className="size-5 text-cyan-400" />
-                  <CardTitle className="text-white text-lg">Supported Indian Brokers Ecosystem</CardTitle>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
-                    All 8 Brokers Live
-                  </span>
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-medium">
-                    VPS Static IP Integrated
-                  </span>
-                </div>
-              </div>
-              <CardDescription>
-                Real-time API connectivity and health status across all 8 supported Indian brokerage partners.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-                {ALL_8_BROKERS.map((broker) => (
-                  <div
-                    key={broker.id}
-                    className="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-cyan-500/40 transition-all text-center group"
-                  >
-                    <BrokerLogo id={broker.id} name={broker.name} color={broker.color} size={42} className="mb-2 group-hover:scale-105 transition-transform" />
-                    <span className="font-semibold text-white text-xs truncate max-w-full">{broker.name}</span>
-                    <span className="text-[10px] text-emerald-400 mt-0.5 flex items-center gap-1 font-medium">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                      {broker.apiType}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>}
 
         {/* REVENUE TAB */}
