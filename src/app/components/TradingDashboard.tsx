@@ -106,6 +106,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       }).join(''));
       const payload = JSON.parse(jsonPayload);
       setUserId(payload.sub || '');
+      setUserEmail(payload.email || payload.user_metadata?.email || '');
       console.log('✅ User ID decoded from token:', payload.sub);
     } catch (error) {
       console.error('Failed to decode access token:', error);
