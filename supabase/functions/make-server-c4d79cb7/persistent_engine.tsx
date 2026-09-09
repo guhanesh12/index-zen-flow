@@ -2448,7 +2448,7 @@ class PersistentTradingEngine {
               symbol: actionable.map((a) => `${a.index} ${a.action.replace("BUY_", "")}`).join(", "),
               signalType: "MULTI",
               reason: !tradingDay ? "Today is a market holiday" : market.reason,
-              nextSession: market.nextSession || "Next trading day · 09:15 IST",
+              nextSession: market.nextSession || "Next trading day · 09:00 IST",
             });
           } else {
             sendEmailAsync("signals_combined", userId, {
@@ -4079,7 +4079,7 @@ class PersistentTradingEngine {
     forceRefresh = false,
   ) {
     const minuteOfDay = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
-    const tfs = [5, 15].filter((tf) => (minuteOfDay - (9 * 60 + 15)) % tf === 0);
+    const tfs = [5, 15].filter((tf) => (minuteOfDay - (9 * 60)) % tf === 0);
     if (tfs.length === 0) return { published: 0 };
 
     const creds = await getCentralCredentials();
