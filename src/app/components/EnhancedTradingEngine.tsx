@@ -1777,7 +1777,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         const confirmForceStart = confirm(
           `⚠️ FORCE START MODE ENABLED\n\n` +
           `Market Status: ${marketStatus}\n` +
-          `Normal Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\n` +
+          `Normal Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\n` +
           `You have enabled "Force Start" mode for special trading sessions.\n\n` +
           `⚠️ WARNING: This is for SPECIAL SESSIONS ONLY (weekends/holidays with market open)\n` +
           `⚠️ Make sure the market is actually OPEN before proceeding!\n\n` +
@@ -1804,15 +1804,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         
         console.error(`\n❌ ${errorMsg}`);
         console.error(`  - Market Status: ${marketStatus}`);
-        console.error(`  - Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)`);
+        console.error(`  - Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)`);
         console.error(`  - Please wait for market to OPEN before starting engine\n`);
         
-        alert(`${errorMsg}\n\nMarket Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
+        alert(`${errorMsg}\n\nMarket Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
         
         onLog({
           timestamp: Date.now(),
           type: 'ERROR',
-          message: `${errorMsg} - Market hours: 9:15 AM to 3:30 PM IST`
+          message: `${errorMsg} - Market hours: 9:00 AM to 3:30 PM IST`
         });
         return;
       }
