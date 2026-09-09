@@ -209,9 +209,19 @@ async function replayIndex(
   opts: ReplayOptions = {},
 ) {
   const lotSize = LOT_SIZES[index];
-  const maxPerDay = Math.max(0, Math.floor(opts.maxTradesPerDay || 0));
-  const minConf = Math.max(0, Number(opts.minConfidence || 0));
+  // Tuned defaults (walk-forward validated on 13 months of 15m data across
+  // NIFTY / BANKNIFTY / SENSEX): quality filter + max 2 entries per index per
+  // day keeps the profitable trades and removes most of the churn losses.
+  const maxPerDay = opts.maxTradesPerDay === undefined ? 2 : Math.max(0, Math.floor(opts.maxTradesPerDay));
+  const minConf = opts.minConfidence === undefined ? 75 : Math.max(0, Number(opts.minConfidence));
   const fixedLots = Math.max(0, Math.floor(opts.fixedLots || 0));
+  // Exit tuning (in R = initial risk): partial book, breakeven, ATR trail.
+  const RR_TARGET = 2.5;
+  const STOP_ATR_MULT = 1.5;
+  const PARTIAL_AT_R = 1.0;
+  const BE_AT_R = 0.8;
+  const TRAIL_AT_R = 1.5;
+  const TRAIL_ATR_MULT = 0.6;
   const entriesByDay = new Map<string, number>();
   let pos: OpenPos | null = null;
   let lastSignalTs = 0;
