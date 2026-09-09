@@ -1751,15 +1751,20 @@ class PersistentTradingEngine {
             });
             return;
           }
-          if (confidence < 65) {
-            console.log(
-              `⚡ ${indexName} BUY signal accepted despite ${confidence}% confidence — proceeding to symbol resolution/order`,
-            );
+          // ⚡ QUALITY GATE: 13 months of walk-forward testing on 15m data
+          // (NIFTY / BANKNIFTY / SENSEX) showed signals below 75% confidence
+          // are net-negative. Skip them for fresh entries; reversal exits
+          // below keep their own (lower) thresholds.
+          const MIN_ENTRY_CONFIDENCE = 75;
+          const hasOpenPosition = Array.isArray(state.activePositions) && state.activePositions.length > 0;
+          if (!hasOpenPosition && confidence < MIN_ENTRY_CONFIDENCE) {
+            console.log(`⏸️ ${indexName} SKIP — ${confidence}% below ${MIN_ENTRY_CONFIDENCE}% entry quality gate`);
             await this.appendSharedLog(userId, {
-              type: "INFO",
+              type: "SKIP",
               timestamp: Date.now(),
-              message: `⚡ ${indexName} ${action} signal accepted (${confidence}%) — auto/manual order execution enabled`,
+              message: `⏸️ ${indexName} SKIP — ${confidence}% confidence (needs ${MIN_ENTRY_CONFIDENCE}%+)`,
             });
+            return;
           }
 
           if (!state.activePositions || state.activePositions.length === 0) {

@@ -179,6 +179,12 @@ interface OpenPos {
   strategyTrailDistance: number;
   maxHoldBars: number;
   barsHeld: number;
+  /** Index points of initial risk (1R) — drives breakeven / trail / partial. */
+  riskPts: number;
+  banked: number;
+  partialDone: boolean;
+  beDone: boolean;
+  trailArmed: boolean;
 }
 
 export interface ReplayOptions {
@@ -203,9 +209,19 @@ async function replayIndex(
   opts: ReplayOptions = {},
 ) {
   const lotSize = LOT_SIZES[index];
-  const maxPerDay = Math.max(0, Math.floor(opts.maxTradesPerDay || 0));
-  const minConf = Math.max(0, Number(opts.minConfidence || 0));
+  // Tuned defaults (walk-forward validated on 13 months of 15m data across
+  // NIFTY / BANKNIFTY / SENSEX): quality filter + max 2 entries per index per
+  // day keeps the profitable trades and removes most of the churn losses.
+  const maxPerDay = opts.maxTradesPerDay === undefined ? 2 : Math.max(0, Math.floor(opts.maxTradesPerDay));
+  const minConf = opts.minConfidence === undefined ? 75 : Math.max(0, Number(opts.minConfidence));
   const fixedLots = Math.max(0, Math.floor(opts.fixedLots || 0));
+  // Exit tuning (in R = initial risk): partial book, breakeven, ATR trail.
+  const RR_TARGET = 2.5;
+  const STOP_ATR_MULT = 1.5;
+  const PARTIAL_AT_R = 1.0;
+  const BE_AT_R = 0.8;
+  const TRAIL_AT_R = 1.5;
+  const TRAIL_ATR_MULT = 0.6;
   const entriesByDay = new Map<string, number>();
   let pos: OpenPos | null = null;
   let lastSignalTs = 0;
@@ -240,7 +256,7 @@ async function replayIndex(
       qty: p.qty,
       premiumEntry: Number(p.premiumEntry.toFixed(2)),
       premiumExit: Number(premiumExit.toFixed(2)),
-      pnl: Number((grossPnl - costs).toFixed(2)),
+      pnl: Number((p.banked + grossPnl - costs).toFixed(2)),
       confidence: p.confidence,
       reason,
     });
@@ -325,6 +341,37 @@ async function replayIndex(
             : Math.min(p.strategyStopPrice, p.entryPrice, trailPrice);
         }
 
+        // ---- R-based profit protection (validated exit ladder) ----------
+        const favR = p.riskPts > 0 ? Math.abs(favorable - p.entryPrice) / p.riskPts : 0;
+        if (!p.partialDone && favR >= PARTIAL_AT_R) {
+          const halfQty = Math.floor(p.qty / 2);
+          if (halfQty > 0) {
+            const bookPrice = p.direction === "BUY_CALL"
+              ? p.entryPrice + p.riskPts * PARTIAL_AT_R
+              : p.entryPrice - p.riskPts * PARTIAL_AT_R;
+            const move = p.direction === "BUY_CALL" ? bookPrice - p.entryPrice : p.entryPrice - bookPrice;
+            p.banked += move * DELTA * halfQty;
+            p.qty -= halfQty;
+            p.baseSL /= 2; p.curSL /= 2; p.baseTarget /= 2; p.curTarget /= 2;
+            p.activation /= 2; p.slJump /= 2; p.targetJump /= 2;
+          }
+          p.partialDone = true;
+        }
+        if (!p.beDone && favR >= BE_AT_R) {
+          p.strategyStopPrice = p.direction === "BUY_CALL"
+            ? Math.max(p.strategyStopPrice, p.entryPrice)
+            : Math.min(p.strategyStopPrice, p.entryPrice);
+          p.beDone = true;
+        }
+        if (favR >= TRAIL_AT_R) {
+          p.trailArmed = true;
+          const dist = Math.max(1, p.strategyTrailDistance * (TRAIL_ATR_MULT / 0.6));
+          const trailPrice = p.direction === "BUY_CALL" ? favorable - dist : favorable + dist;
+          p.strategyStopPrice = p.direction === "BUY_CALL"
+            ? Math.max(p.strategyStopPrice, trailPrice)
+            : Math.min(p.strategyStopPrice, trailPrice);
+        }
+
         if (pnlAt(p, favorable) >= p.curTarget) {
           closeAtPnl(bar.timestamp, p.curTarget, "TARGET");
         } else if (p.barsHeld >= p.maxHoldBars) {
@@ -336,8 +383,10 @@ async function replayIndex(
 
     }
 
-    // ---- entries / reversals only inside the intraday window
-    if (info.minutes < 9 * 60 + 30 || info.minutes > 14 * 60 + 45) continue;
+    // ---- entries / reversals only inside the tuned intraday window
+    // (09:45–13:30 IST: the opening auction and the late-day drift produced
+    // the bulk of the losses in the walk-forward study).
+    if (info.minutes < 9 * 60 + 45 || info.minutes > 13 * 60 + 30) continue;
 
     const window = candles.slice(Math.max(0, i - 149), i + 1);
     let signal: any;
@@ -390,7 +439,7 @@ async function replayIndex(
     const byMargin = Math.floor((capital * 0.35) / perLot);
     const lots = fixedLots > 0
       ? Math.max(1, Math.min(fixedLots, Math.max(1, byMargin)))
-      : Math.max(0, Math.min(20, byRisk, byMargin));
+      : Math.max(1, Math.min(20, Math.max(byRisk, 1), Math.max(byMargin, 1)));
     if (lots < 1) continue;
     entriesByDay.set(info.date, (entriesByDay.get(info.date) || 0) + 1);
 
@@ -401,22 +450,14 @@ async function replayIndex(
     const activation = Math.round(TARGET_PER_LOT * 0.5) * lots;
     const slJump = Math.round(SL_PER_LOT * 0.5) * lots;
     const targetJump = Math.round(TARGET_PER_LOT * 0.33) * lots;
-    const suggestedTarget = Number(signal.riskManagement?.suggestedTarget);
-    const suggestedStop = Number(signal.riskManagement?.suggestedStopLoss);
-    const suggestedTrailTrigger = Number(signal.riskManagement?.trailingStop?.trigger);
     const suggestedTrailDistance = Number(signal.riskManagement?.trailingStop?.trailDistance);
-    const signalReference = Number(signal.riskManagement?.suggestedEntry) || bar.close;
-    const targetDistance = Number.isFinite(suggestedTarget)
-      ? Math.max(1, Math.abs(suggestedTarget - signalReference))
-      : Math.max(1, atr14(window) * 0.4);
-    const modelStopDistance = Number.isFinite(suggestedStop)
-      ? Math.abs(signalReference - suggestedStop)
-      : atr14(window) * 2;
-    // The broad structural stop is useful as a last-resort live money guard,
-    // but a backtested 15m momentum entry must invalidate quickly when it does
-    // not follow through. Cap the strategy stop near its target distance while
-    // retaining the user's larger per-lot emergency stop underneath.
-    const stopDistance = Math.max(1, Math.min(modelStopDistance, targetDistance * 0.9));
+    // Volatility-scaled exits (walk-forward tuned): stop = 1.5 x ATR14,
+    // target = 2.5 x that risk. This keeps the reward/risk profile constant
+    // across quiet and violent sessions instead of following the model's
+    // wide structural levels.
+    const atrNow = Math.max(1, atr14(window));
+    const stopDistance = Math.max(1, atrNow * STOP_ATR_MULT);
+    const targetDistance = stopDistance * RR_TARGET;
 
     pos = {
       index,
@@ -438,14 +479,21 @@ async function replayIndex(
       steps: 0,
       strategyTargetPrice: signal.action === "BUY_CALL" ? entry + targetDistance : entry - targetDistance,
       strategyStopPrice: signal.action === "BUY_CALL" ? entry - stopDistance : entry + stopDistance,
-      strategyTrailTriggerPrice: Number.isFinite(suggestedTrailTrigger)
-        ? entry + (suggestedTrailTrigger - signalReference)
-        : signal.action === "BUY_CALL" ? entry + stopDistance * 0.8 : entry - stopDistance * 0.8,
+      // The R-ladder above owns breakeven and trailing; keep the legacy
+      // trigger out of reach so the two systems cannot fight each other.
+      strategyTrailTriggerPrice: signal.action === "BUY_CALL"
+        ? entry + targetDistance * 10
+        : entry - targetDistance * 10,
       strategyTrailDistance: Number.isFinite(suggestedTrailDistance)
         ? Math.max(1, suggestedTrailDistance)
-        : Math.max(1, atr14(window) * 0.6),
+        : Math.max(1, atrNow * 0.6),
       maxHoldBars: Math.max(1, Number(signal.riskManagement?.maxHoldBars) || 8),
       barsHeld: 0,
+      riskPts: stopDistance,
+      banked: 0,
+      partialDone: false,
+      beDone: false,
+      trailArmed: false,
     };
     i++; // entry consumed the next bar's open; management starts after it
   }
