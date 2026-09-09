@@ -341,6 +341,37 @@ async function replayIndex(
             : Math.min(p.strategyStopPrice, p.entryPrice, trailPrice);
         }
 
+        // ---- R-based profit protection (validated exit ladder) ----------
+        const favR = p.riskPts > 0 ? Math.abs(favorable - p.entryPrice) / p.riskPts : 0;
+        if (!p.partialDone && favR >= PARTIAL_AT_R) {
+          const halfQty = Math.floor(p.qty / 2);
+          if (halfQty > 0) {
+            const bookPrice = p.direction === "BUY_CALL"
+              ? p.entryPrice + p.riskPts * PARTIAL_AT_R
+              : p.entryPrice - p.riskPts * PARTIAL_AT_R;
+            const move = p.direction === "BUY_CALL" ? bookPrice - p.entryPrice : p.entryPrice - bookPrice;
+            p.banked += move * DELTA * halfQty;
+            p.qty -= halfQty;
+            p.baseSL /= 2; p.curSL /= 2; p.baseTarget /= 2; p.curTarget /= 2;
+            p.activation /= 2; p.slJump /= 2; p.targetJump /= 2;
+          }
+          p.partialDone = true;
+        }
+        if (!p.beDone && favR >= BE_AT_R) {
+          p.strategyStopPrice = p.direction === "BUY_CALL"
+            ? Math.max(p.strategyStopPrice, p.entryPrice)
+            : Math.min(p.strategyStopPrice, p.entryPrice);
+          p.beDone = true;
+        }
+        if (favR >= TRAIL_AT_R) {
+          p.trailArmed = true;
+          const dist = Math.max(1, p.strategyTrailDistance * (TRAIL_ATR_MULT / 0.6));
+          const trailPrice = p.direction === "BUY_CALL" ? favorable - dist : favorable + dist;
+          p.strategyStopPrice = p.direction === "BUY_CALL"
+            ? Math.max(p.strategyStopPrice, trailPrice)
+            : Math.min(p.strategyStopPrice, trailPrice);
+        }
+
         if (pnlAt(p, favorable) >= p.curTarget) {
           closeAtPnl(bar.timestamp, p.curTarget, "TARGET");
         } else if (p.barsHeld >= p.maxHoldBars) {
@@ -352,8 +383,10 @@ async function replayIndex(
 
     }
 
-    // ---- entries / reversals only inside the intraday window
-    if (info.minutes < 9 * 60 + 30 || info.minutes > 14 * 60 + 45) continue;
+    // ---- entries / reversals only inside the tuned intraday window
+    // (09:45–13:30 IST: the opening auction and the late-day drift produced
+    // the bulk of the losses in the walk-forward study).
+    if (info.minutes < 9 * 60 + 45 || info.minutes > 13 * 60 + 30) continue;
 
     const window = candles.slice(Math.max(0, i - 149), i + 1);
     let signal: any;
