@@ -888,6 +888,7 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
 
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     if (!apiKey) {
+      otpLockRelease(`sms:${phone}`);
       return c.json({ error: 'OTP service not configured. Please contact support.' }, 500);
     }
 
@@ -902,12 +903,14 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ 2factor HTTP error:', response.status, errorText);
+      otpLockRelease(`sms:${phone}`);
       return c.json({ error: `API Error: ${response.status}. ${errorText || 'Failed to send OTP'}` }, 400);
     }
     const data = await response.json();
 
     if (data.Status !== 'Success') {
       console.error('❌ 2factor.in error:', data);
+      otpLockRelease(`sms:${phone}`);
       return c.json({ error: data.Details || data.Message || 'Failed to send OTP. Please try again.' }, 400);
     }
 
