@@ -439,7 +439,7 @@ async function replayIndex(
     const byMargin = Math.floor((capital * 0.35) / perLot);
     const lots = fixedLots > 0
       ? Math.max(1, Math.min(fixedLots, Math.max(1, byMargin)))
-      : Math.max(0, Math.min(20, byRisk, byMargin));
+      : Math.max(1, Math.min(20, Math.max(byRisk, 1), Math.max(byMargin, 1)));
     if (lots < 1) continue;
     entriesByDay.set(info.date, (entriesByDay.get(info.date) || 0) + 1);
 
