@@ -38,6 +38,26 @@ import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStat
 import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode, fyersTokenExpiry } from "./fyers_service.tsx";
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
 import { AngelOneService, ANGELONE_API, angeloneLogin, angeloneTokenExpiry } from "./angelone_service.tsx";
+
+// ── 🛡️ OTP duplicate-send lock ────────────────────────────────────────────
+// Two rapid clicks (or a double-fired form submit) can hit the server before
+// the KV cooldown row is written, so both requests mail a code. This
+// in-memory guard blocks a second send for the same target while the first
+// is still in flight and for a short window afterwards.
+const OTP_SEND_LOCKS = new Map<string, number>();
+function otpLockAcquire(key: string, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const until = OTP_SEND_LOCKS.get(key) || 0;
+  if (until > now) return false;
+  OTP_SEND_LOCKS.set(key, now + windowMs);
+  if (OTP_SEND_LOCKS.size > 500) {
+    for (const [k, v] of OTP_SEND_LOCKS) if (v <= now) OTP_SEND_LOCKS.delete(k);
+  }
+  return true;
+}
+function otpLockRelease(key: string) {
+  OTP_SEND_LOCKS.delete(key);
+}
 import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
 import { AliceblueService, ALICEBLUE_API, aliceblueVendorSession, aliceblueAuthUrl, aliceblueTokenExpiry } from "./aliceblue_service.tsx";
 import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
@@ -855,12 +875,20 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
           throttled: true,
         });
       }
+      // Race guard: a parallel request may not have written KV yet.
+      if (!otpLockAcquire(`sms:${phone}`)) {
+        console.log(`⏳ OTP send already in flight for ${phone} — skipping duplicate send`);
+        return c.json({ success: true, message: 'OTP already sent', throttled: true });
+      }
+    } else {
+      otpLockAcquire(`sms:${phone}`);
     }
 
 
 
     const apiKey = Deno.env.get('TWOFACTOR_API_KEY');
     if (!apiKey) {
+      otpLockRelease(`sms:${phone}`);
       return c.json({ error: 'OTP service not configured. Please contact support.' }, 500);
     }
 
@@ -875,12 +903,14 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ 2factor HTTP error:', response.status, errorText);
+      otpLockRelease(`sms:${phone}`);
       return c.json({ error: `API Error: ${response.status}. ${errorText || 'Failed to send OTP'}` }, 400);
     }
     const data = await response.json();
 
     if (data.Status !== 'Success') {
       console.error('❌ 2factor.in error:', data);
+      otpLockRelease(`sms:${phone}`);
       return c.json({ error: data.Details || data.Message || 'Failed to send OTP. Please try again.' }, 400);
     }
 
@@ -1131,7 +1161,10 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
     if (!resend && existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
       return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
     }
-
+    // Race guard for two requests arriving before KV is written.
+    if (!otpLockAcquire(`mail:${email.toLowerCase()}`) && !resend) {
+      return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
+    }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
@@ -1152,6 +1185,7 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
     if (!emailRes.ok) {
       const t = await emailRes.text();
       console.error('Email OTP send failed', t);
+      otpLockRelease(`mail:${email.toLowerCase()}`);
       return c.json({ error: 'Failed to send email OTP. Please try again.' }, 500);
     }
 
@@ -11982,9 +12016,23 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     // 🛡️ Duplicate-send guard: if a code was mailed to this admin in the last
     // 60s (double-submit / retry), reuse the SAME code and do not mail again.
     const otpCooldownKey = `admin_login_otp_cd:${loginEmail}`;
-    const cooldownRaw = await kv.get(otpCooldownKey);
-    const cooldown = typeof cooldownRaw === 'string' ? JSON.parse(cooldownRaw) : cooldownRaw;
-    const reuse = cooldown?.code && cooldown?.sentAt && Date.now() - cooldown.sentAt < 60_000;
+    const readCooldown = async () => {
+      const raw = await kv.get(otpCooldownKey);
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return parsed?.code && parsed?.sentAt && Date.now() - parsed.sentAt < 60_000 ? parsed : null;
+    };
+
+    let cooldown = await readCooldown();
+    // Race guard: a parallel login request may still be mailing the code and
+    // may not have written the cooldown row yet. Wait briefly for it.
+    const gotLock = otpLockAcquire(`adminmail:${loginEmail}`);
+    if (!cooldown && !gotLock) {
+      for (let i = 0; i < 10 && !cooldown; i += 1) {
+        await new Promise((r) => setTimeout(r, 200));
+        cooldown = await readCooldown();
+      }
+    }
+    const reuse = !!cooldown;
     const emailOtp = reuse ? String(cooldown.code) : String(Math.floor(100000 + Math.random() * 900000));
 
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
@@ -12005,8 +12053,10 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     if (reuse) {
       console.log('⏳ Admin email OTP already sent recently — reusing code, not re-sending');
     } else {
-      mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+      // Reserve the cooldown BEFORE mailing so any parallel request reuses it.
       await kv.set(otpCooldownKey, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
+      mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+      if (!mailed) otpLockRelease(`adminmail:${loginEmail}`);
       await logAdminSecurityEvent({
         action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
         status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
@@ -12119,6 +12169,10 @@ app.post("/make-server-c4d79cb7/admin/email-otp/resend", async (c) => {
     ch.emailOtpAttempts = 0;
     await kv.set(key, JSON.stringify(ch));
 
+    // Explicit resend always mails — refresh the cooldown row so a repeated
+    // login in the next minute reuses this newest code instead of mailing again.
+    await kv.set(`admin_login_otp_cd:${ch.email}`, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
+    otpLockAcquire(`adminmail:${ch.email}`);
     const mailed = await sendAdminEmailOtp(ch.email, ch.fullName || 'Admin', emailOtp);
     await logAdminSecurityEvent({
       action: 'admin_login_email_otp_resent', email: ch.email, status: mailed ? 'success' : 'failed', c,

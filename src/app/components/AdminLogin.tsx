@@ -101,7 +101,9 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return; // block double submit -> two login codes
     setError('');
+    setBusy(true);
 
     try {
       const response = await fetch(`${SUPABASE_FN_BASE}/admin/login`, {
@@ -179,6 +181,8 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     } catch (error: any) {
       console.error('Admin login error:', error);
       setError('Login failed. Please try again.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -472,10 +476,11 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
 
                   <Button 
                     type="submit" 
-                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                    disabled={busy}
+                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-60"
                   >
                     <Key className="size-4 mr-2" />
-                    Continue
+                    {busy ? 'Sending code…' : 'Continue'}
                   </Button>
                 </form>
 
