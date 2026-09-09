@@ -101,7 +101,9 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return; // block double submit -> two login codes
     setError('');
+    setBusy(true);
 
     try {
       const response = await fetch(`${SUPABASE_FN_BASE}/admin/login`, {
