@@ -1449,11 +1449,11 @@ class PersistentTradingEngine {
       const istOffsetMs = 5.5 * 60 * 60 * 1000;
       const istTime = new Date(now.getTime() + istOffsetMs);
 
-      // Check market hours (9:15 AM - 3:30 PM IST)
+      // Check market hours (9:00 AM - 3:30 PM IST)
       const hours = istTime.getUTCHours();
       const minutes = istTime.getUTCMinutes();
       const currentTimeMinutes = hours * 60 + minutes;
-      const marketOpen = 9 * 60 + 15; // 9:15 AM
+      const marketOpen = 9 * 60; // 9:00 AM
       const marketClose = 15 * 60 + 30; // 3:30 PM
 
       console.log(
