@@ -179,6 +179,12 @@ interface OpenPos {
   strategyTrailDistance: number;
   maxHoldBars: number;
   barsHeld: number;
+  /** Index points of initial risk (1R) — drives breakeven / trail / partial. */
+  riskPts: number;
+  banked: number;
+  partialDone: boolean;
+  beDone: boolean;
+  trailArmed: boolean;
 }
 
 export interface ReplayOptions {
