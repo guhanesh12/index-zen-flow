@@ -476,10 +476,11 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
 
                   <Button 
                     type="submit" 
-                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                    disabled={busy}
+                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-60"
                   >
                     <Key className="size-4 mr-2" />
-                    Continue
+                    {busy ? 'Sending code…' : 'Continue'}
                   </Button>
                 </form>
 
