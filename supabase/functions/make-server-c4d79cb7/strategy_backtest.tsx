@@ -455,17 +455,14 @@ async function replayIndex(
     const suggestedTrailTrigger = Number(signal.riskManagement?.trailingStop?.trigger);
     const suggestedTrailDistance = Number(signal.riskManagement?.trailingStop?.trailDistance);
     const signalReference = Number(signal.riskManagement?.suggestedEntry) || bar.close;
-    const targetDistance = Number.isFinite(suggestedTarget)
-      ? Math.max(1, Math.abs(suggestedTarget - signalReference))
-      : Math.max(1, atr14(window) * 0.4);
-    const modelStopDistance = Number.isFinite(suggestedStop)
-      ? Math.abs(signalReference - suggestedStop)
-      : atr14(window) * 2;
-    // The broad structural stop is useful as a last-resort live money guard,
-    // but a backtested 15m momentum entry must invalidate quickly when it does
-    // not follow through. Cap the strategy stop near its target distance while
-    // retaining the user's larger per-lot emergency stop underneath.
-    const stopDistance = Math.max(1, Math.min(modelStopDistance, targetDistance * 0.9));
+    // Volatility-scaled exits (walk-forward tuned): stop = 1.5 x ATR14,
+    // target = 2.5 x that risk. This keeps the reward/risk profile constant
+    // across quiet and violent sessions instead of following the model's
+    // wide structural levels.
+    const atrNow = Math.max(1, atr14(window));
+    const stopDistance = Math.max(1, atrNow * STOP_ATR_MULT);
+    const targetDistance = stopDistance * RR_TARGET;
+    const suggestedTrailDistance = Number(signal.riskManagement?.trailingStop?.trailDistance);
 
     pos = {
       index,
@@ -487,14 +484,21 @@ async function replayIndex(
       steps: 0,
       strategyTargetPrice: signal.action === "BUY_CALL" ? entry + targetDistance : entry - targetDistance,
       strategyStopPrice: signal.action === "BUY_CALL" ? entry - stopDistance : entry + stopDistance,
-      strategyTrailTriggerPrice: Number.isFinite(suggestedTrailTrigger)
-        ? entry + (suggestedTrailTrigger - signalReference)
-        : signal.action === "BUY_CALL" ? entry + stopDistance * 0.8 : entry - stopDistance * 0.8,
+      // The R-ladder above owns breakeven and trailing; keep the legacy
+      // trigger out of reach so the two systems cannot fight each other.
+      strategyTrailTriggerPrice: signal.action === "BUY_CALL"
+        ? entry + targetDistance * 10
+        : entry - targetDistance * 10,
       strategyTrailDistance: Number.isFinite(suggestedTrailDistance)
         ? Math.max(1, suggestedTrailDistance)
-        : Math.max(1, atr14(window) * 0.6),
+        : Math.max(1, atrNow * 0.6),
       maxHoldBars: Math.max(1, Number(signal.riskManagement?.maxHoldBars) || 8),
       barsHeld: 0,
+      riskPts: stopDistance,
+      banked: 0,
+      partialDone: false,
+      beDone: false,
+      trailArmed: false,
     };
     i++; // entry consumed the next bar's open; management starts after it
   }
