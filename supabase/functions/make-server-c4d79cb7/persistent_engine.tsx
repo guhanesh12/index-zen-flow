@@ -695,7 +695,7 @@ class PersistentTradingEngine {
     const istOffsetMs = 5.5 * 60 * 60 * 1000;
     const istTime = new Date(now.getTime() + istOffsetMs);
     const currentTimeMinutes = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
-    const marketOpen = 9 * 60 + 15;
+    const marketOpen = 9 * 60;
     const marketClose = 15 * 60 + 30;
 
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
