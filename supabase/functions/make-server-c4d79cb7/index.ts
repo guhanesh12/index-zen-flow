@@ -5214,7 +5214,7 @@ app.post("/make-server-c4d79cb7/backtest/auto-fetch", async (c) => {
       securityId, exchangeSegment, instrument,
       interval: parseInt(interval),
       oi: false,
-      fromDate: `${fmt(fromDate)} 09:15:00`,
+      fromDate: `${fmt(fromDate)} 09:00:00`,
       toDate: `${fmt(toDate)} 15:30:00`
     };
 
