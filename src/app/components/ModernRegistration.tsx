@@ -148,6 +148,7 @@ export default function ModernRegistration({ onRegistrationSuccess, onSwitchToSi
 
   // 📧 Send Email OTP
   const handleSendEmailOtp = async (resend = false) => {
+    if (emailSending) return; // block double clicks -> duplicate emails
     setEmailErr('');
     setEmailMsg('');
     const email = (form.getValues('email') || '').trim();
