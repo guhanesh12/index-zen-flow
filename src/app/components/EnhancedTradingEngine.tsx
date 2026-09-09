@@ -1676,8 +1676,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const istMinutes = istTime.getUTCMinutes();
     const totalMinutes = (istHours * 60) + istMinutes;
     
-    // Market hours: 9:15 AM (555 min) to 3:30 PM (930 min)
-    if (totalMinutes >= 555 && totalMinutes < 930) {
+    // Market hours: 9:00 AM (540 min) to 3:30 PM (930 min)
+    if (totalMinutes >= 540 && totalMinutes < 930) {
       setMarketStatus('OPEN');
     } else {
       setMarketStatus('CLOSED');
