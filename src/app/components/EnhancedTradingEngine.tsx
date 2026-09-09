@@ -1657,7 +1657,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       const totalMinutes = (istHours * 60) + istMinutes;
       
     // Check if within trading hours even on weekend
-      if (totalMinutes >= 555 && totalMinutes < 930) {
+      if (totalMinutes >= 540 && totalMinutes < 930) {
         setMarketStatus('OPEN');
         console.log('⚡ FORCE START ENABLED - Weekend market treated as OPEN');
         return;
