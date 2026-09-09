@@ -181,6 +181,8 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
     } catch (error: any) {
       console.error('Admin login error:', error);
       setError('Login failed. Please try again.');
+    } finally {
+      setBusy(false);
     }
   };
 
