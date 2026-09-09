@@ -1000,7 +1000,7 @@ We maintain dedicated email channels for different types of inquiries:
 
 ### Emergency Support
 For **critical issues during market hours**, we provide priority support:
-- **Market Days**: 9:15 AM - 3:30 PM IST
+- **Market Days**: 9:00 AM - 3:30 PM IST
 - **Access**: Through in-platform live chat
 - **Response Time**: Within 30 minutes
 

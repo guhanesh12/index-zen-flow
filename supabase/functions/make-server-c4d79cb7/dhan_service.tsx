@@ -356,7 +356,7 @@ export class DhanService {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day} 09:15:00`;
+        return `${year}-${month}-${day} 09:00:00`;
       };
       
       const formatToDate = (date: Date) => {

@@ -59,11 +59,11 @@ function isTradingHourIST(now = new Date()): { open: boolean; reason?: string; n
   const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
   const dow = ist.getDay(); // 0=Sun 6=Sat
   if (dow === 0 || dow === 6)
-    return { open: false, reason: "Weekend (markets closed)", nextSession: "Monday 09:15 IST" };
+    return { open: false, reason: "Weekend (markets closed)", nextSession: "Monday 09:00 IST" };
   const mins = ist.getHours() * 60 + ist.getMinutes();
-  if (mins < 9 * 60 + 15) return { open: false, reason: "Pre-market hours", nextSession: "Today 09:15 IST" };
+  if (mins < 9 * 60) return { open: false, reason: "Pre-market hours", nextSession: "Today 09:00 IST" };
   if (mins > 15 * 60 + 30)
-    return { open: false, reason: "Market closed for the day", nextSession: "Next trading day 09:15 IST" };
+    return { open: false, reason: "Market closed for the day", nextSession: "Next trading day 09:00 IST" };
   return { open: true };
 }
 async function isTradingDayDB(): Promise<boolean> {
@@ -695,7 +695,7 @@ class PersistentTradingEngine {
     const istOffsetMs = 5.5 * 60 * 60 * 1000;
     const istTime = new Date(now.getTime() + istOffsetMs);
     const currentTimeMinutes = istTime.getUTCHours() * 60 + istTime.getUTCMinutes();
-    const marketOpen = 9 * 60 + 15;
+    const marketOpen = 9 * 60;
     const marketClose = 15 * 60 + 30;
 
     if (currentTimeMinutes >= marketOpen && currentTimeMinutes <= marketClose) {
@@ -1250,8 +1250,8 @@ class PersistentTradingEngine {
         const msIntoMinute = istNow.getUTCSeconds() * 1000 + istNow.getUTCMilliseconds();
         const minuteOfDay = h * 60 + m;
 
-        // Only during market hours (9:15 – 15:30 IST)
-        const inMarket = minuteOfDay >= 9 * 60 + 15 && minuteOfDay <= 15 * 60 + 30;
+        // Only during market hours (9:00 – 15:30 IST)
+        const inMarket = minuteOfDay >= 9 * 60 && minuteOfDay <= 15 * 60 + 30;
         const key = `${istNow.getUTCFullYear()}-${istNow.getUTCMonth()}-${istNow.getUTCDate()}-${minuteOfDay}`;
 
         if (inMarket && msIntoMinute >= this.CANDLE_SETTLE_MS && key !== this.lastCandleFireKey) {
@@ -1449,11 +1449,11 @@ class PersistentTradingEngine {
       const istOffsetMs = 5.5 * 60 * 60 * 1000;
       const istTime = new Date(now.getTime() + istOffsetMs);
 
-      // Check market hours (9:15 AM - 3:30 PM IST)
+      // Check market hours (9:00 AM - 3:30 PM IST)
       const hours = istTime.getUTCHours();
       const minutes = istTime.getUTCMinutes();
       const currentTimeMinutes = hours * 60 + minutes;
-      const marketOpen = 9 * 60 + 15; // 9:15 AM
+      const marketOpen = 9 * 60; // 9:00 AM
       const marketClose = 15 * 60 + 30; // 3:30 PM
 
       console.log(
@@ -2448,7 +2448,7 @@ class PersistentTradingEngine {
               symbol: actionable.map((a) => `${a.index} ${a.action.replace("BUY_", "")}`).join(", "),
               signalType: "MULTI",
               reason: !tradingDay ? "Today is a market holiday" : market.reason,
-              nextSession: market.nextSession || "Next trading day · 09:15 IST",
+              nextSession: market.nextSession || "Next trading day · 09:00 IST",
             });
           } else {
             sendEmailAsync("signals_combined", userId, {
@@ -4079,7 +4079,7 @@ class PersistentTradingEngine {
     forceRefresh = false,
   ) {
     const minuteOfDay = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
-    const tfs = [5, 15].filter((tf) => (minuteOfDay - (9 * 60 + 15)) % tf === 0);
+    const tfs = [5, 15].filter((tf) => (minuteOfDay - (9 * 60)) % tf === 0);
     if (tfs.length === 0) return { published: 0 };
 
     const creds = await getCentralCredentials();

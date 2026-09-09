@@ -533,7 +533,7 @@ export function ownBrain(message: string, ctx: any): BrainAnswer {
 
       if (!ctx?.market_open) {
         a.verdict = "WAIT";
-        a.summary = `Market is closed (${ctx?.now_ist}). No fresh entry is possible — next session opens 09:15 IST. I'll re-analyse then.`;
+        a.summary = `Market is closed (${ctx?.now_ist}). No fresh entry is possible — next session opens 09:00 IST. I'll re-analyse then.`;
         a.confidence = 100;
         a.risk = "Do not chase after-hours moves; option premiums gap at open.";
         return a;
@@ -568,7 +568,7 @@ export function ownBrain(message: string, ctx: any): BrainAnswer {
       const conf = confluence(read);
       const a = base("Why no trade was taken", "INFO", "");
       const blockers: string[] = [];
-      if (!ctx?.market_open) blockers.push("Market is closed — entries only 09:15–15:30 IST on trading days.");
+      if (!ctx?.market_open) blockers.push("Market is closed — entries only 09:00–15:30 IST on trading days.");
       if (!eng.is_running) blockers.push(`Engine is STOPPED${eng.stopped_reason ? ` (${eng.stopped_reason})` : ""} — no auto entries.`);
       if (!br.connected) blockers.push("Broker not connected — orders cannot be sent.");
       if (br.access_token_expired) blockers.push("Dhan access token expired — order API rejects requests.");

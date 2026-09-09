@@ -135,7 +135,7 @@ async function buildContext(userId: string) {
 
   const nowIst = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   const istHm = new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour12: false }).slice(0, 5);
-  const marketOpen = istHm >= "09:15" && istHm <= "15:30";
+  const marketOpen = istHm >= "09:00" && istHm <= "15:30";
   const b: any = broker.data || null;
   const exp = tokenExpiry(b);
 

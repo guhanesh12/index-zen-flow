@@ -276,7 +276,7 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
     const html = plain(
       `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Signal not placed</h2>
        <p>Hi ${d.name || "there"}, a signal was generated but the order was not placed because the market is closed.</p>
-       ${details([["Symbol", d.symbol || "—"], ["Reason", d.reason || "Outside market hours"], ["Next session", d.nextSession || "Next trading day · 09:15 IST"]])}`
+       ${details([["Symbol", d.symbol || "—"], ["Reason", d.reason || "Outside market hours"], ["Next session", d.nextSession || "Next trading day · 09:00 IST"]])}`
     );
     return { subject: `Signal not placed — market closed`, html, text: htmlToText(html) };
   },
@@ -284,7 +284,7 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
   daily_premarket: (d) => {
     const html = plain(
       `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Pre-market brief</h2>
-       <p>Good morning ${d.name || "there"}. Markets open at <b>09:15 IST</b> today.</p>
+       <p>Good morning ${d.name || "there"}. Markets open at <b>09:00 IST</b> today.</p>
        ${details([["Engine status", d.engineStatus || "Ready"], ["Active symbols", d.activeSymbols || "NIFTY · BANKNIFTY · SENSEX"], ["Wallet balance", `₹${Number(d.balance || 0).toLocaleString("en-IN")}`]])}
        ${btn("Open dashboard", `${BRAND.url}/dashboard`)}`
     );
