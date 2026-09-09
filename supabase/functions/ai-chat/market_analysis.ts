@@ -137,7 +137,7 @@ export async function fetchCandles(
       exchangeSegment: segment,
       instrument,
       interval,
-      fromDate: fmt(from, "09:00:00"),
+      fromDate: fmt(from, "09:15:00"),
       toDate: fmt(to, "15:30:00"),
       oi: false,
     }),

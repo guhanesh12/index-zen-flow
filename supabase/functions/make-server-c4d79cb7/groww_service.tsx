@@ -17,7 +17,7 @@
  *    X-API-VERSION: 1.0
  */
 
-export const GROWW_API = "https://api.groww.in";
+const GROWW_API = "https://api.groww.in";
 
 export interface GrowwOrderRequest {
   tradingSymbol: string;
@@ -94,7 +94,7 @@ export class GrowwService {
         }
       }
       if (!status) {
-        const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
+        const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: ctrl.signal });
         status = resp.status;
         text = await resp.text();
       }

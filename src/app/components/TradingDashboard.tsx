@@ -4,7 +4,7 @@ import { fetchWithAuth, getAccessToken } from "../utils/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, MoreVertical, User, FlaskConical, ArrowRight } from "lucide-react";
+import { BarChart3, Settings, FileText, DollarSign, LogOut, Wallet, MessageSquare, Menu, X, Zap, Server, Key, Link2, Lock, Unlock, MoreVertical, User } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "./ui/sheet";
 const logoWhite = "/logo-white.png";
 import { SettingsPanel } from "./SettingsPanel";
@@ -19,7 +19,6 @@ import WalletManagement from "./WalletManagement";
 import { ProfitDashboard } from "./ProfitDashboard";
 import { UserSupport } from "./UserSupport";
 import { StrategyManager } from "./StrategyManager";
-import { StrategyBacktest } from "./StrategyBacktest";
 import { BrokerRequest } from "./BrokerRequest";
 import UserProfile from "./UserProfile";
 import { projectId } from "@/utils-ext/supabase/info";
@@ -30,23 +29,9 @@ import { NotificationBell } from "./NotificationBell";
 import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
 import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
-import {
-  SymbolStrip,
-  PositionRail,
-  SignalBoard,
-  ActivityRail,
-  BrokerStatusCard,
-  EngineStatusCard,
-  LiveAlertsCard,
-  PerformanceCard,
-  OrdersView,
-  PositionsView,
-} from "./terminal/TerminalPanels";
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 import { WelcomeOnboarding } from "./WelcomeOnboarding";
 import { AIAssistantBot } from "./AIAssistantBot";
-import { BrokerLogo } from "../brokerLogos";
-
 
 interface TradingDashboardProps {
   accessToken: string;
@@ -87,7 +72,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   
   // Get userId from accessToken (JWT decode)
   const [userId, setUserId] = useState<string>('');
-  const [userEmail, setUserEmail] = useState<string>('');
   
   useEffect(() => {
     // Decode JWT to get user ID
@@ -108,7 +92,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       }).join(''));
       const payload = JSON.parse(jsonPayload);
       setUserId(payload.sub || '');
-      setUserEmail(payload.email || payload.user_metadata?.email || '');
       console.log('✅ User ID decoded from token:', payload.sub);
     } catch (error) {
       console.error('Failed to decode access token:', error);
@@ -122,31 +105,15 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   const [activeBroker, setActiveBroker] = useState<string>('dhan');
   const [activeBrokerName, setActiveBrokerName] = useState<string>('Dhan');
 
-  // 🔴 REAL DATA — active broker fund limits & positions (auto-refetch on broker switch)
-  const { funds: dhanFunds, loading: fundsLoading, error: fundsError } = useFundLimits(serverUrl, accessToken, activeBroker);
-  const { positions: dhanPositions, loading: positionsLoading } = usePositions(serverUrl, accessToken, activeBroker);
-
-  // 🌐 Broker-agnostic P&L / qty readers (Dhan, Kite, Groww, Upstox, Fyers, Angel One, Aliceblue, 5paisa)
-  const posQty = (p: any) =>
-    Number(
-      p.netQty ?? p.net_quantity ?? p.netQuantity ?? p.quantity ?? p.qty ?? p.netTradedQuantity ?? 0
-    );
-  const posPnL = (p: any) => {
-    const direct =
-      p.pnl ?? p.PnL ?? p.profitAndLoss ?? p.unrealizedProfit ?? p.unrealisedProfit ?? p.unrealised_pnl;
-    if (direct !== undefined && direct !== null && direct !== '') return Number(direct) || 0;
-    const un = Number(p.unrealizedPnl ?? p.unrealisedPnl ?? p.unrealized_pnl ?? 0) || 0;
-    const re = Number(p.realizedPnl ?? p.realisedPnl ?? p.realized_pnl ?? p.realisedProfit ?? 0) || 0;
-    return un + re;
-  };
-
-  const openPositions = (dhanPositions || []).filter((p: any) => posQty(p) !== 0);
-  const closedPositions = (dhanPositions || []).filter((p: any) => posQty(p) === 0);
-  const realPositionsPnL = (dhanPositions || []).reduce((s: number, p: any) => s + posPnL(p), 0);
-  const openPositionsPnL = openPositions.reduce((s: number, p: any) => s + posPnL(p), 0);
-  const closedPositionsPnL = closedPositions.reduce((s: number, p: any) => s + posPnL(p), 0);
-  const realOpenTrades = openPositions.length;
-
+  // 🔴 REAL DATA — Dhan account fund limits & positions
+  const { funds: dhanFunds } = useFundLimits(serverUrl, accessToken);
+  const { positions: dhanPositions } = usePositions(serverUrl, accessToken);
+  const realPositionsPnL = (dhanPositions || []).reduce(
+    (s: number, p: any) => s + Number(p.unrealizedProfit ?? p.pnl ?? p.unrealisedProfit ?? 0), 0
+  );
+  const realOpenTrades = (dhanPositions || []).filter(
+    (p: any) => Number(p.netQty ?? p.quantity ?? 0) !== 0
+  ).length;
   const realAccountBalance = Number(dhanFunds?.availableBalance ?? 0);
   const realMarginUsed = Number(dhanFunds?.utilizationAmount ?? 0);
 
@@ -354,29 +321,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   // Tab scroll ref for mobile
   const tabsScrollRef = useRef<HTMLDivElement | null>(null);
 
-  // ⚡ HEADER ENGINE STATUS — synced from backend (same source as the engine card)
-  useEffect(() => {
-    if (!accessToken) return;
-    let cancelled = false;
-    const pull = async () => {
-      try {
-        const res = await fetch(`${serverUrl}/engine/db-status`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled || !data?.success) return;
-        setEngineRunning(Boolean(data.engine?.isRunning));
-      } catch {
-        /* transient network error — keep last known status */
-      }
-    };
-    pull();
-    const id = setInterval(pull, 5000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [serverUrl, accessToken]);
-
-
   // ⚡ LOAD TRADING SYMBOLS FOR PERSISTENT ENGINE
   useEffect(() => {
     const loadSymbols = () => {
@@ -461,24 +405,16 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
       return;
     }
     
-    refreshBrokerStatus();
+    checkCredentials();
+    fetchActiveBroker();
     fetchWalletBalance();
-
-    // Re-check broker connection every 20s and when the tab regains focus
-    const brokerInterval = setInterval(refreshBrokerStatus, 20000);
-    const onFocus = () => refreshBrokerStatus();
-    window.addEventListener('focus', onFocus);
-
     
     // Refresh wallet balance every 30 seconds
     const walletInterval = setInterval(fetchWalletBalance, 30000);
     
     return () => {
       clearInterval(walletInterval);
-      clearInterval(brokerInterval);
-      window.removeEventListener('focus', onFocus);
     };
-
   }, [accessToken]); // Add accessToken as dependency
 
   const fetchWalletBalance = async () => {
@@ -504,40 +440,26 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
   };
 
   // 🔀 Which broker is this user on, and is it connected?
-  const fetchActiveBroker = async (): Promise<string> => {
-    if (!accessToken) return 'dhan';
+  const fetchActiveBroker = async () => {
+    if (!accessToken) return;
     try {
       const response = await fetch(`${serverUrl}/broker/active`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const data = await response.json();
       if (data?.success) {
-        const broker = data.activeBroker || 'dhan';
-        setActiveBroker(broker);
+        setActiveBroker(data.activeBroker || 'dhan');
         setActiveBrokerName(data.activeBrokerName || 'Dhan');
         // For non-Dhan brokers the /api-credentials check does not apply —
         // trust the broker status returned by the router.
-        if (broker !== 'dhan') {
+        if ((data.activeBroker || 'dhan') !== 'dhan') {
           setCredentialsConfigured(data.connected === true);
         }
-        return broker;
       }
     } catch (error) {
       console.error('Failed to fetch active broker:', error);
     }
-    return 'dhan';
   };
-
-  // Always resolve the active broker FIRST, then only run the Dhan-specific
-  // credentials check when Dhan is actually the active broker. Otherwise the
-  // Dhan check would overwrite a connected Angel One / Fyers / Zerodha status.
-  const refreshBrokerStatus = async () => {
-    const broker = await fetchActiveBroker();
-    if (broker === 'dhan') {
-      await checkCredentials();
-    }
-  };
-
 
   const checkCredentials = async () => {
     if (!accessToken) {
@@ -714,18 +636,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 {/* 🔔 Notification Bell */}
                 <NotificationBell />
 
-                {/* Profile chip — initial from the signed-in account */}
-                <button
-                  onClick={() => setActiveTab('profile')}
-                  title="Profile"
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors"
-                >
-                  <span className="size-7 rounded-full bg-zinc-800 text-zinc-200 text-xs font-bold flex items-center justify-center">
-                    {(userEmail || 'U').charAt(0).toUpperCase()}
-                  </span>
-                  <span className="text-xs text-zinc-400 max-w-[120px] truncate">{userEmail || 'Profile'}</span>
-                </button>
-
                 {/* Wallet Balance - Enhanced */}
                 <button
                   id="tour-wallet-btn"
@@ -805,96 +715,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
               </div>
             )}
           </div>
-
-          {/* ══ LIVE STATUS RAIL — broker · funds · positions P&L · engine ══ */}
-          <div className="mt-3 -mx-1 px-1 overflow-x-auto no-scrollbar">
-            <div className="flex items-stretch gap-2 sm:gap-3 min-w-max sm:min-w-0">
-              {/* Active broker */}
-              <div className="group flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-zinc-800/70 to-zinc-900/70 border border-zinc-700/60 hover:border-cyan-500/40 transition-all duration-300">
-                <BrokerLogo id={activeBroker} name={activeBrokerName} size={28} className="shrink-0 transition-transform duration-300 group-hover:scale-110" />
-                <div className="leading-tight">
-                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Broker</div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-semibold text-white whitespace-nowrap">{activeBrokerName}</span>
-                    <span className={`size-1.5 rounded-full ${credentialsConfigured ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`} />
-                    <span className={`text-[10px] font-medium ${credentialsConfigured ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {credentialsConfigured ? 'Live' : 'Off'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Available funds */}
-              <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-blue-600/10 to-zinc-900/70 border border-blue-500/25 hover:border-blue-400/50 transition-all duration-300">
-                <DollarSign className="size-4 text-blue-400 shrink-0" />
-                <div className="leading-tight">
-                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Funds · {activeBrokerName}</div>
-                  <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${fundsError ? 'text-amber-400' : 'text-blue-300'}`}>
-                    {fundsLoading && !dhanFunds ? '…' : fundsError ? 'Not available' : `₹${realAccountBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
-                  </div>
-
-                </div>
-              </div>
-
-              {/* Positions P&L — running + closed, per active broker */}
-              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-br from-zinc-900/70 to-zinc-900/70 border transition-all duration-300 ${
-                realPositionsPnL > 0
-                  ? 'border-emerald-500/30 hover:border-emerald-400/60'
-                  : realPositionsPnL < 0
-                    ? 'border-red-500/30 hover:border-red-400/60'
-                    : 'border-zinc-700/60'
-              }`}>
-                <BarChart3 className={`size-4 shrink-0 ${realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}`} />
-                <div className="leading-tight">
-                  <div className="text-[10px] uppercase tracking-wide text-zinc-500 whitespace-nowrap">
-                    Positions · {activeBrokerName} ({positionsLoading && (dhanPositions || []).length === 0 ? '…' : (dhanPositions || []).length})
-                  </div>
-
-                  <div className={`text-sm font-bold tabular-nums whitespace-nowrap ${
-                    realPositionsPnL > 0 ? 'text-emerald-400' : realPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-300'
-                  }`}>
-                    {realPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(realPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] whitespace-nowrap mt-0.5">
-                    <span className="text-zinc-500">
-                      Running {realOpenTrades}{' '}
-                      <span className={openPositionsPnL > 0 ? 'text-emerald-400' : openPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}>
-                        {openPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(openPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                    </span>
-                    <span className="text-zinc-700">|</span>
-                    <span className="text-zinc-500">
-                      Closed {closedPositions.length}{' '}
-                      <span className={closedPositionsPnL > 0 ? 'text-emerald-400' : closedPositionsPnL < 0 ? 'text-red-400' : 'text-zinc-400'}>
-                        {closedPositionsPnL >= 0 ? '+' : '−'}₹{Math.abs(closedPositionsPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-
-              {/* Engine status */}
-              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all duration-300 ${
-                engineRunning
-                  ? 'bg-gradient-to-br from-emerald-600/15 to-zinc-900/70 border-emerald-500/40 shadow-[0_0_18px_-6px_rgba(16,185,129,0.6)]'
-                  : 'bg-zinc-800/50 border-zinc-700/60'
-              }`}>
-                <span className="relative flex size-2.5 shrink-0">
-                  {engineRunning && <span className="absolute inline-flex size-full rounded-full bg-emerald-400 opacity-70 animate-ping" />}
-                  <span className={`relative inline-flex size-2.5 rounded-full ${engineRunning ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-                </span>
-                <div className="leading-tight">
-                  <div className="text-[10px] uppercase tracking-wide text-zinc-500">Engine</div>
-                  <div className={`text-sm font-semibold whitespace-nowrap ${engineRunning ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                    {engineRunning ? 'Running' : 'Stopped'}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
-
 
         {/* Mobile Menu Dropdown */}
         {(isMobile || isTablet) && mobileMenuOpen && (
@@ -1019,67 +840,68 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
         >
           {/* Tabs - Desktop: grid; Mobile: 3-dot menu */}
           <div className="relative" ref={tabsScrollRef}>
-            {(() => {
-              const MAIN_TABS = [
-                { value: 'dashboard', icon: BarChart3, label: 'Home' },
-                { value: 'orders', icon: FileText, label: 'Orders' },
-                { value: 'positions', icon: ActivityIcon, label: 'Positions' },
-                { value: 'settings', icon: Link2, label: 'Broker' },
-              ];
-              const MORE_TABS = [
-                { value: 'symbols', icon: DollarSign, label: 'Auto Symbols' },
-                { value: 'strategies', icon: Zap, label: 'Strategies' },
-                { value: 'backtest', icon: FlaskConical, label: 'Backtest' },
-                { value: 'journal', icon: FileText, label: 'Journal' },
-                { value: 'support', icon: MessageSquare, label: 'Support' },
-                { value: 'profile', icon: User, label: 'Profile' },
-                { value: 'logs', icon: FileText, label: 'Logs' },
-              ];
-              const moreActive = MORE_TABS.some(t => t.value === activeTab);
-              return (
-                <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 p-1 rounded-xl">
-                  {MAIN_TABS.map(({ value, icon: Icon, label }) => (
-                    <button
-                      key={value}
-                      onClick={() => setActiveTab(value)}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        activeTab === value
-                          ? 'bg-zinc-800 text-white'
-                          : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900'
-                      }`}
+            {isMobile ? (
+              <div className="flex items-center justify-between gap-2 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-2 rounded-xl shadow-xl">
+                <div className="flex items-center gap-2 min-w-0">
+                  {(() => {
+                    const tabMeta: Record<string, { icon: any; label: string }> = {
+                      dashboard: { icon: BarChart3, label: 'Dashboard' },
+                      symbols: { icon: DollarSign, label: 'Symbols' },
+                      settings: { icon: Settings, label: 'Broker Setup' },
+                      journal: { icon: FileText, label: 'Journal' },
+                      strategies: { icon: Zap, label: 'Strategies' },
+                      support: { icon: MessageSquare, label: 'Support' },
+                      profile: { icon: User, label: 'Profile' },
+                      logs: { icon: FileText, label: 'Logs' },
+                    };
+                    const current = tabMeta[activeTab] || tabMeta.dashboard;
+                    const Icon = current.icon;
+                    return (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 text-white text-sm font-medium truncate">
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{current.label}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+                <Sheet open={mobileTabMenuOpen} onOpenChange={setMobileTabMenuOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-zinc-300 hover:bg-zinc-800 flex-shrink-0"
+                      aria-label="Open tab menu"
                     >
-                      <Icon className="w-4 h-4" />
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                  <Sheet open={mobileTabMenuOpen} onOpenChange={setMobileTabMenuOpen}>
-                    <SheetTrigger asChild>
-                      <button
-                        className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          moreActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900'
-                        }`}
-                        aria-label="More sections"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                        <span className="hidden sm:inline">More</span>
-                        {supportUnreadCount > 0 && (
-                          <span className="size-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
-                            {supportUnreadCount}
-                          </span>
-                        )}
-                      </button>
-                    </SheetTrigger>
-                    <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
-                      <SheetHeader className="p-4 border-b border-zinc-800">
-                        <SheetTitle className="text-white">More</SheetTitle>
-                      </SheetHeader>
-                      <div className="p-2 space-y-1">
-                        {MORE_TABS.map(({ value, icon: Icon, label }) => (
+                      <MoreVertical className="w-5 h-5" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
+                    <SheetHeader className="p-4 border-b border-zinc-800">
+                      <SheetTitle className="text-white">All Tabs</SheetTitle>
+                    </SheetHeader>
+                    <div className="p-2 space-y-1">
+                      {[
+                        { value: 'dashboard', icon: BarChart3, label: 'Dashboard' },
+                        { value: 'symbols', icon: DollarSign, label: 'Symbols' },
+                        { value: 'settings', icon: Settings, label: 'Broker Setup' },
+                        { value: 'journal', icon: FileText, label: 'Journal' },
+                        { value: 'strategies', icon: Zap, label: 'Strategies' },
+                        { value: 'support', icon: MessageSquare, label: 'Support' },
+                        { value: 'profile', icon: User, label: 'Profile' },
+                        { value: 'logs', icon: FileText, label: 'Logs' },
+                      ].map(({ value, icon: Icon, label }) => {
+                        const active = activeTab === value;
+                        return (
                           <button
                             key={value}
-                            onClick={() => { setActiveTab(value); setMobileTabMenuOpen(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
-                              activeTab === value ? 'bg-zinc-800 text-white' : 'text-zinc-300 hover:bg-zinc-900'
+                            onClick={() => {
+                              setActiveTab(value);
+                              setMobileTabMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${
+                              active
+                                ? 'bg-gradient-to-r from-emerald-600 to-blue-600 text-white shadow-lg shadow-emerald-500/20'
+                                : 'text-zinc-300 hover:bg-zinc-800'
                             }`}
                           >
                             <Icon className="w-5 h-5 flex-shrink-0" />
@@ -1090,70 +912,123 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                               </span>
                             )}
                           </button>
-                        ))}
-                      </div>
-                    </SheetContent>
-                  </Sheet>
-                </div>
-              );
-            })()}
+                        );
+                      })}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
+            ) : (
+              <TabsList className="grid grid-cols-8 w-full bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/50 p-1 rounded-xl shadow-xl gap-1">
+                <TabsTrigger id="tour-tab-dashboard" value="dashboard" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <BarChart3 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Dashboard</span>
+                </TabsTrigger>
+                <TabsTrigger id="tour-tab-symbols" value="symbols" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <DollarSign className="w-4 h-4" />
+                  <span className="hidden sm:inline">Symbols</span>
+                </TabsTrigger>
+                <TabsTrigger id="tour-tab-settings" value="settings" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden sm:inline">Broker Setup</span>
+                </TabsTrigger>
+                <TabsTrigger id="tour-tab-journal" value="journal" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden sm:inline">Journal</span>
+                </TabsTrigger>
+                <TabsTrigger value="strategies" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <Zap className="w-4 h-4" />
+                  <span className="hidden sm:inline">Strategies</span>
+                </TabsTrigger>
+                <TabsTrigger value="support" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm relative">
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="hidden sm:inline">Support</span>
+                  {supportUnreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 size-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                      {supportUnreadCount}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="profile" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <User className="w-4 h-4" />
+                  <span className="hidden sm:inline">Profile</span>
+                </TabsTrigger>
+                <TabsTrigger value="logs" className="text-zinc-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-blue-600 data-[state=active]:text-white rounded-lg transition-all duration-300 data-[state=active]:shadow-lg data-[state=active]:shadow-emerald-500/20 flex items-center justify-center gap-2 px-3 py-2 text-sm">
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden sm:inline">Logs</span>
+                </TabsTrigger>
+              </TabsList>
+            )}
           </div>
 
+          {/* ⚡⚡⚡ PERSISTENT ENGINE - ALWAYS MOUNTED, CONDITIONALLY VISIBLE ⚡⚡⚡ */}
+          {/* This stays mounted even when switching tabs to keep the engine running */}
+          {walletBalance >= 89 && (
+            <div 
+              className={activeTab === "dashboard" ? "block space-y-6" : "hidden"}
+            >
+              <EnhancedTradingEngine
+                serverUrl={serverUrl}
+                accessToken={accessToken}
+                onLog={addLog}
+              />
+            </div>
+          )}
 
           {/* Dashboard Tab Content */}
           <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-500">
             {/* 💰 WALLET BALANCE CHECK - Show Dashboard UI only if balance >= ₹89 */}
             {walletBalance >= 89 ? (
               <>
-                <SymbolStrip
-                  serverUrl={serverUrl}
-                  accessToken={accessToken}
-                  openPnL={openPositionsPnL}
-                  closedPnL={closedPositionsPnL}
+                {/* 🚀 NEW: Premium fintech overview */}
+                <SectionHeader
+                  icon={Sparkles}
+                  title="Trading Overview"
+                  desc="Your complete picture in one glance — markets, P&L, AI confidence and risk."
+                />
+                <KpiGrid
+                  totalPnL={realPositionsPnL + (stats.totalPnL || 0)}
+                  todayPnL={realPositionsPnL}
+                  winRate={stats.winRate || 0}
+                  runningStrategies={engineRunning ? 1 : 0}
+                  openTrades={realOpenTrades || activePositions.length}
+                  aiConfidence={lastSignal?.confidence ?? 0}
+                  walletBalance={realAccountBalance || walletBalance}
+                  marginUsed={realMarginUsed}
                 />
 
-                <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)_320px] gap-4 items-start">
-                  {/* LEFT — positions, P&L, exit */}
-                  <div className="space-y-4 xl:sticky xl:top-4">
-                    <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 space-y-4">
+                    <MarketOverview serverUrl={serverUrl} accessToken={accessToken} />
+                    <PerformanceChart serverUrl={serverUrl} accessToken={accessToken} />
                   </div>
-
-                  {/* CENTRE — signals + position monitor */}
-                  <div className="space-y-4 min-w-0">
-                    <SignalBoard />
-                    <AdvancedPositionMonitor accessToken={accessToken} />
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('backtest')}
-                      className="w-full text-left rounded-xl border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-3 hover:border-zinc-700 transition-colors"
-                    >
-                      <FlaskConical className="size-5 text-zinc-400 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-zinc-100">Strategy Backtest</div>
-                        <div className="text-xs text-zinc-500 truncate">
-                          Replay the live strategy on real NIFTY, BANKNIFTY & SENSEX data.
-                        </div>
+                  <div className="space-y-4">
+                    <RiskCenter serverUrl={serverUrl} accessToken={accessToken} walletBalance={realAccountBalance || walletBalance} />
+                    <div className="glass-card p-4 glow-ai">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Brain className="size-4 text-ai" />
+                        <h3 className="font-semibold">AI Signal Engine</h3>
                       </div>
-                      <ArrowRight className="size-4 text-zinc-500" />
-                    </button>
-                  </div>
-
-                  {/* RIGHT — engine, broker, activity */}
-                  <div className="space-y-4 xl:sticky xl:top-4">
-                    <EngineStatusCard />
-                    <BrokerStatusCard
-                      broker={activeBroker}
-                      brokerName={activeBrokerName}
-                      connected={credentialsConfigured}
-                      funds={fundsError ? null : realAccountBalance}
-                      onOpenBroker={() => setActiveTab('settings')}
-                    />
-                    <LiveAlertsCard />
-                    <ActivityRail logs={logs} />
-                    <PerformanceCard />
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Live multi-indicator AI scanning NIFTY, BANKNIFTY & SENSEX every candle close.
+                      </p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5"><span className="live-dot" /> Online</span>
+                        <span className="text-muted-foreground">Confidence floor 65%</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
+                {/* Existing detailed sections — kept intact */}
+                <SectionHeader icon={ActivityIcon} title="Live Positions & Engine" desc="Real-time monitor with momentum guard, give-back & time-stop." />
+                <ProfitDashboard accessToken={accessToken} />
+                <AdvancedPositionMonitor accessToken={accessToken} />
+                <AdvancedDashboard
+                  serverUrl={serverUrl}
+                  accessToken={accessToken}
+                  credentialsConfigured={credentialsConfigured}
+                />
               </>
             ) : (
               /* 💳 INSUFFICIENT WALLET BALANCE WARNING */
@@ -1227,46 +1102,26 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             )}
           </TabsContent>
 
-          <TabsContent value="orders" className="space-y-4">
-            <SymbolStrip
-              serverUrl={serverUrl}
-              accessToken={accessToken}
-              openPnL={openPositionsPnL}
-              closedPnL={closedPositionsPnL}
-            />
-            <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start">
-              <div className="xl:sticky xl:top-4">
-                <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
-              </div>
-              <OrdersView logs={logs} serverUrl={serverUrl} accessToken={accessToken} />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="positions" className="space-y-4">
-            <SymbolStrip
-              serverUrl={serverUrl}
-              accessToken={accessToken}
-              openPnL={openPositionsPnL}
-              closedPnL={closedPositionsPnL}
-            />
-            <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start">
-              <div className="xl:sticky xl:top-4">
-                <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
-              </div>
-              <PositionsView serverUrl={serverUrl} accessToken={accessToken} />
-            </div>
-          </TabsContent>
-
           <TabsContent value="symbols">
-            <div className="animate-in fade-in-50 duration-500">
-              <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
+            <div className="animate-in fade-in-50 duration-500 space-y-4">
+              <Tabs defaultValue="auto" className="w-full">
+                <TabsList className="w-full grid grid-cols-2 bg-zinc-800/70 border border-zinc-700/50">
+                  <TabsTrigger value="auto" className="flex items-center gap-2">
+                    ⚡ Auto
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">Recommended</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="manual">📝 Manual</TabsTrigger>
+                </TabsList>
+                <TabsContent value="auto" className="mt-4">
+                  <AutoSymbolConfig serverUrl={serverUrl} accessToken={accessToken} userId={userId} />
+                </TabsContent>
+                <TabsContent value="manual" className="mt-4">
+                  <SymbolManager serverUrl={serverUrl} accessToken={accessToken} />
+                </TabsContent>
+              </Tabs>
             </div>
           </TabsContent>
 
-
-          <TabsContent value="backtest">
-            <StrategyBacktest accessToken={accessToken} />
-          </TabsContent>
 
           <TabsContent value="journal">
             <div className="animate-in fade-in-50 duration-500">
@@ -1280,12 +1135,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
 
           <TabsContent value="settings">
             <div className="animate-in fade-in-50 duration-500 space-y-4">
-              <SymbolStrip
-                serverUrl={serverUrl}
-                accessToken={accessToken}
-                openPnL={openPositionsPnL}
-                closedPnL={closedPositionsPnL}
-              />
               {/* Broker Setup Sub-Tabs */}
               <div className="flex gap-1 p-1 bg-zinc-800/70 rounded-xl border border-zinc-700/50">
                 <button
@@ -1330,9 +1179,9 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                     serverUrl={serverUrl} 
                     accessToken={accessToken}
                     onSettingsSaved={() => {
-                      refreshBrokerStatus();
+                      checkCredentials();
+                      fetchActiveBroker();
                     }}
-
                     onGoToStaticIp={() => setBrokerTab('static-ip')}
                   />
                 </div>
@@ -1570,17 +1419,6 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
             </div>
           </TabsContent>
         </Tabs>
-
-        {/* ⚡ PERSISTENT ENGINE — always mounted so the engine keeps running across tabs */}
-        {walletBalance >= 89 && (
-          <div className="hidden">
-            <EnhancedTradingEngine
-              serverUrl={serverUrl}
-              accessToken={accessToken}
-              onLog={addLog}
-            />
-          </div>
-        )}
       </main>
 
       {/* Wallet Management Modal */}

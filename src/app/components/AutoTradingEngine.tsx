@@ -43,7 +43,7 @@ export function AutoTradingEngine({
   const positionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const priceUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check if market is open (weekdays only, 9:00 AM - 3:30 PM IST)
+  // Check if market is open (weekdays only, 9:15 AM - 3:30 PM IST)
   const checkMarketStatus = () => {
     const now = new Date();
     
@@ -63,7 +63,7 @@ export function AutoTradingEngine({
     const minutes = istTime.getMinutes();
     const timeInMinutes = hours * 60 + minutes;
     
-    const marketOpen = 9 * 60; // 9:00 AM
+    const marketOpen = 9 * 60 + 15; // 9:15 AM
     const marketClose = 15 * 60 + 30; // 3:30 PM
     
     if (timeInMinutes >= marketOpen && timeInMinutes < marketClose) {
@@ -265,7 +265,7 @@ export function AutoTradingEngine({
 
   const startEngine = () => {
     if (!checkMarketStatus()) {
-      alert('Market is closed! Trading hours: 9:00 AM - 3:30 PM IST');
+      alert('Market is closed! Trading hours: 9:15 AM - 3:30 PM IST');
       return;
     }
 

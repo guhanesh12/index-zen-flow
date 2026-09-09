@@ -16,7 +16,7 @@
  * Every call carries:  Authorization: Bearer <access_token>
  */
 
-export const UPSTOX_API = "https://api.upstox.com";
+const UPSTOX_API = "https://api.upstox.com";
 
 export interface UpstoxOrderRequest {
   instrumentToken: string; // e.g. "NSE_FO|43812"
@@ -137,7 +137,7 @@ export class UpstoxService {
         }
       }
       if (!status) {
-        const resp = await fetch(`${UPSTOX_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
+        const resp = await fetch(`${UPSTOX_API}${path}`, { ...init, headers, signal: ctrl.signal });
         status = resp.status;
         text = await resp.text();
       }
