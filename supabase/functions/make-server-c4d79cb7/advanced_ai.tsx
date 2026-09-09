@@ -2569,7 +2569,7 @@ export class AdvancedAI {
     const openingRangeCandles = priorLevelData.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
       const mins = this.getIstMinutes(tsMs);
-      return mins >= 9 * 60 + 15 && mins <= 10 * 60 + 30;
+      return mins >= 9 * 60 && mins <= 10 * 60 + 30;
     });
     const openingRangeHigh = openingRangeCandles.length
       ? Math.max(...openingRangeCandles.map((c) => c.high))
