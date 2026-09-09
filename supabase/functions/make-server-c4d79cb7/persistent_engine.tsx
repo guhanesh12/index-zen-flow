@@ -1250,8 +1250,8 @@ class PersistentTradingEngine {
         const msIntoMinute = istNow.getUTCSeconds() * 1000 + istNow.getUTCMilliseconds();
         const minuteOfDay = h * 60 + m;
 
-        // Only during market hours (9:15 – 15:30 IST)
-        const inMarket = minuteOfDay >= 9 * 60 + 15 && minuteOfDay <= 15 * 60 + 30;
+        // Only during market hours (9:00 – 15:30 IST)
+        const inMarket = minuteOfDay >= 9 * 60 && minuteOfDay <= 15 * 60 + 30;
         const key = `${istNow.getUTCFullYear()}-${istNow.getUTCMonth()}-${istNow.getUTCDate()}-${minuteOfDay}`;
 
         if (inMarket && msIntoMinute >= this.CANDLE_SETTLE_MS && key !== this.lastCandleFireKey) {
