@@ -256,7 +256,7 @@ async function replayIndex(
       qty: p.qty,
       premiumEntry: Number(p.premiumEntry.toFixed(2)),
       premiumExit: Number(premiumExit.toFixed(2)),
-      pnl: Number((grossPnl - costs).toFixed(2)),
+      pnl: Number((p.banked + grossPnl - costs).toFixed(2)),
       confidence: p.confidence,
       reason,
     });
