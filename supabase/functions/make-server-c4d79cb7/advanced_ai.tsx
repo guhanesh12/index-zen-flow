@@ -3226,16 +3226,17 @@ export class AdvancedAI {
       lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout =
       lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    // ⚡ GUARD 1: no fresh intraday entries after 14:15 IST on the 15m strategy
-    // (late-day entries had no time to reach target and produced the largest losses).
+    // ⚡ GUARD 1: no fresh intraday entries after 13:30 IST on the 15m strategy
+    // (walk-forward tested: late-day entries had no time to reach target and
+    // produced the largest losses).
     const lastEntryMinute =
       options.blockNewEntriesAfterMinutes ??
-      (timeframeMinutes >= 15 ? 14 * 60 + 15 : 15 * 60 + 25);
-    // ⚡ GUARD 3: no fresh 15m entries in the first two candles (09:00 / 09:15) —
-    // opening noise produced the biggest cluster of losses.
+      (timeframeMinutes >= 15 ? 13 * 60 + 30 : 15 * 60 + 25);
+    // ⚡ GUARD 3: no fresh 15m entries before 09:45 — the opening auction
+    // candles produced the biggest cluster of losses.
     const firstEntryMinute =
       options.blockNewEntriesBeforeMinutes ??
-      (timeframeMinutes >= 15 ? 9 * 60 + 30 : 9 * 60 + 5);
+      (timeframeMinutes >= 15 ? 9 * 60 + 45 : 9 * 60 + 5);
     const lateNewEntryBlocked =
       _istMinSess >= lastEntryMinute || _istMinSess < firstEntryMinute;
 
