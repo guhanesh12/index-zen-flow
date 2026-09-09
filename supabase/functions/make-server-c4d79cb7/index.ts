@@ -12169,6 +12169,10 @@ app.post("/make-server-c4d79cb7/admin/email-otp/resend", async (c) => {
     ch.emailOtpAttempts = 0;
     await kv.set(key, JSON.stringify(ch));
 
+    // Explicit resend always mails — refresh the cooldown row so a repeated
+    // login in the next minute reuses this newest code instead of mailing again.
+    await kv.set(`admin_login_otp_cd:${ch.email}`, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
+    otpLockAcquire(`adminmail:${ch.email}`);
     const mailed = await sendAdminEmailOtp(ch.email, ch.fullName || 'Admin', emailOtp);
     await logAdminSecurityEvent({
       action: 'admin_login_email_otp_resent', email: ch.email, status: mailed ? 'success' : 'failed', c,
