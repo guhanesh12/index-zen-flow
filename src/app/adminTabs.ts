@@ -33,11 +33,14 @@ export const TAB_TREE: TabDef[] = [
     { key: 'system-health',    label: 'System Health' },
     { key: 'backend',          label: 'Backend Config' },
     { key: 'brevo',            label: 'Brevo Communications' },
-    { key: 'market-data',      label: 'Market Data Center' },
+    
     { key: 'brokers',          label: 'Broker Control' },
     { key: 'vps-power',        label: 'VPS Power' },
     { key: 'app-update',       label: 'App Update' },
   ]},
+  { key: 'marketData', label: 'Market Data', subs: [] },
+  { key: 'backtests', label: 'User Backtests', subs: [] },
+
   { key: 'referrals', label: 'Referrals', subs: [
     { key: 'settings',    label: 'Settings' },
     { key: 'list',        label: 'Referrals' },
@@ -50,6 +53,7 @@ export const TAB_TREE: TabDef[] = [
   { key: 'mobile',        label: 'Mobile App',   subs: [] },
   { key: 'aiChats',       label: 'AI Assistant Chats', subs: [] },
   { key: 'audit',         label: 'Audit Log',    subs: [] },
+  { key: 'sessions',      label: 'Admin Sessions', subs: [] },
 
 ];
 

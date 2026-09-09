@@ -276,6 +276,8 @@ export interface AdvancedSignalOptions {
   consecutiveLossThreshold?: number; // default 3
   consecutiveLossCooldownMs?: number; // default 30 * 60 * 1000
   blockNewEntriesAfterMinutes?: number; // default 15:00 IST — no fresh intraday entries after this
+  blockNewEntriesBeforeMinutes?: number; // default 09:45 IST on 15m — skip opening-noise candles
+
 }
 
 export class AdvancedAI {
@@ -295,7 +297,7 @@ export class AdvancedAI {
     const istDayKey = (tsMs: number) =>
       new Date(tsMs + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const targetDay = istDayKey(lastTsMs);
-    const sessionStart = 9 * 60 + 15;
+    const sessionStart = 9 * 60;
     const sessionEnd = 15 * 60 + 30;
     const session = data.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
@@ -452,7 +454,7 @@ export class AdvancedAI {
    * Calculate VWAP (Volume Weighted Average Price)
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
-    // Anchor VWAP to 09:15 IST session start (NSE standard)
+    // Anchor VWAP to 09:00 IST session start
     const sessionCandles = this.getCurrentSessionCandles(data, true);
     const candles = sessionCandles.length > 0 ? sessionCandles : data;
     let cumulativeTPV = 0;
@@ -1676,7 +1678,7 @@ export class AdvancedAI {
     const _tsDate = new Date(_candleTsMs + 5.5 * 60 * 60 * 1000);
     const _tsIstMinutes = _tsDate.getUTCHours() * 60 + _tsDate.getUTCMinutes();
     const _looksLikeDhanCloseTime =
-      _tsIstMinutes >= 9 * 60 + 15 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
+      _tsIstMinutes >= 9 * 60 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
     const _candleCloseMs = _looksLikeDhanCloseTime
       ? _candleTsMs
       : _candleTsMs + _tfMin * 60 * 1000;
@@ -1940,7 +1942,7 @@ export class AdvancedAI {
     const istMinForVol =
       istNowForVol.getUTCHours() * 60 + istNowForVol.getUTCMinutes();
     const isMorningSession =
-      istMinForVol >= 9 * 60 + 15 && istMinForVol < 11 * 60;
+      istMinForVol >= 9 * 60 && istMinForVol < 11 * 60;
     const volumeAdjustment = isMorningSession ? 0.85 : 1.0; // morning naturally has higher volume
     const adjustedVolumeRatio = volumeRatio * volumeAdjustment;
 
@@ -2567,7 +2569,7 @@ export class AdvancedAI {
     const openingRangeCandles = priorLevelData.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
       const mins = this.getIstMinutes(tsMs);
-      return mins >= 9 * 60 + 15 && mins <= 10 * 60 + 30;
+      return mins >= 9 * 60 && mins <= 10 * 60 + 30;
     });
     const openingRangeHigh = openingRangeCandles.length
       ? Math.max(...openingRangeCandles.map((c) => c.high))
@@ -2700,6 +2702,20 @@ export class AdvancedAI {
       cooldownActive && options.lastSignalDirection === "BUY_CALL";
     const cooldownBlocksBear =
       cooldownActive && options.lastSignalDirection === "BUY_PUT";
+    // ⚡ GUARD 2: no immediate counter-trend re-entry — after a signal, an opposite-direction
+    // signal must wait at least 2 bars (whipsaw flip-flop protection).
+    const reversalCooldownBars = 2;
+    const reversalTooSoon =
+      isFinite(barsSinceLastSignal) &&
+      Math.abs(barsSinceLastSignal) < reversalCooldownBars &&
+      (options.lastSignalDirection === "BUY_CALL" ||
+        options.lastSignalDirection === "BUY_PUT");
+    const reversalBlocksBull =
+      reversalTooSoon && options.lastSignalDirection === "BUY_PUT";
+    const reversalBlocksBear =
+      reversalTooSoon && options.lastSignalDirection === "BUY_CALL";
+
+
 
     // ===== FIX 6: FAKE BREAKOUT DETECTION =====
     // Breakout candle but weak close, dominant wick, no volume expansion, no BB expansion.
@@ -2730,10 +2746,10 @@ export class AdvancedAI {
     // ADX > 35 → 4 (strong trend, few confirmations needed)
     // ADX 22-35 → 5 (lowered from 25 to catch trending-but-not-strong days like 22-May)
     // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
-    // ⚡ FAST OPENING: first 75min (09:15-10:30) drop confirmation so the 09:30/09:45/10:00
+    // ⚡ FAST OPENING: first 75min (09:00-10:15) drop confirmation so the 09:05/09:15/09:30
     //   closed momentum candles can fire before slow indicators fully settle.
     const earlyOpeningSession =
-      istMinutes >= 9 * 60 + 15 && istMinutes <= 10 * 60 + 30;
+      istMinutes >= 9 * 60 && istMinutes <= 10 * 60 + 15;
     const openingRelief = earlyOpeningSession ? 1 : 0;
     const requiredConfirmations = Math.max(
       3,
@@ -2935,7 +2951,7 @@ export class AdvancedAI {
       _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
 
     // ===== FIX 4: SESSION-BASED MARKET BEHAVIOR =====
-    // 09:15–10:30 volatile breakout | 10:30–13:00 trend continuation
+    // 09:00–10:30 volatile breakout | 10:30–13:00 trend continuation
     // 13:00–14:15 sideways          | 14:15–15:30 trend expansion
     type SessionBehavior =
       | "VOLATILE_BREAKOUT"
@@ -2945,7 +2961,7 @@ export class AdvancedAI {
       | "OFF_HOURS";
     let sessionBehavior: SessionBehavior = "OFF_HOURS";
     let sessionBehaviorModifier = 0;
-    if (_istMinSess >= 9 * 60 + 15 && _istMinSess < 10 * 60 + 30) {
+    if (_istMinSess >= 9 * 60 && _istMinSess < 10 * 60 + 30) {
       sessionBehavior = "VOLATILE_BREAKOUT";
       sessionBehaviorModifier = 3; // breakout-friendly
     } else if (_istMinSess >= 10 * 60 + 30 && _istMinSess < 13 * 60) {
@@ -3210,9 +3226,19 @@ export class AdvancedAI {
       lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout =
       lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    // ⚡ FIX: Relaxed late-entry gate from 15:15 → 15:25 IST so the 15:15 candle close still produces a tradeable signal.
-    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 25; // 15:25 IST
-    const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
+    // ⚡ GUARD 1: no fresh intraday entries after 14:15 IST on the 15m strategy
+    // (late-day entries had no time to reach target and produced the largest losses).
+    const lastEntryMinute =
+      options.blockNewEntriesAfterMinutes ??
+      (timeframeMinutes >= 15 ? 14 * 60 + 15 : 15 * 60 + 25);
+    // ⚡ GUARD 3: no fresh 15m entries in the first two candles (09:00 / 09:15) —
+    // opening noise produced the biggest cluster of losses.
+    const firstEntryMinute =
+      options.blockNewEntriesBeforeMinutes ??
+      (timeframeMinutes >= 15 ? 9 * 60 + 30 : 9 * 60 + 5);
+    const lateNewEntryBlocked =
+      _istMinSess >= lastEntryMinute || _istMinSess < firstEntryMinute;
+
 
     const strongBullish =
       (confirmationBullish || ultraFastOpeningBull) &&
@@ -3789,6 +3815,11 @@ export class AdvancedAI {
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
+    } else if ((action === "BUY_CALL" && reversalBlocksBull) || (action === "BUY_PUT" && reversalBlocksBear)) {
+      action = "WAIT";
+      confidence = 35;
+      bias = "Neutral";
+      reasoning = `WAIT: Counter-trend re-entry guard — opposite signal only ${barsSinceLastSignal.toFixed(1)}/${reversalCooldownBars} bars after a ${options.lastSignalDirection}. Avoiding whipsaw flip.`;
     } else if (
       false /* HTF disagreement is now soft-scored, never a hard WAIT */
     ) {

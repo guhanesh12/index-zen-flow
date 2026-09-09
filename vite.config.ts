@@ -20,7 +20,40 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
+    build: {
+      target: 'es2020',
+      cssCodeSplit: true,
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return;
+            if (
+              id.includes('clsx') ||
+              id.includes('tailwind-merge') ||
+              id.includes('class-variance-authority')
+            ) return 'utils';
+            if (id.includes('react-router')) return 'router';
+
+            if (id.includes('/react/') || id.includes('react-dom') || id.includes('scheduler')) return 'react';
+            
+            if (id.includes('@supabase')) return 'supabase';
+            if (id.includes('firebase')) return 'firebase';
+            if (id.includes('xlsx')) return 'xlsx';
+            if (id.includes('lucide-react')) return 'icons';
+            if (id.includes('@radix-ui')) return 'radix';
+            if (id.includes('@mui') || id.includes('@emotion')) return 'mui';
+            if (id.includes('framer-motion') || id.includes('/motion/')) return 'motion';
+            // everything else: let Rollup split per-route so lazy pages
+            // don't drag their dependencies into the landing bundle.
+            return undefined;
+
+          },
+        },
+      },
+    },
     server: {
+
       host: "::",
       port: 8080,
       hmr: {

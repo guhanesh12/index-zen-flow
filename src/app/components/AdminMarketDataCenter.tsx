@@ -8,6 +8,7 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { Satellite, RefreshCw, ShieldCheck, AlertTriangle, Radio } from 'lucide-react';
+import { AdminCentralSignalHistory } from './AdminCentralSignalHistory';
 
 interface Props {
   serverUrl: string;
@@ -42,6 +43,7 @@ const actionTone = (action?: string) => {
 
 
 export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
+  const [view, setView] = useState<'live' | 'history'>('live');
   const [status, setStatus] = useState<any>(null);
   const [signals, setSignals] = useState<any>(null);
   const [feed, setFeed] = useState<any>(null);
@@ -153,8 +155,24 @@ export function AdminMarketDataCenter({ serverUrl, accessToken }: Props) {
     return <Badge variant="secondary">Unknown</Badge>;
   };
 
+  if (view === 'history') {
+    return (
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setView('live')}>Live Center</Button>
+          <Button size="sm" variant="default">Signal History</Button>
+        </div>
+        <AdminCentralSignalHistory serverUrl={serverUrl} accessToken={accessToken} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex gap-2">
+        <Button size="sm" variant="default">Live Center</Button>
+        <Button size="sm" variant="outline" onClick={() => setView('history')}>Signal History</Button>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

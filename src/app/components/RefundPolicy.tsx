@@ -16,7 +16,7 @@ export function RefundPolicy() {
         title="Refund Policy - IndexPilotAI"
         description="Learn about IndexPilotAI's wallet-based refund policy, 60-day inactivity auto-refund rules, and payment terms for our algorithmic trading platform."
         keywords="refund policy, wallet system, payment terms, no refund policy, IndexPilotAI refunds"
-        canonical="/refund-policy"
+        canonical="https://www.indexpilotai.com/refund"
       />
       
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -38,9 +38,9 @@ export function RefundPolicy() {
             <CardHeader className="border-b border-slate-700">
               <div className="flex items-center gap-3 mb-2">
                 <DollarSign className="size-8 text-emerald-400" />
-                <CardTitle className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text text-transparent">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-green-400 bg-clip-text text-transparent">
                   Refund Policy
-                </CardTitle>
+              </h1>
               </div>
               <p className="text-sm text-slate-400">Last Updated: 01/04/2026</p>
             </CardHeader>

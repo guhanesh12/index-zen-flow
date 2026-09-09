@@ -126,7 +126,7 @@ export async function refreshInstrumentMaster(opts: { force?: boolean } = {}) {
     if (!secId) continue;
 
     const lotSize = Math.max(1, parseInt(cols[cLot] || "0", 10) || (
-      indexName === "NIFTY" ? 75 : indexName === "BANKNIFTY" ? 30 : 20
+      indexName === "NIFTY" ? 65 : indexName === "BANKNIFTY" ? 30 : 20
     ));
     const tick = Number(cols[cTick]) || 0.05;
     const segRaw = (cols[cSegment] || "").toUpperCase();

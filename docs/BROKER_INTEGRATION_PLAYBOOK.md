@@ -120,3 +120,158 @@ while `persistent_engine.tsx` gated every tick on Dhan credentials
 
 **Rule for every new broker:** no raw `DhanService` call and no Dhan-credential guard
 may decide whether a user's engine runs.
+
+---
+
+## 5. Fyers — what is live now
+
+**Registry:** `fyers` is `status: "live"`, `defaultEnabled: true`, colour `#0ea5e9`,
+features: orders · positions · funds · instruments · static-ip · oauth.
+
+**Authentication** (https://myapi.fyers.in/docsv3)
+1. User creates an app at myapi.fyers.in → My Apps (App ID looks like `XXXXXXXXXX-100`).
+2. Redirect URI to register (shown + copyable in the UI):
+   `https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/fyers/callback`
+3. `POST /broker/fyers/save-keys` `{ appId, appSecret }` (also accepts a ready `accessToken`).
+4. `GET /broker/fyers/login-url` → `…/api/v3/generate-authcode` with a one-time `state`.
+5. Fyers redirects to `/broker/fyers/callback?auth_code=&state=` → server exchanges it at
+   `POST /api/v3/validate-authcode` using `appIdHash = SHA256(appId:appSecret)` and stores the
+   daily token in KV (`fyers_credentials:<userId>` — never in the database).
+6. `POST /broker/fyers/verify` re-checks the session; `POST /broker/fyers/disconnect` clears it.
+   Auth header on every call: `Authorization: <appId>:<accessToken>`.
+
+**Funds** — `GET /api/v3/funds` → normalized to
+`{ availableBalance, sodLimit, collateralAmount, utilizationAmount }`.
+
+**Orders** — `POST /api/v3/orders/sync` (MARKET type 2, DAY, product `INTRADAY`/`MARGIN` mapped from
+the Dhan product type). Status: `GET /api/v3/orders`, cancel: `DELETE /api/v3/orders/sync`.
+
+**Positions** — `GET /api/v3/positions`, mapped into the Dhan position shape.
+
+**Instruments** — `https://public.fyers.in/sym_details/{NSE_FO,BSE_FO}_sym_master.json`, filtered to
+NIFTY / BANKNIFTY / SENSEX options for the nearest 2 expiries and merged into `instrument_master`
+via `apply_fyers_instruments()`, cached once per IST day.
+
+**Routing** — all Fyers calls go through `makeBrokerProxy(userId, "fyers")` (static-IP VPS
+`/broker-request`) with direct-API fallback. Engine stays broker-aware via
+`loadEngineCredentials()` + `getPositionsSmart()` / `placeOrderSmart()`.
+
+## 6. Angel One (SmartAPI) — what is live now
+
+**Auth is NOT OAuth.** Angel One logs in with API Key + Client Code + MPIN/password + a 6-digit
+TOTP. IndexPilot stores the user's base32 TOTP secret and generates the code itself
+(`angeloneTotp()`, RFC 6238 / HMAC-SHA1). SmartAPI's app form still requires the displayed
+redirect URL, postback URL, and the user's assigned static IP even though login does not exchange
+an OAuth code.
+
+1. User enters keys in `AngelOneConnect.tsx` → `POST /broker/angelone/login`.
+2. Server calls `/rest/auth/angelbroking/user/v1/loginByPassword` and stores
+   `jwtToken` / `refreshToken` / `feedToken` in KV (`angelone_credentials:{userId}`).
+3. `selectBroker(userId, "angelone")` enforces ONE USER = ONE BROKER and wipes other sessions.
+4. Sessions expire daily — the status endpoint reports `token_invalid` and the UI prompts re-login.
+
+**Endpoints** — `/broker/angelone/{status,login,verify,disconnect,instruments/status,instruments/sync}`.
+
+**Instruments** — daily `OpenAPIScripMaster.json`, filtered to NIFTY / BANKNIFTY / SENSEX options
+for the nearest expiries, merged via `apply_angelone_instruments()`. Note: strike price arrives in
+paise (divide by 100) and expiry is formatted `28AUG2025`.
+
+**Routing** — all calls go through `makeBrokerProxy(userId, "angelone", ANGELONE_API)` for
+static-IP execution. Orders/positions/funds/LTP/cancel all have `angelone` branches in
+`broker_router.tsx`, and `loadEngineCredentials()` falls back to central market-data credentials so
+the trading engine keeps running for Angel One users.
+
+**Non-blocking connection rule** — never await the 37 MB scrip-master download from broker
+selection or login. Login must return immediately after SmartAPI authentication, credential save,
+single-broker selection, profile/funds verification, and status mirroring. Start instrument sync with
+`EdgeRuntime.waitUntil`; expose `syncing`, `syncError`, `mappedContracts`, `lastSync`, and expiry
+details through the status endpoint. The web/RN UI must show an immediate Connecting state, render
+the exact API error, and poll status while synchronization runs.
+
+**Release verification checklist** — test invalid credentials (visible SmartAPI error), valid login
+(connected badge and live funds), manual sync (immediate 202 response, then non-zero contract count),
+NIFTY/BANKNIFTY/SENSEX expiry display, funds and positions routing, one-broker enforcement, symbol
+resolution, a dry-run signal-to-order payload, order status/cancel, and session-expiry re-login. Never
+log or return API keys, MPINs, TOTP secrets, JWTs, refresh tokens, or feed tokens.
+
+## 7. Aliceblue (ANT API v2) — what is live now
+
+**Registry:** `aliceblue` is `status: "live"`, `defaultEnabled: true`, colour `#2563eb`,
+features: orders · positions · funds · instruments · static-ip.
+
+**Auth is NOT OAuth.** ANT logs in with User ID + API key in two steps
+(https://v2api.aliceblueonline.com/Authentication/):
+
+1. `POST /api/customer/getAPIEncpkey` `{ userId }` → `encKey`
+2. `userData = SHA256(userId + apiKey + encKey)`
+3. `POST /api/customer/getUserSID` `{ userId, userData }` → daily `sessionID`
+4. Every later call: `Authorization: Bearer <userId> <sessionID>`
+
+The ANT app form still asks for a redirect URL, postback URL and the static IP — all three are
+shown with Copy buttons in `AliceblueConnect.tsx` and served by
+`/broker/aliceblue/callback` + `/broker/aliceblue/postback`.
+
+Credentials (User ID + API key) are stored ONCE in KV (`aliceblue_credentials:<userId>`).
+`ensureAliceblueSession()` re-mints the session automatically whenever `sessionDate` is not
+today, so the morning re-login is silent (a manual **Reconnect (saved login)** button exists too).
+
+**Funds** — `GET /api/limits/getRmsLimits` → normalized to
+`{ availableBalance, sodLimit, collateralAmount, utilizationAmount }`.
+
+**Orders** — `POST /api/placeOrder/executePlaceOrder` (array payload, `prctyp: "MKT"`, `ret: "DAY"`,
+`pCode` `MIS`/`NRML` mapped from the Dhan product type). Status:
+`POST /api/placeOrder/orderHistory`, cancel: `POST /api/placeOrder/cancelOrder`.
+
+**Positions** — `POST /api/positionAndHoldings/positionBook { ret: "NET" }`, mapped into the Dhan
+position shape used by the monitor, journal and dashboard.
+
+**Instruments** — public CSV contract masters
+`https://v2api.aliceblueonline.com/restpy/static/contract_master/{NFO,BFO}.csv`.
+The two files are ~10 MB combined, so they are **streamed line-by-line** (never buffered and
+split whole), parsed **by header name** (NFO and BFO column order differs!), filtered to
+NIFTY / BANKNIFTY / SENSEX options for the nearest 2 expiries and merged into `instrument_master`
+via `apply_aliceblue_instruments()`, cached once per IST day. Sync always runs through
+`EdgeRuntime.waitUntil` — login never awaits it.
+
+**Routing** — all Aliceblue calls go through `makeBrokerProxy(userId, "aliceblue", ALICEBLUE_API)`
+(static-IP VPS `/broker-request`) with direct-API fallback. Engine stays broker-aware via
+`loadEngineCredentials()` + `getPositionsSmart()` / `placeOrderSmart()`.
+
+**Endpoints** — `/broker/aliceblue/{status,login,save-keys,reconnect,verify,disconnect,callback,postback,instruments/status,instruments/sync}`.
+
+---
+
+## 5paisa — what is live now
+
+**Broker ID:** `5paisa` (user-facing + `profiles.active_broker` + KV).
+**Internal SQL prefix:** `fivepaisa_` — Postgres identifiers cannot start with a digit.
+
+| Piece | Location |
+| --- | --- |
+| DB mapping | `instrument_master.fivepaisa_scrip_code / fivepaisa_scrip_data / fivepaisa_exchange / fivepaisa_synced_at` |
+| Merge RPC | `public.apply_fivepaisa_instruments(_rows jsonb)` (service_role only) |
+| Service | `supabase/functions/make-server-c4d79cb7/fivepaisa_service.tsx` |
+| Instruments | `supabase/functions/make-server-c4d79cb7/fivepaisa_instruments.tsx` |
+| Router | `broker_router.tsx` — `fivepaisa_credentials:<userId>` in KV, `getFivepaisaService()`, `resolveFivepaisaSymbol()`, branches in all `*Smart` helpers |
+| Registry | `broker_registry.tsx` → `{ id: "5paisa", status: "live", color: "#e11d48" }` |
+| Endpoints | `/broker/5paisa/status · save-keys · login-url · callback · exchange · verify · disconnect · instruments/status · instruments/sync` |
+| UI | `src/app/components/FivepaisaConnect.tsx`, rendered by `SettingsPanel.tsx` |
+
+**Auth (Xstream OAuth):** save App Key (Vendor Key) + Encryption Key + User Key →
+`https://dev-openapi.5paisa.com/WebVendorLogin/VLogin/Index?VendorKey=…&ResponseURL=…&State=…`
+→ redirect carries `?RequestToken=` → `POST /GetAccessToken { head:{Key}, body:{RequestToken, EncryKey, UserId} }`
+→ daily bearer token that expires at **11:59 PM IST**.
+
+**Redirect URI (register this exact string in the 5paisa developer portal):**
+`https://api.indexpilotai.com/functions/v1/make-server-c4d79cb7/broker/5paisa/callback`
+
+**APIs used:** `/V4/Margin` (funds), `/V1/PlaceOrderRequest` (MARKET + DAY, `OrderType` B/S,
+`IsIntraday` from the Dhan product type, `RemoteOrderID` generated per order), `/V3/OrderStatus`
+and `/V3/OrderBook` (status), `/V1/CancelOrderRequest` (by `ExchOrderID`), `/V3/NetPositionNetWise`
+(positions mapped into the Dhan shape), `/MarketFeed` (LTP fallback),
+`ScripMaster/segment/{nse_fo|bse_fo}` (daily contract dump, streamed, NIFTY/BANKNIFTY/SENSEX,
+nearest 2 expiries, cached once per IST day for all users).
+
+Every call goes through `makeBrokerProxy(userId, "5paisa", FIVEPAISA_API)` (the user's static-IP
+VPS `/broker-request`) with a direct-API fallback. `persistent_engine.tsx` falls back to the
+central market-data credentials for candles/LTP when 5paisa is the active broker.
