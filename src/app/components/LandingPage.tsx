@@ -323,7 +323,7 @@ export default function LandingPage({ onGetStarted, onSignIn }: LandingPageProps
                   {
                     step: '3',
                     title: 'Start AI Engine',
-                    description: 'Click "Start Engine" during market hours (9:15 AM - 3:30 PM). AI analyzes market every second with 15+ indicators.',
+                    description: 'Click "Start Engine" during market hours (9:00 AM - 3:30 PM). AI analyzes market every second with 15+ indicators.',
                     icon: Zap,
                   },
                   {
