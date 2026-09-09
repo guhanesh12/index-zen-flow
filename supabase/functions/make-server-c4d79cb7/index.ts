@@ -1161,7 +1161,10 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
     if (!resend && existing?.lastSentAt && Date.now() - existing.lastSentAt < 60_000) {
       return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
     }
-
+    // Race guard for two requests arriving before KV is written.
+    if (!otpLockAcquire(`mail:${email.toLowerCase()}`) && !resend) {
+      return c.json({ success: true, message: 'OTP already sent to your email', throttled: true });
+    }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
@@ -1182,6 +1185,7 @@ app.post("/make-server-c4d79cb7/auth/email-otp/send", async (c) => {
     if (!emailRes.ok) {
       const t = await emailRes.text();
       console.error('Email OTP send failed', t);
+      otpLockRelease(`mail:${email.toLowerCase()}`);
       return c.json({ error: 'Failed to send email OTP. Please try again.' }, 500);
     }
 
