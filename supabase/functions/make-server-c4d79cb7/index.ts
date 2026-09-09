@@ -38,6 +38,26 @@ import { syncUpstoxInstruments, ensureUpstoxInstruments, getUpstoxInstrumentStat
 import { FyersService, buildFyersLoginUrl, exchangeFyersAuthCode, fyersTokenExpiry } from "./fyers_service.tsx";
 import { syncFyersInstruments, ensureFyersInstruments, getFyersInstrumentStatus } from "./fyers_instruments.tsx";
 import { AngelOneService, ANGELONE_API, angeloneLogin, angeloneTokenExpiry } from "./angelone_service.tsx";
+
+// ── 🛡️ OTP duplicate-send lock ────────────────────────────────────────────
+// Two rapid clicks (or a double-fired form submit) can hit the server before
+// the KV cooldown row is written, so both requests mail a code. This
+// in-memory guard blocks a second send for the same target while the first
+// is still in flight and for a short window afterwards.
+const OTP_SEND_LOCKS = new Map<string, number>();
+function otpLockAcquire(key: string, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const until = OTP_SEND_LOCKS.get(key) || 0;
+  if (until > now) return false;
+  OTP_SEND_LOCKS.set(key, now + windowMs);
+  if (OTP_SEND_LOCKS.size > 500) {
+    for (const [k, v] of OTP_SEND_LOCKS) if (v <= now) OTP_SEND_LOCKS.delete(k);
+  }
+  return true;
+}
+function otpLockRelease(key: string) {
+  OTP_SEND_LOCKS.delete(key);
+}
 import { syncAngelOneInstruments, ensureAngelOneInstruments, getAngelOneInstrumentStatus } from "./angelone_instruments.tsx";
 import { AliceblueService, ALICEBLUE_API, aliceblueVendorSession, aliceblueAuthUrl, aliceblueTokenExpiry } from "./aliceblue_service.tsx";
 import { syncAliceblueInstruments, ensureAliceblueInstruments, getAliceblueInstrumentStatus } from "./aliceblue_instruments.tsx";
