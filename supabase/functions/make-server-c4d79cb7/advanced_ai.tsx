@@ -2951,7 +2951,7 @@ export class AdvancedAI {
       _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
 
     // ===== FIX 4: SESSION-BASED MARKET BEHAVIOR =====
-    // 09:15–10:30 volatile breakout | 10:30–13:00 trend continuation
+    // 09:00–10:30 volatile breakout | 10:30–13:00 trend continuation
     // 13:00–14:15 sideways          | 14:15–15:30 trend expansion
     type SessionBehavior =
       | "VOLATILE_BREAKOUT"

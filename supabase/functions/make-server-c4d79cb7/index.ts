@@ -4738,7 +4738,7 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         
         console.log(`✅ ${idx}: ${ohlcData.length} candles fetched`);
         const latestCandle = ohlcData[ohlcData.length - 1];
-        // FIX 4: Dhan index candles use close-time timestamps (09:30 = 09:15-09:30 CLOSED).
+        // FIX 4: Dhan index candles use close-time timestamps (09:30 = 09:00-09:30 CLOSED).
         // Keep the latest candle once its timestamp is at/before the current closed boundary.
         const _tfMs = Number(interval) * 60 * 1000;
         const _lastTs = (ohlcData[ohlcData.length - 1]?.timestamp ?? 0);
