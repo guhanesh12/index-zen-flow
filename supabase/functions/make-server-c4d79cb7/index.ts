@@ -12016,9 +12016,23 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     // 🛡️ Duplicate-send guard: if a code was mailed to this admin in the last
     // 60s (double-submit / retry), reuse the SAME code and do not mail again.
     const otpCooldownKey = `admin_login_otp_cd:${loginEmail}`;
-    const cooldownRaw = await kv.get(otpCooldownKey);
-    const cooldown = typeof cooldownRaw === 'string' ? JSON.parse(cooldownRaw) : cooldownRaw;
-    const reuse = cooldown?.code && cooldown?.sentAt && Date.now() - cooldown.sentAt < 60_000;
+    const readCooldown = async () => {
+      const raw = await kv.get(otpCooldownKey);
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return parsed?.code && parsed?.sentAt && Date.now() - parsed.sentAt < 60_000 ? parsed : null;
+    };
+
+    let cooldown = await readCooldown();
+    // Race guard: a parallel login request may still be mailing the code and
+    // may not have written the cooldown row yet. Wait briefly for it.
+    const gotLock = otpLockAcquire(`adminmail:${loginEmail}`);
+    if (!cooldown && !gotLock) {
+      for (let i = 0; i < 10 && !cooldown; i += 1) {
+        await new Promise((r) => setTimeout(r, 200));
+        cooldown = await readCooldown();
+      }
+    }
+    const reuse = !!cooldown;
     const emailOtp = reuse ? String(cooldown.code) : String(Math.floor(100000 + Math.random() * 900000));
 
     await kv.set(`${ADMIN_2FA_CHALLENGE_PREFIX}${challengeToken}`, JSON.stringify({
@@ -12039,8 +12053,10 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
     if (reuse) {
       console.log('⏳ Admin email OTP already sent recently — reusing code, not re-sending');
     } else {
-      mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+      // Reserve the cooldown BEFORE mailing so any parallel request reuses it.
       await kv.set(otpCooldownKey, JSON.stringify({ code: emailOtp, sentAt: Date.now() }));
+      mailed = await sendAdminEmailOtp(loginEmail, adminProfile.full_name || 'Admin', emailOtp);
+      if (!mailed) otpLockRelease(`adminmail:${loginEmail}`);
       await logAdminSecurityEvent({
         action: 'admin_login_email_otp_sent', email: loginEmail, userId: authUser.id,
         status: mailed ? 'success' : 'failed', metadata: { pressedHotkey, mailed }, c,
