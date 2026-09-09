@@ -52,18 +52,19 @@ Deno.serve(async (req) => {
     // 1) Engine OFF — ONLY for engine-managed auto exits (target / stop-loss /
     //    trailing / reversal). A broker-side or externally closed position must
     //    NEVER kill the engine, otherwise the next candle's signal is skipped.
+    // 1) Engine OFF for every real closure — engine auto exits (target / stop-loss /
+    //    trailing / reversal), broker-side / external closes, and manual user exits.
+    //    Only bookkeeping rows (duplicate / cleanup / stale) are ignored.
     const reasonLc = String(exit_reason).toLowerCase();
-    const isExternalClose =
-      reasonLc.includes("external") ||
-      reasonLc.includes("manual") ||
-      reasonLc.includes("user") ||
+    const isBookkeeping =
       reasonLc.includes("duplicate") ||
       reasonLc.includes("cleanup") ||
       reasonLc.includes("housekeep") ||
-      reasonLc.includes("stale");
+      reasonLc.includes("stale") ||
+      reasonLc.includes("never opened");
 
-    if (!isExternalClose) {
-      const stoppedReason = `Auto engine off: position auto-closed (${exit_reason})`;
+    if (!isBookkeeping) {
+      const stoppedReason = `Auto engine off: position closed (${exit_reason})`;
       await supabase.from("trading_engine_state").update({
         is_running: false,
         stopped_at: new Date().toISOString(),
@@ -78,8 +79,9 @@ Deno.serve(async (req) => {
         value: false,
       });
     } else {
-      console.log(`ℹ️ [on-position-auto-close] keeping engine ON for ${user_id} — external close (${exit_reason})`);
+      console.log(`ℹ️ [on-position-auto-close] keeping engine ON for ${user_id} — bookkeeping row (${exit_reason})`);
     }
+
 
 
     // 3) Resolve email & send branded mail (best-effort)
