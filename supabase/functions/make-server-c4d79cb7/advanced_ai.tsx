@@ -297,7 +297,7 @@ export class AdvancedAI {
     const istDayKey = (tsMs: number) =>
       new Date(tsMs + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const targetDay = istDayKey(lastTsMs);
-    const sessionStart = 9 * 60 + 15;
+    const sessionStart = 9 * 60;
     const sessionEnd = 15 * 60 + 30;
     const session = data.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
@@ -454,7 +454,7 @@ export class AdvancedAI {
    * Calculate VWAP (Volume Weighted Average Price)
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
-    // Anchor VWAP to 09:15 IST session start (NSE standard)
+    // Anchor VWAP to 09:00 IST session start
     const sessionCandles = this.getCurrentSessionCandles(data, true);
     const candles = sessionCandles.length > 0 ? sessionCandles : data;
     let cumulativeTPV = 0;
@@ -1678,7 +1678,7 @@ export class AdvancedAI {
     const _tsDate = new Date(_candleTsMs + 5.5 * 60 * 60 * 1000);
     const _tsIstMinutes = _tsDate.getUTCHours() * 60 + _tsDate.getUTCMinutes();
     const _looksLikeDhanCloseTime =
-      _tsIstMinutes >= 9 * 60 + 15 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
+      _tsIstMinutes >= 9 * 60 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
     const _candleCloseMs = _looksLikeDhanCloseTime
       ? _candleTsMs
       : _candleTsMs + _tfMin * 60 * 1000;
@@ -1942,7 +1942,7 @@ export class AdvancedAI {
     const istMinForVol =
       istNowForVol.getUTCHours() * 60 + istNowForVol.getUTCMinutes();
     const isMorningSession =
-      istMinForVol >= 9 * 60 + 15 && istMinForVol < 11 * 60;
+      istMinForVol >= 9 * 60 && istMinForVol < 11 * 60;
     const volumeAdjustment = isMorningSession ? 0.85 : 1.0; // morning naturally has higher volume
     const adjustedVolumeRatio = volumeRatio * volumeAdjustment;
 
