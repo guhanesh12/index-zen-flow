@@ -1703,10 +1703,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       adjustedHours -= 24;
     }
     
-    // Minutes since market open (9:15 AM)
-    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
+    // Minutes since market open (9:00 AM)
+    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 540;
     
-    if (minutesSinceOpen < 0 || minutesSinceOpen >= 375) {
+    if (minutesSinceOpen < 0 || minutesSinceOpen >= 390) {
       setNextCandleClose('Market Closed');
       setSecondsToCandle(0);
       return;
@@ -1718,7 +1718,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const nextIntervalEnd = (currentInterval + 1) * interval;
     
     // Calculate exact close time
-    const closeMinutes = 555 + nextIntervalEnd; // 555 = 9:15 AM in minutes
+    const closeMinutes = 540 + nextIntervalEnd; // 540 = 9:00 AM in minutes
     const closeHour = Math.floor(closeMinutes / 60);
     const closeMin = closeMinutes % 60;
     
