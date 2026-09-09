@@ -450,11 +450,7 @@ async function replayIndex(
     const activation = Math.round(TARGET_PER_LOT * 0.5) * lots;
     const slJump = Math.round(SL_PER_LOT * 0.5) * lots;
     const targetJump = Math.round(TARGET_PER_LOT * 0.33) * lots;
-    const suggestedTarget = Number(signal.riskManagement?.suggestedTarget);
-    const suggestedStop = Number(signal.riskManagement?.suggestedStopLoss);
-    const suggestedTrailTrigger = Number(signal.riskManagement?.trailingStop?.trigger);
     const suggestedTrailDistance = Number(signal.riskManagement?.trailingStop?.trailDistance);
-    const signalReference = Number(signal.riskManagement?.suggestedEntry) || bar.close;
     // Volatility-scaled exits (walk-forward tuned): stop = 1.5 x ATR14,
     // target = 2.5 x that risk. This keeps the reward/risk profile constant
     // across quiet and violent sessions instead of following the model's
@@ -462,7 +458,6 @@ async function replayIndex(
     const atrNow = Math.max(1, atr14(window));
     const stopDistance = Math.max(1, atrNow * STOP_ATR_MULT);
     const targetDistance = stopDistance * RR_TARGET;
-    const suggestedTrailDistance = Number(signal.riskManagement?.trailingStop?.trailDistance);
 
     pos = {
       index,
