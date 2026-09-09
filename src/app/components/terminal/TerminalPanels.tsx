@@ -88,33 +88,67 @@ export const posLtp = (p: any) => {
   return avg;
 };
 
-/** Live positions with a fast refresh (default 1s). */
-export function useLivePositions(serverUrl?: string, accessToken?: string, ms = 1000) {
-  const [positions, setPositions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [updatedAt, setUpdatedAt] = useState(0);
+/* ── shared 1-second position stream (one request per second for the whole app) ── */
+const posStore: {
+  positions: any[];
+  updatedAt: number;
+  loading: boolean;
+  inFlight: boolean;
+  timer: any;
+  subs: Set<() => void>;
+  url?: string;
+  token?: string;
+} = { positions: [], updatedAt: 0, loading: true, inFlight: false, timer: null, subs: new Set() };
 
-  const load = useCallback(async () => {
-    if (!serverUrl || !accessToken) return;
-    try {
-      const res = await fetchWithAuth(`${serverUrl}/positions`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const json = await res.json();
-      setPositions(json?.positions || json?.data || []);
-      setUpdatedAt(Date.now());
-    } catch {
-      /* keep last good data */
-    } finally {
-      setLoading(false);
+async function posFetch() {
+  if (posStore.inFlight || !posStore.url || !posStore.token) return;
+  posStore.inFlight = true;
+  try {
+    const res = await fetchWithAuth(`${posStore.url}/positions`, {
+      headers: { Authorization: `Bearer ${posStore.token}` },
+    });
+    const json = await res.json();
+    posStore.positions = json?.positions || json?.data || [];
+    posStore.updatedAt = Date.now();
+  } catch {
+    /* keep last good data */
+  } finally {
+    posStore.inFlight = false;
+    posStore.loading = false;
+    posStore.subs.forEach((fn) => fn());
+  }
+}
+
+function posSubscribe(url: string | undefined, token: string | undefined, notify: () => void) {
+  if (url) posStore.url = url;
+  if (token) posStore.token = token;
+  posStore.subs.add(notify);
+  if (!posStore.timer) {
+    posFetch();
+    posStore.timer = setInterval(posFetch, 1000);
+  }
+  return () => {
+    posStore.subs.delete(notify);
+    if (posStore.subs.size === 0 && posStore.timer) {
+      clearInterval(posStore.timer);
+      posStore.timer = null;
     }
-  }, [serverUrl, accessToken]);
+  };
+}
+
+/** Live positions — always refreshed every second from one shared poller. */
+export function useLivePositions(serverUrl?: string, accessToken?: string, _ms = 1000) {
+  const [, force] = useState(0);
+  const positions = posStore.positions;
+  const loading = posStore.loading;
+  const updatedAt = posStore.updatedAt;
+
+  const load = useCallback(() => posFetch(), []);
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, ms);
-    return () => clearInterval(t);
-  }, [load, ms]);
+    return posSubscribe(serverUrl, accessToken, () => force((n) => n + 1));
+  }, [serverUrl, accessToken]);
+
 
   const open = positions.filter((p) => posQty(p) !== 0);
   const closed = positions.filter((p) => posQty(p) === 0);
