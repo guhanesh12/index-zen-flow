@@ -875,6 +875,13 @@ app.post("/make-server-c4d79cb7/auth/send-otp", async (c) => {
           throttled: true,
         });
       }
+      // Race guard: a parallel request may not have written KV yet.
+      if (!otpLockAcquire(`sms:${phone}`)) {
+        console.log(`⏳ OTP send already in flight for ${phone} — skipping duplicate send`);
+        return c.json({ success: true, message: 'OTP already sent', throttled: true });
+      }
+    } else {
+      otpLockAcquire(`sms:${phone}`);
     }
 
 
