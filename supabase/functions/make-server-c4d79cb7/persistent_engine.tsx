@@ -59,11 +59,11 @@ function isTradingHourIST(now = new Date()): { open: boolean; reason?: string; n
   const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
   const dow = ist.getDay(); // 0=Sun 6=Sat
   if (dow === 0 || dow === 6)
-    return { open: false, reason: "Weekend (markets closed)", nextSession: "Monday 09:15 IST" };
+    return { open: false, reason: "Weekend (markets closed)", nextSession: "Monday 09:00 IST" };
   const mins = ist.getHours() * 60 + ist.getMinutes();
-  if (mins < 9 * 60 + 15) return { open: false, reason: "Pre-market hours", nextSession: "Today 09:15 IST" };
+  if (mins < 9 * 60) return { open: false, reason: "Pre-market hours", nextSession: "Today 09:00 IST" };
   if (mins > 15 * 60 + 30)
-    return { open: false, reason: "Market closed for the day", nextSession: "Next trading day 09:15 IST" };
+    return { open: false, reason: "Market closed for the day", nextSession: "Next trading day 09:00 IST" };
   return { open: true };
 }
 async function isTradingDayDB(): Promise<boolean> {
