@@ -8085,6 +8085,53 @@ app.post("/make-server-c4d79cb7/admin/vps-power/toggle/:userId", async (c) => {
 });
 
 // ============================================================
+// 📈 MARKET INTEL (Dhan v2 technical / movers / news) — user facing
+// Uses the ADMIN central data subscription; cached server-side.
+// ============================================================
+async function requireIntelUser(c: any) {
+  const accessToken = c.req.header('Authorization')?.split(' ')[1];
+  if (!accessToken) return null;
+  const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+  if (!user || error) return null;
+  return user;
+}
+
+app.get("/make-server-c4d79cb7/market-intel/technical", async (c) => {
+  try {
+    const user = await requireIntelUser(c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    const tf = c.req.query('timeframe') || '15';
+    const data = await MarketIntel.getTechnicalAll(tf);
+    return c.json({ success: true, ...data });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || String(e) }, 200);
+  }
+});
+
+app.get("/make-server-c4d79cb7/market-intel/movers", async (c) => {
+  try {
+    const user = await requireIntelUser(c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    const data = await MarketIntel.getMarketMovers(Number(c.req.query('limit') || 5));
+    return c.json({ success: !data.error, ...data });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || String(e) }, 200);
+  }
+});
+
+app.get("/make-server-c4d79cb7/market-intel/news", async (c) => {
+  try {
+    const user = await requireIntelUser(c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    const data = await MarketIntel.getMarketNews(Number(c.req.query('limit') || 12));
+    return c.json({ success: true, ...data });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || String(e) }, 200);
+  }
+});
+
+
+// ============================================================
 // 🛰️ CENTRAL MARKET DATA (ADMIN DHAN DATA SUBSCRIPTION)
 // One admin data feed → same candles & same signal for every user.
 // User broker tokens are still used for orders/positions/funds.
