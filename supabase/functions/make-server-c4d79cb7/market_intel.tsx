@@ -29,20 +29,45 @@ const DEFAULT_INDICATORS = [
   "PIVOT",
 ];
 
+/** Everything refreshes upstream once per 15 minutes (one closed candle). */
+export const INTEL_TTL_MS = 15 * 60 * 1000;
+
 type CacheEntry = { at: number; value: any };
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<any>>();
 
+/**
+ * Cache-first with stale fallback: a failed upstream call (rate limit, token
+ * hiccup) never blanks the UI — the last good payload is served again.
+ */
 async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.value as T;
+
+  // cross-isolate copy so a cold start does not hammer Dhan
+  if (!hit) {
+    const stored = await kv.get(`market_intel:${key}`).catch(() => null);
+    if (stored?.at && Date.now() - stored.at < ttlMs) {
+      cache.set(key, { at: stored.at, value: stored.value });
+      return stored.value as T;
+    }
+    if (stored?.value) cache.set(key, { at: 0, value: stored.value });
+  }
+
   const running = inflight.get(key);
   if (running) return running as Promise<T>;
+
   const task = (async () => {
     try {
       const value = await fn();
-      cache.set(key, { at: Date.now(), value });
+      const at = Date.now();
+      cache.set(key, { at, value });
+      await kv.set(`market_intel:${key}`, { at, value }).catch(() => {});
       return value;
+    } catch (e) {
+      const stale = cache.get(key);
+      if (stale?.value) return stale.value as T;
+      throw e;
     } finally {
       inflight.delete(key);
     }
