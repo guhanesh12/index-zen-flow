@@ -171,9 +171,15 @@ const Row = ({ label, value, action }: any) => (
   </div>
 );
 
-/* ─────────────── Top movers (60s) ─────────────── */
+/* ─────────────── Top movers (15 min) ─────────────── */
 export function TopMoversCard({ serverUrl, accessToken }: any) {
-  const { data, error, loading } = useIntel("/market-intel/movers?limit=5", 60_000, serverUrl, accessToken);
+  const { data, error, loading } = useIntel(
+    "/market-intel/movers?limit=5",
+    REFRESH_MS,
+    serverUrl,
+    accessToken,
+    (d) => (d?.gainers?.length || 0) + (d?.losers?.length || 0) > 0,
+  );
   const gainers = data?.gainers || [];
   const losers = data?.losers || [];
 
@@ -230,16 +236,22 @@ export function TopMoversCard({ serverUrl, accessToken }: any) {
   );
 }
 
-/* ─────────────── Live news (60s) ─────────────── */
+/* ─────────────── Live news (15 min) ─────────────── */
 export function MarketNewsCard({ serverUrl, accessToken }: any) {
-  const { data, error, loading } = useIntel("/market-intel/news?limit=12", 60_000, serverUrl, accessToken);
+  const { data, error, loading } = useIntel(
+    "/market-intel/news?limit=12",
+    REFRESH_MS,
+    serverUrl,
+    accessToken,
+    (d) => (d?.items?.length || 0) > 0,
+  );
   const items = data?.items || [];
 
   return (
     <Shell
       title="Live News"
       icon={<Newspaper className="size-3.5 text-zinc-500" />}
-      right={<span className="text-[10px] text-zinc-600">1 min</span>}
+      right={<span className="text-[10px] text-zinc-600">15 min</span>}
     >
       {loading && !data ? (
         <div className="flex items-center gap-2 py-3 text-xs text-zinc-500">
