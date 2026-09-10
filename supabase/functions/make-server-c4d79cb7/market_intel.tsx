@@ -12,6 +12,7 @@
  */
 
 import { getCentralCredentials } from "./central_market_data.tsx";
+import * as kv from "./kv_store.tsx";
 
 const DHAN = "https://api.dhan.co/v2";
 
@@ -135,7 +136,7 @@ function shapeTechnical(raw: any) {
 
 export async function getTechnicalAll(timeframe = "15", indicators = DEFAULT_INDICATORS) {
   const tf = ["1", "5", "15", "D"].includes(String(timeframe)) ? String(timeframe) : "15";
-  return cached(`tech:${tf}:${indicators.join(",")}`, 2000, async () => {
+  return cached(`tech:${tf}:${indicators.join(",")}`, INTEL_TTL_MS, async () => {
     const { accessToken } = await creds();
     const out: Record<string, any> = {};
     await Promise.all(
@@ -166,7 +167,7 @@ export async function getTechnicalAll(timeframe = "15", indicators = DEFAULT_IND
 
 export async function getMarketMovers(limit = 5) {
   const lim = Math.min(20, Math.max(1, Number(limit) || 5));
-  return cached(`movers:${lim}`, 55_000, async () => {
+  return cached(`movers:${lim}`, INTEL_TTL_MS, async () => {
     const { accessToken } = await creds();
 
     const pull = async (category: "PRICE_GAINERS" | "PRICE_LOSERS") => {
@@ -210,7 +211,7 @@ export async function getMarketMovers(limit = 5) {
 
 export async function getMarketNews(limit = 12) {
   const lim = Math.min(50, Math.max(1, Number(limit) || 12));
-  return cached(`news:${lim}`, 55_000, async () => {
+  return cached(`news:${lim}`, INTEL_TTL_MS, async () => {
     const { clientId, accessToken } = await creds();
     const raw = await dhanPost(
       "/data/newsheadline",
