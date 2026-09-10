@@ -42,6 +42,7 @@ import {
   OrdersView,
   PositionsView,
 } from "./terminal/TerminalPanels";
+import { TechnicalPanel, TopMoversCard, MarketNewsCard } from "./terminal/MarketIntel";
 import { Brain, Shield, Activity as ActivityIcon, Sparkles } from "lucide-react";
 import { WelcomeOnboarding } from "./WelcomeOnboarding";
 import { AIAssistantBot } from "./AIAssistantBot";
@@ -1116,6 +1117,8 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                   {/* LEFT — positions, P&L, exit */}
                   <div className="space-y-4 xl:sticky xl:top-4">
                     <PositionRail serverUrl={serverUrl} accessToken={accessToken} compact />
+                    <TopMoversCard serverUrl={serverUrl} accessToken={accessToken} />
+                    <MarketNewsCard serverUrl={serverUrl} accessToken={accessToken} />
                   </div>
 
                   {/* CENTRE — signals + position monitor */}
@@ -1136,6 +1139,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                       </div>
                       <ArrowRight className="size-4 text-zinc-500" />
                     </button>
+                    <TechnicalPanel serverUrl={serverUrl} accessToken={accessToken} timeframe="15" />
                   </div>
 
                   {/* RIGHT — engine, broker, activity */}
