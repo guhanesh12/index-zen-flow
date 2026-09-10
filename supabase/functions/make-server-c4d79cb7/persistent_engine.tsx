@@ -2382,6 +2382,9 @@ class PersistentTradingEngine {
 
                 state.activePositions.push(positionData);
                 state.stats.totalOrders++;
+                try {
+                  await kv.set(_entryCountKey, Number((await kv.get(_entryCountKey)) || 0) + 1);
+                } catch (_e) { /* counter is best-effort */ }
 
                 // ⚡ Save order to database
                 await this.saveOrderToDB(userId, symbol, orderResult, action);
@@ -2652,6 +2655,7 @@ class PersistentTradingEngine {
           stopLossJumpAmount,
           currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? targetAmount,
           currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? stopLossAmount,
+          atrLadder: rawPosition.atrLadder === true,
           trailingActivatedAt: rawPosition.trailingActivatedAt ?? null,
           trailingStepCount: Number(rawPosition.trailingStepCount || 0),
           entryTime: new Date(dbPos.created_at).getTime(),
