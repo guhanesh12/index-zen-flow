@@ -1630,15 +1630,15 @@ class PersistentTradingEngine {
                 });
                 (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
                 (sig as any).signalSource = primary.source === "central" ? "CENTRAL_DATA" : "USER_DATA";
-                if (sig.action === "BUY_CALL" || sig.action === "BUY_PUT") {
+                const canonicalSignal = await saveCentralSignal(indexName, tfMin, currentCandleTimestamp, sig);
+                if (canonicalSignal.action === "BUY_CALL" || canonicalSignal.action === "BUY_PUT") {
                   await kv.set(
                     `central:last_signal_ts:${signalStateKey}`,
                     ohlcData[ohlcData.length - 1].timestamp || Date.now(),
                   );
-                  await kv.set(`central:last_signal_dir:${signalStateKey}`, sig.action);
+                  await kv.set(`central:last_signal_dir:${signalStateKey}`, canonicalSignal.action);
                 }
-                await saveCentralSignal(indexName, tfMin, currentCandleTimestamp, sig);
-                aiSignal = { signal: sig };
+                aiSignal = { signal: canonicalSignal };
               }
 
               const finalAction = aiSignal?.signal?.action;
@@ -4319,13 +4319,13 @@ class PersistentTradingEngine {
       const ready = pending.filter(Boolean) as any[];
 
       for (const r of ready) {
-        if (r.sig.action === "BUY_CALL" || r.sig.action === "BUY_PUT") {
+        const canonicalSignal = await saveCentralSignal(r.idx.name, r.tf, r.stamp, r.sig);
+        if (canonicalSignal.action === "BUY_CALL" || canonicalSignal.action === "BUY_PUT") {
           await kv.set(`central:last_signal_ts:${r.signalStateKey}`, r.lastClosedMs || Date.now());
-          await kv.set(`central:last_signal_dir:${r.signalStateKey}`, r.sig.action);
+          await kv.set(`central:last_signal_dir:${r.signalStateKey}`, canonicalSignal.action);
         }
-        await saveCentralSignal(r.idx.name, r.tf, r.stamp, r.sig);
         published++;
-        console.log(`🛰️ [CENTRAL-PUB] ${r.idx.name} ${r.tf}m ${r.stamp} → ${r.sig.action} (${r.sig.confidence}%)`);
+        console.log(`🛰️ [CENTRAL-PUB] ${r.idx.name} ${r.tf}m ${r.stamp} → ${canonicalSignal.action} (${canonicalSignal.confidence}%)`);
       }
     }
     return { published };
