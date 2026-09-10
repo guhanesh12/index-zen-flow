@@ -21,6 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
+import { STRATEGY_RULES, atrOf } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
@@ -2318,7 +2319,23 @@ class PersistentTradingEngine {
                 actionableOrderSucceeded = true;
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
 
+                // 📐 ATR exit ladder — identical to the Strategy Backtester:
+                // stop = 1.5 x ATR(14) of the index, target = 2.5 x that risk.
+                // Falls back to the user's configured amounts when ATR is
+                // unavailable, so nothing is ever left without a stop.
+                const _qty = symbol.quantity || symbol.lotSize || symbol.lot_size || 15;
+                const _atr = atrOf((ohlcData as any) || []);
+                const _atrRisk = _atr > 0
+                  ? Math.round(_atr * STRATEGY_RULES.stopAtrMult * STRATEGY_RULES.optionDelta * _qty)
+                  : 0;
+                const _useAtr = _atrRisk > 0;
+                const _tgtAmount = _useAtr
+                  ? Math.round(_atrRisk * STRATEGY_RULES.rrTarget)
+                  : (symbol.targetAmount || 0);
+                const _slAmount = _useAtr ? _atrRisk : (symbol.stopLossAmount || 0);
+
                 const positionData = {
+                  atrLadder: _useAtr,
                   orderId: orderResult.orderId,
                   symbolName: normalizedSymbolName,
                   securityId: normalizedSecurityId,
@@ -2328,14 +2345,16 @@ class PersistentTradingEngine {
                   entryPrice: orderResult.averagePrice || orderResult.price || 0,
                   currentPrice: orderResult.averagePrice || orderResult.price || 0,
                   quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
-                  targetAmount: symbol.targetAmount || 0,
-                  stopLossAmount: symbol.stopLossAmount || 0,
-                  trailingEnabled: symbol.trailingEnabled || false,
-                  trailingActivationAmount: symbol.trailingActivationAmount || 0,
+                  targetAmount: _tgtAmount,
+                  stopLossAmount: _slAmount,
+                  trailingEnabled: _useAtr ? true : (symbol.trailingEnabled || false),
+                  trailingActivationAmount: _useAtr
+                    ? Math.round(_atrRisk * STRATEGY_RULES.trailAtR)
+                    : (symbol.trailingActivationAmount || 0),
                   targetJumpAmount: symbol.targetJumpAmount || 0,
                   stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
-                  currentTargetAmount: symbol.targetAmount || 0,
-                  currentStopLossAmount: symbol.stopLossAmount || 0,
+                  currentTargetAmount: _tgtAmount,
+                  currentStopLossAmount: _slAmount,
                   pnl: 0,
                   entryTime: Date.now(),
                   status: "ACTIVE",
