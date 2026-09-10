@@ -21,7 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, atrOf, dayTrendOk } from "./strategy_rules.ts";
+import { STRATEGY_RULES, atrOf, dayTrendOk, dayTrendBlockReason, applyTrendDayGate } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
@@ -1630,6 +1630,7 @@ class PersistentTradingEngine {
                 });
                 (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
                 (sig as any).signalSource = primary.source === "central" ? "CENTRAL_DATA" : "USER_DATA";
+                applyTrendDayGate(sig, ohlcData as any);
                 const canonicalSignal = await saveCentralSignal(indexName, tfMin, currentCandleTimestamp, sig);
                 if (canonicalSignal.action === "BUY_CALL" || canonicalSignal.action === "BUY_PUT") {
                   await kv.set(
@@ -1784,15 +1785,15 @@ class PersistentTradingEngine {
               });
               return;
             }
-            if (
-              Array.isArray(ohlcData) && ohlcData.length > 1 &&
-              !dayTrendOk(ohlcData as any, ohlcData.length - 1, action)
-            ) {
-              console.log(`⏸️ ${indexName} SKIP — sideways day (needs ${STRATEGY_RULES.dayTrendPct}% move from open)`);
+            const _trendBlock = (Array.isArray(ohlcData) && ohlcData.length > 1)
+              ? dayTrendBlockReason(ohlcData as any, ohlcData.length - 1, action)
+              : "";
+            if (_trendBlock) {
+              console.log(`⏸️ ${indexName} SKIP — ${_trendBlock}`);
               await this.appendSharedLog(userId, {
                 type: "SKIP",
                 timestamp: Date.now(),
-                message: `⏸️ ${indexName} SKIP — sideways day, no ${STRATEGY_RULES.dayTrendPct}% move from open yet`,
+                message: `⏸️ ${indexName} SKIP — ${_trendBlock}`,
               });
               return;
             }
@@ -4307,6 +4308,8 @@ class PersistentTradingEngine {
             (sig as any).candleCloseIst = derivedClose;
             (sig as any).barCloseAt = new Date(formingStartMs).toISOString();
             (sig as any).signalSource = "CENTRAL_DATA";
+            applyTrendDayGate(sig, candles as any);
+
 
             return { idx, tf, stamp, sig, signalStateKey, lastClosedMs };
           } catch (e: any) {

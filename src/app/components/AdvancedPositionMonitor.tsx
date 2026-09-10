@@ -35,6 +35,9 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
   const [rows, setRows] = useState<MonitorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<number>(0);
+  const [confirm, setConfirm] = useState<{ id: string; half: boolean } | null>(null);
+  const [exiting, setExiting] = useState<string | null>(null);
+  const [exitError, setExitError] = useState<string>("");
   const timer = useRef<any>(null);
   const serverUrl = getServerUrl(projectId);
 
@@ -55,11 +58,42 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
     }
   };
 
+  const doExit = async (r: MonitorRow, half: boolean) => {
+    setExiting(r.id);
+    setExitError("");
+    try {
+      const qty = Math.abs(Number(r.quantity) || 0);
+      const lot = Number(r.raw_position?.lotSize || 0) || 1;
+      let sendQty = half ? Math.floor(qty / 2) : qty;
+      if (half && lot > 1) sendQty = Math.max(lot, Math.floor(sendQty / lot) * lot);
+      if (!sendQty) sendQty = qty;
+      const res = await fetch(`${serverUrl}/place-order`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          securityId: r.raw_position?.securityId || r.raw_position?.symbol_id,
+          transactionType: "SELL",
+          quantity: sendQty,
+          exchangeSegment: r.raw_position?.exchangeSegment || "NSE_FNO",
+        }),
+      });
+      const json = await res.json();
+      if (!json?.success) setExitError(json?.error || json?.message || "Exit order failed");
+      await fetchRows();
+    } catch (e: any) {
+      setExitError(e?.message || "Exit order failed");
+    } finally {
+      setExiting(null);
+      setConfirm(null);
+    }
+  };
+
   useEffect(() => {
     fetchRows();
     timer.current = setInterval(fetchRows, 1000); // 1s real-time
     return () => clearInterval(timer.current);
   }, []);
+
 
   const totals = rows.reduce(
     (acc, r) => {
@@ -119,6 +153,25 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
               const pnl = Number(r.pnl || 0);
               const trailingActive = !!raw.trailingActive;
               const profitLocked = !!raw.profitLocked;
+              const qty = Math.abs(Number(r.quantity) || 0);
+              const toTarget = Math.max(0, curTgt - pnl);
+              const toStop = Math.max(0, pnl + curSL);
+              const ptsTo = (amt: number) => (qty > 0 ? amt / qty : 0);
+              const barsHeld = Math.floor(heldMin / 15);
+              const stopStage = curSL <= 0
+                ? "Profit-locked stop"
+                : trailingActive
+                ? "Trailing stop"
+                : profitLocked
+                ? "Breakeven stop"
+                : "Initial stop";
+              const verdict = decision === "EXIT"
+                ? "Exit now — the trade has lost its edge or given back most of the profit."
+                : decision === "HOLD"
+                ? `Hold — stop is ${fmt(toStop)} away, target is ${fmt(toTarget)} away.`
+                : `Watch — profit given back ${giveBack.toFixed(0)}%, stop ${fmt(toStop)} away.`;
+
+
 
               const decisionColor =
                 decision === "EXIT"
@@ -308,7 +361,73 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                       color={favorable ? "text-emerald-400" : "text-yellow-400"}
                     />
                   </div>
+
+                  {/* Distance / stage row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
+                    <Stat icon={<Target className="w-3 h-3" />} label="To target" value={`${fmt(toTarget)} · ${ptsTo(toTarget).toFixed(1)} pt`} color="text-emerald-400" />
+                    <Stat icon={<Shield className="w-3 h-3" />} label="To stop" value={`${fmt(toStop)} · ${ptsTo(toStop).toFixed(1)} pt`} color={curSL <= 0 ? "text-emerald-400" : "text-red-400"} />
+                    <Stat icon={<Shield className="w-3 h-3" />} label="Stop stage" value={stopStage.replace(" stop", "")} color="text-zinc-200" />
+                    <Stat icon={<Clock className="w-3 h-3" />} label="Bars held" value={`${barsHeld} / 8`} color={barsHeld >= 8 ? "text-yellow-400" : "text-zinc-300"} />
+                  </div>
+
+                  {/* Verdict */}
+                  <div
+                    className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+                      decision === "EXIT"
+                        ? "border-red-500/40 bg-red-950/30 text-red-200"
+                        : decision === "HOLD"
+                        ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-200"
+                        : "border-yellow-500/30 bg-yellow-950/20 text-yellow-200"
+                    }`}
+                  >
+                    <span className="font-bold mr-1">{decision}:</span>
+                    {verdict}
+                  </div>
+
+                  {/* Exit controls */}
+                  <div className="mt-2 flex items-center gap-2 justify-end">
+                    {confirm?.id === r.id ? (
+                      <>
+                        <span className="text-[11px] text-zinc-300 mr-auto">
+                          Exit {confirm.half ? "half" : "full"} position of {r.symbol}?
+                        </span>
+                        <button
+                          className="text-[11px] px-3 py-1.5 rounded-md border border-zinc-700 text-zinc-300"
+                          onClick={() => setConfirm(null)}
+                          disabled={exiting === r.id}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="text-[11px] px-3 py-1.5 rounded-md bg-red-600 text-white font-bold disabled:opacity-60"
+                          onClick={() => doExit(r, confirm.half)}
+                          disabled={exiting === r.id}
+                        >
+                          {exiting === r.id ? "Exiting…" : "Confirm exit"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="text-[11px] px-3 py-1.5 rounded-md border border-zinc-700 text-zinc-200"
+                          onClick={() => setConfirm({ id: r.id, half: true })}
+                        >
+                          Exit half
+                        </button>
+                        <button
+                          className="text-[11px] px-3 py-1.5 rounded-md border border-red-500/50 text-red-300 font-bold"
+                          onClick={() => setConfirm({ id: r.id, half: false })}
+                        >
+                          Exit position
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {exitError && exiting === null && (
+                    <div className="mt-1 text-[11px] text-red-400 text-right">{exitError}</div>
+                  )}
                 </div>
+
               );
             })}
             <div className="text-[10px] text-zinc-600 text-right pt-1">
