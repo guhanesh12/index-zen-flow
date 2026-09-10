@@ -183,9 +183,33 @@ export async function saveCentralSignal(indexName: string, tf: number, candleSta
   const key = centralSignalKey(indexName, tf, candleStamp);
   const at = Date.now();
   const tradingDate = istTradingDate(at);
-  signalMem.set(key, { signal, at });
-  await kv.set(key, { signal, at, tradingDate }).catch(() => {});
-  await kv.set(`central_signal_latest:${indexName}:${tf}`, { signal, candleStamp, at, tradingDate }).catch(() => {});
+  const candidate = { signal, at, tradingDate };
+
+  // First closed-candle decision wins across every Edge Function isolate.
+  // A read-then-upsert allowed concurrent publisher/retry/user ticks to replace
+  // one another. INSERT + ignoreDuplicates uses the KV primary key as the
+  // atomic lock, then every caller reloads the same canonical decision.
+  const { error: insertError } = await supabaseAdmin
+    .from("kv_store_c4d79cb7")
+    .upsert({ key, value: candidate }, { onConflict: "key", ignoreDuplicates: true });
+  if (insertError) {
+    console.error(`[CENTRAL] signal lock failed for ${key}:`, insertError.message);
+  }
+
+  const stored = await kv.get(key).catch(() => null);
+  const canonical = stored?.signal ? stored : candidate;
+  signalMem.set(key, { signal: canonical.signal, at: Number(canonical.at) || at });
+
+  // The latest pointer must also contain the immutable decision, never the
+  // losing candidate from a concurrent calculation.
+  await kv.set(`central_signal_latest:${indexName}:${tf}`, {
+    signal: canonical.signal,
+    candleStamp,
+    at: Number(canonical.at) || at,
+    tradingDate: canonical.tradingDate || tradingDate,
+  }).catch(() => {});
+
+  return canonical.signal;
 }
 
 export async function getLatestCentralSignal(indexName: string, tf: number) {
