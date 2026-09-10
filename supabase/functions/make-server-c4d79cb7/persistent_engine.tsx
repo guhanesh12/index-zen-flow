@@ -1758,7 +1758,7 @@ class PersistentTradingEngine {
           // (NIFTY / BANKNIFTY / SENSEX) showed signals below 75% confidence
           // are net-negative. Skip them for fresh entries; reversal exits
           // below keep their own (lower) thresholds.
-          const MIN_ENTRY_CONFIDENCE = 75;
+          const MIN_ENTRY_CONFIDENCE = STRATEGY_RULES.minConfidence;
           const hasOpenPosition = Array.isArray(state.activePositions) && state.activePositions.length > 0;
           if (!hasOpenPosition && confidence < MIN_ENTRY_CONFIDENCE) {
             console.log(`⏸️ ${indexName} SKIP — ${confidence}% below ${MIN_ENTRY_CONFIDENCE}% entry quality gate`);
@@ -1768,6 +1768,24 @@ class PersistentTradingEngine {
               message: `⏸️ ${indexName} SKIP — ${confidence}% confidence (needs ${MIN_ENTRY_CONFIDENCE}%+)`,
             });
             return;
+          }
+
+          // 📅 DAILY ENTRY CAP — the backtester allows at most
+          // STRATEGY_RULES.maxTradesPerIndexPerDay fresh entries per index per
+          // day; the live engine must respect the same limit.
+          const _istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          const _entryCountKey = `engine:entries:${userId}:${indexName}:${_istDay}`;
+          if (!hasOpenPosition) {
+            const _used = Number((await kv.get(_entryCountKey)) || 0);
+            if (_used >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
+              console.log(`⏸️ ${indexName} SKIP — daily entry limit reached (${_used})`);
+              await this.appendSharedLog(userId, {
+                type: "SKIP",
+                timestamp: Date.now(),
+                message: `⏸️ ${indexName} SKIP — already took ${_used} trade(s) today (limit ${STRATEGY_RULES.maxTradesPerIndexPerDay})`,
+              });
+              return;
+            }
           }
 
           if (!state.activePositions || state.activePositions.length === 0) {
