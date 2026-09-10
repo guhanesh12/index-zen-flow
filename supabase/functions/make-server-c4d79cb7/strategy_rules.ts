@@ -96,9 +96,11 @@ export function dayTrendBlockReason(
       ? movePct >= STRATEGY_RULES.dayTrendPct
       : movePct <= -STRATEGY_RULES.dayTrendPct;
     if (!ok) {
-      return `Sideways day — index is only ${movePct.toFixed(2)}% from the open (needs ${
-        STRATEGY_RULES.dayTrendPct
-      }% in the signal direction)`;
+      const wanted = action === "BUY_CALL" ? "up" : "down";
+      const against = action === "BUY_CALL" ? movePct < 0 : movePct > 0;
+      return against
+        ? `Day is moving against the signal — index is ${movePct.toFixed(2)}% from the open, the signal needs a ${wanted} day of at least ${STRATEGY_RULES.dayTrendPct}%`
+        : `Sideways day — index is only ${movePct.toFixed(2)}% from the open (needs ${STRATEGY_RULES.dayTrendPct}% ${wanted} before entry)`;
     }
   }
 
