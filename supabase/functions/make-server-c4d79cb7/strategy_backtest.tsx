@@ -11,6 +11,7 @@
  */
 
 import { AdvancedAI, type OHLCCandle } from "./advanced_ai.tsx";
+import { STRATEGY_RULES } from "./strategy_rules.ts";
 
 export type IndexName = "NIFTY" | "BANKNIFTY" | "SENSEX";
 
@@ -347,7 +348,7 @@ async function replayIndex(
 
         // ---- R-based profit protection (validated exit ladder) ----------
         const favR = p.riskPts > 0 ? Math.abs(favorable - p.entryPrice) / p.riskPts : 0;
-        if (!p.partialDone && favR >= PARTIAL_AT_R) {
+        if (PARTIAL_AT_R > 0 && !p.partialDone && favR >= PARTIAL_AT_R) {
           const halfQty = Math.floor(p.qty / 2);
           if (halfQty > 0) {
             const bookPrice = p.direction === "BUY_CALL"
@@ -390,7 +391,10 @@ async function replayIndex(
     // ---- entries / reversals only inside the tuned intraday window
     // (09:45–13:30 IST: the opening auction and the late-day drift produced
     // the bulk of the losses in the walk-forward study).
-    if (info.minutes < 9 * 60 + 45 || info.minutes > 13 * 60 + 30) continue;
+    if (
+      info.minutes < STRATEGY_RULES.entryStartMinutesIst ||
+      info.minutes > STRATEGY_RULES.entryEndMinutesIst
+    ) continue;
 
     const window = candles.slice(Math.max(0, i - 149), i + 1);
     let signal: any;
@@ -441,9 +445,11 @@ async function replayIndex(
     const perLot = premium * lotSize;
     const byRisk = Math.floor((capital * RISK_PER_TRADE) / (SL_PER_LOT + COST_PER_LOT));
     const byMargin = Math.floor((capital * 0.35) / perLot);
+    // Honest sizing: if the account cannot fund a single lot, the live engine
+    // would not take this trade, so the backtest must not count it either.
     const lots = fixedLots > 0
-      ? Math.max(1, Math.min(fixedLots, Math.max(1, byMargin)))
-      : Math.max(1, Math.min(20, Math.max(byRisk, 1), Math.max(byMargin, 1)));
+      ? Math.min(fixedLots, byMargin)
+      : Math.min(20, byRisk, byMargin);
     if (lots < 1) continue;
     entriesByDay.set(info.date, (entriesByDay.get(info.date) || 0) + 1);
 
