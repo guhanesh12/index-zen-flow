@@ -469,7 +469,6 @@ async function replayIndex(
     const activation = Math.round(TARGET_PER_LOT * 0.5) * lots;
     const slJump = Math.round(SL_PER_LOT * 0.5) * lots;
     const targetJump = Math.round(TARGET_PER_LOT * 0.33) * lots;
-    const suggestedTrailDistance = Number(signal.riskManagement?.trailingStop?.trailDistance);
     // Volatility-scaled exits (walk-forward tuned): stop = 1.5 x ATR14,
     // target = 2.5 x that risk. This keeps the reward/risk profile constant
     // across quiet and violent sessions instead of following the model's
@@ -503,10 +502,8 @@ async function replayIndex(
       strategyTrailTriggerPrice: signal.action === "BUY_CALL"
         ? entry + targetDistance * 10
         : entry - targetDistance * 10,
-      strategyTrailDistance: Number.isFinite(suggestedTrailDistance)
-        ? Math.max(1, suggestedTrailDistance)
-        : Math.max(1, atrNow * 0.6),
-      maxHoldBars: Math.max(1, Number(signal.riskManagement?.maxHoldBars) || 8),
+      strategyTrailDistance: Math.max(1, atrNow * 0.6),
+      maxHoldBars: STRATEGY_RULES.maxHoldBars,
       barsHeld: 0,
       riskPts: stopDistance,
       banked: 0,
