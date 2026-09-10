@@ -20,7 +20,7 @@ export const STRATEGY_RULES = {
    * Sideways-day guard: the index must already be this far (in %) from the
    * day's open, in the signal's direction, before a fresh entry is allowed.
    */
-  dayTrendPct: 0.3,
+  dayTrendPct: 0.15,
   /** Initial stop = ATR(14) x this multiple, target = stop x rrTarget. */
   stopAtrMult: 1.5,
   rrTarget: 2.0,
