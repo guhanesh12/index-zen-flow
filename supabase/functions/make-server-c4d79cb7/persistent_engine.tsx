@@ -2369,7 +2369,8 @@ class PersistentTradingEngine {
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
 
                 // 📐 ATR exit ladder — identical to the Strategy Backtester:
-                // stop = 1.5 x ATR(14) of the index, target = 2.5 x that risk.
+                // stop = STRATEGY_RULES.stopAtrMult x ATR(14) of the index,
+                // target = STRATEGY_RULES.rrTarget x that risk.
                 // Falls back to the user's configured amounts when ATR is
                 // unavailable, so nothing is ever left without a stop.
                 const _qty = symbol.quantity || symbol.lotSize || symbol.lot_size || 15;
@@ -3030,12 +3031,12 @@ class PersistentTradingEngine {
         }
 
         // 📐 ATR LADDER (same rules the Strategy Backtester scores):
-        // breakeven at 0.8R, then trail 0.6xATR behind the peak from 1.5R.
+        // breakeven at STRATEGY_RULES.beAtR, then trail
+        // (trailAtrMult / stopAtrMult) R behind the peak from trailAtR.
         // Positions opened before this ladder existed keep the legacy ratchet.
         const _atrLadder = (position as any).atrLadder === true && _baseSL > 0;
         if (_atrLadder) {
           const favR = Number(position.highestPnl || 0) / _baseSL;
-          // 0.6 ATR expressed in R: (0.6 / 1.5) = 0.4 R
           const trailGiveBackR = STRATEGY_RULES.trailAtrMult / STRATEGY_RULES.stopAtrMult;
           if (favR >= STRATEGY_RULES.trailAtR) {
             const locked = Math.max(0, (favR - trailGiveBackR) * _baseSL);
