@@ -196,7 +196,10 @@ export async function getMarketMovers(limit = 5) {
       }
     };
 
-    const [gainers, losers] = await Promise.all([pull("PRICE_GAINERS"), pull("PRICE_LOSERS")]);
+    // sequential + small gap: Dhan rate-limits parallel data calls (HTTP 429)
+    const gainers = await pull("PRICE_GAINERS");
+    await new Promise((r) => setTimeout(r, 400));
+    const losers = await pull("PRICE_LOSERS");
     const err = (gainers as any)?.error || (losers as any)?.error || null;
     return {
       fetchedAt: Date.now(),
@@ -218,7 +221,12 @@ export async function getMarketNews(limit = 12) {
       { dhanClientId: clientId, categories: ["ALL"], limit: lim, stockList: [] },
       accessToken,
     );
-    const list = [...(raw?.data?.latestNews || []), ...(raw?.data?.nextNews || [])];
+    const d = raw?.data;
+    const list = Array.isArray(d)
+      ? d
+      : Array.isArray(raw?.news)
+        ? raw.news
+        : [...(d?.latestNews || []), ...(d?.nextNews || []), ...(d?.news || []), ...(d?.headlines || [])];
     return {
       fetchedAt: Date.now(),
       items: list.slice(0, lim).map((n: any) => ({
