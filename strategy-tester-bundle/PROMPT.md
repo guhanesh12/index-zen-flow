@@ -15,9 +15,9 @@ my live intraday options system (Indian market: NIFTY, BANKNIFTY, SENSEX,
    engine AND the backtester both import it, so changing a number here changes
    both. Current values:
    entry 09:45–15:00 IST · min confidence 85 · max 1 entry per index per day ·
-   ADX ≥ 20 · day-trend guard 0.15% from day open · opening-range guard 2 candles ·
-   stop 1.5 × ATR(14) · target 4R · breakeven 0.5R · trail from 1R at 0.6 × ATR ·
-   max hold 8 candles · option premium proxy 0.5 × index move.
+   ADX ≥ 20 · day-trend guard 0.15% from day open · opening-range guard 3 candles ·
+   stop 2.5 × ATR(14) · target 3R · breakeven 0.3R · trail from 0.3R at 0.3 × ATR ·
+   max hold 20 candles · option premium proxy 0.5 × index move.
 3. `strategy_backtest.tsx` — the backtester. Downloads real 15m candles from the
    Upstox public historical API, replays the brain bar by bar, applies the rules,
    simulates stop / target / breakeven / trailing / time exits, and reports
@@ -30,9 +30,9 @@ my live intraday options system (Indian market: NIFTY, BANKNIFTY, SENSEX,
 from a real option chain. No IV crush, no real spread. Treat every number as an
 estimate, and say so in your conclusions.
 
-**Baseline I must beat** (₹10,00,000 capital, all three indices):
-- 1 Aug – 10 Sep 2026: 34 trades, 44% win, PF 1.03, +₹1,124
-- 2022-02 → 2026-09: PF 1.21, +₹4,22,432, max drawdown ₹1,14,765, 21 losing months of 56
+**Baseline:** run `run.ts` yourself on a long window and on the most recent one
+to two months with the rules as shipped. Those runs are the baseline any change
+must beat.
 
 **What I want you to do**
 

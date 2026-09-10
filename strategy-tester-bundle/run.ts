@@ -22,11 +22,12 @@ console.log(`Running ${indices.join(", ")}  ${fromDate} → ${toDate}  ₹${init
 
 const r: any = await runStrategyBacktest({ indices, initialCapital, fromDate, toDate });
 
-console.log("Trades       :", r.totalTrades);
-console.log("Win rate     :", `${(r.winRate ?? 0).toFixed(1)}%`);
-console.log("Profit factor:", (r.profitFactor ?? 0).toFixed(2));
-console.log("Net P&L      :", `₹${Math.round(r.netPnl ?? r.totalPnl ?? 0).toLocaleString("en-IN")}`);
-console.log("Max drawdown :", `₹${Math.round(r.maxDrawdown ?? 0).toLocaleString("en-IN")}`);
+const s: any = r.summary ?? r;
+console.log("Trades       :", s.totalTrades ?? 0);
+console.log("Win rate     :", `${(s.winRate ?? 0).toFixed(1)}%`);
+console.log("Profit factor:", (s.profitFactor ?? 0).toFixed(2));
+console.log("Net P&L      :", `₹${Math.round(s.netPnL ?? s.netPnl ?? 0).toLocaleString("en-IN")}`);
+console.log("Max drawdown :", `₹${Math.round(s.maxDrawdown ?? 0).toLocaleString("en-IN")}`);
 console.log("\nMonthly:");
 for (const m of r.monthly ?? []) {
   console.log(" ", m.period ?? m.month, "→", `₹${Math.round(m.pnl).toLocaleString("en-IN")}`, `(${m.trades} trades)`);
