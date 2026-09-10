@@ -2957,7 +2957,31 @@ class PersistentTradingEngine {
           position.stopLossJumpAmount = _slJump;
         }
 
+        // 📐 ATR LADDER (same rules the Strategy Backtester scores):
+        // breakeven at 0.8R, then trail 0.6xATR behind the peak from 1.5R.
+        // Positions opened before this ladder existed keep the legacy ratchet.
+        const _atrLadder = (position as any).atrLadder === true && _baseSL > 0;
+        if (_atrLadder) {
+          const favR = Number(position.highestPnl || 0) / _baseSL;
+          // 0.6 ATR expressed in R: (0.6 / 1.5) = 0.4 R
+          const trailGiveBackR = STRATEGY_RULES.trailAtrMult / STRATEGY_RULES.stopAtrMult;
+          if (favR >= STRATEGY_RULES.trailAtR) {
+            const locked = Math.max(0, (favR - trailGiveBackR) * _baseSL);
+            position.trailingEnabled = true;
+            position.trailingActivatedAt = position.trailingActivatedAt || Date.now();
+            position.currentStopLossAmount = Math.min(
+              Number(position.currentStopLossAmount ?? _baseSL),
+              -locked,
+            );
+          } else if (favR >= STRATEGY_RULES.beAtR && Number(position.currentStopLossAmount ?? _baseSL) > 0) {
+            position.trailingEnabled = true;
+            position.trailingActivatedAt = position.trailingActivatedAt || Date.now();
+            position.currentStopLossAmount = 0; // stop moved to entry (breakeven)
+          }
+        }
+
         const _trailingConfigured =
+          !_atrLadder &&
           position.trailingEnabled === true && _activation > 0 && _targetJump > 0 && _slJump > 0;
 
         if (_trailingConfigured && position.highestPnl >= _activation) {
