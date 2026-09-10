@@ -33,10 +33,10 @@ export const STRATEGY_RULES = {
   /** Partial booking is DISABLED — the live engine exits in one piece. */
   partialAtR: 0,
   /** Move the stop to entry once the trade is this far in profit (in R). */
-  beAtR: 0.5,
+  beAtR: 0.3,
   /** Start trailing from this profit level (in R), at trailAtrMult x ATR. */
-  trailAtR: 0.5,
-  trailAtrMult: 0.4,
+  trailAtR: 0.3,
+  trailAtrMult: 0.3,
   /** Option premium moves roughly this fraction of the index move. */
   optionDelta: 0.5,
   /** Hard time exit after this many candles. */
