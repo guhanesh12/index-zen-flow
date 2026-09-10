@@ -3401,6 +3401,32 @@ class PersistentTradingEngine {
           }
         }
 
+        // ⏱️ TIME EXIT + DAY-END SQUARE-OFF
+        // The Strategy Backtester books every trade after
+        // STRATEGY_RULES.maxHoldBars candles and flattens everything at 15:15
+        // IST. Without these two rules live, the engine holds trades the
+        // backtest already closed (and can carry them overnight), so the
+        // reported performance could never be reproduced.
+        {
+          const _tfMinutes = Number(state.candleInterval) > 0 ? Number(state.candleInterval) : 15;
+          const _maxHoldMinutes = STRATEGY_RULES.maxHoldBars * _tfMinutes;
+          const _istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+          const _istMinutes = _istNow.getUTCHours() * 60 + _istNow.getUTCMinutes();
+          if (
+            !shouldExit &&
+            (position as any).atrLadder === true &&
+            _maxHoldMinutes > 0 &&
+            heldMinutes >= _maxHoldMinutes
+          ) {
+            shouldExit = true;
+            exitReason = `Time Exit (held ${Math.round(heldMinutes)}m ≥ ${STRATEGY_RULES.maxHoldBars} candles)`;
+          }
+          if (!shouldExit && _istMinutes >= 15 * 60 + 15) {
+            shouldExit = true;
+            exitReason = `Day-End Square-Off (15:15 IST, P&L ₹${pnl.toFixed(2)})`;
+          }
+        }
+
         // ⚡⚡⚡ ADVANCED PREDICTIVE EXIT INTELLIGENCE ⚡⚡⚡
         // Goal: lock profit on early reversal, cut loss BEFORE full SL when market turns hard against,
         // and HOLD aggressively when trend is strongly aligned (let winners run).
