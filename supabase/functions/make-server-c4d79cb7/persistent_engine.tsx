@@ -21,7 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, atrOf } from "./strategy_rules.ts";
+import { STRATEGY_RULES, atrOf, dayTrendOk } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
@@ -1768,6 +1768,34 @@ class PersistentTradingEngine {
               message: `⏸️ ${indexName} SKIP — ${confidence}% confidence (needs ${MIN_ENTRY_CONFIDENCE}%+)`,
             });
             return;
+          }
+
+          // 📈 TREND GATES — identical to the Strategy Backtester: skip
+          // ranging markets (ADX below the shared minimum) and flat sessions
+          // where the index has not yet moved dayTrendPct from the day open.
+          if (!hasOpenPosition) {
+            const _adxNow = Number(aiSignal?.signal?.indicators?.adx || 0);
+            if (STRATEGY_RULES.minAdx > 0 && _adxNow < STRATEGY_RULES.minAdx) {
+              console.log(`⏸️ ${indexName} SKIP — ADX ${_adxNow.toFixed(1)} below ${STRATEGY_RULES.minAdx} (ranging)`);
+              await this.appendSharedLog(userId, {
+                type: "SKIP",
+                timestamp: Date.now(),
+                message: `⏸️ ${indexName} SKIP — no trend (ADX ${_adxNow.toFixed(1)} < ${STRATEGY_RULES.minAdx})`,
+              });
+              return;
+            }
+            if (
+              Array.isArray(ohlcData) && ohlcData.length > 1 &&
+              !dayTrendOk(ohlcData as any, ohlcData.length - 1, action)
+            ) {
+              console.log(`⏸️ ${indexName} SKIP — sideways day (needs ${STRATEGY_RULES.dayTrendPct}% move from open)`);
+              await this.appendSharedLog(userId, {
+                type: "SKIP",
+                timestamp: Date.now(),
+                message: `⏸️ ${indexName} SKIP — sideways day, no ${STRATEGY_RULES.dayTrendPct}% move from open yet`,
+              });
+              return;
+            }
           }
 
           // 📅 DAILY ENTRY CAP — the backtester allows at most

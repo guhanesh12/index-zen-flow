@@ -11,7 +11,7 @@
  */
 
 import { AdvancedAI, type OHLCCandle } from "./advanced_ai.tsx";
-import { STRATEGY_RULES } from "./strategy_rules.ts";
+import { STRATEGY_RULES, dayTrendOk } from "./strategy_rules.ts";
 
 export type IndexName = "NIFTY" | "BANKNIFTY" | "SENSEX";
 
@@ -412,6 +412,15 @@ async function replayIndex(
 
     // ---- quality filter: skip weak signals entirely
     if (minConf > 0 && Number(signal.confidence || 0) < minConf) continue;
+
+    // ---- trend filters (walk-forward validated): a ranging market (ADX below
+    // STRATEGY_RULES.minAdx) and a flat session (index still within
+    // dayTrendPct of the day's open) produced the bulk of the losses.
+    if (!pos) {
+      const adxNow = Number(signal.indicators?.adx || 0);
+      if (STRATEGY_RULES.minAdx > 0 && adxNow < STRATEGY_RULES.minAdx) continue;
+      if (!dayTrendOk(candles as any, i, signal.action)) continue;
+    }
 
     // ---- daily trade budget for this index
     const usedToday = entriesByDay.get(info.date) || 0;
