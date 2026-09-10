@@ -98,13 +98,16 @@ const Shell = ({ title, icon, right, children }: any) => (
   </div>
 );
 
-/* ─────────────── Technical indicators (1s) ─────────────── */
+const REFRESH_MS = 15 * 60 * 1000;
+
+/* ─────────────── Technical indicators (15 min) ─────────────── */
 export function TechnicalPanel({ serverUrl, accessToken, timeframe = "15" }: any) {
   const { data, error, loading } = useIntel(
     `/market-intel/technical?timeframe=${timeframe}`,
-    1000,
+    REFRESH_MS,
     serverUrl,
     accessToken,
+    (d) => Object.values(d?.indices || {}).some((v: any) => v?.ok),
   );
   const indices = data?.indices || {};
 
@@ -112,7 +115,7 @@ export function TechnicalPanel({ serverUrl, accessToken, timeframe = "15" }: any
     <Shell
       title={`Technicals · ${timeframe}m`}
       icon={<Activity className="size-3.5 text-zinc-500" />}
-      right={<span className="text-[10px] text-zinc-600">live · 1s</span>}
+      right={<span className="text-[10px] text-zinc-600">15 min</span>}
     >
       {loading && !data ? (
         <div className="flex items-center gap-2 py-4 text-xs text-zinc-500">
