@@ -35,6 +35,9 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
   const [rows, setRows] = useState<MonitorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<number>(0);
+  const [confirm, setConfirm] = useState<{ id: string; half: boolean } | null>(null);
+  const [exiting, setExiting] = useState<string | null>(null);
+  const [exitError, setExitError] = useState<string>("");
   const timer = useRef<any>(null);
   const serverUrl = getServerUrl(projectId);
 
@@ -55,11 +58,42 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
     }
   };
 
+  const doExit = async (r: MonitorRow, half: boolean) => {
+    setExiting(r.id);
+    setExitError("");
+    try {
+      const qty = Math.abs(Number(r.quantity) || 0);
+      const lot = Number(r.raw_position?.lotSize || 0) || 1;
+      let sendQty = half ? Math.floor(qty / 2) : qty;
+      if (half && lot > 1) sendQty = Math.max(lot, Math.floor(sendQty / lot) * lot);
+      if (!sendQty) sendQty = qty;
+      const res = await fetch(`${serverUrl}/place-order`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          securityId: r.raw_position?.securityId || r.raw_position?.symbol_id,
+          transactionType: "SELL",
+          quantity: sendQty,
+          exchangeSegment: r.raw_position?.exchangeSegment || "NSE_FNO",
+        }),
+      });
+      const json = await res.json();
+      if (!json?.success) setExitError(json?.error || json?.message || "Exit order failed");
+      await fetchRows();
+    } catch (e: any) {
+      setExitError(e?.message || "Exit order failed");
+    } finally {
+      setExiting(null);
+      setConfirm(null);
+    }
+  };
+
   useEffect(() => {
     fetchRows();
     timer.current = setInterval(fetchRows, 1000); // 1s real-time
     return () => clearInterval(timer.current);
   }, []);
+
 
   const totals = rows.reduce(
     (acc, r) => {

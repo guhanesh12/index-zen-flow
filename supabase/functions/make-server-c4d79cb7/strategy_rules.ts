@@ -8,8 +8,8 @@
  */
 export const STRATEGY_RULES = {
   /** Fresh entries are only allowed inside this IST window (minutes of day). */
-  entryStartMinutesIst: 9 * 60 + 45, // 09:45
-  entryEndMinutesIst: 13 * 60 + 30, // 13:30
+  entryStartMinutesIst: 9 * 60 + 45, // 09:45 — the 09:15/09:30 bars stay blocked
+  entryEndMinutesIst: 15 * 60, // 15:00 — only the last 30 minutes are blocked
   /** Signals weaker than this are ignored for fresh entries. */
   minConfidence: 85,
   /** Max fresh entries per index per trading day. */
@@ -21,9 +21,15 @@ export const STRATEGY_RULES = {
    * day's open, in the signal's direction, before a fresh entry is allowed.
    */
   dayTrendPct: 0.15,
+  /**
+   * Opening-range guard: the index must trade beyond the high/low of the first
+   * N candles of the day, in the signal's direction. 0 disables the guard.
+   * Validated over 4.7 years of 15m data (2022-02 → 2026-09).
+   */
+  openingRangeBars: 2,
   /** Initial stop = ATR(14) x this multiple, target = stop x rrTarget. */
   stopAtrMult: 1.5,
-  rrTarget: 2.0,
+  rrTarget: 4.0,
   /** Partial booking is DISABLED — the live engine exits in one piece. */
   partialAtR: 0,
   /** Move the stop to entry once the trade is this far in profit (in R). */
@@ -36,6 +42,7 @@ export const STRATEGY_RULES = {
   /** Hard time exit after this many candles. */
   maxHoldBars: 8,
 } as const;
+
 
 /** Average True Range over the last `period` candles. */
 export function atrOf(
@@ -66,25 +73,75 @@ export function istDateOf(ts: number): string {
 }
 
 /**
- * Sideways-day guard. Returns true when the index has already moved
- * STRATEGY_RULES.dayTrendPct in the signal's direction since the day's open.
- * `endIndex` is the index of the signal candle inside `candles`.
+ * Trending-day guard. Returns "" when the day qualifies for a fresh entry, or
+ * a plain-English reason when it does not (sideways day / inside the opening
+ * range). `endIndex` is the index of the signal candle inside `candles`.
  */
-export function dayTrendOk(
-  candles: { open: number; close: number; timestamp: number }[],
+export function dayTrendBlockReason(
+  candles: { open: number; high: number; low: number; close: number; timestamp: number }[],
   endIndex: number,
   action: string,
-): boolean {
-  if (STRATEGY_RULES.dayTrendPct <= 0) return true;
+): string {
   const bar = candles[endIndex];
-  if (!bar) return true;
+  if (!bar) return "";
   const date = istDateOf(bar.timestamp);
   let j = endIndex;
   while (j > 0 && istDateOf(candles[j - 1].timestamp) === date) j--;
   const dayOpen = candles[j].open;
-  if (!dayOpen) return true;
-  const movePct = ((bar.close - dayOpen) / dayOpen) * 100;
-  return action === "BUY_CALL"
-    ? movePct >= STRATEGY_RULES.dayTrendPct
-    : movePct <= -STRATEGY_RULES.dayTrendPct;
+  if (!dayOpen) return "";
+
+  if (STRATEGY_RULES.dayTrendPct > 0) {
+    const movePct = ((bar.close - dayOpen) / dayOpen) * 100;
+    const ok = action === "BUY_CALL"
+      ? movePct >= STRATEGY_RULES.dayTrendPct
+      : movePct <= -STRATEGY_RULES.dayTrendPct;
+    if (!ok) {
+      return `Sideways day — index is only ${movePct.toFixed(2)}% from the open (needs ${
+        STRATEGY_RULES.dayTrendPct
+      }% in the signal direction)`;
+    }
+  }
+
+  const orBars = STRATEGY_RULES.openingRangeBars;
+  if (orBars > 0) {
+    const last = Math.min(j + orBars - 1, endIndex);
+    if (endIndex <= last) return "Opening range not complete yet";
+    let hi = -Infinity;
+    let lo = Infinity;
+    for (let k = j; k <= last; k++) {
+      hi = Math.max(hi, candles[k].high);
+      lo = Math.min(lo, candles[k].low);
+    }
+    const broke = action === "BUY_CALL" ? bar.close > hi : bar.close < lo;
+    if (!broke) {
+      return `Sideways day — price is still inside the opening range (${lo.toFixed(0)}–${hi.toFixed(0)})`;
+    }
+  }
+  return "";
 }
+
+/** Backwards-compatible boolean form of {@link dayTrendBlockReason}. */
+export function dayTrendOk(
+  candles: any[],
+  endIndex: number,
+  action: string,
+): boolean {
+  return dayTrendBlockReason(candles, endIndex, action) === "";
+}
+
+/**
+ * Turns an executable signal into a WAIT when the day does not qualify, so the
+ * UI never shows a BUY card that the engine will silently refuse to trade.
+ */
+export function applyTrendDayGate(sig: any, candles: any[]): any {
+  if (!sig || (sig.action !== "BUY_CALL" && sig.action !== "BUY_PUT")) return sig;
+  if (!Array.isArray(candles) || candles.length < 2) return sig;
+  const why = dayTrendBlockReason(candles, candles.length - 1, sig.action);
+  if (!why) return sig;
+  sig.blockedAction = sig.action;
+  sig.blockedReason = why;
+  sig.action = "WAIT";
+  sig.reason = `WAIT: ${why}`;
+  return sig;
+}
+
