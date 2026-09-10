@@ -37,7 +37,7 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
   const [selected, setSelected] = useState<string[]>([...INDICES]);
   const [lots, setLots] = useState<Record<string, number>>({ NIFTY: 1, BANKNIFTY: 1, SENSEX: 1 });
   const [maxTradesPerDay, setMaxTradesPerDay] = useState(2);
-  const [minConfidence, setMinConfidence] = useState(75);
+  const [minConfidence, setMinConfidence] = useState(85);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
