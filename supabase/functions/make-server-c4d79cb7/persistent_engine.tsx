@@ -21,6 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
+import { STRATEGY_RULES, atrOf } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
@@ -1623,7 +1624,9 @@ class PersistentTradingEngine {
                   lastLossTimestamp,
                   consecutiveLossThreshold: 3,
                   consecutiveLossCooldownMs: 30 * 60 * 1000,
-                  blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
+                  // Same entry window the Strategy Backtester scores.
+                  blockNewEntriesBeforeMinutes: STRATEGY_RULES.entryStartMinutesIst,
+                  blockNewEntriesAfterMinutes: STRATEGY_RULES.entryEndMinutesIst,
                 });
                 (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
                 (sig as any).signalSource = primary.source === "central" ? "CENTRAL_DATA" : "USER_DATA";
@@ -1755,7 +1758,7 @@ class PersistentTradingEngine {
           // (NIFTY / BANKNIFTY / SENSEX) showed signals below 75% confidence
           // are net-negative. Skip them for fresh entries; reversal exits
           // below keep their own (lower) thresholds.
-          const MIN_ENTRY_CONFIDENCE = 75;
+          const MIN_ENTRY_CONFIDENCE = STRATEGY_RULES.minConfidence;
           const hasOpenPosition = Array.isArray(state.activePositions) && state.activePositions.length > 0;
           if (!hasOpenPosition && confidence < MIN_ENTRY_CONFIDENCE) {
             console.log(`⏸️ ${indexName} SKIP — ${confidence}% below ${MIN_ENTRY_CONFIDENCE}% entry quality gate`);
@@ -1765,6 +1768,24 @@ class PersistentTradingEngine {
               message: `⏸️ ${indexName} SKIP — ${confidence}% confidence (needs ${MIN_ENTRY_CONFIDENCE}%+)`,
             });
             return;
+          }
+
+          // 📅 DAILY ENTRY CAP — the backtester allows at most
+          // STRATEGY_RULES.maxTradesPerIndexPerDay fresh entries per index per
+          // day; the live engine must respect the same limit.
+          const _istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          const _entryCountKey = `engine:entries:${userId}:${indexName}:${_istDay}`;
+          if (!hasOpenPosition) {
+            const _used = Number((await kv.get(_entryCountKey)) || 0);
+            if (_used >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
+              console.log(`⏸️ ${indexName} SKIP — daily entry limit reached (${_used})`);
+              await this.appendSharedLog(userId, {
+                type: "SKIP",
+                timestamp: Date.now(),
+                message: `⏸️ ${indexName} SKIP — already took ${_used} trade(s) today (limit ${STRATEGY_RULES.maxTradesPerIndexPerDay})`,
+              });
+              return;
+            }
           }
 
           if (!state.activePositions || state.activePositions.length === 0) {
@@ -2318,7 +2339,23 @@ class PersistentTradingEngine {
                 actionableOrderSucceeded = true;
                 console.log(`✅ ORDER PLACED! ID: ${orderResult.orderId}`);
 
+                // 📐 ATR exit ladder — identical to the Strategy Backtester:
+                // stop = 1.5 x ATR(14) of the index, target = 2.5 x that risk.
+                // Falls back to the user's configured amounts when ATR is
+                // unavailable, so nothing is ever left without a stop.
+                const _qty = symbol.quantity || symbol.lotSize || symbol.lot_size || 15;
+                const _atr = atrOf((ohlcData as any) || []);
+                const _atrRisk = _atr > 0
+                  ? Math.round(_atr * STRATEGY_RULES.stopAtrMult * STRATEGY_RULES.optionDelta * _qty)
+                  : 0;
+                const _useAtr = _atrRisk > 0;
+                const _tgtAmount = _useAtr
+                  ? Math.round(_atrRisk * STRATEGY_RULES.rrTarget)
+                  : (symbol.targetAmount || 0);
+                const _slAmount = _useAtr ? _atrRisk : (symbol.stopLossAmount || 0);
+
                 const positionData = {
+                  atrLadder: _useAtr,
                   orderId: orderResult.orderId,
                   symbolName: normalizedSymbolName,
                   securityId: normalizedSecurityId,
@@ -2328,14 +2365,16 @@ class PersistentTradingEngine {
                   entryPrice: orderResult.averagePrice || orderResult.price || 0,
                   currentPrice: orderResult.averagePrice || orderResult.price || 0,
                   quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
-                  targetAmount: symbol.targetAmount || 0,
-                  stopLossAmount: symbol.stopLossAmount || 0,
-                  trailingEnabled: symbol.trailingEnabled || false,
-                  trailingActivationAmount: symbol.trailingActivationAmount || 0,
+                  targetAmount: _tgtAmount,
+                  stopLossAmount: _slAmount,
+                  trailingEnabled: _useAtr ? true : (symbol.trailingEnabled || false),
+                  trailingActivationAmount: _useAtr
+                    ? Math.round(_atrRisk * STRATEGY_RULES.trailAtR)
+                    : (symbol.trailingActivationAmount || 0),
                   targetJumpAmount: symbol.targetJumpAmount || 0,
                   stopLossJumpAmount: symbol.stopLossJumpAmount || 0,
-                  currentTargetAmount: symbol.targetAmount || 0,
-                  currentStopLossAmount: symbol.stopLossAmount || 0,
+                  currentTargetAmount: _tgtAmount,
+                  currentStopLossAmount: _slAmount,
                   pnl: 0,
                   entryTime: Date.now(),
                   status: "ACTIVE",
@@ -2343,6 +2382,9 @@ class PersistentTradingEngine {
 
                 state.activePositions.push(positionData);
                 state.stats.totalOrders++;
+                try {
+                  await kv.set(_entryCountKey, Number((await kv.get(_entryCountKey)) || 0) + 1);
+                } catch (_e) { /* counter is best-effort */ }
 
                 // ⚡ Save order to database
                 await this.saveOrderToDB(userId, symbol, orderResult, action);
@@ -2613,6 +2655,7 @@ class PersistentTradingEngine {
           stopLossJumpAmount,
           currentTargetAmount: dbPos.raw_position?.currentTargetAmount ?? targetAmount,
           currentStopLossAmount: dbPos.raw_position?.currentStopLossAmount ?? stopLossAmount,
+          atrLadder: rawPosition.atrLadder === true,
           trailingActivatedAt: rawPosition.trailingActivatedAt ?? null,
           trailingStepCount: Number(rawPosition.trailingStepCount || 0),
           entryTime: new Date(dbPos.created_at).getTime(),
@@ -2957,7 +3000,31 @@ class PersistentTradingEngine {
           position.stopLossJumpAmount = _slJump;
         }
 
+        // 📐 ATR LADDER (same rules the Strategy Backtester scores):
+        // breakeven at 0.8R, then trail 0.6xATR behind the peak from 1.5R.
+        // Positions opened before this ladder existed keep the legacy ratchet.
+        const _atrLadder = (position as any).atrLadder === true && _baseSL > 0;
+        if (_atrLadder) {
+          const favR = Number(position.highestPnl || 0) / _baseSL;
+          // 0.6 ATR expressed in R: (0.6 / 1.5) = 0.4 R
+          const trailGiveBackR = STRATEGY_RULES.trailAtrMult / STRATEGY_RULES.stopAtrMult;
+          if (favR >= STRATEGY_RULES.trailAtR) {
+            const locked = Math.max(0, (favR - trailGiveBackR) * _baseSL);
+            position.trailingEnabled = true;
+            position.trailingActivatedAt = position.trailingActivatedAt || Date.now();
+            position.currentStopLossAmount = Math.min(
+              Number(position.currentStopLossAmount ?? _baseSL),
+              -locked,
+            );
+          } else if (favR >= STRATEGY_RULES.beAtR && Number(position.currentStopLossAmount ?? _baseSL) > 0) {
+            position.trailingEnabled = true;
+            position.trailingActivatedAt = position.trailingActivatedAt || Date.now();
+            position.currentStopLossAmount = 0; // stop moved to entry (breakeven)
+          }
+        }
+
         const _trailingConfigured =
+          !_atrLadder &&
           position.trailingEnabled === true && _activation > 0 && _targetJump > 0 && _slJump > 0;
 
         if (_trailingConfigured && position.highestPnl >= _activation) {
@@ -4164,7 +4231,8 @@ class PersistentTradingEngine {
               lastLossTimestamp,
               consecutiveLossThreshold: 3,
               consecutiveLossCooldownMs: 30 * 60 * 1000,
-              blockNewEntriesAfterMinutes: 15 * 60 + 15,
+              blockNewEntriesBeforeMinutes: STRATEGY_RULES.entryStartMinutesIst,
+              blockNewEntriesAfterMinutes: STRATEGY_RULES.entryEndMinutesIst,
             });
             const istHHMM = (ms: number) => {
               const d = new Date(ms + 5.5 * 60 * 60 * 1000);
