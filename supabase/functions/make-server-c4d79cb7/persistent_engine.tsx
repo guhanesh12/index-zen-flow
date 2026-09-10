@@ -1624,7 +1624,9 @@ class PersistentTradingEngine {
                   lastLossTimestamp,
                   consecutiveLossThreshold: 3,
                   consecutiveLossCooldownMs: 30 * 60 * 1000,
-                  blockNewEntriesAfterMinutes: 15 * 60 + 15, // 15:15 IST cutoff
+                  // Same entry window the Strategy Backtester scores.
+                  blockNewEntriesBeforeMinutes: STRATEGY_RULES.entryStartMinutesIst,
+                  blockNewEntriesAfterMinutes: STRATEGY_RULES.entryEndMinutesIst,
                 });
                 (sig as any).timestamp = ohlcData[ohlcData.length - 1]?.timestamp || Date.now();
                 (sig as any).signalSource = primary.source === "central" ? "CENTRAL_DATA" : "USER_DATA";
@@ -4207,7 +4209,8 @@ class PersistentTradingEngine {
               lastLossTimestamp,
               consecutiveLossThreshold: 3,
               consecutiveLossCooldownMs: 30 * 60 * 1000,
-              blockNewEntriesAfterMinutes: 15 * 60 + 15,
+              blockNewEntriesBeforeMinutes: STRATEGY_RULES.entryStartMinutesIst,
+              blockNewEntriesAfterMinutes: STRATEGY_RULES.entryEndMinutesIst,
             });
             const istHHMM = (ms: number) => {
               const d = new Date(ms + 5.5 * 60 * 60 * 1000);
