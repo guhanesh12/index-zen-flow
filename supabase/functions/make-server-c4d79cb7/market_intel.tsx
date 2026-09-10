@@ -12,6 +12,7 @@
  */
 
 import { getCentralCredentials } from "./central_market_data.tsx";
+import * as kv from "./kv_store.tsx";
 
 const DHAN = "https://api.dhan.co/v2";
 
@@ -29,20 +30,45 @@ const DEFAULT_INDICATORS = [
   "PIVOT",
 ];
 
+/** Everything refreshes upstream once per 15 minutes (one closed candle). */
+export const INTEL_TTL_MS = 15 * 60 * 1000;
+
 type CacheEntry = { at: number; value: any };
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<any>>();
 
+/**
+ * Cache-first with stale fallback: a failed upstream call (rate limit, token
+ * hiccup) never blanks the UI — the last good payload is served again.
+ */
 async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.value as T;
+
+  // cross-isolate copy so a cold start does not hammer Dhan
+  if (!hit) {
+    const stored = await kv.get(`market_intel:${key}`).catch(() => null);
+    if (stored?.at && Date.now() - stored.at < ttlMs) {
+      cache.set(key, { at: stored.at, value: stored.value });
+      return stored.value as T;
+    }
+    if (stored?.value) cache.set(key, { at: 0, value: stored.value });
+  }
+
   const running = inflight.get(key);
   if (running) return running as Promise<T>;
+
   const task = (async () => {
     try {
       const value = await fn();
-      cache.set(key, { at: Date.now(), value });
+      const at = Date.now();
+      cache.set(key, { at, value });
+      await kv.set(`market_intel:${key}`, { at, value }).catch(() => {});
       return value;
+    } catch (e) {
+      const stale = cache.get(key);
+      if (stale?.value) return stale.value as T;
+      throw e;
     } finally {
       inflight.delete(key);
     }
@@ -110,29 +136,29 @@ function shapeTechnical(raw: any) {
 
 export async function getTechnicalAll(timeframe = "15", indicators = DEFAULT_INDICATORS) {
   const tf = ["1", "5", "15", "D"].includes(String(timeframe)) ? String(timeframe) : "15";
-  return cached(`tech:${tf}:${indicators.join(",")}`, 2000, async () => {
+  return cached(`tech:${tf}:${indicators.join(",")}`, INTEL_TTL_MS, async () => {
     const { accessToken } = await creds();
     const out: Record<string, any> = {};
-    await Promise.all(
-      INTEL_INDICES.map(async (idx) => {
-        try {
-          const raw = await dhanPost(
-            "/data/technical",
-            {
-              securityId: idx.securityId,
-              exchangeSegment: "IDX_I",
-              instrument: "INDEX",
-              timeframe: tf,
-              indicators,
-            },
-            accessToken,
-          );
-          out[idx.name] = { ok: true, ...shapeTechnical(raw) };
-        } catch (e: any) {
-          out[idx.name] = { ok: false, error: e?.message || String(e) };
-        }
-      }),
-    );
+    // sequential: Dhan rate-limits bursts of data calls (HTTP 429)
+    for (const idx of INTEL_INDICES) {
+      try {
+        const raw = await dhanPost(
+          "/data/technical",
+          {
+            securityId: idx.securityId,
+            exchangeSegment: "IDX_I",
+            instrument: "INDEX",
+            timeframe: tf,
+            indicators,
+          },
+          accessToken,
+        );
+        out[idx.name] = { ok: true, ...shapeTechnical(raw) };
+      } catch (e: any) {
+        out[idx.name] = { ok: false, error: e?.message || String(e) };
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
     return { timeframe: tf, fetchedAt: Date.now(), indices: out };
   });
 }
@@ -141,7 +167,7 @@ export async function getTechnicalAll(timeframe = "15", indicators = DEFAULT_IND
 
 export async function getMarketMovers(limit = 5) {
   const lim = Math.min(20, Math.max(1, Number(limit) || 5));
-  return cached(`movers:${lim}`, 55_000, async () => {
+  return cached(`movers:${lim}`, INTEL_TTL_MS, async () => {
     const { accessToken } = await creds();
 
     const pull = async (category: "PRICE_GAINERS" | "PRICE_LOSERS") => {
@@ -170,7 +196,10 @@ export async function getMarketMovers(limit = 5) {
       }
     };
 
-    const [gainers, losers] = await Promise.all([pull("PRICE_GAINERS"), pull("PRICE_LOSERS")]);
+    // sequential + small gap: Dhan rate-limits parallel data calls (HTTP 429)
+    const gainers = await pull("PRICE_GAINERS");
+    await new Promise((r) => setTimeout(r, 400));
+    const losers = await pull("PRICE_LOSERS");
     const err = (gainers as any)?.error || (losers as any)?.error || null;
     return {
       fetchedAt: Date.now(),
@@ -185,14 +214,19 @@ export async function getMarketMovers(limit = 5) {
 
 export async function getMarketNews(limit = 12) {
   const lim = Math.min(50, Math.max(1, Number(limit) || 12));
-  return cached(`news:${lim}`, 55_000, async () => {
+  return cached(`news:${lim}`, INTEL_TTL_MS, async () => {
     const { clientId, accessToken } = await creds();
     const raw = await dhanPost(
       "/data/newsheadline",
       { dhanClientId: clientId, categories: ["ALL"], limit: lim, stockList: [] },
       accessToken,
     );
-    const list = [...(raw?.data?.latestNews || []), ...(raw?.data?.nextNews || [])];
+    const d = raw?.data;
+    const list = Array.isArray(d)
+      ? d
+      : Array.isArray(raw?.news)
+        ? raw.news
+        : [...(d?.latestNews || []), ...(d?.nextNews || []), ...(d?.news || []), ...(d?.headlines || [])];
     return {
       fetchedAt: Date.now(),
       items: list.slice(0, lim).map((n: any) => ({

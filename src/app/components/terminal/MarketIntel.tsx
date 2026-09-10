@@ -20,12 +20,25 @@ const actionClass = (a?: string) => {
   return "text-zinc-400";
 };
 
-/** Shared poller so many panels never stack requests. */
-function useIntel(path: string, ms: number, serverUrl?: string, accessToken?: string) {
+/**
+ * Silent poller: the panel is rendered once and then updated in place.
+ * A refresh never clears the card — the last good payload stays on screen even
+ * if a refresh fails, so nothing hides and re-appears.
+ */
+function useIntel(
+  path: string,
+  ms: number,
+  serverUrl?: string,
+  accessToken?: string,
+  hasContent?: (d: any) => boolean,
+) {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const busy = useRef(false);
+  const good = useRef(false);
+  const check = useRef(hasContent);
+  check.current = hasContent;
 
   useEffect(() => {
     if (!serverUrl || !accessToken) return;
@@ -40,11 +53,16 @@ function useIntel(path: string, ms: number, serverUrl?: string, accessToken?: st
         });
         const json = await res.json();
         if (!alive) return;
-        if (json?.error) setError(String(json.error));
-        else setError(null);
-        setData(json);
+        const usable = check.current ? check.current(json) : !!json;
+        if (usable) {
+          good.current = true;
+          setData(json);
+          setError(null);
+        } else if (!good.current) {
+          setError(json?.error ? String(json.error) : null);
+        }
       } catch (e: any) {
-        if (alive) setError(e?.message || "Network error");
+        if (alive && !good.current) setError(e?.message || "Network error");
       } finally {
         busy.current = false;
         if (alive) setLoading(false);
@@ -53,9 +71,14 @@ function useIntel(path: string, ms: number, serverUrl?: string, accessToken?: st
 
     tick();
     const t = setInterval(tick, ms);
+    const onVisible = () => {
+      if (!document.hidden) tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [path, ms, serverUrl, accessToken]);
 
@@ -75,13 +98,16 @@ const Shell = ({ title, icon, right, children }: any) => (
   </div>
 );
 
-/* ─────────────── Technical indicators (1s) ─────────────── */
+const REFRESH_MS = 15 * 60 * 1000;
+
+/* ─────────────── Technical indicators (15 min) ─────────────── */
 export function TechnicalPanel({ serverUrl, accessToken, timeframe = "15" }: any) {
   const { data, error, loading } = useIntel(
     `/market-intel/technical?timeframe=${timeframe}`,
-    1000,
+    REFRESH_MS,
     serverUrl,
     accessToken,
+    (d) => Object.values(d?.indices || {}).some((v: any) => v?.ok),
   );
   const indices = data?.indices || {};
 
@@ -89,7 +115,7 @@ export function TechnicalPanel({ serverUrl, accessToken, timeframe = "15" }: any
     <Shell
       title={`Technicals · ${timeframe}m`}
       icon={<Activity className="size-3.5 text-zinc-500" />}
-      right={<span className="text-[10px] text-zinc-600">live · 1s</span>}
+      right={<span className="text-[10px] text-zinc-600">15 min</span>}
     >
       {loading && !data ? (
         <div className="flex items-center gap-2 py-4 text-xs text-zinc-500">
@@ -145,9 +171,15 @@ const Row = ({ label, value, action }: any) => (
   </div>
 );
 
-/* ─────────────── Top movers (60s) ─────────────── */
+/* ─────────────── Top movers (15 min) ─────────────── */
 export function TopMoversCard({ serverUrl, accessToken }: any) {
-  const { data, error, loading } = useIntel("/market-intel/movers?limit=5", 60_000, serverUrl, accessToken);
+  const { data, error, loading } = useIntel(
+    "/market-intel/movers?limit=5",
+    REFRESH_MS,
+    serverUrl,
+    accessToken,
+    (d) => (d?.gainers?.length || 0) + (d?.losers?.length || 0) > 0,
+  );
   const gainers = data?.gainers || [];
   const losers = data?.losers || [];
 
@@ -204,16 +236,22 @@ export function TopMoversCard({ serverUrl, accessToken }: any) {
   );
 }
 
-/* ─────────────── Live news (60s) ─────────────── */
+/* ─────────────── Live news (15 min) ─────────────── */
 export function MarketNewsCard({ serverUrl, accessToken }: any) {
-  const { data, error, loading } = useIntel("/market-intel/news?limit=12", 60_000, serverUrl, accessToken);
+  const { data, error, loading } = useIntel(
+    "/market-intel/news?limit=12",
+    REFRESH_MS,
+    serverUrl,
+    accessToken,
+    (d) => (d?.items?.length || 0) > 0,
+  );
   const items = data?.items || [];
 
   return (
     <Shell
       title="Live News"
       icon={<Newspaper className="size-3.5 text-zinc-500" />}
-      right={<span className="text-[10px] text-zinc-600">1 min</span>}
+      right={<span className="text-[10px] text-zinc-600">15 min</span>}
     >
       {loading && !data ? (
         <div className="flex items-center gap-2 py-3 text-xs text-zinc-500">
