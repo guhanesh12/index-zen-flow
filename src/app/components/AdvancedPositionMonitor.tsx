@@ -153,6 +153,25 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
               const pnl = Number(r.pnl || 0);
               const trailingActive = !!raw.trailingActive;
               const profitLocked = !!raw.profitLocked;
+              const qty = Math.abs(Number(r.quantity) || 0);
+              const toTarget = Math.max(0, curTgt - pnl);
+              const toStop = Math.max(0, pnl + curSL);
+              const ptsTo = (amt: number) => (qty > 0 ? amt / qty : 0);
+              const barsHeld = Math.floor(heldMin / 15);
+              const stopStage = curSL <= 0
+                ? "Profit-locked stop"
+                : trailingActive
+                ? "Trailing stop"
+                : profitLocked
+                ? "Breakeven stop"
+                : "Initial stop";
+              const verdict = decision === "EXIT"
+                ? "Exit now — the trade has lost its edge or given back most of the profit."
+                : decision === "HOLD"
+                ? `Hold — stop is ${fmt(toStop)} away, target is ${fmt(toTarget)} away.`
+                : `Watch — profit given back ${giveBack.toFixed(0)}%, stop ${fmt(toStop)} away.`;
+
+
 
               const decisionColor =
                 decision === "EXIT"
