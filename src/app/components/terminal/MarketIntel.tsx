@@ -20,12 +20,25 @@ const actionClass = (a?: string) => {
   return "text-zinc-400";
 };
 
-/** Shared poller so many panels never stack requests. */
-function useIntel(path: string, ms: number, serverUrl?: string, accessToken?: string) {
+/**
+ * Silent poller: the panel is rendered once and then updated in place.
+ * A refresh never clears the card — the last good payload stays on screen even
+ * if a refresh fails, so nothing hides and re-appears.
+ */
+function useIntel(
+  path: string,
+  ms: number,
+  serverUrl?: string,
+  accessToken?: string,
+  hasContent?: (d: any) => boolean,
+) {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const busy = useRef(false);
+  const good = useRef(false);
+  const check = useRef(hasContent);
+  check.current = hasContent;
 
   useEffect(() => {
     if (!serverUrl || !accessToken) return;
@@ -40,11 +53,16 @@ function useIntel(path: string, ms: number, serverUrl?: string, accessToken?: st
         });
         const json = await res.json();
         if (!alive) return;
-        if (json?.error) setError(String(json.error));
-        else setError(null);
-        setData(json);
+        const usable = check.current ? check.current(json) : !!json;
+        if (usable) {
+          good.current = true;
+          setData(json);
+          setError(null);
+        } else if (!good.current) {
+          setError(json?.error ? String(json.error) : null);
+        }
       } catch (e: any) {
-        if (alive) setError(e?.message || "Network error");
+        if (alive && !good.current) setError(e?.message || "Network error");
       } finally {
         busy.current = false;
         if (alive) setLoading(false);
@@ -53,9 +71,14 @@ function useIntel(path: string, ms: number, serverUrl?: string, accessToken?: st
 
     tick();
     const t = setInterval(tick, ms);
+    const onVisible = () => {
+      if (!document.hidden) tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [path, ms, serverUrl, accessToken]);
 
