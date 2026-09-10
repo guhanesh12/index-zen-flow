@@ -139,26 +139,26 @@ export async function getTechnicalAll(timeframe = "15", indicators = DEFAULT_IND
   return cached(`tech:${tf}:${indicators.join(",")}`, INTEL_TTL_MS, async () => {
     const { accessToken } = await creds();
     const out: Record<string, any> = {};
-    await Promise.all(
-      INTEL_INDICES.map(async (idx) => {
-        try {
-          const raw = await dhanPost(
-            "/data/technical",
-            {
-              securityId: idx.securityId,
-              exchangeSegment: "IDX_I",
-              instrument: "INDEX",
-              timeframe: tf,
-              indicators,
-            },
-            accessToken,
-          );
-          out[idx.name] = { ok: true, ...shapeTechnical(raw) };
-        } catch (e: any) {
-          out[idx.name] = { ok: false, error: e?.message || String(e) };
-        }
-      }),
-    );
+    // sequential: Dhan rate-limits bursts of data calls (HTTP 429)
+    for (const idx of INTEL_INDICES) {
+      try {
+        const raw = await dhanPost(
+          "/data/technical",
+          {
+            securityId: idx.securityId,
+            exchangeSegment: "IDX_I",
+            instrument: "INDEX",
+            timeframe: tf,
+            indicators,
+          },
+          accessToken,
+        );
+        out[idx.name] = { ok: true, ...shapeTechnical(raw) };
+      } catch (e: any) {
+        out[idx.name] = { ok: false, error: e?.message || String(e) };
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
     return { timeframe: tf, fetchedAt: Date.now(), indices: out };
   });
 }
