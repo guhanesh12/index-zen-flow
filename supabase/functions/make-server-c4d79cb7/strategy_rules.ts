@@ -26,21 +26,21 @@ export const STRATEGY_RULES = {
    * N candles of the day, in the signal's direction. 0 disables the guard.
    * Validated over 4.7 years of 15m data (2022-02 → 2026-09).
    */
-  openingRangeBars: 2,
+  openingRangeBars: 3,
   /** Initial stop = ATR(14) x this multiple, target = stop x rrTarget. */
-  stopAtrMult: 1.5,
-  rrTarget: 4.0,
+  stopAtrMult: 2.5,
+  rrTarget: 3.0,
   /** Partial booking is DISABLED — the live engine exits in one piece. */
   partialAtR: 0,
   /** Move the stop to entry once the trade is this far in profit (in R). */
   beAtR: 0.5,
   /** Start trailing from this profit level (in R), at trailAtrMult x ATR. */
-  trailAtR: 1.0,
-  trailAtrMult: 0.6,
+  trailAtR: 0.5,
+  trailAtrMult: 0.4,
   /** Option premium moves roughly this fraction of the index move. */
   optionDelta: 0.5,
   /** Hard time exit after this many candles. */
-  maxHoldBars: 8,
+  maxHoldBars: 20,
 } as const;
 
 
