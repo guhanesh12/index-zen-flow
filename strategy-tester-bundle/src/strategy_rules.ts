@@ -8,8 +8,8 @@
  */
 export const STRATEGY_RULES = {
   /** Fresh entries are only allowed inside this IST window (minutes of day). */
-  entryStartMinutesIst: 9 * 60 + 45, // 09:45 — the 09:15/09:30 bars stay blocked
-  entryEndMinutesIst: 15 * 60, // 15:00 — only the last 30 minutes are blocked
+  entryStartMinutesIst: 9 * 60 + 30, // 09:30 — the 09:15 opening bar stays blocked
+  entryEndMinutesIst: 15 * 60, // 15:00 cutoff — the last 30 minutes are blocked
   /** Signals weaker than this are ignored for fresh entries. */
   minConfidence: 85,
   /** Max fresh entries per index per trading day. */
@@ -26,7 +26,7 @@ export const STRATEGY_RULES = {
    * N candles of the day, in the signal's direction. 0 disables the guard.
    * Validated over 4.7 years of 15m data (2022-02 → 2026-09).
    */
-  openingRangeBars: 3,
+  openingRangeBars: 0,
   /** Initial stop = ATR(14) x this multiple, target = stop x rrTarget. */
   stopAtrMult: 2.5,
   rrTarget: 3.0,

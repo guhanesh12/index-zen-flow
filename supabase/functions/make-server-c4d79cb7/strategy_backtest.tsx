@@ -388,12 +388,10 @@ async function replayIndex(
 
     }
 
-    // ---- entries / reversals only inside the tuned intraday window
-    // (09:45–13:30 IST: the opening auction and the late-day drift produced
-    // the bulk of the losses in the walk-forward study).
+    // ---- entries / reversals only from 09:30 until the 15:00 cutoff
     if (
       info.minutes < STRATEGY_RULES.entryStartMinutesIst ||
-      info.minutes > STRATEGY_RULES.entryEndMinutesIst
+      info.minutes >= STRATEGY_RULES.entryEndMinutesIst
     ) continue;
 
     const window = candles.slice(Math.max(0, i - 149), i + 1);
