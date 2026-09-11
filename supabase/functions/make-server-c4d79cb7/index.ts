@@ -13,6 +13,7 @@ import { BackendAI } from "./backend_ai.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import { BacktestEngine } from "./backtesting.tsx";
 import { runStrategyBacktest, replaySegment, buildReport, BACKTEST_COST } from "./strategy_backtest.tsx";
+import { STRATEGY_RULES } from "./strategy_rules.ts";
 import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
@@ -5455,7 +5456,7 @@ app.post('/make-server-c4d79cb7/backtest/strategy/begin', async (c) => {
     for (const idx of BT_INDICES) {
       lots[idx] = Math.max(0, Math.min(50, Math.floor(Number(rawLots[idx]) || 0)));
     }
-    const maxTradesPerDay = Math.max(0, Math.min(20, Math.floor(Number(body.maxTradesPerDay) || 0)));
+    const maxTradesPerDay = STRATEGY_RULES.maxTradesPerIndexPerDay;
     const minConfidence = Math.max(0, Math.min(95, Math.floor(Number(body.minConfidence) || 0)));
 
 

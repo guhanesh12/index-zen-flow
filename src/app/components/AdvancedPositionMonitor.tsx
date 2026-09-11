@@ -30,6 +30,16 @@ interface MonitorRow {
 }
 
 const fmt = (v: number) => `₹${(Number(v) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+const INDEX_LOT_SIZES: Record<string, number> = { NIFTY: 65, BANKNIFTY: 30, SENSEX: 20 };
+
+function positionLotSize(r: MonitorRow): number {
+  const index = String(r.index_name || r.raw_position?.index || r.symbol || "").toUpperCase();
+  const stored = Number(r.raw_position?.lotSize || r.raw_position?.lot_size || 0);
+  if (Number.isInteger(stored) && stored > 1) return stored;
+  if (index.includes("BANKNIFTY")) return INDEX_LOT_SIZES.BANKNIFTY;
+  if (index.includes("SENSEX")) return INDEX_LOT_SIZES.SENSEX;
+  return INDEX_LOT_SIZES.NIFTY;
+}
 
 export function AdvancedPositionMonitor({ accessToken }: Props) {
   const [rows, setRows] = useState<MonitorRow[]>([]);
@@ -63,10 +73,12 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
     setExitError("");
     try {
       const qty = Math.abs(Number(r.quantity) || 0);
-      const lot = Number(r.raw_position?.lotSize || 0) || 1;
-      let sendQty = half ? Math.floor(qty / 2) : qty;
-      if (half && lot > 1) sendQty = Math.max(lot, Math.floor(sendQty / lot) * lot);
-      if (!sendQty) sendQty = qty;
+      const lot = positionLotSize(r);
+      const totalLots = Math.floor(qty / lot);
+      if (half && totalLots < 2) {
+        throw new Error("Partial exit needs at least 2 lots. Use Exit position for a single lot.");
+      }
+      const sendQty = half ? Math.floor(totalLots / 2) * lot : qty;
       const res = await fetch(`${serverUrl}/place-order`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -154,6 +166,7 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
               const trailingActive = !!raw.trailingActive;
               const profitLocked = !!raw.profitLocked;
               const qty = Math.abs(Number(r.quantity) || 0);
+              const canExitHalf = Math.floor(qty / positionLotSize(r)) >= 2;
               const toTarget = Math.max(0, curTgt - pnl);
               const toStop = Math.max(0, pnl + curSL);
               const ptsTo = (amt: number) => (qty > 0 ? amt / qty : 0);
@@ -411,6 +424,8 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                         <button
                           className="text-[11px] px-3 py-1.5 rounded-md border border-zinc-700 text-zinc-200"
                           onClick={() => setConfirm({ id: r.id, half: true })}
+                          disabled={!canExitHalf}
+                          title={canExitHalf ? "Exit half the position in complete lots" : "Partial exit needs at least 2 lots"}
                         >
                           Exit half
                         </button>
