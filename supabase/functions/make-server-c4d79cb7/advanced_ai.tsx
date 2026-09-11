@@ -79,6 +79,8 @@ export interface AdvancedIndicators {
   adxStrong: boolean; // > 25
   adxVeryStrong: boolean; // > 50
   trending: boolean;
+  plusDI?: number; // Wilder +DI — direction of the move
+  minusDI?: number; // Wilder -DI
 
   // Stochastic
   stochK: number;
