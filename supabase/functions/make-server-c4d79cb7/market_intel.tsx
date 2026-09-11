@@ -6,9 +6,7 @@
  * token / rate limit is consumed.
  *
  * Caching:
- *   technical → 2s   (UI polls every 1s)
- *   movers    → 55s  (UI polls every 60s)
- *   news      → 55s  (UI polls every 60s)
+ *   technical / movers / news → 15 minutes (latest closed candle cadence)
  */
 
 import { getCentralCredentials } from "./central_market_data.tsx";
@@ -134,6 +132,18 @@ function shapeTechnical(raw: any) {
   };
 }
 
+function firstArray(...values: any[]): any[] {
+  for (const value of values) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") {
+      for (const nested of Object.values(value)) {
+        if (Array.isArray(nested)) return nested;
+      }
+    }
+  }
+  return [];
+}
+
 export async function getTechnicalAll(timeframe = "15", indicators = DEFAULT_INDICATORS) {
   const tf = ["1", "5", "15", "D"].includes(String(timeframe)) ? String(timeframe) : "15";
   return cached(`tech:${tf}:${indicators.join(",")}`, INTEL_TTL_MS, async () => {
@@ -176,14 +186,15 @@ export async function getMarketMovers(limit = 5) {
           "/data/marketmovers",
           {
             exchangeSegment: "NSE_EQ",
-            instrument: ["EQUITY"],
+            instrument: "EQUITY",
             category,
             universe: "FNO_STOCKS",
             limit: lim,
           },
           accessToken,
         );
-        return (raw?.data || []).map((r: any) => ({
+        const rows = firstArray(raw?.data, raw?.marketMovers, raw?.movers, raw);
+        return rows.map((r: any) => ({
           symbol: r.tradingSymbol || r.displayName || r.securityId,
           name: r.displayName || r.tradingSymbol,
           ltp: Number(r.ltp) || 0,
@@ -222,19 +233,25 @@ export async function getMarketNews(limit = 12) {
       accessToken,
     );
     const d = raw?.data;
-    const list = Array.isArray(d)
-      ? d
-      : Array.isArray(raw?.news)
-        ? raw.news
-        : [...(d?.latestNews || []), ...(d?.nextNews || []), ...(d?.news || []), ...(d?.headlines || [])];
+    const list = firstArray(
+      d,
+      d?.latestNews,
+      d?.nextNews,
+      d?.news,
+      d?.headlines,
+      raw?.news,
+      raw?.headlines,
+      raw?.latestNews,
+      raw,
+    );
     return {
       fetchedAt: Date.now(),
       items: list.slice(0, lim).map((n: any) => ({
-        headline: n.headline || n.title || n.newsHeadline || "",
-        source: n.source || n.publisher || "",
+        headline: n.headline || n.title || n.newsHeadline || n.news_headline || n.description || "Market update",
+        source: n.source || n.publisher || n.provider || "",
         category: n.category || "",
-        publishedAt: n.publishedAt || n.date || n.dateTime || n.time || null,
-        url: n.url || n.link || null,
+        publishedAt: n.publishedAt || n.published_at || n.date || n.dateTime || n.time || null,
+        url: n.url || n.link || n.newsUrl || null,
       })),
     };
   });
