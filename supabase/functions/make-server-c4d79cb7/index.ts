@@ -13,7 +13,7 @@ import { BackendAI } from "./backend_ai.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import { BacktestEngine } from "./backtesting.tsx";
 import { runStrategyBacktest, replaySegment, buildReport, BACKTEST_COST } from "./strategy_backtest.tsx";
-import { STRATEGY_RULES } from "./strategy_rules.ts";
+import { STRATEGY_RULES, applyExecutionEntryGates, applyTrendDayGate } from "./strategy_rules.ts";
 import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
@@ -4729,18 +4729,27 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         };
         const _freshStamps = [_stampFor(0), _stampFor(1)];
 
+        // Per-user execution gates, so a displayed BUY is always a BUY the
+        // engine would really place for THIS user (confidence / ADX / daily cap).
+        const _gateDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const _gateEntriesUsed = Number(
+          (await safeKVGet(`engine:entries:${effectiveUserId}:${idx}:${_gateDay}`, 0)) || 0,
+        );
+        const _gate = (s: any) =>
+          applyExecutionEntryGates(s, { hasOpenPosition: false, dailyEntriesUsed: _gateEntriesUsed });
+
         const central = await CentralMarketData.getLatestCentralSignal(idx, _tfMinutes).catch(() => null);
         const centralFresh = !!central?.signal && _freshStamps.includes(String(central.candleStamp));
         if (centralFresh) {
           results.push({
             index: idx,
-            signal: {
+            signal: _gate({
               ...central.signal,
               index: idx,
               timeframe: `${interval}M`,
               candleClose: central.candleStamp,
               central: true,
-            },
+            }),
             candlesProcessed: Number(central.signal?.candlesAnalyzed || 0),
             processingTime: Math.round(performance.now() - dataStart),
             source: 'CENTRAL_SIGNAL',
@@ -4846,6 +4855,10 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           consecutiveLossThreshold: 3,
           consecutiveLossCooldownMs: 30 * 60 * 1000,
         });
+        // Same gates the live engine applies, so this fallback path can never
+        // display a BUY card the engine would refuse (sideways day / confidence / ADX / daily cap).
+        applyTrendDayGate(signal, analysisCandles as any);
+        _gate(signal);
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
           await kv.set(`last_signal_dir:${effectiveUserId}:${idx}`, signal.action);
