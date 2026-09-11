@@ -1809,6 +1809,7 @@ export class AdvancedAI {
     const adxStrong = adx > 18;
     const adxVeryStrong = adx > 50;
     const trending = adxStrong || (adx >= 18 && adxRising);
+    const di = this.calculateDI(ohlcData);
     calculationsPerformed += 1;
 
     // Stochastic
