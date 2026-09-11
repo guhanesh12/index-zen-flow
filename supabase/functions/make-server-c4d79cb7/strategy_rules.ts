@@ -156,6 +156,41 @@ export function applyTrendDayGate(sig: any, candles: any[]): any {
 }
 
 /**
+ * True when the market is genuinely sideways for this signal. ADX alone is a
+ * strength reading; when it is just under the gate but +DI/-DI point the same
+ * way as the trade, the move is directional and the trade is allowed.
+ */
+export function trendStrengthBlocked(
+  adx: number,
+  indicators: any,
+  action: string,
+): boolean {
+  if (!(STRATEGY_RULES.minAdx > 0)) return false;
+  if (adx >= STRATEGY_RULES.minAdx) return false;
+  if (adx < STRATEGY_RULES.minAdxWithDi) return true;
+  const plusDI = Number(indicators?.plusDI || 0);
+  const minusDI = Number(indicators?.minusDI || 0);
+  const spread = plusDI - minusDI;
+  if (Math.abs(spread) < STRATEGY_RULES.minDiSpread) return true;
+  const directional = action === "BUY_CALL" ? spread > 0 : spread < 0;
+  return !directional;
+}
+
+export function trendStrengthBlockReason(
+  adx: number,
+  indicators: any,
+  action: string,
+): string {
+  if (!trendStrengthBlocked(adx, indicators, action)) return "";
+  const plusDI = Number(indicators?.plusDI || 0);
+  const minusDI = Number(indicators?.minusDI || 0);
+  if (adx < STRATEGY_RULES.minAdxWithDi) {
+    return `Sideways market — ADX ${adx.toFixed(1)} is below ${STRATEGY_RULES.minAdx}`;
+  }
+  return `No clear direction — ADX ${adx.toFixed(1)} below ${STRATEGY_RULES.minAdx} and +DI ${plusDI.toFixed(1)} / -DI ${minusDI.toFixed(1)} do not back this side`;
+}
+
+/**
  * Converts a fresh-entry signal to WAIT before it reaches the UI when the live
  * engine would reject it for confidence, ADX, or the per-user daily entry cap.
  */
