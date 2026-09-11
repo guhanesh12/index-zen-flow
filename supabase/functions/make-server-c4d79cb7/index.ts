@@ -13,7 +13,7 @@ import { BackendAI } from "./backend_ai.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import { BacktestEngine } from "./backtesting.tsx";
 import { runStrategyBacktest, replaySegment, buildReport, BACKTEST_COST } from "./strategy_backtest.tsx";
-import { STRATEGY_RULES } from "./strategy_rules.ts";
+import { STRATEGY_RULES, applyExecutionEntryGates, applyTrendDayGate } from "./strategy_rules.ts";
 import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
