@@ -349,8 +349,8 @@ export class AdvancedAI {
 
     let interpretation: "NEUTRAL" | "ACCEPTABLE" | "EXTENDED";
 
-    // ⚡ FIX: In strong trends (ADX > 25), allow extended moves up to 3.0 ATR
-    const isStrongTrend = adx && adx > 18; // Changed from 40 to 25!
+    // Use the same canonical trend floor as execution gates.
+    const isStrongTrend = Boolean(adx && adx >= STRATEGY_RULES.minAdx);
     const extendedThreshold = isStrongTrend ? 3.0 : 0.6; // 3.0 ATR for trending markets
 
     if (distanceATR < 0.3) {
@@ -1133,8 +1133,10 @@ export class AdvancedAI {
     const bollingerWidth = indicators.bollingerWidth;
     const lastCandle = data[data.length - 1];
 
-    // ⚡ FIX: Check ADX strength first (>25 = trending, regardless of EMA alignment)
-    const isTrending = adx > 18;
+    const di = this.calculateDI(data);
+    const bullishTrend = !trendStrengthBlocked(adx, di, "BUY_CALL");
+    const bearishTrend = !trendStrengthBlocked(adx, di, "BUY_PUT");
+    const isTrending = bullishTrend || bearishTrend;
 
     // Check EMA alignment for trend direction
     const emaUptrend =
@@ -2117,7 +2119,7 @@ export class AdvancedAI {
               : "neutral";
 
     // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
-    const useTrendBias = adx > 18; // Changed from 40 to 25!
+    const useTrendBias = adx >= STRATEGY_RULES.minAdx;
     const confirmationBullish = useTrendBias
       ? trendBias === "bullish"
       : isBullish;
@@ -2459,7 +2461,7 @@ export class AdvancedAI {
 
     // ⚡ FIX BUG #12: If ADX > 25 (trending), use trend bias instead of strict higher highs/lower lows
     // In strong trends, minor pullbacks don't invalidate the trend!
-    const trendingMarket = adx > 18;
+    const trendingMarket = adx >= STRATEGY_RULES.minAdx;
 
     if (trendingMarket && confirmationBullish) {
       confirmations.priceAction = true;
@@ -2996,12 +2998,12 @@ export class AdvancedAI {
     );
     const reversalBearEntry =
       hasBearReversalPattern &&
-      adx > 18 &&
+      bearTrendStrengthOk &&
       macdHistWeakeningBear &&
       lastCandle.close < lastCandle.open;
     const reversalBullEntry =
       hasBullReversalPattern &&
-      adx > 18 &&
+      bullTrendStrengthOk &&
       macdHistImprovingBull &&
       lastCandle.close > lastCandle.open;
 
