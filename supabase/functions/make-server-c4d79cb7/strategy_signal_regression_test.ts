@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { AdvancedAI, type OHLCCandle } from "./advanced_ai.tsx";
+import { trendStrengthBlocked } from "./strategy_rules.ts";
 
 function candles(direction: "bull" | "bear" | "chop"): OHLCCandle[] {
   const out: OHLCCandle[] = [];
@@ -36,4 +37,22 @@ Deno.test("signal: confirmed resistance rejection emits PUT symmetrically", () =
 Deno.test("signal: low-volatility chop remains WAIT", () => {
   const signal = AdvancedAI.generateAdvancedSignal(candles("chop"), 100000, { timeframeMinutes: 15, enforceClosedCandle: false });
   assertEquals(signal.action, "WAIT");
+});
+
+Deno.test("trend gate: borderline ADX accepts only aligned DI", () => {
+  assertEquals(
+    trendStrengthBlocked(18.7, { plusDI: 28, minusDI: 19 }, "BUY_CALL"),
+    false,
+  );
+  assertEquals(
+    trendStrengthBlocked(18.7, { plusDI: 19, minusDI: 28 }, "BUY_CALL"),
+    true,
+  );
+});
+
+Deno.test("trend gate: low ADX remains sideways despite DI", () => {
+  assertEquals(
+    trendStrengthBlocked(17.9, { plusDI: 35, minusDI: 10 }, "BUY_CALL"),
+    true,
+  );
 });

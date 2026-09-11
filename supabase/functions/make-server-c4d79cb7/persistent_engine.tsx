@@ -21,7 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, atrOf, dayTrendOk, dayTrendBlockReason, applyTrendDayGate, applyExecutionEntryGates, trendStrengthBlockReason } from "./strategy_rules.ts";
+import { STRATEGY_RULES, atrOf, applyTrendDayGate, applyExecutionEntryGates } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
@@ -1774,67 +1774,6 @@ class PersistentTradingEngine {
             });
             return;
           }
-          // ⚡ QUALITY GATE: 13 months of walk-forward testing on 15m data
-          // (NIFTY / BANKNIFTY / SENSEX) showed signals below 75% confidence
-          // are net-negative. Skip them for fresh entries; reversal exits
-          // below keep their own (lower) thresholds.
-          const MIN_ENTRY_CONFIDENCE = STRATEGY_RULES.minConfidence;
-          if (!hasOpenPosition && confidence < MIN_ENTRY_CONFIDENCE) {
-            console.log(`⏸️ ${indexName} SKIP — ${confidence}% below ${MIN_ENTRY_CONFIDENCE}% entry quality gate`);
-            await this.appendSharedLog(userId, {
-              type: "SKIP",
-              timestamp: Date.now(),
-              message: `⏸️ ${indexName} SKIP — ${confidence}% confidence (needs ${MIN_ENTRY_CONFIDENCE}%+)`,
-            });
-            return;
-          }
-
-          // 📈 TREND GATES — identical to the Strategy Backtester: skip
-          // ranging markets (ADX below the shared minimum) and flat sessions
-          // where the index has not yet moved dayTrendPct from the day open.
-          if (!hasOpenPosition) {
-            const _ind = aiSignal?.signal?.indicators;
-            const _adxNow = Number(_ind?.adx || 0);
-            const _adxBlock = trendStrengthBlockReason(_adxNow, _ind, action);
-            if (_adxBlock) {
-              console.log(`⏸️ ${indexName} SKIP — ${_adxBlock}`);
-              await this.appendSharedLog(userId, {
-                type: "SKIP",
-                timestamp: Date.now(),
-                message: `⏸️ ${indexName} SKIP — ${_adxBlock}`,
-              });
-              return;
-            }
-            const _trendBlock = (Array.isArray(ohlcData) && ohlcData.length > 1)
-              ? dayTrendBlockReason(ohlcData as any, ohlcData.length - 1, action)
-              : "";
-            if (_trendBlock) {
-              console.log(`⏸️ ${indexName} SKIP — ${_trendBlock}`);
-              await this.appendSharedLog(userId, {
-                type: "SKIP",
-                timestamp: Date.now(),
-                message: `⏸️ ${indexName} SKIP — ${_trendBlock}`,
-              });
-              return;
-            }
-          }
-
-          // 📅 DAILY ENTRY CAP — the backtester allows at most
-          // STRATEGY_RULES.maxTradesPerIndexPerDay fresh entries per index per
-          // day; the live engine must respect the same limit.
-          if (!hasOpenPosition) {
-            const _used = _usedEntries;
-            if (_used >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
-              console.log(`⏸️ ${indexName} SKIP — daily entry limit reached (${_used})`);
-              await this.appendSharedLog(userId, {
-                type: "SKIP",
-                timestamp: Date.now(),
-                message: `⏸️ ${indexName} SKIP — already took ${_used} trade(s) today (limit ${STRATEGY_RULES.maxTradesPerIndexPerDay})`,
-              });
-              return;
-            }
-          }
-
           if (!state.activePositions || state.activePositions.length === 0) {
             const { data: dbPositions } = await supabaseAdmin
               .from("position_monitor_state")

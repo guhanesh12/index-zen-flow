@@ -13,3 +13,4 @@
 - [x] Convert non-executable confidence, ADX, and daily-cap signals to WAIT before display
 - [x] Add a compact working Partial Exit on/off control to Position Monitor
 - [x] Restore visible Top Movers, Technicals, and Live News data
+- [x] Align bullish/bearish DI, ADX, higher-timeframe, and live order gates
