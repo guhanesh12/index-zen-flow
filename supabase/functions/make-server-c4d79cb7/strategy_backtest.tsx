@@ -11,7 +11,7 @@
  */
 
 import { AdvancedAI, type OHLCCandle } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, dayTrendOk } from "./strategy_rules.ts";
+import { STRATEGY_RULES, dayTrendOk, trendStrengthBlocked } from "./strategy_rules.ts";
 
 export type IndexName = "NIFTY" | "BANKNIFTY" | "SENSEX";
 
