@@ -4729,18 +4729,27 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         };
         const _freshStamps = [_stampFor(0), _stampFor(1)];
 
+        // Per-user execution gates, so a displayed BUY is always a BUY the
+        // engine would really place for THIS user (confidence / ADX / daily cap).
+        const _gateDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const _gateEntriesUsed = Number(
+          (await safeKVGet(`engine:entries:${effectiveUserId}:${idx}:${_gateDay}`, 0)) || 0,
+        );
+        const _gate = (s: any) =>
+          applyExecutionEntryGates(s, { hasOpenPosition: false, dailyEntriesUsed: _gateEntriesUsed });
+
         const central = await CentralMarketData.getLatestCentralSignal(idx, _tfMinutes).catch(() => null);
         const centralFresh = !!central?.signal && _freshStamps.includes(String(central.candleStamp));
         if (centralFresh) {
           results.push({
             index: idx,
-            signal: {
+            signal: _gate({
               ...central.signal,
               index: idx,
               timeframe: `${interval}M`,
               candleClose: central.candleStamp,
               central: true,
-            },
+            }),
             candlesProcessed: Number(central.signal?.candlesAnalyzed || 0),
             processingTime: Math.round(performance.now() - dataStart),
             source: 'CENTRAL_SIGNAL',
