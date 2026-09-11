@@ -11,7 +11,7 @@
  */
 
 import { AdvancedAI, type OHLCCandle } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, dayTrendOk } from "./strategy_rules.ts";
+import { STRATEGY_RULES, dayTrendOk, trendStrengthBlocked } from "./strategy_rules.ts";
 
 export type IndexName = "NIFTY" | "BANKNIFTY" | "SENSEX";
 
@@ -413,7 +413,7 @@ async function replayIndex(
     // dayTrendPct of the day's open) produced the bulk of the losses.
     if (!pos) {
       const adxNow = Number(signal.indicators?.adx || 0);
-      if (STRATEGY_RULES.minAdx > 0 && adxNow < STRATEGY_RULES.minAdx) continue;
+      if (trendStrengthBlocked(adxNow, signal.indicators, signal.action)) continue;
       if (!dayTrendOk(candles as any, i, signal.action)) continue;
     }
 

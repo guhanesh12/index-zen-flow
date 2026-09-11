@@ -17,6 +17,14 @@ export const STRATEGY_RULES = {
   /** Minimum ADX(14) — below this the market is ranging, so we stand aside. */
   minAdx: 20,
   /**
+   * ADX measures strength, not direction. When ADX sits just under `minAdx`
+   * but +DI/-DI clearly point the same way as the signal, the move is
+   * directional, not sideways — allow it down to this floor.
+   */
+  minAdxWithDi: 18,
+  /** Required +DI/-DI gap (in DI points) for the relaxed ADX path. */
+  minDiSpread: 6,
+  /**
    * Sideways-day guard: the index must already be this far (in %) from the
    * day's open, in the signal's direction, before a fresh entry is allowed.
    */
@@ -148,6 +156,41 @@ export function applyTrendDayGate(sig: any, candles: any[]): any {
 }
 
 /**
+ * True when the market is genuinely sideways for this signal. ADX alone is a
+ * strength reading; when it is just under the gate but +DI/-DI point the same
+ * way as the trade, the move is directional and the trade is allowed.
+ */
+export function trendStrengthBlocked(
+  adx: number,
+  indicators: any,
+  action: string,
+): boolean {
+  if (!(STRATEGY_RULES.minAdx > 0)) return false;
+  if (adx >= STRATEGY_RULES.minAdx) return false;
+  if (adx < STRATEGY_RULES.minAdxWithDi) return true;
+  const plusDI = Number(indicators?.plusDI || 0);
+  const minusDI = Number(indicators?.minusDI || 0);
+  const spread = plusDI - minusDI;
+  if (Math.abs(spread) < STRATEGY_RULES.minDiSpread) return true;
+  const directional = action === "BUY_CALL" ? spread > 0 : spread < 0;
+  return !directional;
+}
+
+export function trendStrengthBlockReason(
+  adx: number,
+  indicators: any,
+  action: string,
+): string {
+  if (!trendStrengthBlocked(adx, indicators, action)) return "";
+  const plusDI = Number(indicators?.plusDI || 0);
+  const minusDI = Number(indicators?.minusDI || 0);
+  if (adx < STRATEGY_RULES.minAdxWithDi) {
+    return `Sideways market — ADX ${adx.toFixed(1)} is below ${STRATEGY_RULES.minAdx}`;
+  }
+  return `No clear direction — ADX ${adx.toFixed(1)} below ${STRATEGY_RULES.minAdx} and +DI ${plusDI.toFixed(1)} / -DI ${minusDI.toFixed(1)} do not back this side`;
+}
+
+/**
  * Converts a fresh-entry signal to WAIT before it reaches the UI when the live
  * engine would reject it for confidence, ADX, or the per-user daily entry cap.
  */
@@ -163,8 +206,8 @@ export function applyExecutionEntryGates(
   let why = "";
   if (confidence < STRATEGY_RULES.minConfidence) {
     why = `Signal confidence ${confidence}% is below the ${STRATEGY_RULES.minConfidence}% entry minimum`;
-  } else if (STRATEGY_RULES.minAdx > 0 && adx < STRATEGY_RULES.minAdx) {
-    why = `Sideways market — ADX ${adx.toFixed(1)} is below ${STRATEGY_RULES.minAdx}`;
+  } else if (trendStrengthBlocked(adx, sig.indicators, sig.action)) {
+    why = trendStrengthBlockReason(adx, sig.indicators, sig.action);
   } else if (context.dailyEntriesUsed >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
     why = `Daily entry limit reached (${STRATEGY_RULES.maxTradesPerIndexPerDay} per index)`;
   }
