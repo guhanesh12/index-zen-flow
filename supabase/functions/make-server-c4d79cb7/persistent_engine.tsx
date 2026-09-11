@@ -1793,13 +1793,15 @@ class PersistentTradingEngine {
           // ranging markets (ADX below the shared minimum) and flat sessions
           // where the index has not yet moved dayTrendPct from the day open.
           if (!hasOpenPosition) {
-            const _adxNow = Number(aiSignal?.signal?.indicators?.adx || 0);
-            if (STRATEGY_RULES.minAdx > 0 && _adxNow < STRATEGY_RULES.minAdx) {
-              console.log(`⏸️ ${indexName} SKIP — ADX ${_adxNow.toFixed(1)} below ${STRATEGY_RULES.minAdx} (ranging)`);
+            const _ind = aiSignal?.signal?.indicators;
+            const _adxNow = Number(_ind?.adx || 0);
+            const _adxBlock = trendStrengthBlockReason(_adxNow, _ind, action);
+            if (_adxBlock) {
+              console.log(`⏸️ ${indexName} SKIP — ${_adxBlock}`);
               await this.appendSharedLog(userId, {
                 type: "SKIP",
                 timestamp: Date.now(),
-                message: `⏸️ ${indexName} SKIP — no trend (ADX ${_adxNow.toFixed(1)} < ${STRATEGY_RULES.minAdx})`,
+                message: `⏸️ ${indexName} SKIP — ${_adxBlock}`,
               });
               return;
             }
