@@ -79,6 +79,8 @@ export interface AdvancedIndicators {
   adxStrong: boolean; // > 25
   adxVeryStrong: boolean; // > 50
   trending: boolean;
+  plusDI?: number; // Wilder +DI — direction of the move
+  minusDI?: number; // Wilder -DI
 
   // Stochastic
   stochK: number;
@@ -710,6 +712,46 @@ export class AdvancedAI {
   }
 
   /**
+   * Wilder's +DI / -DI. ADX only measures how strong a move is; the DI pair
+   * says WHICH WAY it is going. Used so a clean directional push is not
+   * mislabelled "sideways" just because ADX is a point or two under the gate.
+   */
+  private static calculateDI(
+    data: OHLCCandle[],
+    period: number = 14,
+  ): { plusDI: number; minusDI: number } {
+    if (!data || data.length < period + 1) return { plusDI: 0, minusDI: 0 };
+    const trArr: number[] = [];
+    const pDMArr: number[] = [];
+    const mDMArr: number[] = [];
+    for (let i = 1; i < data.length; i++) {
+      const hd = data[i].high - data[i - 1].high;
+      const ld = data[i - 1].low - data[i].low;
+      pDMArr.push(hd > ld && hd > 0 ? hd : 0);
+      mDMArr.push(ld > hd && ld > 0 ? ld : 0);
+      trArr.push(
+        Math.max(
+          data[i].high - data[i].low,
+          Math.abs(data[i].high - data[i - 1].close),
+          Math.abs(data[i].low - data[i - 1].close),
+        ),
+      );
+    }
+    const smooth = (arr: number[]): number => {
+      let s = 0;
+      for (let i = 0; i < period; i++) s += arr[i];
+      for (let i = period; i < arr.length; i++) s = s - s / period + arr[i];
+      return s;
+    };
+    const tr = smooth(trArr);
+    if (!tr) return { plusDI: 0, minusDI: 0 };
+    return {
+      plusDI: (smooth(pDMArr) / tr) * 100,
+      minusDI: (smooth(mDMArr) / tr) * 100,
+    };
+  }
+
+  /**
    * Stochastic with proper %D = 3-period SMA of %K
    */
   private static calculateStochastic(
@@ -1145,6 +1187,19 @@ export class AdvancedAI {
       const lowerLows = last5.every(
         (candle, i) => i === 0 || candle.low <= last5[i - 1].low,
       );
+
+      // DI decides direction first: EMAs lag, so a fresh push up was being
+      // labelled TRENDING_DOWN while the stack was still unwinding.
+      const plusDI = Number((indicators as any).plusDI || 0);
+      const minusDI = Number((indicators as any).minusDI || 0);
+      const diSpread = Math.abs(plusDI - minusDI);
+      if (diSpread >= 4) {
+        return {
+          type: plusDI > minusDI ? "TRENDING_UP" : "TRENDING_DOWN",
+          strength: adx,
+          suitable_for_trading: true,
+        };
+      }
 
       // EMA alignment OR price action confirms trend
       if (emaUptrend || higherHighs) {
@@ -1769,6 +1824,7 @@ export class AdvancedAI {
     const adxStrong = adx > 18;
     const adxVeryStrong = adx > 50;
     const trending = adxStrong || (adx >= 18 && adxRising);
+    const di = this.calculateDI(ohlcData);
     calculationsPerformed += 1;
 
     // Stochastic
@@ -1980,6 +2036,8 @@ export class AdvancedAI {
       adxStrong,
       adxVeryStrong,
       trending,
+      plusDI: di.plusDI,
+      minusDI: di.minusDI,
       stochK: stoch.k,
       stochD: stoch.d,
       stochOverbought,
