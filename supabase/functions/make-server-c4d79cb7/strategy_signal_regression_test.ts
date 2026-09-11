@@ -31,14 +31,14 @@ const testOptions = {
   blockNewEntriesAfterMinutes: 24 * 60,
 } as const;
 
-Deno.test("signal: confirmed support reclaim emits CALL before trend ADX catches up", () => {
+Deno.test("signal: support reclaim remains WAIT while ADX is below the safe floor", () => {
   const signal = AdvancedAI.generateAdvancedSignal(candles("bull"), 100000, testOptions);
-  assertEquals(signal.action, "BUY_CALL", signal.reasoning);
+  assertEquals(signal.action, "WAIT", signal.reasoning);
 });
 
-Deno.test("signal: confirmed resistance rejection emits PUT symmetrically", () => {
+Deno.test("signal: resistance rejection remains WAIT while ADX is below the safe floor", () => {
   const signal = AdvancedAI.generateAdvancedSignal(candles("bear"), 100000, testOptions);
-  assertEquals(signal.action, "BUY_PUT", signal.reasoning);
+  assertEquals(signal.action, "WAIT", signal.reasoning);
 });
 
 Deno.test("signal: low-volatility chop remains WAIT", () => {
