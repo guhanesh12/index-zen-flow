@@ -4764,11 +4764,13 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
         // Professional MTF: entry timeframe + REAL 15m + REAL 1H trend candles.
         // Prefer the shared central data feed so all users analyse identical candles;
         // the user's own Dhan token is used only as a fallback.
-        const ohlcData = (await CentralMarketData.getCentralOHLC(securityId, interval.toString(), 50, dhanService)
+        // Same 150/100/40 history depth as the central publisher and the engine —
+        // a shorter window changes indicator warm-up and therefore the confidence.
+        const ohlcData = (await CentralMarketData.getCentralOHLC(securityId, interval.toString(), 150, dhanService)
           .then((r: any) => r.candles)
-          .catch(() => null)) || (await dhanService.getOHLCData(securityId, interval.toString(), 50));
+          .catch(() => null)) || (await dhanService.getOHLCData(securityId, interval.toString(), 150));
 
-        const real15mData = interval === '15' ? ohlcData : await dhanService.getOHLCData(securityId, '15', 80);
+        const real15mData = interval === '15' ? ohlcData : await dhanService.getOHLCData(securityId, '15', 100);
         // FIX 3: 1H higher timeframe (best-effort, non-blocking on failure)
         let real1hData: any[] = [];
         try { real1hData = await dhanService.getOHLCData(securityId, '60', 40); } catch (_e) { real1hData = []; }
