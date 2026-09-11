@@ -1528,12 +1528,16 @@ class PersistentTradingEngine {
             // subscription so EVERY user analyses the exact same bars (no rate limits,
             // no per-user data drift). Falls back to the user's own token if the admin
             // credentials are not configured / failing.
-            const primary = await getCentralOHLC(securityId, String(state.candleInterval), 50, dhanSvc);
+            // ⚠️ HISTORY DEPTH MUST MATCH THE CENTRAL PUBLISHER (150/100/40).
+            // With only 50 bars the indicator warm-up is incomplete and the same
+            // candle scored a LOWER confidence here than in the publisher and the
+            // backtester, so valid 85%+ entries were silently downgraded to WAIT.
+            const primary = await getCentralOHLC(securityId, String(state.candleInterval), 150, dhanSvc);
             const ohlcDataRaw = primary.candles;
             const real15mDataRaw =
               state.candleInterval === "15"
                 ? ohlcDataRaw
-                : (await getCentralOHLC(securityId, "15", 80, dhanSvc)).candles;
+                : (await getCentralOHLC(securityId, "15", 100, dhanSvc)).candles;
             let real1hData: any[] = [];
             try {
               real1hData = (await getCentralOHLC(securityId, "60", 40, dhanSvc)).candles;
@@ -2734,12 +2738,12 @@ class PersistentTradingEngine {
           const ohlcDataRaw = await dhanService.getOHLCData(
             securityIdMap[indexName],
             String(state.candleInterval || "5"),
-            50,
+            150,
           );
           const real15mDataRaw =
             state.candleInterval === "15"
               ? ohlcDataRaw
-              : await dhanService.getOHLCData(securityIdMap[indexName], "15", 80);
+              : await dhanService.getOHLCData(securityIdMap[indexName], "15", 100);
           const tfMin = Number(state.candleInterval || "5");
           const stripForming = (arr: any[], tfM: number) => {
             if (!arr || arr.length < 2) return arr;
