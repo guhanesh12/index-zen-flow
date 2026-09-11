@@ -186,7 +186,7 @@ export async function getMarketMovers(limit = 5) {
           "/data/marketmovers",
           {
             exchangeSegment: "NSE_EQ",
-            instrument: "EQUITY",
+            instrument: ["EQUITY"],
             category,
             universe: "FNO_STOCKS",
             limit: lim,
