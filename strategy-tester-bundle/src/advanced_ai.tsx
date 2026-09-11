@@ -276,7 +276,7 @@ export interface AdvancedSignalOptions {
   consecutiveLossThreshold?: number; // default 3
   consecutiveLossCooldownMs?: number; // default 30 * 60 * 1000
   blockNewEntriesAfterMinutes?: number; // default 15:00 IST — no fresh intraday entries after this
-  blockNewEntriesBeforeMinutes?: number; // default 09:45 IST on 15m — skip opening-noise candles
+  blockNewEntriesBeforeMinutes?: number; // default 09:30 IST on 15m — skip only the opening candle
 
 }
 
@@ -3226,17 +3226,14 @@ export class AdvancedAI {
       lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout =
       lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    // ⚡ GUARD 1: no fresh intraday entries after 13:30 IST on the 15m strategy
-    // (walk-forward tested: late-day entries had no time to reach target and
-    // produced the largest losses).
+    // No fresh intraday entries at or after the configured session cutoff.
     const lastEntryMinute =
       options.blockNewEntriesAfterMinutes ??
       (timeframeMinutes >= 15 ? 13 * 60 + 30 : 15 * 60 + 25);
-    // ⚡ GUARD 3: no fresh 15m entries before 09:45 — the opening auction
-    // candles produced the biggest cluster of losses.
+    // No fresh 15m entries before 09:30 — only the 09:15 opening bar is blocked.
     const firstEntryMinute =
       options.blockNewEntriesBeforeMinutes ??
-      (timeframeMinutes >= 15 ? 9 * 60 + 45 : 9 * 60 + 5);
+      (timeframeMinutes >= 15 ? 9 * 60 + 30 : 9 * 60 + 5);
     const lateNewEntryBlocked =
       _istMinSess >= lastEntryMinute || _istMinSess < firstEntryMinute;
 
