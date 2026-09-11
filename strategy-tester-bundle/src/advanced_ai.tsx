@@ -1,3 +1,5 @@
+import { STRATEGY_RULES, trendStrengthBlocked } from "./strategy_rules.ts";
+
 /**
  * ⚡⚡⚡ ADVANCED BACKEND AI ENGINE ⚡⚡⚡
  *
@@ -1821,10 +1823,21 @@ export class AdvancedAI {
     const prevAdx =
       ohlcData.length > 30 ? this.calculateADX(ohlcData.slice(0, -1)) : adx;
     const adxRising = adx > prevAdx;
-    const adxStrong = adx > 18;
-    const adxVeryStrong = adx > 50;
-    const trending = adxStrong || (adx >= 18 && adxRising);
     const di = this.calculateDI(ohlcData);
+    const directionalIndicators = { plusDI: di.plusDI, minusDI: di.minusDI };
+    const bullTrendStrengthOk = !trendStrengthBlocked(
+      adx,
+      directionalIndicators,
+      "BUY_CALL",
+    );
+    const bearTrendStrengthOk = !trendStrengthBlocked(
+      adx,
+      directionalIndicators,
+      "BUY_PUT",
+    );
+    const adxStrong = adx >= STRATEGY_RULES.minAdx;
+    const adxVeryStrong = adx > 50;
+    const trending = bullTrendStrengthOk || bearTrendStrengthOk;
     calculationsPerformed += 1;
 
     // Stochastic
@@ -2914,11 +2927,10 @@ export class AdvancedAI {
     const smartMoneyAgreesBull = smartMoneyBias !== "BEARISH";
     const smartMoneyAgreesBear = smartMoneyBias !== "BULLISH";
 
-    // ⚡ HTF is SOFT FILTER ONLY — never a hard block.
-    // Disagreement only deducts score; agreement boosts. Strong intra-trend ADX bypasses HTF entirely.
+    // HTF is a confidence input only. It must not veto a directionally confirmed
+    // current move because EMA-based higher timeframes naturally lag reversals.
     const htfDisagreeBull = htfDataProvided && htfAlign === "bear";
     const htfDisagreeBear = htfDataProvided && htfAlign === "bull";
-    const htfAdxStrong = adx > 30;
 
     // ===== FIX 4: TREND-CONTINUATION PULLBACK ENTRY MODEL =====
     // BULL: ADX>25, ema9>ema21, price pulled back to ema9/ema21, bullish rejection wick
@@ -3304,16 +3316,16 @@ export class AdvancedAI {
         (momentumStrong && adx > 30) ||
         ultraFastOpeningBull) &&
       (breakoutQualityBull ||
-        adxStrong ||
+        bullTrendStrengthOk ||
         continuationBull ||
         reversalBullEntry ||
         ultraFastOpeningBull) &&
       (momentumBull ||
-        adxStrong ||
+        bullTrendStrengthOk ||
         continuationBull ||
         reversalBullEntry ||
         ultraFastOpeningBull) &&
-      (slopeOkBull || adxStrong || continuationBull || reversalBullEntry) &&
+      (slopeOkBull || bullTrendStrengthOk || continuationBull || reversalBullEntry) &&
       structureOkBull &&
       !liquidityBlocksBull &&
       !weakMidSessionTrap &&
@@ -3327,8 +3339,7 @@ export class AdvancedAI {
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
       !overboughtRejectionBlocksBull &&
-      !(fakeBreakout && !continuationBull && !reversalBullEntry) &&
-      !(htfDisagreeBull && !htfAdxStrong);
+      !(fakeBreakout && !continuationBull && !reversalBullEntry);
     const strongBearish =
       (confirmationBearish || ultraFastOpeningBear) &&
       (totalBearScore >= requiredConfirmations ||
@@ -3337,16 +3348,16 @@ export class AdvancedAI {
         (momentumStrong && adx > 30) ||
         ultraFastOpeningBear) &&
       (breakoutQualityBear ||
-        adxStrong ||
+        bearTrendStrengthOk ||
         continuationBear ||
         reversalBearEntry ||
         ultraFastOpeningBear) &&
       (momentumBear ||
-        adxStrong ||
+        bearTrendStrengthOk ||
         continuationBear ||
         reversalBearEntry ||
         ultraFastOpeningBear) &&
-      (slopeOkBear || adxStrong || continuationBear || reversalBearEntry) &&
+      (slopeOkBear || bearTrendStrengthOk || continuationBear || reversalBearEntry) &&
       structureOkBear &&
       !liquidityBlocksBear &&
       !weakMidSessionTrap &&
@@ -3360,8 +3371,7 @@ export class AdvancedAI {
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
       !oversoldBounceBlocksBear &&
-      !(fakeBreakout && !continuationBear && !reversalBearEntry) &&
-      !(htfDisagreeBear && !htfAdxStrong);
+      !(fakeBreakout && !continuationBear && !reversalBearEntry);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
     const breakoutClose = lastCandle.close;
@@ -3848,14 +3858,12 @@ export class AdvancedAI {
             ? "Bullish"
             : "Bearish"
           : "Neutral";
-      reasoning = `WAIT: Late-entry gate — no fresh intraday entries after ${Math.floor(
-        lastEntryMinute / 60,
-      )
-        .toString()
-        .padStart(
-          2,
-          "0",
-        )}:${(lastEntryMinute % 60).toString().padStart(2, "0")} IST for 15m strategy. Direction may be correct but RR/time-to-target is insufficient.`;
+      const beforeOpen = _istMinSess < firstEntryMinute;
+      const boundaryMinute = beforeOpen ? firstEntryMinute : lastEntryMinute;
+      const boundary = `${Math.floor(boundaryMinute / 60).toString().padStart(2, "0")}:${(boundaryMinute % 60).toString().padStart(2, "0")}`;
+      reasoning = beforeOpen
+        ? `WAIT: Opening-entry gate — fresh entries begin at ${boundary} IST after the opening candle closes.`
+        : `WAIT: Late-entry gate — no fresh intraday entries at or after ${boundary} IST. Direction may be correct but RR/time-to-target is insufficient.`;
     } else if (noiseFilter5m) {
       action = "WAIT";
       confidence = 34;
@@ -4225,8 +4233,8 @@ export class AdvancedAI {
                 totalBearScore < requiredConfirmations
                   ? "insufficient-confirmations"
                   : "",
-                (htfDisagreeBull || htfDisagreeBear) && !htfAdxStrong
-                  ? "htf-disagree"
+                htfDisagreeBull || htfDisagreeBear
+                  ? "htf-disagree-soft"
                   : "",
                 noiseFilter5m ? "5m-noise" : "",
                 newsVolatilityShock ? "news-volatility" : "",
