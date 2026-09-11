@@ -86,7 +86,7 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
           exitPositionId: r.id,
           exitMode: half ? "half" : "full",
           securityId: r.raw_position?.securityId || r.raw_position?.symbol_id,
-          transactionType: "SELL",
+          transactionType: Number(r.quantity) < 0 ? "BUY" : "SELL",
           quantity: sendQty,
           exchangeSegment: r.raw_position?.exchangeSegment || "NSE_FNO",
         }),

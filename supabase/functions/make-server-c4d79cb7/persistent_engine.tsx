@@ -1669,7 +1669,9 @@ class PersistentTradingEngine {
           // Apply every fresh-entry execution gate before saving the user-facing
           // signal. The shared market signal remains canonical, while each user's
           // daily limit can correctly turn it into WAIT for that user only.
-          const hasOpenPosition = Array.isArray(state.activePositions) && state.activePositions.length > 0;
+          const hasOpenPosition = Array.isArray(state.activePositions) && state.activePositions.some(
+            (position: any) => position?.status === "ACTIVE" && position?.index === indexName,
+          );
           const _istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
           const _entryCountKey = `engine:entries:${userId}:${indexName}:${_istDay}`;
           const _usedEntries = hasOpenPosition ? 0 : Number((await kv.get(_entryCountKey)) || 0);

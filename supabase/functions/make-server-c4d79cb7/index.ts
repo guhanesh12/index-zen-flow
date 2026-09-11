@@ -788,7 +788,8 @@ app.post("/make-server-c4d79cb7/test-order-simulation", async (c) => {
       const fallbackLot = indexName.includes('BANKNIFTY') ? 30 : indexName.includes('SENSEX') ? 20 : 65;
       const storedLot = Number(monitoredPosition.raw_position?.lotSize || monitoredPosition.raw_position?.lot_size || 0);
       const lotSize = Number.isInteger(storedLot) && storedLot > 1 ? storedLot : fallbackLot;
-      const quantity = Math.abs(Math.floor(Number(monitoredPosition.quantity) || 0));
+      const signedQuantity = Math.floor(Number(monitoredPosition.quantity) || 0);
+      const quantity = Math.abs(signedQuantity);
       const totalLots = Math.floor(quantity / lotSize);
       if (quantity < 1 || quantity % lotSize !== 0) return c.json({ error: 'Position quantity is not a valid lot multiple' }, 400);
       if (exitMode === 'half' && totalLots < 2) {
@@ -797,7 +798,7 @@ app.post("/make-server-c4d79cb7/test-order-simulation", async (c) => {
 
       orderRequest.securityId = monitoredPosition.symbol_id;
       orderRequest.exchangeSegment = monitoredPosition.exchange_segment;
-      orderRequest.transactionType = 'SELL';
+      orderRequest.transactionType = signedQuantity < 0 ? 'BUY' : 'SELL';
       orderRequest.quantity = exitMode === 'half' ? Math.floor(totalLots / 2) * lotSize : quantity;
     }
 
