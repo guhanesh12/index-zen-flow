@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * Market Intel panels — Dhan v2 technical indicators, top movers and live news.
- * Technicals refresh every 1s, movers & news every 60s.
+ * All feeds refresh silently every 15 minutes.
  * Presentation only: all data comes from the central (admin) market-data feed.
  */
 import { useEffect, useRef, useState } from "react";
@@ -52,6 +52,7 @@ function useIntel(
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         const json = await res.json();
+        if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
         if (!alive) return;
         const usable = check.current ? check.current(json) : !!json;
         if (usable) {
@@ -59,7 +60,8 @@ function useIntel(
           setData(json);
           setError(null);
         } else if (!good.current) {
-          setError(json?.error ? String(json.error) : null);
+          setData(json);
+          setError(json?.error ? String(json.error) : "Market data is temporarily unavailable");
         }
       } catch (e: any) {
         if (alive && !good.current) setError(e?.message || "Network error");
@@ -208,7 +210,7 @@ export function TopMoversCard({ serverUrl, accessToken }: any) {
     <Shell
       title="Top Movers"
       icon={<TrendingUp className="size-3.5 text-zinc-500" />}
-      right={<span className="text-[10px] text-zinc-600">1 min</span>}
+      right={<span className="text-[10px] text-zinc-600">15 min</span>}
     >
       {loading && !data ? (
         <div className="flex items-center gap-2 py-3 text-xs text-zinc-500">
@@ -271,7 +273,7 @@ export function MarketNewsCard({ serverUrl, accessToken }: any) {
               rel="noreferrer"
               className="block rounded-lg border border-zinc-800/70 bg-zinc-900/40 p-2 hover:border-zinc-700"
             >
-              <div className="text-[11px] leading-snug text-zinc-200">{n.headline}</div>
+              <div className="text-[11px] leading-snug text-zinc-200">{n.headline || "Market update"}</div>
               <div className="mt-1 flex items-center gap-2 text-[10px] text-zinc-600">
                 {n.source && <span>{n.source}</span>}
                 {n.publishedAt && <span>{String(n.publishedAt).replace("T", " ").slice(0, 16)}</span>}

@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Switch } from "./ui/switch";
 import { Activity, TrendingUp, TrendingDown, Shield, Clock, Target, AlertTriangle, Zap, CheckCircle2, Eye, XCircle } from "lucide-react";
 import { projectId } from "@/utils-ext/supabase/info";
 import { getServerUrl } from "@/utils-ext/config/apiConfig";
@@ -48,6 +50,13 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
   const [confirm, setConfirm] = useState<{ id: string; half: boolean } | null>(null);
   const [exiting, setExiting] = useState<string | null>(null);
   const [exitError, setExitError] = useState<string>("");
+  const [partialExitEnabled, setPartialExitEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem("position-monitor:partial-exit") !== "off";
+    } catch {
+      return true;
+    }
+  });
   const timer = useRef<any>(null);
   const serverUrl = getServerUrl(projectId);
 
@@ -108,6 +117,14 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
     return () => clearInterval(timer.current);
   }, []);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("position-monitor:partial-exit", partialExitEnabled ? "on" : "off");
+    } catch {
+      // The control still works for this session when storage is unavailable.
+    }
+  }, [partialExitEnabled]);
+
 
   const totals = rows.reduce(
     (acc, r) => {
@@ -134,6 +151,18 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
             </Badge>
           </CardTitle>
           <div className="text-xs text-zinc-400 flex items-center gap-3">
+            <label className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1">
+              <span className="hidden sm:inline text-[10px] font-semibold text-foreground">Protect profit</span>
+              <span className="text-[10px] text-muted-foreground">Partial exit</span>
+              <Switch
+                checked={partialExitEnabled}
+                onCheckedChange={setPartialExitEnabled}
+                aria-label="Toggle partial exit"
+              />
+              <span className={partialExitEnabled ? "text-[10px] font-semibold text-emerald-400" : "text-[10px] font-semibold text-muted-foreground"}>
+                {partialExitEnabled ? "ON" : "OFF"}
+              </span>
+            </label>
             <span>Live · 1s</span>
             <span className={totals.pnl >= 0 ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
               Net P&L: {fmt(totals.pnl)}
@@ -406,37 +435,45 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                         <span className="text-[11px] text-zinc-300 mr-auto">
                           Exit {confirm.half ? "half" : "full"} position of {r.symbol}?
                         </span>
-                        <button
-                          className="text-[11px] px-3 py-1.5 rounded-md border border-zinc-700 text-zinc-300"
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
                           onClick={() => setConfirm(null)}
                           disabled={exiting === r.id}
                         >
                           Cancel
-                        </button>
-                        <button
-                          className="text-[11px] px-3 py-1.5 rounded-md bg-red-600 text-white font-bold disabled:opacity-60"
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-7 text-[11px] font-bold"
                           onClick={() => doExit(r, confirm.half)}
                           disabled={exiting === r.id}
                         >
                           {exiting === r.id ? "Exiting…" : "Confirm exit"}
-                        </button>
+                        </Button>
                       </>
                     ) : (
                       <>
-                        <button
-                          className="text-[11px] px-3 py-1.5 rounded-md border border-zinc-700 text-zinc-200"
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
                           onClick={() => setConfirm({ id: r.id, half: true })}
-                          disabled={!canExitHalf}
-                          title={canExitHalf ? "Exit half the position in complete lots" : "Partial exit needs at least 2 lots"}
+                          disabled={!partialExitEnabled || !canExitHalf}
+                          title={!partialExitEnabled ? "Turn on Partial exit to use this action" : canExitHalf ? "Exit half the position in complete lots" : "Partial exit needs at least 2 lots"}
                         >
                           Exit half
-                        </button>
-                        <button
-                          className="text-[11px] px-3 py-1.5 rounded-md border border-red-500/50 text-red-300 font-bold"
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 border-destructive/50 text-[11px] font-bold text-destructive hover:text-destructive"
                           onClick={() => setConfirm({ id: r.id, half: false })}
                         >
                           Exit position
-                        </button>
+                        </Button>
                       </>
                     )}
                   </div>
