@@ -171,8 +171,8 @@ export function applyExecutionEntryGates(
   let why = "";
   if (confidence < STRATEGY_RULES.minConfidence) {
     why = `Signal confidence ${confidence}% is below the ${STRATEGY_RULES.minConfidence}% entry minimum`;
-  } else if (STRATEGY_RULES.minAdx > 0 && adx < STRATEGY_RULES.minAdx) {
-    why = `Sideways market — ADX ${adx.toFixed(1)} is below ${STRATEGY_RULES.minAdx}`;
+  } else if (trendStrengthBlocked(adx, sig.indicators, sig.action)) {
+    why = trendStrengthBlockReason(adx, sig.indicators, sig.action);
   } else if (context.dailyEntriesUsed >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
     why = `Daily entry limit reached (${STRATEGY_RULES.maxTradesPerIndexPerDay} per index)`;
   }
