@@ -769,6 +769,38 @@ app.post("/make-server-c4d79cb7/test-order-simulation", async (c) => {
 
     const orderRequest = await c.req.json();
 
+    // Position-monitor exits are derived again on the server so a stale or
+    // modified client can never submit an odd lot or turn a half exit into a
+    // full exit. Generic entry orders continue through the existing path.
+    if (orderRequest.exitPositionId) {
+      const exitMode = orderRequest.exitMode === 'half' ? 'half' : orderRequest.exitMode === 'full' ? 'full' : '';
+      if (!exitMode) return c.json({ error: 'Invalid exit mode' }, 400);
+      const { data: monitoredPosition, error: positionError } = await supabaseAdmin
+        .from('position_monitor_state')
+        .select('id, symbol_id, exchange_segment, index_name, quantity, raw_position, is_active')
+        .eq('id', String(orderRequest.exitPositionId))
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (positionError || !monitoredPosition) return c.json({ error: 'Active position not found' }, 404);
+
+      const indexName = String(monitoredPosition.index_name || '').toUpperCase();
+      const fallbackLot = indexName.includes('BANKNIFTY') ? 30 : indexName.includes('SENSEX') ? 20 : 65;
+      const storedLot = Number(monitoredPosition.raw_position?.lotSize || monitoredPosition.raw_position?.lot_size || 0);
+      const lotSize = Number.isInteger(storedLot) && storedLot > 1 ? storedLot : fallbackLot;
+      const quantity = Math.abs(Math.floor(Number(monitoredPosition.quantity) || 0));
+      const totalLots = Math.floor(quantity / lotSize);
+      if (quantity < 1 || quantity % lotSize !== 0) return c.json({ error: 'Position quantity is not a valid lot multiple' }, 400);
+      if (exitMode === 'half' && totalLots < 2) {
+        return c.json({ error: 'Partial exit needs at least 2 lots' }, 400);
+      }
+
+      orderRequest.securityId = monitoredPosition.symbol_id;
+      orderRequest.exchangeSegment = monitoredPosition.exchange_segment;
+      orderRequest.transactionType = 'SELL';
+      orderRequest.quantity = exitMode === 'half' ? Math.floor(totalLots / 2) * lotSize : quantity;
+    }
+
     console.log('🧪 [SIMULATION] Simulating order placement...');
     console.log('🧪 [SIMULATION] Order details:', JSON.stringify(orderRequest, null, 2));
 

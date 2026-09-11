@@ -83,6 +83,8 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({
+          exitPositionId: r.id,
+          exitMode: half ? "half" : "full",
           securityId: r.raw_position?.securityId || r.raw_position?.symbol_id,
           transactionType: "SELL",
           quantity: sendQty,

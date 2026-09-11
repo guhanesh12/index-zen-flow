@@ -21,7 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, atrOf, dayTrendOk, dayTrendBlockReason, applyTrendDayGate } from "./strategy_rules.ts";
+import { STRATEGY_RULES, atrOf, dayTrendOk, dayTrendBlockReason, applyTrendDayGate, applyExecutionEntryGates } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
@@ -1666,6 +1666,19 @@ class PersistentTradingEngine {
             return;
           }
 
+          // Apply every fresh-entry execution gate before saving the user-facing
+          // signal. The shared market signal remains canonical, while each user's
+          // daily limit can correctly turn it into WAIT for that user only.
+          const hasOpenPosition = Array.isArray(state.activePositions) && state.activePositions.length > 0;
+          const _istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          const _entryCountKey = `engine:entries:${userId}:${indexName}:${_istDay}`;
+          const _usedEntries = hasOpenPosition ? 0 : Number((await kv.get(_entryCountKey)) || 0);
+          aiSignal = { ...aiSignal, signal: { ...aiSignal.signal } };
+          applyExecutionEntryGates(aiSignal.signal, {
+            hasOpenPosition,
+            dailyEntriesUsed: _usedEntries,
+          });
+
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
           const reason =
@@ -1760,7 +1773,6 @@ class PersistentTradingEngine {
           // are net-negative. Skip them for fresh entries; reversal exits
           // below keep their own (lower) thresholds.
           const MIN_ENTRY_CONFIDENCE = STRATEGY_RULES.minConfidence;
-          const hasOpenPosition = Array.isArray(state.activePositions) && state.activePositions.length > 0;
           if (!hasOpenPosition && confidence < MIN_ENTRY_CONFIDENCE) {
             console.log(`⏸️ ${indexName} SKIP — ${confidence}% below ${MIN_ENTRY_CONFIDENCE}% entry quality gate`);
             await this.appendSharedLog(userId, {
@@ -1802,10 +1814,8 @@ class PersistentTradingEngine {
           // 📅 DAILY ENTRY CAP — the backtester allows at most
           // STRATEGY_RULES.maxTradesPerIndexPerDay fresh entries per index per
           // day; the live engine must respect the same limit.
-          const _istDay = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
-          const _entryCountKey = `engine:entries:${userId}:${indexName}:${_istDay}`;
           if (!hasOpenPosition) {
-            const _used = Number((await kv.get(_entryCountKey)) || 0);
+            const _used = _usedEntries;
             if (_used >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
               console.log(`⏸️ ${indexName} SKIP — daily entry limit reached (${_used})`);
               await this.appendSharedLog(userId, {
