@@ -177,7 +177,7 @@ export async function getTechnicalAll(timeframe = "15", indicators = DEFAULT_IND
 
 export async function getMarketMovers(limit = 5) {
   const lim = Math.min(20, Math.max(1, Number(limit) || 5));
-  return cached(`movers:${lim}`, INTEL_TTL_MS, async () => {
+  return cached(`movers:v2:${lim}`, INTEL_TTL_MS, async () => {
     const { accessToken } = await creds();
 
     const pull = async (category: "PRICE_GAINERS" | "PRICE_LOSERS") => {
@@ -195,11 +195,11 @@ export async function getMarketMovers(limit = 5) {
         );
         const rows = firstArray(raw?.data, raw?.marketMovers, raw?.movers, raw);
         return rows.map((r: any) => ({
-          symbol: r.tradingSymbol || r.displayName || r.securityId,
-          name: r.displayName || r.tradingSymbol,
-          ltp: Number(r.ltp) || 0,
+          symbol: r.tradingSymbol || r.trading_symbol || r.displayName || r.display_name || r.securityId || r.security_id,
+          name: r.displayName || r.display_name || r.tradingSymbol || r.trading_symbol,
+          ltp: Number(r.ltp ?? r.lastTradedPrice ?? r.last_traded_price) || 0,
           change: Number(r.change) || 0,
-          changePercent: Number(r.changePercent) || 0,
+          changePercent: Number(r.changePercent ?? r.change_percent) || 0,
           volume: Number(r.volume) || 0,
         }));
       } catch (e: any) {
@@ -212,6 +212,12 @@ export async function getMarketMovers(limit = 5) {
     await new Promise((r) => setTimeout(r, 400));
     const losers = await pull("PRICE_LOSERS");
     const err = (gainers as any)?.error || (losers as any)?.error || null;
+    if (!Array.isArray(gainers) && !Array.isArray(losers)) {
+      throw new Error(err || "Dhan market movers are unavailable");
+    }
+    if ((Array.isArray(gainers) ? gainers.length : 0) + (Array.isArray(losers) ? losers.length : 0) === 0 && err) {
+      throw new Error(err);
+    }
     return {
       fetchedAt: Date.now(),
       gainers: Array.isArray(gainers) ? gainers : [],
@@ -225,7 +231,7 @@ export async function getMarketMovers(limit = 5) {
 
 export async function getMarketNews(limit = 12) {
   const lim = Math.min(50, Math.max(1, Number(limit) || 12));
-  return cached(`news:${lim}`, INTEL_TTL_MS, async () => {
+  return cached(`news:v2:${lim}`, INTEL_TTL_MS, async () => {
     const { clientId, accessToken } = await creds();
     const raw = await dhanPost(
       "/data/newsheadline",
@@ -244,15 +250,17 @@ export async function getMarketNews(limit = 12) {
       raw?.latestNews,
       raw,
     );
+    const items = list.slice(0, lim).map((n: any) => ({
+      headline: n.headline || n.title || n.newsHeadline || n.news_headline || n.description || "Market update",
+      source: n.source || n.publisher || n.provider || "",
+      category: n.category || "",
+      publishedAt: n.publishedAt || n.published_at || n.date || n.dateTime || n.time || null,
+      url: n.url || n.link || n.newsUrl || null,
+    }));
+    if (items.length === 0) throw new Error("Dhan returned no live news headlines");
     return {
       fetchedAt: Date.now(),
-      items: list.slice(0, lim).map((n: any) => ({
-        headline: n.headline || n.title || n.newsHeadline || n.news_headline || n.description || "Market update",
-        source: n.source || n.publisher || n.provider || "",
-        category: n.category || "",
-        publishedAt: n.publishedAt || n.published_at || n.date || n.dateTime || n.time || null,
-        url: n.url || n.link || n.newsUrl || null,
-      })),
+      items,
     };
   });
 }
