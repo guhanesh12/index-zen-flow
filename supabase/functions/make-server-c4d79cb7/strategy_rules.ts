@@ -147,3 +147,33 @@ export function applyTrendDayGate(sig: any, candles: any[]): any {
   return sig;
 }
 
+/**
+ * Converts a fresh-entry signal to WAIT before it reaches the UI when the live
+ * engine would reject it for confidence, ADX, or the per-user daily entry cap.
+ */
+export function applyExecutionEntryGates(
+  sig: any,
+  context: { hasOpenPosition: boolean; dailyEntriesUsed: number },
+): any {
+  if (!sig || (sig.action !== "BUY_CALL" && sig.action !== "BUY_PUT")) return sig;
+  if (context.hasOpenPosition) return sig;
+
+  const confidence = Number(sig.confidence || 0);
+  const adx = Number(sig.indicators?.adx || 0);
+  let why = "";
+  if (confidence < STRATEGY_RULES.minConfidence) {
+    why = `Signal confidence ${confidence}% is below the ${STRATEGY_RULES.minConfidence}% entry minimum`;
+  } else if (STRATEGY_RULES.minAdx > 0 && adx < STRATEGY_RULES.minAdx) {
+    why = `Sideways market — ADX ${adx.toFixed(1)} is below ${STRATEGY_RULES.minAdx}`;
+  } else if (context.dailyEntriesUsed >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
+    why = `Daily entry limit reached (${STRATEGY_RULES.maxTradesPerIndexPerDay} per index)`;
+  }
+  if (!why) return sig;
+
+  sig.blockedAction = sig.action;
+  sig.blockedReason = why;
+  sig.action = "WAIT";
+  sig.reason = `WAIT: ${why}`;
+  return sig;
+}
+

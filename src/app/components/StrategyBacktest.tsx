@@ -36,7 +36,7 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
   const [duration, setDuration] = useState(365);
   const [selected, setSelected] = useState<string[]>([...INDICES]);
   const [lots, setLots] = useState<Record<string, number>>({ NIFTY: 1, BANKNIFTY: 1, SENSEX: 1 });
-  const [maxTradesPerDay, setMaxTradesPerDay] = useState(2);
+  const maxTradesPerDay = 1;
   const [minConfidence, setMinConfidence] = useState(85);
 
   const [loading, setLoading] = useState(false);
@@ -292,27 +292,12 @@ export function StrategyBacktest({ accessToken }: { accessToken: string }) {
 
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-zinc-400 mb-2 block" htmlFor="bt-maxtrades">
+              <label className="text-sm text-zinc-400 mb-2 block">
                 Max trades per day (per index)
               </label>
-              <div className="flex gap-2 flex-wrap">
-                {[1, 2, 3, 5, 0].map((v) => (
-                  <button
-                    key={v}
-                    id={v === 1 ? "bt-maxtrades" : undefined}
-                    onClick={() => setMaxTradesPerDay(v)}
-                    className={`px-3 py-2 rounded-lg text-sm border transition-all ${
-                      maxTradesPerDay === v
-                        ? "border-blue-500/60 bg-blue-500/10 text-white"
-                        : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700"
-                    }`}
-                  >
-                    {v === 0 ? "Unlimited" : v}
-                  </button>
-                ))}
-              </div>
+              <Badge variant="outline" className="border-blue-500/60 bg-blue-500/10 text-zinc-100">1</Badge>
               <p className="text-[11px] text-zinc-600 mt-2">
-                Fewer trades per day = less churn. Total daily trades ≈ selected indices × this limit.
+                Matches the live strategy limit.
               </p>
             </div>
 

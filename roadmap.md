@@ -8,3 +8,6 @@
 - [x] Add realistic trade lifecycle, stop/target, and non-overlapping backtest rules
 - [x] Replay 60 days across NIFTY, BANKNIFTY, and SENSEX and compare win rate/drawdown
 - [x] Deploy the validated strategy update
+- [x] Make partial exits use complete lots and block half-exits for single-lot positions
+- [x] Lock backtests to the live one-trade-per-index daily rule
+- [x] Convert non-executable confidence, ADX, and daily-cap signals to WAIT before display

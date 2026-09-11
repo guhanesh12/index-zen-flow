@@ -210,12 +210,9 @@ async function replayIndex(
   opts: ReplayOptions = {},
 ) {
   const lotSize = LOT_SIZES[index];
-  // Tuned defaults (walk-forward validated on 13 months of 15m data across
-  // NIFTY / BANKNIFTY / SENSEX): quality filter + max 2 entries per index per
-  // day keeps the profitable trades and removes most of the churn losses.
-  const maxPerDay = opts.maxTradesPerDay === undefined
-    ? STRATEGY_RULES.maxTradesPerIndexPerDay
-    : Math.max(0, Math.floor(opts.maxTradesPerDay));
+  // Production strategy limit. Caller input cannot make the backtest trade a
+  // different rulebook than the live engine.
+  const maxPerDay = STRATEGY_RULES.maxTradesPerIndexPerDay;
   const minConf = opts.minConfidence === undefined
     ? STRATEGY_RULES.minConfidence
     : Math.max(0, Number(opts.minConfidence));
