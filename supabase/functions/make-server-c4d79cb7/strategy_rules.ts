@@ -17,6 +17,14 @@ export const STRATEGY_RULES = {
   /** Minimum ADX(14) — below this the market is ranging, so we stand aside. */
   minAdx: 20,
   /**
+   * ADX measures strength, not direction. When ADX sits just under `minAdx`
+   * but +DI/-DI clearly point the same way as the signal, the move is
+   * directional, not sideways — allow it down to this floor.
+   */
+  minAdxWithDi: 18,
+  /** Required +DI/-DI gap (in DI points) for the relaxed ADX path. */
+  minDiSpread: 6,
+  /**
    * Sideways-day guard: the index must already be this far (in %) from the
    * day's open, in the signal's direction, before a fresh entry is allowed.
    */
