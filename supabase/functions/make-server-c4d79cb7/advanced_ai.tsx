@@ -1188,6 +1188,19 @@ export class AdvancedAI {
         (candle, i) => i === 0 || candle.low <= last5[i - 1].low,
       );
 
+      // DI decides direction first: EMAs lag, so a fresh push up was being
+      // labelled TRENDING_DOWN while the stack was still unwinding.
+      const plusDI = Number((indicators as any).plusDI || 0);
+      const minusDI = Number((indicators as any).minusDI || 0);
+      const diSpread = Math.abs(plusDI - minusDI);
+      if (diSpread >= 4) {
+        return {
+          type: plusDI > minusDI ? "TRENDING_UP" : "TRENDING_DOWN",
+          strength: adx,
+          suitable_for_trading: true,
+        };
+      }
+
       // EMA alignment OR price action confirms trend
       if (emaUptrend || higherHighs) {
         return {
