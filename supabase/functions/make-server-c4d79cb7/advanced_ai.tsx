@@ -2021,6 +2021,8 @@ export class AdvancedAI {
       adxStrong,
       adxVeryStrong,
       trending,
+      plusDI: di.plusDI,
+      minusDI: di.minusDI,
       stochK: stoch.k,
       stochD: stoch.d,
       stochOverbought,
