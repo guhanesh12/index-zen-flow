@@ -4855,6 +4855,10 @@ app.post("/make-server-c4d79cb7/advanced-ai-signal", async (c) => {
           consecutiveLossThreshold: 3,
           consecutiveLossCooldownMs: 30 * 60 * 1000,
         });
+        // Same gates the live engine applies, so this fallback path can never
+        // display a BUY card the engine would refuse (sideways day / confidence / ADX / daily cap).
+        applyTrendDayGate(signal, analysisCandles as any);
+        _gate(signal);
         if (signal.action === 'BUY_CALL' || signal.action === 'BUY_PUT') {
           await kv.set(`last_signal_ts:${effectiveUserId}:${idx}`, analyzedCandle.timestamp || Date.now());
           await kv.set(`last_signal_dir:${effectiveUserId}:${idx}`, signal.action);
