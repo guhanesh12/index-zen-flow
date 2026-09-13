@@ -52,6 +52,10 @@ function blockDevtoolShortcuts() {
     const key = (e.key || '').toLowerCase();
     const ctrl = e.ctrlKey || e.metaKey;
     const shift = e.shiftKey;
+    // Never intercept Alt+ combos: admin hotkeys are Ctrl+Alt+LETTER(S)
+    // (e.g. Ctrl+Alt+GUHAN contains "U" — blocking it here broke the hotkey
+    // on Windows, where the guard is active on production hosts).
+    if (e.altKey) return;
     if (
       key === 'f12' ||
       (ctrl && shift && (key === 'i' || key === 'j' || key === 'c')) ||
