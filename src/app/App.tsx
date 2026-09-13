@@ -93,11 +93,17 @@ export default function App() {
       
       // Admin hotkey: Ctrl/Cmd + Alt + [Sequence]
       if (modKey && e.altKey) {
-        if (e.code && e.code.startsWith('Key')) {
+        // Hotkeys may contain A–Z and 0–9 (server allows both). Capture
+        // letters ("KeyG" → "G") and digits ("Digit2"/"Numpad2" → "2") so
+        // every saved hotkey can be typed on Windows.
+        const isLetter = e.code && e.code.startsWith('Key');
+        const isDigit = e.code && (e.code.startsWith('Digit') || e.code.startsWith('Numpad'));
+        if (isLetter || isDigit) {
           e.preventDefault();
           
-          // Extract letter (e.g., "KeyG" → "G")
-          const key = e.code.replace('Key', '').toUpperCase();
+          // Extract character (e.g., "KeyG" → "G", "Digit2" → "2")
+          const key = e.code.replace('Key', '').replace('Digit', '').replace('Numpad', '').toUpperCase();
+          if (!/^[A-Z0-9]$/.test(key)) return;
           
           // Build sequence
           window.adminKeySequence += key;
