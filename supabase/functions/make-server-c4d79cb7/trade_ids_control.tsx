@@ -136,6 +136,45 @@ export async function getStrategyControl(): Promise<StrategyControl> {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Platform stop-loss / target mode (auto = engine rules, manual =     */
+/* admin-set per-lot amounts applied as the default for every user).   */
+/* ------------------------------------------------------------------ */
+
+export interface PlatformRisk {
+  mode: "auto" | "manual";
+  trailingEnabled: boolean;
+  perIndex: Record<string, { tgt: number; sl: number }>;
+}
+
+const RISK_DEFAULT: PlatformRisk = {
+  mode: "auto",
+  trailingEnabled: true,
+  perIndex: {
+    NIFTY: { tgt: 6000, sl: 3000 },
+    BANKNIFTY: { tgt: 6000, sl: 3000 },
+    SENSEX: { tgt: 6000, sl: 3000 },
+  },
+};
+
+export async function getPlatformRisk(): Promise<PlatformRisk> {
+  try {
+    const k: any = await getKillSwitch();
+    const num = (v: any, d: number) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+    return {
+      mode: k?.sl_tp_mode === "manual" ? "manual" : "auto",
+      trailingEnabled: k?.trailing_enabled !== false,
+      perIndex: {
+        NIFTY: { tgt: num(k?.nifty_target_per_lot, 6000), sl: num(k?.nifty_stop_per_lot, 3000) },
+        BANKNIFTY: { tgt: num(k?.banknifty_target_per_lot, 6000), sl: num(k?.banknifty_stop_per_lot, 3000) },
+        SENSEX: { tgt: num(k?.sensex_target_per_lot, 6000), sl: num(k?.sensex_stop_per_lot, 3000) },
+      },
+    };
+  } catch (_e) {
+    return RISK_DEFAULT;
+  }
+}
+
 export async function getUserKillSwitch(userId: string): Promise<{ new_signals_enabled: boolean; new_orders_enabled: boolean }> {
   try {
     const { data } = await supabaseAdmin

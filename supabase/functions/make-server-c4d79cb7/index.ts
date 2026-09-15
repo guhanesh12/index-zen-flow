@@ -8633,6 +8633,210 @@ app.get("/make-server-c4d79cb7/admin/market-data/signal-history", async (c) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 🗃️ ADMIN OPERATIONS DATA — positions/orders, order logs and control panels.
+// Admin panel sessions use a hotkey token (not a Supabase auth session), so the
+// browser cannot read these tables directly through RLS. These service-role
+// routes return the same data behind validateAdminAuth.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const istTodayStr = () => new Date(Date.now() + 5.5 * 3600000).toISOString().slice(0, 10);
+const dayRangeIsoIst = (from: string, to: string) => ({
+  fromIso: new Date(`${from}T00:00:00+05:30`).toISOString(),
+  toIso: new Date(`${to}T23:59:59+05:30`).toISOString(),
+});
+const validDay = (s: any) => (/^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? String(s) : null);
+
+app.get("/make-server-c4d79cb7/admin/ops/summary", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const from = validDay(c.req.query('from')) || istTodayStr();
+    const to = validDay(c.req.query('to')) || istTodayStr();
+    const { fromIso, toIso } = dayRangeIsoIst(from, to);
+
+    const [o, p, pr, w] = await Promise.all([
+      supabase.from('trading_orders').select('*').gte('created_at', fromIso).lte('created_at', toIso)
+        .order('created_at', { ascending: false }).limit(5000),
+      supabase.from('position_monitor_state').select('*').gte('created_at', fromIso).lte('created_at', toIso)
+        .order('created_at', { ascending: false }).limit(5000),
+      supabase.from('profiles').select('user_id, client_id, full_name, email, mobile, active_broker, account_status').limit(5000),
+      supabase.from('wallet_transactions').select('*').gte('created_at', fromIso).lte('created_at', toIso).limit(5000),
+    ]);
+
+    return c.json({
+      success: true,
+      from, to,
+      orders: o.data || [],
+      positions: p.data || [],
+      profiles: pr.data || [],
+      wallet: w.data || [],
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/admin/ops/order-logs", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const from = validDay(c.req.query('from')) || istTodayStr();
+    const to = validDay(c.req.query('to')) || istTodayStr();
+    const status = String(c.req.query('status') || 'all');
+    const broker = String(c.req.query('broker') || 'all');
+    const { fromIso, toIso } = dayRangeIsoIst(from, to);
+
+    let q = supabase.from('trading_orders').select('*')
+      .gte('created_at', fromIso).lte('created_at', toIso)
+      .order('created_at', { ascending: false }).limit(2000);
+    if (status !== 'all') q = q.eq('status', status);
+    if (broker !== 'all') q = q.eq('broker', broker);
+    const { data: orders } = await q;
+    const list = orders || [];
+
+    const signalIds = Array.from(new Set(list.map((o: any) => o.signal_id).filter(Boolean)));
+    const signalCodes = Array.from(new Set(list.map((o: any) => o.signal_code).filter(Boolean)));
+    const orderCodes = Array.from(new Set(list.map((o: any) => o.order_code).filter(Boolean)));
+    const userIds = Array.from(new Set(list.map((o: any) => o.user_id).filter(Boolean)));
+
+    const [sigById, sigByCode, auditRes, profRes] = await Promise.all([
+      signalIds.length ? supabase.from('trading_signals').select('*').in('id', signalIds) : Promise.resolve({ data: [] }),
+      signalCodes.length ? supabase.from('trading_signals').select('*').in('signal_code', signalCodes) : Promise.resolve({ data: [] }),
+      orderCodes.length ? supabase.from('order_audit_events').select('*').in('order_code', orderCodes).order('created_at', { ascending: true }) : Promise.resolve({ data: [] }),
+      userIds.length ? supabase.from('profiles').select('user_id, client_id, full_name, email').in('user_id', userIds) : Promise.resolve({ data: [] }),
+    ]);
+
+    // Brokers present in the whole window (so the filter dropdown stays useful)
+    const { data: brokerRows } = await supabase.from('trading_orders').select('broker')
+      .gte('created_at', fromIso).lte('created_at', toIso).limit(2000);
+
+    return c.json({
+      success: true,
+      from, to,
+      orders: list,
+      signals: [...(sigById.data || []), ...(sigByCode.data || [])],
+      audits: auditRes.data || [],
+      profiles: profRes.data || [],
+      brokers: Array.from(new Set((brokerRows || []).map((r: any) => r.broker).filter(Boolean))).sort(),
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.get("/make-server-c4d79cb7/admin/ops/controls", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+
+    const [strategy, kill, userKill, profiles] = await Promise.all([
+      supabase.from('strategy_control').select('*').eq('id', 1).maybeSingle(),
+      supabase.from('kill_switch_config').select('*').eq('id', 1).maybeSingle(),
+      supabase.from('user_kill_switch').select('*').limit(5000),
+      supabase.from('profiles').select('user_id, client_id, full_name, email, account_status').limit(5000),
+    ]);
+
+    return c.json({
+      success: true,
+      strategy: strategy.data || null,
+      killSwitch: kill.data || null,
+      userKillSwitch: userKill.data || [],
+      profiles: profiles.data || [],
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/ops/controls/strategy", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const body = await c.req.json().catch(() => ({}));
+
+    const payload: any = {
+      id: 1,
+      strategy_id: String(body.strategy_id || 'STG-IPAI-V3'),
+      enabled: body.enabled !== false,
+      nifty_enabled: body.nifty_enabled !== false,
+      banknifty_enabled: body.banknifty_enabled !== false,
+      sensex_enabled: body.sensex_enabled !== false,
+      min_confidence: Math.max(50, Math.min(99, Number(body.min_confidence) || 75)),
+      max_trades_per_index_per_day: Math.max(1, Math.min(10, Number(body.max_trades_per_index_per_day) || 1)),
+      entry_start_ist: String(body.entry_start_ist || '09:30'),
+      entry_end_ist: String(body.entry_end_ist || '15:00'),
+      note: body.note ? String(body.note) : null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('strategy_control').upsert(payload);
+    if (error) return c.json({ error: error.message }, 400);
+    return c.json({ success: true, strategy: payload });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/ops/controls/kill-switch", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const body = await c.req.json().catch(() => ({}));
+
+    const num = (v: any, d: number) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : d;
+    };
+    const payload: any = {
+      id: 1,
+      trading_enabled: body.trading_enabled !== false,
+      new_signals_enabled: body.new_signals_enabled !== false,
+      new_orders_enabled: body.new_orders_enabled !== false,
+      broker_connect_enabled: body.broker_connect_enabled !== false,
+      strategy_creation_enabled: body.strategy_creation_enabled !== false,
+      backtest_enabled: body.backtest_enabled !== false,
+      sl_tp_mode: body.sl_tp_mode === 'manual' ? 'manual' : 'auto',
+      nifty_target_per_lot: num(body.nifty_target_per_lot, 6000),
+      nifty_stop_per_lot: num(body.nifty_stop_per_lot, 3000),
+      banknifty_target_per_lot: num(body.banknifty_target_per_lot, 6000),
+      banknifty_stop_per_lot: num(body.banknifty_stop_per_lot, 3000),
+      sensex_target_per_lot: num(body.sensex_target_per_lot, 6000),
+      sensex_stop_per_lot: num(body.sensex_stop_per_lot, 3000),
+      trailing_enabled: body.trailing_enabled !== false,
+      note: body.note ? String(body.note) : null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('kill_switch_config').upsert(payload);
+    if (error) return c.json({ error: error.message }, 400);
+    return c.json({ success: true, killSwitch: payload });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+app.post("/make-server-c4d79cb7/admin/ops/controls/user-kill-switch", async (c) => {
+  try {
+    const auth = await validateAdminAuth(c);
+    if (!auth.authorized) return c.json({ error: auth.error?.message }, auth.error?.code || 403);
+    const body = await c.req.json().catch(() => ({}));
+    const userId = String(body.user_id || '').trim();
+    if (!userId) return c.json({ error: 'user_id required' }, 400);
+
+    const { error } = await supabase.from('user_kill_switch').upsert({
+      user_id: userId,
+      new_signals_enabled: body.new_signals_enabled !== false,
+      new_orders_enabled: body.new_orders_enabled !== false,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) return c.json({ error: error.message }, 400);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 
 
 

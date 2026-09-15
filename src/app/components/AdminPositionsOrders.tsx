@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { adminGet } from '@/app/utils/adminOpsApi';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -33,7 +34,7 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone?: stri
   );
 }
 
-export function AdminPositionsOrders() {
+export function AdminPositionsOrders({ serverUrl, accessToken }: { serverUrl?: string; accessToken?: string } = {}) {
   const [sub, setSub] = useState('overview');
   useAdminSubTabSync('operations', setSub);
 
@@ -47,21 +48,22 @@ export function AdminPositionsOrders() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { fromIso, toIso } = istRangeToUtc(from, to);
-    const [o, p, pr, w] = await Promise.all([
-      supabase.from('trading_orders').select('*').gte('created_at', fromIso).lte('created_at', toIso)
-        .order('created_at', { ascending: false }).limit(5000),
-      supabase.from('position_monitor_state').select('*').gte('created_at', fromIso).lte('created_at', toIso)
-        .order('created_at', { ascending: false }).limit(5000),
-      supabase.from('profiles').select('user_id, client_id, full_name, email, mobile, active_broker, account_status'),
-      supabase.from('wallet_transactions').select('*').gte('created_at', fromIso).lte('created_at', toIso).limit(5000),
-    ]);
-    setOrders(o.data || []);
-    setPositions(p.data || []);
-    setProfiles(pr.data || []);
-    setWallet(w.data || []);
-    setLoading(false);
-  }, [from, to]);
+    try {
+      const j = await adminGet(
+        `/admin/ops/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        serverUrl, accessToken,
+      );
+      setOrders(j.orders || []);
+      setPositions(j.positions || []);
+      setProfiles(j.profiles || []);
+      setWallet(j.wallet || []);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load operations data');
+      setOrders([]); setPositions([]); setProfiles([]); setWallet([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to, serverUrl, accessToken]);
 
   useEffect(() => { load(); }, [load]);
 

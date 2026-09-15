@@ -850,37 +850,61 @@ export type Database = {
       kill_switch_config: {
         Row: {
           backtest_enabled: boolean
+          banknifty_stop_per_lot: number
+          banknifty_target_per_lot: number
           broker_connect_enabled: boolean
           id: number
           new_orders_enabled: boolean
           new_signals_enabled: boolean
+          nifty_stop_per_lot: number
+          nifty_target_per_lot: number
           note: string | null
+          sensex_stop_per_lot: number
+          sensex_target_per_lot: number
+          sl_tp_mode: string
           strategy_creation_enabled: boolean
           trading_enabled: boolean
+          trailing_enabled: boolean
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           backtest_enabled?: boolean
+          banknifty_stop_per_lot?: number
+          banknifty_target_per_lot?: number
           broker_connect_enabled?: boolean
           id?: number
           new_orders_enabled?: boolean
           new_signals_enabled?: boolean
+          nifty_stop_per_lot?: number
+          nifty_target_per_lot?: number
           note?: string | null
+          sensex_stop_per_lot?: number
+          sensex_target_per_lot?: number
+          sl_tp_mode?: string
           strategy_creation_enabled?: boolean
           trading_enabled?: boolean
+          trailing_enabled?: boolean
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
           backtest_enabled?: boolean
+          banknifty_stop_per_lot?: number
+          banknifty_target_per_lot?: number
           broker_connect_enabled?: boolean
           id?: number
           new_orders_enabled?: boolean
           new_signals_enabled?: boolean
+          nifty_stop_per_lot?: number
+          nifty_target_per_lot?: number
           note?: string | null
+          sensex_stop_per_lot?: number
+          sensex_target_per_lot?: number
+          sl_tp_mode?: string
           strategy_creation_enabled?: boolean
           trading_enabled?: boolean
+          trailing_enabled?: boolean
           updated_at?: string
           updated_by?: string | null
         }

@@ -39,6 +39,7 @@ import {
   ordersAllowed,
   indexEnabled,
   logOrderAudit,
+  getPlatformRisk,
 } from "./trade_ids_control.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
@@ -378,6 +379,22 @@ async function computeManualLotRisk(
       trailingEnabled = match.trailing_enabled !== false;
     }
   } catch (_e) { /* fallback to defaults */ }
+
+  // 🛠️ Admin manual SL/target mode overrides the per-lot amounts for everyone.
+  try {
+    const risk = await getPlatformRisk();
+    if (risk.mode === "manual") {
+      const band = risk.perIndex[String(indexName || "").toUpperCase()];
+      if (band) {
+        tgtPerLot = band.tgt;
+        slPerLot = band.sl;
+        tActPerLot = Math.round(tgtPerLot * 0.66);
+        tStepPerLot = Math.round(slPerLot * 0.33);
+        trailingEnabled = risk.trailingEnabled;
+      }
+    }
+  } catch (_e) { /* keep user values */ }
+
 
   const mm = _MONEYNESS_MULT[(moneyness || "ATM").toUpperCase()] || _MONEYNESS_MULT.ATM;
   const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
@@ -1996,16 +2013,26 @@ class PersistentTradingEngine {
                     OTM2: { tgt: 1.50, sl: 0.70 },
                   };
                   const mm = MONEYNESS_MULT[slot.moneyness] || MONEYNESS_MULT.ATM;
-                  const tgtPerLot = Number(slot.target_per_lot) || 6000;
-                  const slPerLot = Number(slot.stop_loss_per_lot) || 3000;
-                  const trailActPerLot = Number(slot.trailing_activation_per_lot) || Math.round(tgtPerLot * 0.66);
-                  const trailStepPerLot = Number(slot.trailing_step_per_lot) || Math.round(slPerLot * 0.33);
+                  // 🛠️ Admin manual SL/target mode replaces the user's per-lot amounts.
+                  const platformRisk = await getPlatformRisk().catch(() => null);
+                  const manualBand = platformRisk && platformRisk.mode === "manual"
+                    ? platformRisk.perIndex[String(indexName || "").toUpperCase()]
+                    : null;
+                  const tgtPerLot = manualBand ? manualBand.tgt : (Number(slot.target_per_lot) || 6000);
+                  const slPerLot = manualBand ? manualBand.sl : (Number(slot.stop_loss_per_lot) || 3000);
+                  const trailActPerLot = manualBand
+                    ? Math.round(tgtPerLot * 0.66)
+                    : (Number(slot.trailing_activation_per_lot) || Math.round(tgtPerLot * 0.66));
+                  const trailStepPerLot = manualBand
+                    ? Math.round(slPerLot * 0.33)
+                    : (Number(slot.trailing_step_per_lot) || Math.round(slPerLot * 0.33));
                   const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
                   const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
                   const trailingActivationAmount = +(trailActPerLot * lotCount * mm.tgt).toFixed(2);
                   const trailingStep = +(trailStepPerLot * lotCount).toFixed(2);
                   const targetJumpAmount = trailingStep;
-                  const trailingEnabled = !!slot.trailing_enabled && trailingActivationAmount > 0 && trailingStep > 0;
+                  const trailingEnabled = (manualBand ? platformRisk!.trailingEnabled : !!slot.trailing_enabled)
+                    && trailingActivationAmount > 0 && trailingStep > 0;
 
                   resolved.push({
                     id: `AUTO_${slot.slot}_${r.security_id}`,

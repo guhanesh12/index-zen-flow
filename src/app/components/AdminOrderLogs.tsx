@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { adminGet } from '@/app/utils/adminOpsApi';
+import { toast } from 'sonner';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -15,61 +16,60 @@ const statusTone = (s: string) =>
     : s === 'placed' || s === 'success' || s === 'complete' ? 'bg-emerald-500/20 text-emerald-300'
       : 'bg-slate-600/30 text-slate-300';
 
-export function AdminOrderLogs() {
+const istDay = (offsetDays = 0) =>
+  new Date(Date.now() + 5.5 * 3600000 - offsetDays * 86400000).toISOString().slice(0, 10);
+
+export function AdminOrderLogs({ serverUrl, accessToken }: { serverUrl?: string; accessToken?: string } = {}) {
   const [rows, setRows] = useState<any[]>([]);
   const [signals, setSignals] = useState<Record<string, any>>({});
   const [audits, setAudits] = useState<Record<string, any[]>>({});
   const [profiles, setProfiles] = useState<Record<string, any>>({});
+  const [brokers, setBrokers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [broker, setBroker] = useState('all');
+  const [from, setFrom] = useState(istDay());
+  const [to, setTo] = useState(istDay());
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    let query = supabase.from('trading_orders').select('*').order('created_at', { ascending: false }).limit(500);
-    if (status !== 'all') query = query.eq('status', status);
-    if (broker !== 'all') query = query.eq('broker', broker);
-    const { data: orders } = await query;
-    const list = orders || [];
-    setRows(list);
+    try {
+      const j = await adminGet(
+        `/admin/ops/order-logs?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+        + `&status=${encodeURIComponent(status)}&broker=${encodeURIComponent(broker)}`,
+        serverUrl, accessToken,
+      );
+      setRows(j.orders || []);
+      setBrokers(j.brokers || []);
 
-    const signalIds = Array.from(new Set(list.map((o) => o.signal_id).filter(Boolean)));
-    const signalCodes = Array.from(new Set(list.map((o) => o.signal_code).filter(Boolean)));
-    const orderCodes = Array.from(new Set(list.map((o) => o.order_code).filter(Boolean)));
-    const userIds = Array.from(new Set(list.map((o) => o.user_id).filter(Boolean)));
+      const sig: Record<string, any> = {};
+      (j.signals || []).forEach((s: any) => {
+        sig[s.id] = s;
+        if (s.signal_code) sig[s.signal_code] = s;
+      });
+      setSignals(sig);
 
-    const [sigById, sigByCode, auditRes, profRes] = await Promise.all([
-      signalIds.length ? supabase.from('trading_signals').select('*').in('id', signalIds) : Promise.resolve({ data: [] }),
-      signalCodes.length ? supabase.from('trading_signals').select('*').in('signal_code', signalCodes) : Promise.resolve({ data: [] }),
-      orderCodes.length ? supabase.from('order_audit_events').select('*').in('order_code', orderCodes).order('created_at', { ascending: true }) : Promise.resolve({ data: [] }),
-      userIds.length ? supabase.from('profiles').select('user_id, client_id, full_name, email').in('user_id', userIds) : Promise.resolve({ data: [] }),
-    ]);
+      const ax: Record<string, any[]> = {};
+      (j.audits || []).forEach((a: any) => {
+        if (!a.order_code) return;
+        (ax[a.order_code] = ax[a.order_code] || []).push(a);
+      });
+      setAudits(ax);
 
-    const sig: Record<string, any> = {};
-    [...(sigById.data || []), ...(sigByCode.data || [])].forEach((s) => {
-      sig[s.id] = s;
-      if (s.signal_code) sig[s.signal_code] = s;
-    });
-    setSignals(sig);
-
-    const ax: Record<string, any[]> = {};
-    (auditRes.data || []).forEach((a) => {
-      if (!a.order_code) return;
-      (ax[a.order_code] = ax[a.order_code] || []).push(a);
-    });
-    setAudits(ax);
-
-    const pm: Record<string, any> = {};
-    (profRes.data || []).forEach((p) => { pm[p.user_id] = p; });
-    setProfiles(pm);
-    setLoading(false);
-  }, [status, broker]);
+      const pm: Record<string, any> = {};
+      (j.profiles || []).forEach((p: any) => { pm[p.user_id] = p; });
+      setProfiles(pm);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load order logs');
+      setRows([]); setSignals({}); setAudits({}); setProfiles({});
+    } finally {
+      setLoading(false);
+    }
+  }, [status, broker, from, to, serverUrl, accessToken]);
 
   useEffect(() => { load(); }, [load]);
-
-  const brokers = useMemo(() => Array.from(new Set(rows.map((r) => r.broker).filter(Boolean))).sort(), [rows]);
 
   const visible = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -108,6 +108,8 @@ export function AdminOrderLogs() {
         <div className="grid gap-2 md:grid-cols-5">
           <Input className="md:col-span-2" placeholder="Search order id, signal id, algo id, client, symbol…"
             value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           <select value={status} onChange={(e) => setStatus(e.target.value)}
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-200">
             <option value="all">All statuses</option>
@@ -140,6 +142,7 @@ export function AdminOrderLogs() {
                   <TableHead className="w-8" />
                   <TableHead>Date / time (IST)</TableHead>
                   <TableHead>Order ID</TableHead>
+                  <TableHead>Broker order ID</TableHead>
                   <TableHead>Signal ID</TableHead>
                   <TableHead>Strategy</TableHead>
                   <TableHead>Algo ID</TableHead>
@@ -162,7 +165,8 @@ export function AdminOrderLogs() {
                       <TableRow key={r.id} className="cursor-pointer" onClick={() => setExpanded(isOpen ? null : r.id)}>
                         <TableCell>{isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}</TableCell>
                         <TableCell className="whitespace-nowrap text-xs">{ist(r.created_at)}</TableCell>
-                        <TableCell className="font-mono text-[11px]">{r.order_code || r.dhan_order_id || '—'}</TableCell>
+                        <TableCell className="font-mono text-[11px]">{r.order_code || '—'}</TableCell>
+                        <TableCell className="font-mono text-[11px] text-amber-300">{r.dhan_order_id || '—'}</TableCell>
                         <TableCell className="font-mono text-[11px] text-blue-300">{r.signal_code || (r.signal_id ? String(r.signal_id).slice(0, 8) : '—')}</TableCell>
                         <TableCell className="font-mono text-[11px]">{r.strategy_id || '—'}</TableCell>
                         <TableCell className="font-mono text-[11px]">{r.algo_id || '—'}</TableCell>
@@ -176,7 +180,7 @@ export function AdminOrderLogs() {
                       </TableRow>
                       {isOpen && (
                         <TableRow key={`${r.id}-d`}>
-                          <TableCell colSpan={13} className="bg-slate-950/70">
+                          <TableCell colSpan={14} className="bg-slate-950/70">
                             <div className="grid gap-4 lg:grid-cols-3 p-2">
                               <div>
                                 <p className="mb-1 text-xs font-semibold uppercase text-slate-400">Signal details</p>
@@ -225,7 +229,7 @@ export function AdminOrderLogs() {
                     </>
                   );
                 })}
-                {!visible.length && <TableRow><TableCell colSpan={13} className="text-center text-slate-500 py-6">No orders</TableCell></TableRow>}
+                {!visible.length && <TableRow><TableCell colSpan={14} className="text-center text-slate-500 py-6">No orders</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>

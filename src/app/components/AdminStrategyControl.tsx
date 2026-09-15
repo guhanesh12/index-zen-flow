@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { adminGet, adminPost } from '@/app/utils/adminOpsApi';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -24,42 +24,48 @@ const DEFAULTS = {
   note: '',
 };
 
-export function AdminStrategyControl() {
+export function AdminStrategyControl({ serverUrl, accessToken }: { serverUrl?: string; accessToken?: string } = {}) {
   const [cfg, setCfg] = useState<any>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('strategy_control').select('*').eq('id', 1).maybeSingle();
-    if (data) setCfg({ ...DEFAULTS, ...data });
-    setLoading(false);
-  }, []);
+    try {
+      const j = await adminGet('/admin/ops/controls', serverUrl, accessToken);
+      setCfg({ ...DEFAULTS, ...(j.strategy || {}) });
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load strategy control');
+    } finally {
+      setLoading(false);
+    }
+  }, [serverUrl, accessToken]);
   useEffect(() => { load(); }, [load]);
 
   const set = (k: string, v: any) => setCfg((p: any) => ({ ...p, [k]: v }));
 
   const save = async () => {
     setSaving(true);
-    const { data: auth } = await supabase.auth.getUser();
-    const { error } = await supabase.from('strategy_control').upsert({
-      id: 1,
-      strategy_id: cfg.strategy_id,
-      enabled: cfg.enabled,
-      nifty_enabled: cfg.nifty_enabled,
-      banknifty_enabled: cfg.banknifty_enabled,
-      sensex_enabled: cfg.sensex_enabled,
-      min_confidence: Number(cfg.min_confidence),
-      max_trades_per_index_per_day: Number(cfg.max_trades_per_index_per_day),
-      entry_start_ist: cfg.entry_start_ist,
-      entry_end_ist: cfg.entry_end_ist,
-      note: cfg.note || null,
-      updated_by: auth?.user?.id || null,
-      updated_at: new Date().toISOString(),
-    });
-    setSaving(false);
-    if (error) toast.error(error.message);
-    else { toast.success('Strategy control saved'); load(); }
+    try {
+      await adminPost('/admin/ops/controls/strategy', {
+        strategy_id: cfg.strategy_id,
+        enabled: cfg.enabled,
+        nifty_enabled: cfg.nifty_enabled,
+        banknifty_enabled: cfg.banknifty_enabled,
+        sensex_enabled: cfg.sensex_enabled,
+        min_confidence: Number(cfg.min_confidence),
+        max_trades_per_index_per_day: Number(cfg.max_trades_per_index_per_day),
+        entry_start_ist: cfg.entry_start_ist,
+        entry_end_ist: cfg.entry_end_ist,
+        note: cfg.note || null,
+      }, serverUrl, accessToken);
+      toast.success('Strategy control saved');
+      load();
+    } catch (e: any) {
+      toast.error(e.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
