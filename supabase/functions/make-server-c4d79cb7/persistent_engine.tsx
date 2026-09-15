@@ -30,6 +30,16 @@ import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { sendPushToUser } from "./push_notifications.tsx";
 import { getCentralOHLC, getCachedCentralSignal, saveCentralSignal, getCentralCredentials } from "./central_market_data.tsx";
+import {
+  STRATEGY_ID,
+  makeSignalCode,
+  makeOrderCode,
+  getAlgoId,
+  signalsAllowed,
+  ordersAllowed,
+  indexEnabled,
+  logOrderAudit,
+} from "./trade_ids_control.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
