@@ -16,61 +16,60 @@ const statusTone = (s: string) =>
     : s === 'placed' || s === 'success' || s === 'complete' ? 'bg-emerald-500/20 text-emerald-300'
       : 'bg-slate-600/30 text-slate-300';
 
-export function AdminOrderLogs() {
+const istDay = (offsetDays = 0) =>
+  new Date(Date.now() + 5.5 * 3600000 - offsetDays * 86400000).toISOString().slice(0, 10);
+
+export function AdminOrderLogs({ serverUrl, accessToken }: { serverUrl?: string; accessToken?: string } = {}) {
   const [rows, setRows] = useState<any[]>([]);
   const [signals, setSignals] = useState<Record<string, any>>({});
   const [audits, setAudits] = useState<Record<string, any[]>>({});
   const [profiles, setProfiles] = useState<Record<string, any>>({});
+  const [brokers, setBrokers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [broker, setBroker] = useState('all');
+  const [from, setFrom] = useState(istDay());
+  const [to, setTo] = useState(istDay());
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    let query = supabase.from('trading_orders').select('*').order('created_at', { ascending: false }).limit(500);
-    if (status !== 'all') query = query.eq('status', status);
-    if (broker !== 'all') query = query.eq('broker', broker);
-    const { data: orders } = await query;
-    const list = orders || [];
-    setRows(list);
+    try {
+      const j = await adminGet(
+        `/admin/ops/order-logs?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+        + `&status=${encodeURIComponent(status)}&broker=${encodeURIComponent(broker)}`,
+        serverUrl, accessToken,
+      );
+      setRows(j.orders || []);
+      setBrokers(j.brokers || []);
 
-    const signalIds = Array.from(new Set(list.map((o) => o.signal_id).filter(Boolean)));
-    const signalCodes = Array.from(new Set(list.map((o) => o.signal_code).filter(Boolean)));
-    const orderCodes = Array.from(new Set(list.map((o) => o.order_code).filter(Boolean)));
-    const userIds = Array.from(new Set(list.map((o) => o.user_id).filter(Boolean)));
+      const sig: Record<string, any> = {};
+      (j.signals || []).forEach((s: any) => {
+        sig[s.id] = s;
+        if (s.signal_code) sig[s.signal_code] = s;
+      });
+      setSignals(sig);
 
-    const [sigById, sigByCode, auditRes, profRes] = await Promise.all([
-      signalIds.length ? supabase.from('trading_signals').select('*').in('id', signalIds) : Promise.resolve({ data: [] }),
-      signalCodes.length ? supabase.from('trading_signals').select('*').in('signal_code', signalCodes) : Promise.resolve({ data: [] }),
-      orderCodes.length ? supabase.from('order_audit_events').select('*').in('order_code', orderCodes).order('created_at', { ascending: true }) : Promise.resolve({ data: [] }),
-      userIds.length ? supabase.from('profiles').select('user_id, client_id, full_name, email').in('user_id', userIds) : Promise.resolve({ data: [] }),
-    ]);
+      const ax: Record<string, any[]> = {};
+      (j.audits || []).forEach((a: any) => {
+        if (!a.order_code) return;
+        (ax[a.order_code] = ax[a.order_code] || []).push(a);
+      });
+      setAudits(ax);
 
-    const sig: Record<string, any> = {};
-    [...(sigById.data || []), ...(sigByCode.data || [])].forEach((s) => {
-      sig[s.id] = s;
-      if (s.signal_code) sig[s.signal_code] = s;
-    });
-    setSignals(sig);
-
-    const ax: Record<string, any[]> = {};
-    (auditRes.data || []).forEach((a) => {
-      if (!a.order_code) return;
-      (ax[a.order_code] = ax[a.order_code] || []).push(a);
-    });
-    setAudits(ax);
-
-    const pm: Record<string, any> = {};
-    (profRes.data || []).forEach((p) => { pm[p.user_id] = p; });
-    setProfiles(pm);
-    setLoading(false);
-  }, [status, broker]);
+      const pm: Record<string, any> = {};
+      (j.profiles || []).forEach((p: any) => { pm[p.user_id] = p; });
+      setProfiles(pm);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load order logs');
+      setRows([]); setSignals({}); setAudits({}); setProfiles({});
+    } finally {
+      setLoading(false);
+    }
+  }, [status, broker, from, to, serverUrl, accessToken]);
 
   useEffect(() => { load(); }, [load]);
-
-  const brokers = useMemo(() => Array.from(new Set(rows.map((r) => r.broker).filter(Boolean))).sort(), [rows]);
 
   const visible = useMemo(() => {
     const term = q.trim().toLowerCase();
