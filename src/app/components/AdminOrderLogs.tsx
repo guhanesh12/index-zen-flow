@@ -108,6 +108,8 @@ export function AdminOrderLogs({ serverUrl, accessToken }: { serverUrl?: string;
         <div className="grid gap-2 md:grid-cols-5">
           <Input className="md:col-span-2" placeholder="Search order id, signal id, algo id, client, symbol…"
             value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           <select value={status} onChange={(e) => setStatus(e.target.value)}
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-200">
             <option value="all">All statuses</option>
