@@ -29,6 +29,7 @@ import { useResponsive } from "../hooks/useResponsive";
 import { NotificationBell } from "./NotificationBell";
 import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
+import { UserKillSwitch } from "./UserKillSwitch";
 import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
 import {
   SymbolStrip,
