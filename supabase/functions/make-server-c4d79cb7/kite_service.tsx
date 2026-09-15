@@ -176,9 +176,9 @@ export class KiteService {
       tradingsymbol: req.tradingsymbol,
       exchange: req.exchange,
       transaction_type: req.transactionType,
-      order_type: req.orderType || "MARKET",
-      quantity: String(Math.max(1, Number(req.quantity) || 0)),
       order_type: "MARKET",
+      quantity: String(Math.max(1, Number(req.quantity) || 0)),
+      product: req.product || "MIS",
       validity: req.validity || "DAY",
     });
     // MARKET only: no limit price is ever sent.
