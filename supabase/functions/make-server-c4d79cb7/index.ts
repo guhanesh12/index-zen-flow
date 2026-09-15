@@ -3749,6 +3749,26 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
       orderRequest.quantity = exitMode === 'half' ? Math.floor(totalLots / 2) * lotSize : quantity;
     }
 
+    // 🛑 Kill switch — fresh entry orders can be switched off globally or by the
+    // user. Position exits always stay allowed.
+    if (!orderRequest.exitPositionId) {
+      const gate = await ordersAllowed(user.id);
+      if (!gate.allowed) {
+        await logOrderAudit({
+          userId: user.id,
+          userEmail: user.email,
+          algoId: await getAlgoId(user.id),
+          event: 'MANUAL_ORDER_BLOCKED',
+          transactionType: orderRequest.transactionType || null,
+          quantity: Number(orderRequest.quantity) || null,
+          status: 'blocked',
+          message: gate.reason,
+          details: { securityId: orderRequest.securityId },
+        });
+        return c.json({ error: gate.reason, killSwitch: true }, 403);
+      }
+    }
+
     const credentials = await kv.get(`api_credentials:${user.id}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
       return c.json({ error: "Dhan credentials not configured" }, 400);
