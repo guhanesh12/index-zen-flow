@@ -535,6 +535,31 @@ function auditModuleOfPath(path: string): string {
   return seg[0];
 }
 
+// 🛑 GLOBAL KILL SWITCH — admins can switch off broker connections, strategy
+// creation / engine start and backtests for every user from the admin panel.
+app.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase();
+  if (method === 'GET' || method === 'OPTIONS') return next();
+  const path = c.req.path || '';
+  if (path.includes('/admin/')) return next();
+  try {
+    const ks = await getKillSwitch();
+    const blocked = (msg: string) => c.json({ error: msg, killSwitch: true }, 403);
+    const isBrokerConnect = /\/broker\/[^/]+\/(save-keys|verify|login|reconnect|consume)|\/broker\/oauth\/(save-keys|generate-consent|consume|verify)/.test(path);
+    if (isBrokerConnect && (!ks.broker_connect_enabled || !ks.trading_enabled)) {
+      return blocked('Broker connections are temporarily switched off by the administrator.');
+    }
+    if (path.includes('/backtest') && (!ks.backtest_enabled || !ks.trading_enabled)) {
+      return blocked('Backtesting is temporarily switched off by the administrator.');
+    }
+    const isStrategyStart = /\/(engine|trading)\/(start|resume)|\/strategy\/(create|save|start)/.test(path);
+    if (isStrategyStart && (!ks.strategy_creation_enabled || !ks.trading_enabled)) {
+      return blocked('Strategy start is temporarily switched off by the administrator.');
+    }
+  } catch (_e) { /* never block on a lookup failure */ }
+  return next();
+});
+
 app.use('*', async (c, next) => {
   const method = c.req.method.toUpperCase();
   const path = c.req.path || '';
