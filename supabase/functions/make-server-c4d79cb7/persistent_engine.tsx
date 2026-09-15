@@ -2285,6 +2285,31 @@ class PersistentTradingEngine {
 
             // ⚡ EXECUTE ORDER!
             if (action === "BUY_CALL" || action === "BUY_PUT") {
+              // 🛑 Kill switch — new entry orders can be switched off globally or
+              // by the user. Exits are never blocked.
+              const _ordGate = await ordersAllowed(userId);
+              if (!_ordGate.allowed) {
+                console.log(`🛑 ORDER BLOCKED (${indexName}): ${_ordGate.reason}`);
+                await logOrderAudit({
+                  userId,
+                  algoId: await getAlgoId(userId),
+                  indexName,
+                  symbol: normalizedSymbolName,
+                  event: "ENTRY_ORDER_BLOCKED",
+                  transactionType: "BUY",
+                  status: "blocked",
+                  message: _ordGate.reason,
+                  details: { action, confidence },
+                });
+                await this.appendSharedLog(userId, {
+                  type: "SKIP",
+                  timestamp: Date.now(),
+                  message: `🛑 ${indexName} ${action} blocked — ${_ordGate.reason}`,
+                  data: { index: indexName, action, reason: _ordGate.reason },
+                });
+                return;
+              }
+
               // 🔒 Atomic cross-isolate claim — blocks the cron tick and the
               // candle-watcher from both firing the SAME order (double quantity).
               const claimed = await this.claimOrderKeyGlobal(orderKey);
