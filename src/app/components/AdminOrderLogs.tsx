@@ -180,7 +180,7 @@ export function AdminOrderLogs({ serverUrl, accessToken }: { serverUrl?: string;
                       </TableRow>
                       {isOpen && (
                         <TableRow key={`${r.id}-d`}>
-                          <TableCell colSpan={13} className="bg-slate-950/70">
+                          <TableCell colSpan={14} className="bg-slate-950/70">
                             <div className="grid gap-4 lg:grid-cols-3 p-2">
                               <div>
                                 <p className="mb-1 text-xs font-semibold uppercase text-slate-400">Signal details</p>
@@ -229,7 +229,7 @@ export function AdminOrderLogs({ serverUrl, accessToken }: { serverUrl?: string;
                     </>
                   );
                 })}
-                {!visible.length && <TableRow><TableCell colSpan={13} className="text-center text-slate-500 py-6">No orders</TableCell></TableRow>}
+                {!visible.length && <TableRow><TableCell colSpan={14} className="text-center text-slate-500 py-6">No orders</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>
