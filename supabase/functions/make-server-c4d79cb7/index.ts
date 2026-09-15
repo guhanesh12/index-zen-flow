@@ -3793,6 +3793,18 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
       }
     );
 
+    const auditBase = {
+      userId: user.id,
+      userEmail: user.email,
+      algoId: await getAlgoId(user.id),
+      strategyId: STRATEGY_ID,
+      broker: String(orderResponse?.broker || (await BrokerRouter.getActiveBroker(user.id)) || 'dhan'),
+      transactionType: orderRequest.transactionType || null,
+      quantity: Number(orderRequest.quantity) || null,
+      averagePrice: Number(orderResponse?.averagePrice || orderResponse?.price || 0) || null,
+      details: { securityId: orderRequest.securityId, exitMode: orderRequest.exitMode || null, orderResponse },
+    };
+
     if (orderResponse.orderId) {
       // Log order execution
       await kv.set(`order:${user.id}:${orderResponse.orderId}`, {
@@ -3800,6 +3812,17 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         ...orderResponse,
         timestamp: Date.now(),
         placedViaStaticIP: true
+      });
+
+      await logOrderAudit({
+        ...auditBase,
+        orderCode: makeOrderCode(String(orderRequest.indexName || 'IDX')),
+        brokerOrderId: orderResponse.orderId,
+        event: orderRequest.exitPositionId
+          ? (orderRequest.exitMode === 'half' ? 'EXIT_HALF_PLACED' : 'EXIT_FULL_PLACED')
+          : 'MANUAL_ORDER_PLACED',
+        status: 'success',
+        message: orderResponse.message || null,
       });
 
       return c.json({
@@ -3810,6 +3833,12 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         executedPrice: 0,
       });
     } else {
+      await logOrderAudit({
+        ...auditBase,
+        event: orderRequest.exitPositionId ? 'EXIT_ORDER_FAILED' : 'MANUAL_ORDER_FAILED',
+        status: 'failed',
+        message: orderResponse.message || 'Broker rejected the order',
+      });
       return c.json({
         success: false,
         message: orderResponse.message
