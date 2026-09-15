@@ -3821,21 +3821,51 @@ class PersistentTradingEngine {
       const normalizedSymbolName = getSymbolDisplayName(symbol);
       const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
 
+      const orderCode = makeOrderCode(normalizedIndex);
+      const algoId = await getAlgoId(userId);
+      const signalCode = (await kv.get(`last_signal_code:${userId}:${normalizedIndex}`)) || null;
+      const brokerName = String(orderResult?.broker || (await BrokerRouter.getActiveBroker(userId)) || "dhan");
+      const qty = symbol.quantity || symbol.lotSize || symbol.lot_size || 15;
+      const avgPrice = Number(orderResult.averagePrice || orderResult.price || 0);
+
       await supabaseAdmin.from("trading_orders").insert({
         user_id: userId,
         symbol: normalizedSymbolName,
         index_name: normalizedIndex,
         order_type: symbol.orderType || symbol.order_type || "MARKET",
         transaction_type: "BUY",
-        quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
-        price: orderResult.averagePrice || orderResult.price || 0,
+        quantity: qty,
+        price: avgPrice,
+        average_price: avgPrice || null,
         dhan_order_id: orderResult.orderId || null,
         exchange_segment: normalizedExchangeSegment,
         symbol_id: String(symbol.securityId || symbol.symbolId || symbol.symbol_id || "") || null,
         status: status,
-        broker: String(orderResult?.broker || (await BrokerRouter.getActiveBroker(userId)) || "dhan"),
+        broker: brokerName,
         error_message: orderResult.error || null,
         raw_response: orderResult || {},
+        order_code: orderCode,
+        signal_code: signalCode,
+        strategy_id: STRATEGY_ID,
+        algo_id: algoId,
+      });
+
+      await logOrderAudit({
+        userId,
+        orderCode,
+        brokerOrderId: orderResult.orderId || null,
+        signalCode,
+        algoId,
+        broker: brokerName,
+        indexName: normalizedIndex,
+        symbol: normalizedSymbolName,
+        event: status === "failed" ? "ENTRY_ORDER_FAILED" : "ENTRY_ORDER_PLACED",
+        transactionType: "BUY",
+        quantity: qty,
+        averagePrice: avgPrice || null,
+        status: status === "failed" ? "failed" : "success",
+        message: orderResult.error || `${action} ${normalizedSymbolName} x${qty}`,
+        details: { action, exchangeSegment: normalizedExchangeSegment, orderResult },
       });
     } catch (err) {
       console.error("❌ Failed to save order to DB:", err);
