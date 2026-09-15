@@ -21,6 +21,10 @@ import { AdminMarketDataCenter } from './AdminMarketDataCenter';
 import { AdminBacktests } from './AdminBacktests';
 import { AdminAuditLogViewer } from './AdminAuditLogViewer';
 import { AdminSessionsPanel } from './AdminSessionsPanel';
+import { AdminPositionsOrders } from './AdminPositionsOrders';
+import { AdminOrderLogs } from './AdminOrderLogs';
+import { AdminStrategyControl } from './AdminStrategyControl';
+import { AdminKillSwitch } from './AdminKillSwitch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -409,6 +413,32 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
               <AdvancedAdminDashboard serverUrl={serverUrl} accessToken={realAccessToken} />
             </TabsContent>
           )}
+
+          {canAccessTab('operations') && (
+            <TabsContent value="operations">
+              <AdminPositionsOrders />
+            </TabsContent>
+          )}
+
+          {canAccessTab('orderLogs') && (
+            <TabsContent value="orderLogs">
+              <AdminOrderLogs />
+            </TabsContent>
+          )}
+
+          {canAccessTab('strategyControl') && (
+            <TabsContent value="strategyControl">
+              <AdminStrategyControl />
+            </TabsContent>
+          )}
+
+          {canAccessTab('killSwitch') && (
+            <TabsContent value="killSwitch">
+              <AdminKillSwitch />
+            </TabsContent>
+          )}
+
+
 
           {canAccessTab('users') && (
             <TabsContent value="users">

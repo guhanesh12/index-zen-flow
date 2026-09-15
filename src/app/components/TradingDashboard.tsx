@@ -29,6 +29,7 @@ import { useResponsive } from "../hooks/useResponsive";
 import { NotificationBell } from "./NotificationBell";
 import { NotificationContainer } from "./NotificationContainer";
 import { SEO, SEO_CONFIGS } from "../utils/seo";
+import { UserKillSwitch } from "./UserKillSwitch";
 import { KpiGrid, MarketOverview, RiskCenter, PerformanceChart, SectionHeader, IndicesTicker, useFundLimits, usePositions } from "./dashboard/DashboardUI";
 import {
   SymbolStrip,
@@ -1290,6 +1291,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 openPnL={openPositionsPnL}
                 closedPnL={closedPositionsPnL}
               />
+              <UserKillSwitch />
               {/* Broker Setup Sub-Tabs */}
               <div className="flex gap-1 p-1 bg-zinc-800/70 rounded-xl border border-zinc-700/50">
                 <button

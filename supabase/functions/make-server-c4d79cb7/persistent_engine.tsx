@@ -30,6 +30,16 @@ import { checkAndDebitTiered } from "./tiered_debit.tsx";
 import { resolveAutoSymbol } from "./instrument_refresh.tsx";
 import { sendPushToUser } from "./push_notifications.tsx";
 import { getCentralOHLC, getCachedCentralSignal, saveCentralSignal, getCentralCredentials } from "./central_market_data.tsx";
+import {
+  STRATEGY_ID,
+  makeSignalCode,
+  makeOrderCode,
+  getAlgoId,
+  signalsAllowed,
+  ordersAllowed,
+  indexEnabled,
+  logOrderAudit,
+} from "./trade_ids_control.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -1685,6 +1695,20 @@ class PersistentTradingEngine {
             dailyEntriesUsed: _usedEntries,
           });
 
+          // 🛑 Kill switch / strategy control — a blocked index or a switched-off
+          // signal feed can never produce a fresh entry signal for this user.
+          if (aiSignal.signal.action === "BUY_CALL" || aiSignal.signal.action === "BUY_PUT") {
+            const _sigGate = await signalsAllowed(userId);
+            const _idxOn = await indexEnabled(indexName);
+            if (!_sigGate.allowed || !_idxOn) {
+              const _why = !_idxOn ? `Strategy control: ${indexName} is disabled` : _sigGate.reason;
+              aiSignal.signal.action = "WAIT";
+              aiSignal.signal.reason = _why;
+              aiSignal.signal.reasoning = _why;
+              aiSignal.signal.blockedBy = "KILL_SWITCH";
+            }
+          }
+
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
           const reason =
@@ -2261,6 +2285,31 @@ class PersistentTradingEngine {
 
             // ⚡ EXECUTE ORDER!
             if (action === "BUY_CALL" || action === "BUY_PUT") {
+              // 🛑 Kill switch — new entry orders can be switched off globally or
+              // by the user. Exits are never blocked.
+              const _ordGate = await ordersAllowed(userId);
+              if (!_ordGate.allowed) {
+                console.log(`🛑 ORDER BLOCKED (${indexName}): ${_ordGate.reason}`);
+                await logOrderAudit({
+                  userId,
+                  algoId: await getAlgoId(userId),
+                  indexName,
+                  symbol: normalizedSymbolName,
+                  event: "ENTRY_ORDER_BLOCKED",
+                  transactionType: "BUY",
+                  status: "blocked",
+                  message: _ordGate.reason,
+                  details: { action, confidence },
+                });
+                await this.appendSharedLog(userId, {
+                  type: "SKIP",
+                  timestamp: Date.now(),
+                  message: `🛑 ${indexName} ${action} blocked — ${_ordGate.reason}`,
+                  data: { index: indexName, action, reason: _ordGate.reason },
+                });
+                return;
+              }
+
               // 🔒 Atomic cross-isolate claim — blocks the cron tick and the
               // candle-watcher from both firing the SAME order (double quantity).
               const claimed = await this.claimOrderKeyGlobal(orderKey);
@@ -3750,6 +3799,14 @@ class PersistentTradingEngine {
       const strikeStep = getStrikeStep(normalizedIndex);
       const derivedStrike = currentPrice > 0 ? Math.round(currentPrice / strikeStep) * strikeStep : null;
 
+      // 🆔 Every signal gets a traceable id; actionable signals keep theirs so the
+      // resulting order row can be joined back to the exact signal that caused it.
+      const signalCode = makeSignalCode(normalizedIndex);
+      const algoId = await getAlgoId(userId);
+      if (action === "BUY_CALL" || action === "BUY_PUT") {
+        await kv.set(`last_signal_code:${userId}:${normalizedIndex}`, signalCode);
+      }
+
       await supabaseAdmin.from("trading_signals").insert({
         user_id: userId,
         symbol: normalizedSymbolName,
@@ -3762,6 +3819,9 @@ class PersistentTradingEngine {
         confidence: aiSignal?.signal?.confidence || 0,
         raw_data: aiSignal || {},
         status: "detected",
+        signal_code: signalCode,
+        strategy_id: STRATEGY_ID,
+        algo_id: algoId,
       });
 
       // 📧 Email is now sent ONCE per candle (consolidated for all indices)
@@ -3786,21 +3846,51 @@ class PersistentTradingEngine {
       const normalizedSymbolName = getSymbolDisplayName(symbol);
       const normalizedExchangeSegment = resolveSymbolExchangeSegment(symbol);
 
+      const orderCode = makeOrderCode(normalizedIndex);
+      const algoId = await getAlgoId(userId);
+      const signalCode = (await kv.get(`last_signal_code:${userId}:${normalizedIndex}`)) || null;
+      const brokerName = String(orderResult?.broker || (await BrokerRouter.getActiveBroker(userId)) || "dhan");
+      const qty = symbol.quantity || symbol.lotSize || symbol.lot_size || 15;
+      const avgPrice = Number(orderResult.averagePrice || orderResult.price || 0);
+
       await supabaseAdmin.from("trading_orders").insert({
         user_id: userId,
         symbol: normalizedSymbolName,
         index_name: normalizedIndex,
         order_type: symbol.orderType || symbol.order_type || "MARKET",
         transaction_type: "BUY",
-        quantity: symbol.quantity || symbol.lotSize || symbol.lot_size || 15,
-        price: orderResult.averagePrice || orderResult.price || 0,
+        quantity: qty,
+        price: avgPrice,
+        average_price: avgPrice || null,
         dhan_order_id: orderResult.orderId || null,
         exchange_segment: normalizedExchangeSegment,
         symbol_id: String(symbol.securityId || symbol.symbolId || symbol.symbol_id || "") || null,
         status: status,
-        broker: String(orderResult?.broker || (await BrokerRouter.getActiveBroker(userId)) || "dhan"),
+        broker: brokerName,
         error_message: orderResult.error || null,
         raw_response: orderResult || {},
+        order_code: orderCode,
+        signal_code: signalCode,
+        strategy_id: STRATEGY_ID,
+        algo_id: algoId,
+      });
+
+      await logOrderAudit({
+        userId,
+        orderCode,
+        brokerOrderId: orderResult.orderId || null,
+        signalCode,
+        algoId,
+        broker: brokerName,
+        indexName: normalizedIndex,
+        symbol: normalizedSymbolName,
+        event: status === "failed" ? "ENTRY_ORDER_FAILED" : "ENTRY_ORDER_PLACED",
+        transactionType: "BUY",
+        quantity: qty,
+        averagePrice: avgPrice || null,
+        status: status === "failed" ? "failed" : "success",
+        message: orderResult.error || `${action} ${normalizedSymbolName} x${qty}`,
+        details: { action, exchangeSegment: normalizedExchangeSegment, orderResult },
       });
     } catch (err) {
       console.error("❌ Failed to save order to DB:", err);

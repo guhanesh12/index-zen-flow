@@ -847,6 +847,45 @@ export type Database = {
         }
         Relationships: []
       }
+      kill_switch_config: {
+        Row: {
+          backtest_enabled: boolean
+          broker_connect_enabled: boolean
+          id: number
+          new_orders_enabled: boolean
+          new_signals_enabled: boolean
+          note: string | null
+          strategy_creation_enabled: boolean
+          trading_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          backtest_enabled?: boolean
+          broker_connect_enabled?: boolean
+          id?: number
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          note?: string | null
+          strategy_creation_enabled?: boolean
+          trading_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          backtest_enabled?: boolean
+          broker_connect_enabled?: boolean
+          id?: number
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          note?: string | null
+          strategy_creation_enabled?: boolean
+          trading_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       kv_store_4e940498: {
         Row: {
           key: string
@@ -1054,6 +1093,72 @@ export type Database = {
           created_at?: string
           holiday_date?: string
           name?: string
+        }
+        Relationships: []
+      }
+      order_audit_events: {
+        Row: {
+          algo_id: string | null
+          average_price: number | null
+          broker: string | null
+          broker_order_id: string | null
+          created_at: string
+          details: Json
+          event: string
+          id: string
+          index_name: string | null
+          message: string | null
+          order_code: string | null
+          quantity: number | null
+          signal_code: string | null
+          status: string
+          strategy_id: string | null
+          symbol: string | null
+          transaction_type: string | null
+          user_email: string | null
+          user_id: string
+        }
+        Insert: {
+          algo_id?: string | null
+          average_price?: number | null
+          broker?: string | null
+          broker_order_id?: string | null
+          created_at?: string
+          details?: Json
+          event: string
+          id?: string
+          index_name?: string | null
+          message?: string | null
+          order_code?: string | null
+          quantity?: number | null
+          signal_code?: string | null
+          status?: string
+          strategy_id?: string | null
+          symbol?: string | null
+          transaction_type?: string | null
+          user_email?: string | null
+          user_id: string
+        }
+        Update: {
+          algo_id?: string | null
+          average_price?: number | null
+          broker?: string | null
+          broker_order_id?: string | null
+          created_at?: string
+          details?: Json
+          event?: string
+          id?: string
+          index_name?: string | null
+          message?: string | null
+          order_code?: string | null
+          quantity?: number | null
+          signal_code?: string | null
+          status?: string
+          strategy_id?: string | null
+          symbol?: string | null
+          transaction_type?: string | null
+          user_email?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -1528,6 +1633,54 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_control: {
+        Row: {
+          banknifty_enabled: boolean
+          enabled: boolean
+          entry_end_ist: string
+          entry_start_ist: string
+          id: number
+          max_trades_per_index_per_day: number
+          min_confidence: number
+          nifty_enabled: boolean
+          note: string | null
+          sensex_enabled: boolean
+          strategy_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          banknifty_enabled?: boolean
+          enabled?: boolean
+          entry_end_ist?: string
+          entry_start_ist?: string
+          id?: number
+          max_trades_per_index_per_day?: number
+          min_confidence?: number
+          nifty_enabled?: boolean
+          note?: string | null
+          sensex_enabled?: boolean
+          strategy_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          banknifty_enabled?: boolean
+          enabled?: boolean
+          entry_end_ist?: string
+          entry_start_ist?: string
+          id?: number
+          max_trades_per_index_per_day?: number
+          min_confidence?: number
+          nifty_enabled?: boolean
+          note?: string | null
+          sensex_enabled?: boolean
+          strategy_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       suspended_users: {
         Row: {
           auto: boolean
@@ -1614,6 +1767,8 @@ export type Database = {
       }
       trading_orders: {
         Row: {
+          algo_id: string | null
+          average_price: number | null
           broker: string
           created_at: string
           dhan_order_id: string | null
@@ -1621,12 +1776,15 @@ export type Database = {
           exchange_segment: string | null
           id: string
           index_name: string | null
+          order_code: string | null
           order_type: string
           price: number | null
           quantity: number
           raw_response: Json | null
+          signal_code: string | null
           signal_id: string | null
           status: string
+          strategy_id: string | null
           symbol: string
           symbol_id: string | null
           transaction_type: string
@@ -1634,6 +1792,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          algo_id?: string | null
+          average_price?: number | null
           broker?: string
           created_at?: string
           dhan_order_id?: string | null
@@ -1641,12 +1801,15 @@ export type Database = {
           exchange_segment?: string | null
           id?: string
           index_name?: string | null
+          order_code?: string | null
           order_type?: string
           price?: number | null
           quantity?: number
           raw_response?: Json | null
+          signal_code?: string | null
           signal_id?: string | null
           status?: string
+          strategy_id?: string | null
           symbol: string
           symbol_id?: string | null
           transaction_type: string
@@ -1654,6 +1817,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          algo_id?: string | null
+          average_price?: number | null
           broker?: string
           created_at?: string
           dhan_order_id?: string | null
@@ -1661,12 +1826,15 @@ export type Database = {
           exchange_segment?: string | null
           id?: string
           index_name?: string | null
+          order_code?: string | null
           order_type?: string
           price?: number | null
           quantity?: number
           raw_response?: Json | null
+          signal_code?: string | null
           signal_id?: string | null
           status?: string
+          strategy_id?: string | null
           symbol?: string
           symbol_id?: string | null
           transaction_type?: string
@@ -1685,6 +1853,7 @@ export type Database = {
       }
       trading_signals: {
         Row: {
+          algo_id: string | null
           confidence: number | null
           created_at: string
           expiry: string | null
@@ -1693,13 +1862,16 @@ export type Database = {
           option_type: string | null
           price: number | null
           raw_data: Json | null
+          signal_code: string | null
           signal_type: string
           status: string
+          strategy_id: string | null
           strike_price: number | null
           symbol: string
           user_id: string
         }
         Insert: {
+          algo_id?: string | null
           confidence?: number | null
           created_at?: string
           expiry?: string | null
@@ -1708,13 +1880,16 @@ export type Database = {
           option_type?: string | null
           price?: number | null
           raw_data?: Json | null
+          signal_code?: string | null
           signal_type: string
           status?: string
+          strategy_id?: string | null
           strike_price?: number | null
           symbol: string
           user_id: string
         }
         Update: {
+          algo_id?: string | null
           confidence?: number | null
           created_at?: string
           expiry?: string | null
@@ -1723,10 +1898,36 @@ export type Database = {
           option_type?: string | null
           price?: number | null
           raw_data?: Json | null
+          signal_code?: string | null
           signal_type?: string
           status?: string
+          strategy_id?: string | null
           strike_price?: number | null
           symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_kill_switch: {
+        Row: {
+          new_orders_enabled: boolean
+          new_signals_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
           user_id?: string
         }
         Relationships: []

@@ -14,6 +14,14 @@ import { AdvancedAI } from "./advanced_ai.tsx";
 import { BacktestEngine } from "./backtesting.tsx";
 import { runStrategyBacktest, replaySegment, buildReport, BACKTEST_COST } from "./strategy_backtest.tsx";
 import { STRATEGY_RULES, applyExecutionEntryGates, applyTrendDayGate } from "./strategy_rules.ts";
+import {
+  STRATEGY_ID,
+  getKillSwitch,
+  ordersAllowed,
+  getAlgoId,
+  makeOrderCode,
+  logOrderAudit,
+} from "./trade_ids_control.tsx";
 import { runManualStrategy, simulateTrades } from "./manual_strategy_test.tsx";
 import { testDhanSync } from "./test_dhan_sync.tsx";
 import { initializeDefaultHotkey } from "./init_hotkey.tsx";
@@ -534,6 +542,31 @@ function auditModuleOfPath(path: string): string {
   if (seg[0] === 'admin' && seg[1]) return `admin:${seg[1]}`;
   return seg[0];
 }
+
+// 🛑 GLOBAL KILL SWITCH — admins can switch off broker connections, strategy
+// creation / engine start and backtests for every user from the admin panel.
+app.use('*', async (c, next) => {
+  const method = c.req.method.toUpperCase();
+  if (method === 'GET' || method === 'OPTIONS') return next();
+  const path = c.req.path || '';
+  if (path.includes('/admin/')) return next();
+  try {
+    const ks = await getKillSwitch();
+    const blocked = (msg: string) => c.json({ error: msg, killSwitch: true }, 403);
+    const isBrokerConnect = /\/broker\/[^/]+\/(save-keys|verify|login|reconnect|consume)|\/broker\/oauth\/(save-keys|generate-consent|consume|verify)/.test(path);
+    if (isBrokerConnect && (!ks.broker_connect_enabled || !ks.trading_enabled)) {
+      return blocked('Broker connections are temporarily switched off by the administrator.');
+    }
+    if (path.includes('/backtest') && (!ks.backtest_enabled || !ks.trading_enabled)) {
+      return blocked('Backtesting is temporarily switched off by the administrator.');
+    }
+    const isStrategyStart = /\/(engine|trading)\/(start|resume)|\/strategy\/(create|save|start)/.test(path);
+    if (isStrategyStart && (!ks.strategy_creation_enabled || !ks.trading_enabled)) {
+      return blocked('Strategy start is temporarily switched off by the administrator.');
+    }
+  } catch (_e) { /* never block on a lookup failure */ }
+  return next();
+});
 
 app.use('*', async (c, next) => {
   const method = c.req.method.toUpperCase();
@@ -3716,6 +3749,26 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
       orderRequest.quantity = exitMode === 'half' ? Math.floor(totalLots / 2) * lotSize : quantity;
     }
 
+    // 🛑 Kill switch — fresh entry orders can be switched off globally or by the
+    // user. Position exits always stay allowed.
+    if (!orderRequest.exitPositionId) {
+      const gate = await ordersAllowed(user.id);
+      if (!gate.allowed) {
+        await logOrderAudit({
+          userId: user.id,
+          userEmail: user.email,
+          algoId: await getAlgoId(user.id),
+          event: 'MANUAL_ORDER_BLOCKED',
+          transactionType: orderRequest.transactionType || null,
+          quantity: Number(orderRequest.quantity) || null,
+          status: 'blocked',
+          message: gate.reason,
+          details: { securityId: orderRequest.securityId },
+        });
+        return c.json({ error: gate.reason, killSwitch: true }, 403);
+      }
+    }
+
     const credentials = await kv.get(`api_credentials:${user.id}`);
     if (!credentials || !credentials.dhanClientId || !credentials.dhanAccessToken) {
       return c.json({ error: "Dhan credentials not configured" }, 400);
@@ -3740,6 +3793,18 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
       }
     );
 
+    const auditBase = {
+      userId: user.id,
+      userEmail: user.email,
+      algoId: await getAlgoId(user.id),
+      strategyId: STRATEGY_ID,
+      broker: String(orderResponse?.broker || (await BrokerRouter.getActiveBroker(user.id)) || 'dhan'),
+      transactionType: orderRequest.transactionType || null,
+      quantity: Number(orderRequest.quantity) || null,
+      averagePrice: Number(orderResponse?.averagePrice || orderResponse?.price || 0) || null,
+      details: { securityId: orderRequest.securityId, exitMode: orderRequest.exitMode || null, orderResponse },
+    };
+
     if (orderResponse.orderId) {
       // Log order execution
       await kv.set(`order:${user.id}:${orderResponse.orderId}`, {
@@ -3747,6 +3812,17 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         ...orderResponse,
         timestamp: Date.now(),
         placedViaStaticIP: true
+      });
+
+      await logOrderAudit({
+        ...auditBase,
+        orderCode: makeOrderCode(String(orderRequest.indexName || 'IDX')),
+        brokerOrderId: orderResponse.orderId,
+        event: orderRequest.exitPositionId
+          ? (orderRequest.exitMode === 'half' ? 'EXIT_HALF_PLACED' : 'EXIT_FULL_PLACED')
+          : 'MANUAL_ORDER_PLACED',
+        status: 'success',
+        message: orderResponse.message || null,
       });
 
       return c.json({
@@ -3757,6 +3833,12 @@ app.post("/make-server-c4d79cb7/place-order", async (c) => {
         executedPrice: 0,
       });
     } else {
+      await logOrderAudit({
+        ...auditBase,
+        event: orderRequest.exitPositionId ? 'EXIT_ORDER_FAILED' : 'MANUAL_ORDER_FAILED',
+        status: 'failed',
+        message: orderResponse.message || 'Broker rejected the order',
+      });
       return c.json({
         success: false,
         message: orderResponse.message
