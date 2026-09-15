@@ -1695,6 +1695,20 @@ class PersistentTradingEngine {
             dailyEntriesUsed: _usedEntries,
           });
 
+          // 🛑 Kill switch / strategy control — a blocked index or a switched-off
+          // signal feed can never produce a fresh entry signal for this user.
+          if (aiSignal.signal.action === "BUY_CALL" || aiSignal.signal.action === "BUY_PUT") {
+            const _sigGate = await signalsAllowed(userId);
+            const _idxOn = await indexEnabled(indexName);
+            if (!_sigGate.allowed || !_idxOn) {
+              const _why = !_idxOn ? `Strategy control: ${indexName} is disabled` : _sigGate.reason;
+              aiSignal.signal.action = "WAIT";
+              aiSignal.signal.reason = _why;
+              aiSignal.signal.reasoning = _why;
+              aiSignal.signal.blockedBy = "KILL_SWITCH";
+            }
+          }
+
           const action = aiSignal.signal.action;
           const confidence = aiSignal.signal.confidence;
           const reason =
