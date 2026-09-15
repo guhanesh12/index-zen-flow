@@ -142,6 +142,7 @@ export function AdminOrderLogs({ serverUrl, accessToken }: { serverUrl?: string;
                   <TableHead className="w-8" />
                   <TableHead>Date / time (IST)</TableHead>
                   <TableHead>Order ID</TableHead>
+                  <TableHead>Broker order ID</TableHead>
                   <TableHead>Signal ID</TableHead>
                   <TableHead>Strategy</TableHead>
                   <TableHead>Algo ID</TableHead>
