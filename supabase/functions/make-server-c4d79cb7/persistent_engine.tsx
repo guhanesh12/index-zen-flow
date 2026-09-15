@@ -380,6 +380,22 @@ async function computeManualLotRisk(
     }
   } catch (_e) { /* fallback to defaults */ }
 
+  // 🛠️ Admin manual SL/target mode overrides the per-lot amounts for everyone.
+  try {
+    const risk = await getPlatformRisk();
+    if (risk.mode === "manual") {
+      const band = risk.perIndex[String(indexName || "").toUpperCase()];
+      if (band) {
+        tgtPerLot = band.tgt;
+        slPerLot = band.sl;
+        tActPerLot = Math.round(tgtPerLot * 0.66);
+        tStepPerLot = Math.round(slPerLot * 0.33);
+        trailingEnabled = risk.trailingEnabled;
+      }
+    }
+  } catch (_e) { /* keep user values */ }
+
+
   const mm = _MONEYNESS_MULT[(moneyness || "ATM").toUpperCase()] || _MONEYNESS_MULT.ATM;
   const targetAmount = +(tgtPerLot * lotCount * mm.tgt).toFixed(2);
   const stopLossAmount = +(slPerLot * lotCount * mm.sl).toFixed(2);
