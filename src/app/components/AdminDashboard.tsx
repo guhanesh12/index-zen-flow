@@ -410,6 +410,32 @@ export function AdminDashboard({ serverUrl, accessToken, show, onClose, pressedH
             </TabsContent>
           )}
 
+          {canAccessTab('operations') && (
+            <TabsContent value="operations">
+              <AdminPositionsOrders />
+            </TabsContent>
+          )}
+
+          {canAccessTab('orderLogs') && (
+            <TabsContent value="orderLogs">
+              <AdminOrderLogs />
+            </TabsContent>
+          )}
+
+          {canAccessTab('strategyControl') && (
+            <TabsContent value="strategyControl">
+              <AdminStrategyControl />
+            </TabsContent>
+          )}
+
+          {canAccessTab('killSwitch') && (
+            <TabsContent value="killSwitch">
+              <AdminKillSwitch />
+            </TabsContent>
+          )}
+
+
+
           {canAccessTab('users') && (
             <TabsContent value="users">
               <AdminUsers serverUrl={serverUrl} accessToken={realAccessToken} />
