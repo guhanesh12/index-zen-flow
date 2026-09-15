@@ -1290,6 +1290,7 @@ export function TradingDashboard({ accessToken, onLogout, onOpenLandingAdmin }: 
                 openPnL={openPositionsPnL}
                 closedPnL={closedPositionsPnL}
               />
+              <UserKillSwitch />
               {/* Broker Setup Sub-Tabs */}
               <div className="flex gap-1 p-1 bg-zinc-800/70 rounded-xl border border-zinc-700/50">
                 <button
