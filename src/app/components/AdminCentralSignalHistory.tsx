@@ -148,6 +148,20 @@ export function AdminCentralSignalHistory({ serverUrl, accessToken }: Props) {
                                 <Badge className={`${tone(s.action)} text-[10px]`}>{s.action}</Badge>
                                 <span className="font-medium">{s.confidence}%</span>
                               </div>
+                              {/* Signal ID — copy it and search in Order Logs to see every order placed from it. */}
+                              <button
+                                type="button"
+                                title="Copy signal ID — search it in Order Logs"
+                                onClick={() => {
+                                  const id = s.signalCode || s.signal_code
+                                    || `SIG-${date.replace(/-/g, '')}-${String(s.candleStamp || '').replace(':', '')}-${s.index}-${s.tf}M`;
+                                  navigator.clipboard?.writeText(id);
+                                }}
+                                className="w-full truncate text-left font-mono text-[10px] text-sky-400 hover:underline"
+                              >
+                                {s.signalCode || s.signal_code
+                                  || `SIG-${date.replace(/-/g, '')}-${String(s.candleStamp || '').replace(':', '')}-${s.index}-${s.tf}M`}
+                              </button>
                               <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
                                 {s.barOpen && s.barClose && (
                                   <Badge variant="secondary" className="text-[10px] font-normal">
