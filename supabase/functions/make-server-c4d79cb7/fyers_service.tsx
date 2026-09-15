@@ -224,10 +224,10 @@ export class FyersService {
     const body = {
       symbol: req.symbol,
       qty: Math.max(1, Number(req.quantity) || 0),
-      type: req.orderType === "LIMIT" ? 1 : 2,       // 1 = LIMIT, 2 = MARKET
+      type: 2,                                     // 2 = MARKET (forced)
       side: String(req.transactionType).toUpperCase() === "SELL" ? -1 : 1,
       productType: req.product || "MARGIN",
-      limitPrice: req.orderType === "LIMIT" ? Number(req.price ?? 0) : 0,
+      limitPrice: 0,
       stopPrice: 0,
       validity: req.validity || "DAY",
       disclosedQty: 0,

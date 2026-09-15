@@ -178,10 +178,10 @@ export class KiteService {
       transaction_type: req.transactionType,
       order_type: req.orderType || "MARKET",
       quantity: String(Math.max(1, Number(req.quantity) || 0)),
-      product: req.product || "MIS",
+      order_type: "MARKET",
       validity: req.validity || "DAY",
     });
-    if ((req.orderType || "MARKET") === "LIMIT") form.set("price", String(req.price ?? 0));
+    // MARKET only: no limit price is ever sent.
     if (req.tag) form.set("tag", req.tag.slice(0, 20));
 
     const data = await this.request("/orders/regular", {

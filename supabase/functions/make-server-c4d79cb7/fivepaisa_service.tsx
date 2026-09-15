@@ -275,7 +275,7 @@ export class FivepaisaService {
     raw: any;
   }> {
     const remoteOrderId = String(req.remoteOrderId || `IP${Date.now()}${Math.floor(Math.random() * 1000)}`);
-    const isLimit = req.orderType === "LIMIT";
+    const isLimit = false; // MARKET only
     const payload: Record<string, any> = {
       Exchange: req.exchange,
       ExchangeType: req.exchangeType,
