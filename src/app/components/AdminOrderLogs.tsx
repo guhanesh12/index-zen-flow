@@ -165,7 +165,8 @@ export function AdminOrderLogs({ serverUrl, accessToken }: { serverUrl?: string;
                       <TableRow key={r.id} className="cursor-pointer" onClick={() => setExpanded(isOpen ? null : r.id)}>
                         <TableCell>{isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}</TableCell>
                         <TableCell className="whitespace-nowrap text-xs">{ist(r.created_at)}</TableCell>
-                        <TableCell className="font-mono text-[11px]">{r.order_code || r.dhan_order_id || '—'}</TableCell>
+                        <TableCell className="font-mono text-[11px]">{r.order_code || '—'}</TableCell>
+                        <TableCell className="font-mono text-[11px] text-amber-300">{r.dhan_order_id || '—'}</TableCell>
                         <TableCell className="font-mono text-[11px] text-blue-300">{r.signal_code || (r.signal_id ? String(r.signal_id).slice(0, 8) : '—')}</TableCell>
                         <TableCell className="font-mono text-[11px]">{r.strategy_id || '—'}</TableCell>
                         <TableCell className="font-mono text-[11px]">{r.algo_id || '—'}</TableCell>
