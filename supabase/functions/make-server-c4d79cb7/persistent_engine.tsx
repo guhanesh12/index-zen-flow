@@ -39,6 +39,7 @@ import {
   ordersAllowed,
   indexEnabled,
   logOrderAudit,
+  getPlatformRisk,
 } from "./trade_ids_control.tsx";
 
 // 📧 Fire-and-forget email sender (best-effort, never blocks engine)
