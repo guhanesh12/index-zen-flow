@@ -3774,6 +3774,14 @@ class PersistentTradingEngine {
       const strikeStep = getStrikeStep(normalizedIndex);
       const derivedStrike = currentPrice > 0 ? Math.round(currentPrice / strikeStep) * strikeStep : null;
 
+      // 🆔 Every signal gets a traceable id; actionable signals keep theirs so the
+      // resulting order row can be joined back to the exact signal that caused it.
+      const signalCode = makeSignalCode(normalizedIndex);
+      const algoId = await getAlgoId(userId);
+      if (action === "BUY_CALL" || action === "BUY_PUT") {
+        await kv.set(`last_signal_code:${userId}:${normalizedIndex}`, signalCode);
+      }
+
       await supabaseAdmin.from("trading_signals").insert({
         user_id: userId,
         symbol: normalizedSymbolName,
@@ -3786,6 +3794,9 @@ class PersistentTradingEngine {
         confidence: aiSignal?.signal?.confidence || 0,
         raw_data: aiSignal || {},
         status: "detected",
+        signal_code: signalCode,
+        strategy_id: STRATEGY_ID,
+        algo_id: algoId,
       });
 
       // 📧 Email is now sent ONCE per candle (consolidated for all indices)
