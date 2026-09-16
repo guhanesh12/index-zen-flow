@@ -12514,6 +12514,32 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   }
 });
 
+// Any code mailed to this admin in the last TTL stays usable, so a delayed
+// email (or a fresh login started before the old mail arrived) still works.
+const ADMIN_OTP_RECENT_PREFIX = 'admin_login_otp_recent:';
+async function rememberAdminOtpHash(email: string, hash: string) {
+  try {
+    const key = `${ADMIN_OTP_RECENT_PREFIX}${email}`;
+    const raw = await kv.get(key);
+    const list = (typeof raw === 'string' ? JSON.parse(raw) : raw) || [];
+    const now = Date.now();
+    const next = [...(Array.isArray(list) ? list : []), { hash, expiresAt: now + ADMIN_EMAIL_OTP_TTL_MS }]
+      .filter((e: any) => e?.hash && e.expiresAt > now)
+      .slice(-5);
+    await kv.set(key, JSON.stringify(next));
+  } catch (_e) { /* non-fatal */ }
+}
+async function matchRecentAdminOtpHash(email: string, hash: string): Promise<boolean> {
+  try {
+    const raw = await kv.get(`${ADMIN_OTP_RECENT_PREFIX}${email}`);
+    const list = (typeof raw === 'string' ? JSON.parse(raw) : raw) || [];
+    const now = Date.now();
+    return Array.isArray(list) && list.some((e: any) => e?.hash === hash && e.expiresAt > now);
+  } catch (_e) {
+    return false;
+  }
+}
+
 // Step 2: verify the emailed OTP, then hand out the Google Authenticator step.
 app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
   try {
