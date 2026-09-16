@@ -12480,7 +12480,11 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       fullName: adminProfile.full_name || null,
       roleLabel: adminProfile.role_label || null,
       emailVerified: false,
-      emailOtpHash: await sha256Hex(emailOtp),
+      emailOtpHash: await (async () => {
+        const h = await sha256Hex(emailOtp);
+        await rememberAdminOtpHash(loginEmail, h);
+        return h;
+      })(),
       emailOtpExpiresAt: Date.now() + ADMIN_EMAIL_OTP_TTL_MS,
       emailOtpAttempts: 0,
       expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
