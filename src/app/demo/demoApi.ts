@@ -55,6 +55,15 @@ export function demoSession() {
   };
 }
 
+const DEMO_BROKERS = [
+  { id: 'dhan', name: 'Dhan', color: '#f97316', features: ['orders', 'positions', 'live-data'] },
+  { id: 'zerodha', name: 'Zerodha', color: '#387ed1', features: ['orders', 'positions'] },
+  { id: 'angelone', name: 'Angel One', color: '#e11d48', features: ['orders', 'positions'] },
+  { id: 'upstox', name: 'Upstox', color: '#7c3aed', features: ['orders', 'positions'] },
+  { id: 'fyers', name: 'Fyers', color: '#0ea5e9', features: ['orders', 'positions'] },
+  { id: 'groww', name: 'Groww', color: '#22c55e', features: ['orders', 'positions'] },
+];
+
 /** PIN state lives in memory so the demo can show "create PIN" then "unlock". */
 const pinState = { hasPin: false, pin: '' };
 
