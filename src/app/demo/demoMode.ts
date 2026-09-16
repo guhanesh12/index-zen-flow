@@ -7,6 +7,7 @@
  * payments and order placement. Normal visitors never touch this code path.
  */
 import { handleDemoRequest, demoSession, DEMO_ACCESS_TOKEN } from './demoApi';
+import { DEMO_SIGNALS } from './demoData';
 import { projectId } from '@/utils-ext/supabase/info';
 
 const FLAG = 'indexpilot_demo_mode';
