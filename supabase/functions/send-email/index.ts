@@ -405,7 +405,7 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
 async function sendViaBrevo(p: {
   to: string; name?: string; subject: string; html: string; text?: string;
   fromEmail: string; fromName: string; replyTo?: string;
-  promotional?: boolean;
+  promotional?: boolean; recoverBlockedRecipient?: boolean;
 }) {
   if (!BREVO_API_KEY) throw new Error("BREVO_API_KEY not configured");
   console.log(`[brevo] key prefix=${BREVO_API_KEY.slice(0, 10)} len=${BREVO_API_KEY.length}`);
@@ -443,6 +443,20 @@ async function sendViaBrevo(p: {
     headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
     body: JSON.stringify(payload),
   });
+
+  // A requested login code must not remain suppressed because of an older
+  // transient bounce. Brevo returns 204 when removed and 404 when no block
+  // exists; both are safe to continue. This is intentionally OTP-only.
+  if (p.recoverBlockedRecipient) {
+    const unblock = await fetch(`https://api.brevo.com/v3/smtp/blockedContacts/${encodeURIComponent(p.to)}`, {
+      method: "DELETE",
+      headers: { "api-key": BREVO_API_KEY, accept: "application/json" },
+    });
+    if (!unblock.ok && unblock.status !== 404) {
+      const unblockError = await unblock.text();
+      console.warn(`[brevo] unable to clear OTP suppression [${unblock.status}]: ${unblockError.slice(0, 200)}`);
+    }
+  }
   let res = await send();
   let data = await res.json().catch(() => ({}));
 
@@ -620,6 +634,7 @@ Deno.serve(async (req) => {
         to, name, subject, html, text,
         fromEmail: s.from_email, fromName: s.from_name, replyTo: s.reply_to || undefined,
         promotional,
+        recoverBlockedRecipient: template === "otp",
       });
       if (logRow?.id) {
         await supabase.from("email_logs").update({ status: "sent", provider_message_id: messageId }).eq("id", logRow.id);
