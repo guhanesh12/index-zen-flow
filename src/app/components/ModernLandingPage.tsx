@@ -22,6 +22,7 @@ import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
 import { AnimatedIndexTitle } from './AnimatedIndexTitle';
 import { HowItWorksSection } from './HowItWorksSection';
 import { SEO, SEO_CONFIGS } from '../utils/seo';
+import { isDemoMode } from '../demo/demoMode';
 
 // Floating animation keyframes
 const floatingAnimation = {
