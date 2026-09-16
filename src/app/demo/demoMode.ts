@@ -71,7 +71,68 @@ export function installDemoMode() {
     return nativeFetch(input, init);
   };
 
+  seedEngineBridge();
+
   // Keep the demo flag on every in-app navigation so a reload stays in demo mode.
   document.documentElement.setAttribute('data-demo', 'true');
   console.info('🎬 Demo mode active — all data on screen is sample data.');
+}
+
+/**
+ * The terminal reads engine state and published signals from localStorage.
+ * In demo mode we publish the sample signals ourselves and let the
+ * Start / Stop engine buttons flip the same state, so the recording can show
+ * the engine being started and signals arriving.
+ */
+function seedEngineBridge() {
+  const state = { running: false, interval: '15' as '5' | '15' };
+
+  const write = () => {
+    const signals = state.running
+      ? {
+          NIFTY: DEMO_SIGNALS[0],
+          BANKNIFTY: DEMO_SIGNALS[1],
+          SENSEX: DEMO_SIGNALS[2],
+        }
+      : {};
+    try {
+      localStorage.setItem('engine_signals', JSON.stringify(signals));
+      localStorage.setItem('engine_signals_time', String(Date.now()));
+      localStorage.setItem('engine_running', state.running ? 'true' : 'false');
+      localStorage.setItem('engine_interval', state.interval);
+      localStorage.setItem(
+        'engine_bridge',
+        JSON.stringify({
+          running: state.running,
+          interval: state.interval,
+          slotsReady: 3,
+          activeCount: state.running ? 2 : 0,
+          marketStatus: 'OPEN',
+          nextCandleClose: nextCandleLabel(state.interval),
+          stats: {
+            totalSignals: state.running ? 3 : 0,
+            totalOrders: state.running ? 2 : 0,
+            avgExecutionTime: state.running ? 214 : 0,
+          },
+        })
+      );
+    } catch { /* ignore */ }
+  };
+
+  write();
+  setInterval(write, 1000);
+
+  window.addEventListener('terminal-engine-start', () => { state.running = true; write(); });
+  window.addEventListener('terminal-engine-stop', () => { state.running = false; write(); });
+  window.addEventListener('terminal-engine-interval', (e: any) => {
+    state.interval = e?.detail === '5' ? '5' : '15';
+    write();
+  });
+}
+
+function nextCandleLabel(interval: '5' | '15') {
+  const step = interval === '5' ? 5 : 15;
+  const d = new Date();
+  d.setMinutes(Math.ceil((d.getMinutes() + 0.001) / step) * step, 0, 0);
+  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
