@@ -60,8 +60,17 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
   const timer = useRef<any>(null);
   const serverUrl = getServerUrl(projectId);
 
+  const inFlight = useRef(false);
   const fetchRows = async () => {
+    if (inFlight.current) return; // skip overlapping 1s cycles
+    inFlight.current = true;
     try {
+      // ⚡ Drive the 1s live tick first so P&L/LTP/SL/target update every second,
+      // then read the freshly updated rows.
+      await fetch(`${serverUrl}/position-monitor/tick`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => {});
       const res = await fetch(`${serverUrl}/position-monitor/list`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -73,6 +82,7 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
     } catch (e) {
       // silent
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   };
