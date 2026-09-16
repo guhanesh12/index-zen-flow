@@ -135,17 +135,32 @@ const routes: Array<[RegExp, Handler]> = [
   })],
 
   // ── Market data & signals ───────────────────────────────────────
-  [/\/market-quote|\/quotes/, () => ok({ quotes: demoQuotes(), quote: demoQuotes()[0] })],
+  [/\/market-quote|\/quotes/, (_u, body) => {
+    const quotes = demoQuotes();
+    const want = String(body?.securityId ?? body?.symbol ?? '').toUpperCase();
+    const hit =
+      quotes.find((q) => q.symbol.toUpperCase() === want || String(q.securityId) === want) || quotes[0];
+    return ok({ quotes, quote: hit, ltp: hit.ltp });
+  }],
   [/\/intraday-ohlc|\/ohlc-data/, () => ok({ candles: demoCandles() })],
-  [/\/market-intel\/technical/, () => ok({ technicals: demoQuotes().map((q) => ({ symbol: q.symbol, rsi: 61.2, adx: 24.8, trend: 'Bullish', ltp: q.ltp })) })],
+  [/\/market-intel\/technical/, () => ok({ indices: demoTechnicals() })],
   [/\/market-intel\/movers/, () => ok({
-    gainers: [{ symbol: 'RELIANCE', changePercent: 2.4 }, { symbol: 'HDFCBANK', changePercent: 1.9 }, { symbol: 'INFY', changePercent: 1.4 }],
-    losers: [{ symbol: 'TATASTEEL', changePercent: -1.8 }, { symbol: 'ITC', changePercent: -1.1 }],
+    gainers: [
+      { symbol: 'RELIANCE', ltp: 1462.3, changePercent: 2.4 },
+      { symbol: 'HDFCBANK', ltp: 1721.05, changePercent: 1.9 },
+      { symbol: 'INFY', ltp: 1548.6, changePercent: 1.4 },
+    ],
+    losers: [
+      { symbol: 'TATASTEEL', ltp: 158.4, changePercent: -1.8 },
+      { symbol: 'ITC', ltp: 408.15, changePercent: -1.1 },
+    ],
   })],
   [/\/market-intel\/news/, () => ok({
-    news: [
-      { title: 'Indices hold gains as banking stocks lead the session', source: 'Market Desk', publishedAt: new Date().toISOString() },
-      { title: 'FIIs turn net buyers in the index futures segment', source: 'Market Desk', publishedAt: new Date().toISOString() },
+    items: [
+      { headline: 'Indices hold gains as banking stocks lead the session', source: 'Market Desk', publishedAt: new Date().toISOString() },
+      { headline: 'FIIs turn net buyers in the index futures segment', source: 'Market Desk', publishedAt: new Date().toISOString() },
+      { headline: 'IT pack recovers on steady global cues', source: 'Market Desk', publishedAt: new Date().toISOString() },
+      { headline: 'Volatility index cools, supporting intraday trend trades', source: 'Market Desk', publishedAt: new Date().toISOString() },
     ],
   })],
   [/\/(advanced-ai-signal|ai-trading-signal|signals|signal-history|central-market)/, () => ok({
