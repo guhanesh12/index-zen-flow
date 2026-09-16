@@ -194,10 +194,22 @@ export function useEngineSignals(ms = 1000) {
 
 /** Normalise any engine action into the three states the user asked for. */
 export function signalState(sig: any): "WAIT" | "BUY CALL" | "BUY PUT" {
-  const a = String(sig?.action || sig?.signal || "").toUpperCase();
+  const a = String(
+    // When today's entry is already used, the card must keep showing the
+    // direction that was actually traded instead of falling back to WAIT.
+    (sig?.tradeTakenToday ? sig?.executedAction || sig?.blockedAction : "") ||
+      sig?.action ||
+      sig?.signal ||
+      ""
+  ).toUpperCase();
   if (a.includes("CALL") || a === "BUY_CE" || a === "CE" || a === "BUY") return "BUY CALL";
   if (a.includes("PUT") || a === "BUY_PE" || a === "PE" || a === "SELL") return "BUY PUT";
   return "WAIT";
+}
+
+/** True when the engine already placed today's order for this index. */
+export function isTradeTaken(sig: any): boolean {
+  return Boolean(sig?.tradeTakenToday && (sig?.executedAction || sig?.blockedAction));
 }
 
 /* ───────────────────────── left rail: symbols + P&L + exit ───────────────────────── */
@@ -355,6 +367,7 @@ export function SignalBoard() {
         {INDEXES.map((idx) => {
           const sig = (signals as any)[idx];
           const state = signalState(sig);
+          const taken = isTradeTaken(sig);
           const isWait = state === "WAIT";
           return (
             <button
@@ -387,6 +400,11 @@ export function SignalBoard() {
                 )}
                 {state}
               </div>
+              {taken && (
+                <div className="mt-2 inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                  Trade taken today · order placed
+                </div>
+              )}
               <div className="mt-3 text-[11px] text-zinc-500">
                 Confidence <span className="text-zinc-300 font-medium">{Number(sig?.confidence || 0).toFixed(0)}%</span>
               </div>
