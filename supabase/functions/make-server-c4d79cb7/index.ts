@@ -14548,16 +14548,29 @@ app.all("/make-server-c4d79cb7/cron/premarket-email", async (c) => {
   }
 });
 
+// Resolve who may run the position monitor:
+//  - a signed-in user  -> only their own positions
+//  - the scheduler/admin (x-internal-key / cron gate) -> all users
+// Anonymous callers are rejected.
+async function resolvePositionMonitorScope(c: any): Promise<{ ok: boolean; targetUserId?: string }> {
+  const authHeader = c.req.header('Authorization');
+  if (authHeader) {
+    try {
+      const { user } = await validateAuth(c, 1);
+      if (user?.id) return { ok: true, targetUserId: user.id };
+    } catch (_e) { /* fall through to cron gate */ }
+  }
+  const gate = await requireCronOrAdmin(c);
+  if (gate?.ok) return { ok: true, targetUserId: undefined };
+  return { ok: false };
+}
+
 app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
   try {
-    let targetUserId = '';
-    const authHeader = c.req.header('Authorization');
-    if (authHeader) {
-      const { user } = await validateAuth(c, 1);
-      targetUserId = user?.id || '';
-    }
+    const scope = await resolvePositionMonitorScope(c);
+    if (!scope.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
 
-    const result = await PersistentTradingEngine.runPositionMonitorTick(targetUserId || undefined);
+    const result = await PersistentTradingEngine.runPositionMonitorTick(scope.targetUserId);
     return c.json(result);
   } catch (error: any) {
     console.error("❌ [POSITION-MONITOR] Tick failed:", error);
@@ -14567,15 +14580,11 @@ app.all("/make-server-c4d79cb7/position-monitor/tick", async (c) => {
 
 app.all("/make-server-c4d79cb7/position-monitor/loop", async (c) => {
   try {
-    let targetUserId = '';
-    const authHeader = c.req.header('Authorization');
-    if (authHeader) {
-      const { user } = await validateAuth(c, 1);
-      targetUserId = user?.id || '';
-    }
+    const scope = await resolvePositionMonitorScope(c);
+    if (!scope.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
 
     const durationMs = Math.min(Number(c.req.query('durationMs') || 58_000) || 58_000, 58_000);
-    const result = await PersistentTradingEngine.runPositionMonitorLoop(targetUserId || undefined, durationMs);
+    const result = await PersistentTradingEngine.runPositionMonitorLoop(scope.targetUserId, durationMs);
     return c.json(result);
   } catch (error: any) {
     console.error("❌ [POSITION-MONITOR] 1s loop failed:", error);
