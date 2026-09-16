@@ -285,14 +285,16 @@ function demoMonitorRows() {
   });
 }
 
-function demoCandles() {
+function demoCandles(index = 'NIFTY') {
+  const bases: any = { NIFTY: 24680, BANKNIFTY: 54010, SENSEX: 80890 };
+  const base = bases[index] || bases.NIFTY;
   const out = [];
-  let price = 24680;
+  let price = base;
   const now = Date.now();
   for (let i = 0; i < 60; i++) {
-    const step = Math.sin(i / 4) * 18 + i * 2.1;
+    const step = (Math.sin(i / 4) * 18 + i * 2.1) * (base / 24680);
     const open = price;
-    const close = 24680 + step;
+    const close = base + step;
     const high = Math.max(open, close) + 9;
     const low = Math.min(open, close) - 9;
     out.push({
