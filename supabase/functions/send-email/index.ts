@@ -438,12 +438,31 @@ async function sendViaBrevo(p: {
   };
   if (p.replyTo) payload.replyTo = { email: p.replyTo, name: senderName };
 
-  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const send = () => fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await res.json().catch(() => ({}));
+  let res = await send();
+  let data = await res.json().catch(() => ({}));
+
+  // Brevo suppresses addresses after a hard bounce and can respond as if a
+  // later send was accepted while immediately blocking it. OTP messages are
+  // user-requested transactional mail, so remove only that recipient's
+  // transactional suppression and retry once. Never auto-unblock promotional
+  // mail or retry more than once.
+  const providerText = JSON.stringify(data).toLowerCase();
+  const recipientBlocked = providerText.includes("blacklist") || providerText.includes("blocked contact");
+  if (!res.ok && !p.promotional && recipientBlocked) {
+    const unblock = await fetch(`https://api.brevo.com/v3/smtp/blockedContacts/${encodeURIComponent(p.to)}`, {
+      method: "DELETE",
+      headers: { "api-key": BREVO_API_KEY, accept: "application/json" },
+    });
+    if (unblock.ok || unblock.status === 404) {
+      res = await send();
+      data = await res.json().catch(() => ({}));
+    }
+  }
   if (!res.ok) throw new Error(`Brevo ${res.status}: ${JSON.stringify(data)}`);
   return data?.messageId || null;
 }
