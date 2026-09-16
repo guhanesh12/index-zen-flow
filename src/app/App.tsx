@@ -227,6 +227,7 @@ export default function App() {
       <div className="app-container">
         <RouterProvider router={router} />
         <PWADebugger />
+        <DemoBadge />
       </div>
     </HelmetProvider>
   );
