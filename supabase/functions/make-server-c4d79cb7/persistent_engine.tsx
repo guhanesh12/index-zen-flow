@@ -3260,7 +3260,9 @@ class PersistentTradingEngine {
         const giveBack = Math.max(0, (position.highestPnl || 0) - pnl);
         const giveBackPct = position.highestPnl > 0 ? (giveBack / position.highestPnl) * 100 : 0;
         const heldMinutes = position.entryTime ? (_now - position.entryTime) / 60000 : 0;
-        let marketFavorable = momentumScore >= 0 && pnl >= (position.highestPnl || 0) * 0.6;
+        // P&L momentum is display context only. Favorable/WATCH/EXIT must come
+        // from the real index market signal below, never from profit or loss.
+        let marketFavorable = false;
         (position as any).momentumScore = Number(momentumScore.toFixed(2));
         (position as any).giveBackPct = Number(giveBackPct.toFixed(1));
         (position as any).heldMinutes = Number(heldMinutes.toFixed(1));
@@ -3279,8 +3281,8 @@ class PersistentTradingEngine {
         const indicators = currentSignal?.indicators || {};
         let signalShouldExit = false;
         let signalExitReason = "";
-        let monitorDecision: "HOLD" | "WATCH" | "EXIT" = marketFavorable ? "HOLD" : "WATCH";
-        let monitorReasoning = `⏳ Monitoring P&L ₹${pnl.toFixed(2)}`;
+        let monitorDecision: "HOLD" | "WATCH" | "EXIT" = "WATCH";
+        let monitorReasoning = "Market technical data is unavailable; hard target, stop-loss and trailing protection remain active";
         let marketMomentum: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
         let momentumStrength = 0;
 
@@ -3369,6 +3371,26 @@ class PersistentTradingEngine {
               heldMinutes: (position as any).heldMinutes,
               marketFavorable,
               monitorDecision: (position as any).monitorDecision,
+              monitorReasoning,
+              marketMomentum,
+              momentumStrength,
+              positionDirection: normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BULLISH" : "BEARISH",
+              signalAction: currentSignal?.action || null,
+              signalConfidence: Number(currentSignal?.confidence || 0),
+              signalMarketState: currentSignal?.market_state || currentSignal?.marketState || null,
+              signalDataAvailable: !!currentSignal,
+              signalCheckedAt: Date.now(),
+              signalTimeframeMinutes: Number(state.candleInterval || 15),
+              maxHoldBars: STRATEGY_RULES.maxHoldBars,
+              technicals: currentSignal ? {
+                ema9: Number(indicators.ema9 || 0),
+                ema21: Number(indicators.ema21 || 0),
+                rsi: Number(indicators.rsi || 0),
+                adx: Number(indicators.adx || 0),
+                priceAboveVWAP: !!indicators.priceAboveVWAP,
+                macdBullish: !!indicators.macdBullish,
+                orderFlow: currentSignal.volumeAnalysis?.orderFlow || "NEUTRAL",
+              } : null,
               history: _hist,
             },
           })
@@ -3534,6 +3556,54 @@ class PersistentTradingEngine {
         (position as any).monitorDecision = shouldExit ? "EXIT" : monitorDecision;
 
         if (shouldExit) {
+          // Persist the final server-side verdict before placing the exit. If
+          // the broker rejects or times out, the UI must still show EXIT and
+          // the exact protective rule that fired rather than an earlier HOLD.
+          await supabaseAdmin
+            .from("position_monitor_state")
+            .update({
+              raw_position: {
+                ...dhanPos,
+                optionType: position.optionType || normalizeOptionType(position.symbolName),
+                currentTargetAmount: _curTgt,
+                currentStopLossAmount: _curSL,
+                trailingActive: _trailingActive,
+                trailingEnabled: !!position.trailingEnabled,
+                trailingStepCount: Number(position.trailingStepCount || 0),
+                profitLocked: position.trailingEnabled && _curSL <= 0,
+                lastMonitorAt: Date.now(),
+                momentumScore: (position as any).momentumScore,
+                giveBackPct: (position as any).giveBackPct,
+                heldMinutes: (position as any).heldMinutes,
+                marketFavorable,
+                monitorDecision: "EXIT",
+                monitorReasoning: exitReason,
+                marketMomentum,
+                momentumStrength,
+                positionDirection: _posDir,
+                signalAction: currentSignal?.action || null,
+                signalConfidence: Number(currentSignal?.confidence || 0),
+                signalMarketState: currentSignal?.market_state || currentSignal?.marketState || null,
+                signalDataAvailable: !!currentSignal,
+                signalCheckedAt: Date.now(),
+                signalTimeframeMinutes: Number(state.candleInterval || 15),
+                maxHoldBars: STRATEGY_RULES.maxHoldBars,
+                technicals: currentSignal ? {
+                  ema9: Number(indicators.ema9 || 0),
+                  ema21: Number(indicators.ema21 || 0),
+                  rsi: Number(indicators.rsi || 0),
+                  adx: Number(indicators.adx || 0),
+                  priceAboveVWAP: !!indicators.priceAboveVWAP,
+                  macdBullish: !!indicators.macdBullish,
+                  orderFlow: currentSignal.volumeAnalysis?.orderFlow || "NEUTRAL",
+                } : null,
+                history: _hist,
+              },
+            })
+            .eq("user_id", userId)
+            .eq("order_id", position.orderId)
+            .eq("is_active", true);
+
           console.log(`\n🚪 EXIT TRIGGERED: ${exitReason}`);
 
           const exitParams = {

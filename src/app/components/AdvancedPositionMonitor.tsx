@@ -50,6 +50,7 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
   const [confirm, setConfirm] = useState<{ id: string; half: boolean } | null>(null);
   const [exiting, setExiting] = useState<string | null>(null);
   const [exitError, setExitError] = useState<string>("");
+  const [monitorError, setMonitorError] = useState<string>("");
   const [partialExitEnabled, setPartialExitEnabled] = useState(() => {
     try {
       return window.localStorage.getItem("position-monitor:partial-exit") !== "off";
@@ -67,10 +68,14 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
     try {
       // ⚡ Drive the 1s live tick first so P&L/LTP/SL/target update every second,
       // then read the freshly updated rows.
-      await fetch(`${serverUrl}/position-monitor/tick`, {
+      const tickRes = await fetch(`${serverUrl}/position-monitor/tick`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
-      }).catch(() => {});
+      });
+      const tickData = await tickRes.json().catch(() => null);
+      if (!tickRes.ok || tickData?.success === false) {
+        throw new Error(tickData?.error || "Live market update failed");
+      }
       const res = await fetch(`${serverUrl}/position-monitor/list`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -78,9 +83,12 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
       if (data?.success && Array.isArray(data.positions)) {
         setRows(data.positions);
         setLastUpdate(Date.now());
+        setMonitorError("");
+      } else {
+        throw new Error(data?.error || "Position update failed");
       }
-    } catch (e) {
-      // silent
+    } catch (e: any) {
+      setMonitorError(e?.message || "Live market update failed");
     } finally {
       inFlight.current = false;
       setLoading(false);
@@ -173,7 +181,9 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                 {partialExitEnabled ? "ON" : "OFF"}
               </span>
             </label>
-            <span>Live · 1s</span>
+            <span className={monitorError ? "text-red-400 font-semibold" : "text-emerald-400"}>
+              {monitorError ? "Update delayed" : "Live · 1s"}
+            </span>
             <span className={totals.pnl >= 0 ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
               Net P&L: {fmt(totals.pnl)}
             </span>
@@ -193,9 +203,14 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
           </div>
         ) : (
           <div className="space-y-3">
+            {monitorError && (
+              <div className="rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-xs text-red-200">
+                Fresh broker data is unavailable. Displayed values may be old; automatic hard-risk protection continues on the server.
+              </div>
+            )}
             {rows.map((r) => {
               const raw = r.raw_position || {};
-              const decision = raw.monitorDecision || (Number(r.pnl) >= 0 ? "HOLD" : "WATCH");
+              const decision = raw.monitorDecision || "WATCH";
               const favorable = !!raw.marketFavorable;
               const momentum = Number(raw.momentumScore || 0);
               const giveBack = Number(raw.giveBackPct || 0);
@@ -211,7 +226,17 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
               const toTarget = Math.max(0, curTgt - pnl);
               const toStop = Math.max(0, pnl + curSL);
               const ptsTo = (amt: number) => (qty > 0 ? amt / qty : 0);
-              const barsHeld = Math.floor(heldMin / 15);
+              const timeframeMinutes = Math.max(1, Number(raw.signalTimeframeMinutes || 15));
+              const maxHoldBars = Math.max(1, Number(raw.maxHoldBars || 20));
+              const barsHeld = Math.floor(heldMin / timeframeMinutes);
+              const signalAgeMs = raw.signalCheckedAt ? Date.now() - Number(raw.signalCheckedAt) : Number.POSITIVE_INFINITY;
+              const signalFresh = !!raw.signalDataAvailable && signalAgeMs < 30_000;
+              const marketDirection = String(raw.marketMomentum || "NEUTRAL");
+              const positionDirection = String(raw.positionDirection || "—");
+              const signalAction = String(raw.signalAction || "WAIT").replace("BUY_", "BUY ");
+              const signalConfidence = Number(raw.signalConfidence || 0);
+              const confirmations = Number(raw.momentumStrength || 0);
+              const technicals = raw.technicals || {};
               const stopStage = curSL <= 0
                 ? "Profit-locked stop"
                 : trailingActive
@@ -219,11 +244,13 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                 : profitLocked
                 ? "Breakeven stop"
                 : "Initial stop";
-              const verdict = decision === "EXIT"
-                ? "Exit now — the trade has lost its edge or given back most of the profit."
-                : decision === "HOLD"
-                ? `Hold — stop is ${fmt(toStop)} away, target is ${fmt(toTarget)} away.`
-                : `Watch — profit given back ${giveBack.toFixed(0)}%, stop ${fmt(toStop)} away.`;
+              const verdict = String(raw.monitorReasoning || (
+                decision === "EXIT"
+                  ? "Exit now — a server-side protection rule has triggered."
+                  : decision === "HOLD"
+                  ? "The market direction supports this position."
+                  : "Market confirmation is weak or unavailable; watch the position."
+              ));
 
 
 
@@ -416,12 +443,19 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                     />
                   </div>
 
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
+                    <Stat icon={<Activity className="w-3 h-3" />} label="Market trend" value={marketDirection} color={marketDirection === positionDirection ? "text-emerald-400" : "text-yellow-400"} />
+                    <Stat icon={<Zap className="w-3 h-3" />} label="Live signal" value={`${signalAction} · ${signalConfidence}%`} color={signalFresh ? "text-zinc-200" : "text-yellow-400"} />
+                    <Stat icon={<CheckCircle2 className="w-3 h-3" />} label="Confirmation" value={`${confirmations}/5`} color={confirmations >= 4 ? "text-emerald-400" : "text-yellow-400"} />
+                    <Stat icon={<Activity className="w-3 h-3" />} label="ADX / RSI" value={`${Number(technicals.adx || 0).toFixed(1)} / ${Number(technicals.rsi || 0).toFixed(1)}`} color={signalFresh ? "text-zinc-200" : "text-yellow-400"} />
+                  </div>
+
                   {/* Distance / stage row */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
                     <Stat icon={<Target className="w-3 h-3" />} label="To target" value={`${fmt(toTarget)} · ${ptsTo(toTarget).toFixed(1)} pt`} color="text-emerald-400" />
                     <Stat icon={<Shield className="w-3 h-3" />} label="To stop" value={`${fmt(toStop)} · ${ptsTo(toStop).toFixed(1)} pt`} color={curSL <= 0 ? "text-emerald-400" : "text-red-400"} />
                     <Stat icon={<Shield className="w-3 h-3" />} label="Stop stage" value={stopStage.replace(" stop", "")} color="text-zinc-200" />
-                    <Stat icon={<Clock className="w-3 h-3" />} label="Bars held" value={`${barsHeld} / 8`} color={barsHeld >= 8 ? "text-yellow-400" : "text-zinc-300"} />
+                    <Stat icon={<Clock className="w-3 h-3" />} label="Bars held" value={`${barsHeld} / ${maxHoldBars}`} color={barsHeld >= maxHoldBars ? "text-yellow-400" : "text-zinc-300"} />
                   </div>
 
                   {/* Verdict */}
