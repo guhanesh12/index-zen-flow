@@ -12079,7 +12079,12 @@ function maskEmail(email: string): string {
 }
 
 // Mails a one-time login code to the admin's registered address.
-async function sendAdminEmailOtp(email: string, name: string, otp: string): Promise<boolean> {
+// Uses the standard transactional `otp` template (plain-text part + neutral
+// subject) because the old free-form mail with the code in the subject line
+// was frequently filtered as spam and never reached the inbox.
+// Optional ADMIN_OTP_BACKUP_EMAILS (comma separated) receives the same code,
+// so a blocked primary mailbox can never lock the admin out.
+async function sendOneAdminOtpMail(to: string, name: string, otp: string): Promise<boolean> {
   try {
     const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-email`, {
       method: 'POST',
@@ -12090,21 +12095,37 @@ async function sendAdminEmailOtp(email: string, name: string, otp: string): Prom
         'x-internal-key': Deno.env.get('INTERNAL_SYNC_KEY') || '',
       },
       body: JSON.stringify({
-        to: email,
+        template: 'otp',
+        to,
         name,
-        subject: `Admin login code ${otp}`,
-        html: `<p>Hi ${name},</p>
-<p>Your IndexPilot admin login code is:</p>
-<p style="font-size:26px;font-weight:700;letter-spacing:6px">${otp}</p>
-<p>It expires in 10 minutes. After entering it you will still need your Google Authenticator code.</p>
-<p>If you did not start this login, secure your account immediately — the attempt has been logged.</p>`,
+        data: { name, code: otp, expiryMinutes: 10 },
       }),
     });
-    return res.ok;
+    const payload = await res.json().catch(() => ({}));
+    const ok = res.ok && payload?.ok !== false;
+    if (!ok) {
+      console.error('[ADMIN EMAIL OTP] send-email rejected', res.status, JSON.stringify(payload).slice(0, 300));
+    }
+    return ok;
   } catch (e) {
     console.error('[ADMIN EMAIL OTP] send failed', e);
     return false;
   }
+}
+
+async function sendAdminEmailOtp(email: string, name: string, otp: string): Promise<boolean> {
+  const backups = (Deno.env.get('ADMIN_OTP_BACKUP_EMAILS') || '')
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter((v) => v && v.includes('@') && v !== String(email || '').toLowerCase());
+
+  const results = await Promise.all([
+    sendOneAdminOtpMail(email, name, otp),
+    ...backups.map((b) => sendOneAdminOtpMail(b, name, otp)),
+  ]);
+  const delivered = results.some(Boolean);
+  console.log(`[ADMIN EMAIL OTP] primary=${results[0]} backups=${backups.length} delivered=${delivered}`);
+  return delivered;
 }
 
 
