@@ -194,10 +194,22 @@ export function useEngineSignals(ms = 1000) {
 
 /** Normalise any engine action into the three states the user asked for. */
 export function signalState(sig: any): "WAIT" | "BUY CALL" | "BUY PUT" {
-  const a = String(sig?.action || sig?.signal || "").toUpperCase();
+  const a = String(
+    // When today's entry is already used, the card must keep showing the
+    // direction that was actually traded instead of falling back to WAIT.
+    (sig?.tradeTakenToday ? sig?.executedAction || sig?.blockedAction : "") ||
+      sig?.action ||
+      sig?.signal ||
+      ""
+  ).toUpperCase();
   if (a.includes("CALL") || a === "BUY_CE" || a === "CE" || a === "BUY") return "BUY CALL";
   if (a.includes("PUT") || a === "BUY_PE" || a === "PE" || a === "SELL") return "BUY PUT";
   return "WAIT";
+}
+
+/** True when the engine already placed today's order for this index. */
+export function isTradeTaken(sig: any): boolean {
+  return Boolean(sig?.tradeTakenToday && (sig?.executedAction || sig?.blockedAction));
 }
 
 /* ───────────────────────── left rail: symbols + P&L + exit ───────────────────────── */
