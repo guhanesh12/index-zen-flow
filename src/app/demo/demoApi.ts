@@ -171,7 +171,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/\/engine\/db-status|\/engine\/status/, () => ok({ ...DEMO_ENGINE, engine: DEMO_ENGINE })],
   [/\/engine\/(start|stop|toggle)/, ({ path }) => ok({ ...DEMO_ENGINE, running: !path.includes('stop'), message: path.includes('stop') ? 'Engine stopped' : 'Engine started' })],
   [/\/(live-)?positions/, () => ok({ broker: 'dhan', positions: demoPositions(), data: demoPositions(), totalPnl: demoTotalPnl() })],
-  [/\/position-monitor\/(list|update)|\/monitor-position/, () => ok({ positions: demoPositions(), monitor: { trailingEnabled: true, partialExitEnabled: true } })],
+  [/\/position-monitor\/(list|update)|\/monitor-position/, () => ok({ positions: demoMonitorRows() })],
   [/\/(place-order|execute-trade|execute-dhan-order|test-dhan-order)/, ({ body }) => ok({
     orderId: `ORD-DEMO-${Math.floor(Math.random() * 900000 + 100000)}`,
     brokerOrderId: `11250913${Math.floor(Math.random() * 90000 + 10000)}`,
