@@ -367,6 +367,7 @@ export function SignalBoard() {
         {INDEXES.map((idx) => {
           const sig = (signals as any)[idx];
           const state = signalState(sig);
+          const taken = isTradeTaken(sig);
           const isWait = state === "WAIT";
           return (
             <button
