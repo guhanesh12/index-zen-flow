@@ -11,6 +11,7 @@ import angelone from '@/assets/broker-angelone.png.asset.json';
 import fyers from '@/assets/broker-fyers.png.asset.json';
 import aliceblue from '@/assets/broker-aliceblue.png.asset.json';
 import fivepaisa from '@/assets/broker-fivepaisa.png.asset.json';
+import { isDemoMode } from './demo/demoMode';
 
 export const BROKER_LOGOS: Record<string, string> = {
   dhan: dhan.url,
@@ -40,7 +41,9 @@ interface BrokerLogoProps {
 
 /** Square broker logo with a colored fallback dot when artwork is missing. */
 export function BrokerLogo({ id, name, color = '#64748b', size = 40, className = '' }: BrokerLogoProps) {
-  const src = getBrokerLogo(id);
+  const normalizedId = String(id || '').toLowerCase();
+  const demoId = normalizedId === 'kite' ? 'zerodha' : normalizedId === '5paisa' ? 'fivepaisa' : normalizedId;
+  const src = isDemoMode() && demoId ? `/demo-assets/broker-${demoId}.png` : getBrokerLogo(id);
   if (!src) {
     return (
       <span
