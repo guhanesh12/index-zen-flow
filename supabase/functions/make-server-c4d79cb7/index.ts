@@ -12564,7 +12564,8 @@ app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
       return c.json({ success: false, message: 'Too many wrong codes. Please log in again.' }, 429);
     }
 
-    const ok = (await sha256Hex(String(code).trim())) === ch.emailOtpHash;
+    const codeHash = await sha256Hex(String(code).trim());
+    const ok = codeHash === ch.emailOtpHash || (await matchRecentAdminOtpHash(ch.email, codeHash));
     if (!ok) {
       ch.emailOtpAttempts = (ch.emailOtpAttempts || 0) + 1;
       await kv.set(key, JSON.stringify(ch));
