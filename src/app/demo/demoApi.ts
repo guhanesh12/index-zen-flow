@@ -201,6 +201,45 @@ const routes: Array<[RegExp, Handler]> = [
   [/\/health/, () => ok({ status: 'ok', demo: true })],
 ];
 
+function demoMonitorRows() {
+  return demoPositions().map((p, i) => {
+    const target = Math.round(Math.abs(p.target - p.entryPrice) * p.netQty);
+    const stop = Math.round(Math.abs(p.entryPrice - p.stopLoss) * p.netQty);
+    return {
+      id: `mon-demo-${i + 1}`,
+      order_id: `ORD-DEMO-00024${i + 1}`,
+      symbol: p.tradingSymbol,
+      index_name: p.tradingSymbol.split(' ')[0],
+      entry_price: p.entryPrice,
+      current_price: p.ltp,
+      quantity: p.netQty,
+      pnl: p.pnl,
+      highest_pnl: Math.max(p.pnl, Math.round(p.pnl * 1.18)),
+      target_amount: target,
+      stop_loss_amount: stop,
+      trailing_enabled: true,
+      trailing_step: 250,
+      created_at: p.entryTime,
+      updated_at: new Date().toISOString(),
+      raw_position: {
+        ...p,
+        index: p.tradingSymbol.split(' ')[0],
+        lotSize: p.lotSize,
+        monitorDecision: 'HOLD',
+        marketFavorable: true,
+        momentumScore: 68,
+        giveBackPct: 12,
+        heldMinutes: 45,
+        currentTargetAmount: target,
+        currentStopLossAmount: Math.round(stop * 0.4),
+        trailingActive: true,
+        trailingEnabled: true,
+        profitLocked: true,
+      },
+    };
+  });
+}
+
 function demoCandles() {
   const out = [];
   let price = 24680;
