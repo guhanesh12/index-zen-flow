@@ -142,7 +142,11 @@ const routes: Array<[RegExp, Handler]> = [
       quotes.find((q) => q.symbol.toUpperCase() === want || String(q.securityId) === want) || quotes[0];
     return ok({ quotes, quote: hit, ltp: hit.ltp });
   }],
-  [/\/intraday-ohlc|\/ohlc-data/, () => ok({ candles: demoCandles() })],
+  [/\/intraday-ohlc|\/ohlc-data/, ({ body }: any) => {
+    const key = String(body?.securityId ?? body?.symbol ?? '').toUpperCase();
+    const map: any = { '13': 'NIFTY', '25': 'BANKNIFTY', '51': 'SENSEX' };
+    return ok({ candles: demoCandles(map[key] || key || 'NIFTY') });
+  }],
   [/\/market-intel\/technical/, () => ok({ indices: demoTechnicals() })],
   [/\/market-intel\/movers/, () => ok({
     gainers: [
