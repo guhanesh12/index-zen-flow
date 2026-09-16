@@ -12480,7 +12480,11 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
       fullName: adminProfile.full_name || null,
       roleLabel: adminProfile.role_label || null,
       emailVerified: false,
-      emailOtpHash: await sha256Hex(emailOtp),
+      emailOtpHash: await (async () => {
+        const h = await sha256Hex(emailOtp);
+        await rememberAdminOtpHash(loginEmail, h);
+        return h;
+      })(),
       emailOtpExpiresAt: Date.now() + ADMIN_EMAIL_OTP_TTL_MS,
       emailOtpAttempts: 0,
       expiresAt: Date.now() + ADMIN_2FA_CHALLENGE_TTL_MS,
@@ -12514,6 +12518,32 @@ app.post("/make-server-c4d79cb7/admin/login", async (c) => {
   }
 });
 
+// Any code mailed to this admin in the last TTL stays usable, so a delayed
+// email (or a fresh login started before the old mail arrived) still works.
+const ADMIN_OTP_RECENT_PREFIX = 'admin_login_otp_recent:';
+async function rememberAdminOtpHash(email: string, hash: string) {
+  try {
+    const key = `${ADMIN_OTP_RECENT_PREFIX}${email}`;
+    const raw = await kv.get(key);
+    const list = (typeof raw === 'string' ? JSON.parse(raw) : raw) || [];
+    const now = Date.now();
+    const next = [...(Array.isArray(list) ? list : []), { hash, expiresAt: now + ADMIN_EMAIL_OTP_TTL_MS }]
+      .filter((e: any) => e?.hash && e.expiresAt > now)
+      .slice(-5);
+    await kv.set(key, JSON.stringify(next));
+  } catch (_e) { /* non-fatal */ }
+}
+async function matchRecentAdminOtpHash(email: string, hash: string): Promise<boolean> {
+  try {
+    const raw = await kv.get(`${ADMIN_OTP_RECENT_PREFIX}${email}`);
+    const list = (typeof raw === 'string' ? JSON.parse(raw) : raw) || [];
+    const now = Date.now();
+    return Array.isArray(list) && list.some((e: any) => e?.hash === hash && e.expiresAt > now);
+  } catch (_e) {
+    return false;
+  }
+}
+
 // Step 2: verify the emailed OTP, then hand out the Google Authenticator step.
 app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
   try {
@@ -12538,7 +12568,8 @@ app.post("/make-server-c4d79cb7/admin/email-otp/verify", async (c) => {
       return c.json({ success: false, message: 'Too many wrong codes. Please log in again.' }, 429);
     }
 
-    const ok = (await sha256Hex(String(code).trim())) === ch.emailOtpHash;
+    const codeHash = await sha256Hex(String(code).trim());
+    const ok = codeHash === ch.emailOtpHash || (await matchRecentAdminOtpHash(ch.email, codeHash));
     if (!ok) {
       ch.emailOtpAttempts = (ch.emailOtpAttempts || 0) + 1;
       await kv.set(key, JSON.stringify(ch));
@@ -12602,6 +12633,7 @@ app.post("/make-server-c4d79cb7/admin/email-otp/resend", async (c) => {
 
     const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
     ch.emailOtpHash = await sha256Hex(emailOtp);
+    await rememberAdminOtpHash(ch.email, ch.emailOtpHash);
     ch.emailOtpExpiresAt = Date.now() + ADMIN_EMAIL_OTP_TTL_MS;
     ch.emailOtpAttempts = 0;
     await kv.set(key, JSON.stringify(ch));
