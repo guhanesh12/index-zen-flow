@@ -770,13 +770,16 @@ export function OrdersView({ logs = [], serverUrl, accessToken }: any) {
   const [filter, setFilter] = useState<"open" | "executed">("open");
   const [executed, setExecuted] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const { open } = useLivePositions(serverUrl, accessToken, 2000);
+  const { open } = useLivePositions(serverUrl, accessToken, 1000);
 
   // Executed orders come from the trade journal (real filled trades).
   useEffect(() => {
     if (!serverUrl || !accessToken) return;
     let alive = true;
+    let inFlight = false;
     const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const res = await fetchWithAuth(`${serverUrl}/get-journal-entries`, {
           method: "POST",
@@ -788,16 +791,19 @@ export function OrdersView({ logs = [], serverUrl, accessToken }: any) {
       } catch {
         /* keep last good data */
       } finally {
+        inFlight = false;
         if (alive) setLoading(false);
       }
     };
     load();
-    const t = setInterval(load, 15000);
+    // live desk: executed orders refresh every second, same cadence as positions
+    const t = setInterval(load, 1000);
     return () => {
       alive = false;
       clearInterval(t);
     };
   }, [serverUrl, accessToken]);
+
 
   const openOrders = useMemo(
     () =>
@@ -1049,7 +1055,7 @@ export function SymbolStrip({ serverUrl, accessToken, openPnL = 0, closedPnL = 0
       }
     };
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 1000);
     return () => {
       alive = false;
       clearInterval(t);
