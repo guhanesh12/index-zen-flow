@@ -242,8 +242,11 @@ export function AdminLogin({ onLogin, serverUrl, accessToken, onClose, pressedHo
         body: JSON.stringify({ challengeToken }),
       });
       const data = await res.json().catch(() => ({} as any));
-      if (!data.success) setError(data.message || 'Could not resend the code');
-      else setError('');
+      if (!data.success || data.mailed === false) {
+        setError(data.message || 'The email provider could not deliver the code. Check the address or contact the super admin.');
+      } else {
+        setError('');
+      }
     } finally {
       setBusy(false);
     }
