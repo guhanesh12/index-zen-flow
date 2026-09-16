@@ -114,15 +114,16 @@ const routes: Array<[RegExp, Handler]> = [
   }],
 
   // ── Broker ───────────────────────────────────────────────────────
-  [/\/broker\/active/, () => ok({ activeBroker: 'dhan', activeBrokerName: 'Dhan', connected: true, status: 'CONNECTED' })],
-  [/\/broker\/(list|connections|slots)/, () => ok({
-    brokers: [
-      { key: 'dhan', name: 'Dhan', connected: true, clientId: 'DEMO1001' },
-      { key: 'zerodha', name: 'Zerodha', connected: false },
-      { key: 'angelone', name: 'Angel One', connected: false },
-      { key: 'upstox', name: 'Upstox', connected: false },
-    ],
+  [/\/broker\/active/, () => ok({
+    activeBroker: 'dhan',
+    activeBrokerName: 'Dhan',
+    chosen: true,
+    connected: true,
+    status: 'CONNECTED',
+    available: { dhan: true, zerodha: false, upstox: false, fyers: false, angelone: false, groww: false, aliceblue: false, '5paisa': false },
+    brokers: DEMO_BROKERS,
   })],
+  [/\/broker\/(list|connections|slots|registry)/, () => ok({ brokers: DEMO_BROKERS })],
   [/\/api-credentials/, () => ok({
     isConfigured: true,
     status: 'CONFIGURED',
