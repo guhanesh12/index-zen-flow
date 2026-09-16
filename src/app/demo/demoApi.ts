@@ -135,7 +135,7 @@ const routes: Array<[RegExp, Handler]> = [
   })],
 
   // ── Market data & signals ───────────────────────────────────────
-  [/\/market-quote|\/quotes/, (_u, body) => {
+  [/\/market-quote|\/quotes/, ({ body }: any) => {
     const quotes = demoQuotes();
     const want = String(body?.securityId ?? body?.symbol ?? '').toUpperCase();
     const hit =
