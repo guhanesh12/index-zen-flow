@@ -55,6 +55,15 @@ export function demoSession() {
   };
 }
 
+const DEMO_BROKERS = [
+  { id: 'dhan', name: 'Dhan', color: '#f97316', features: ['orders', 'positions', 'live-data'] },
+  { id: 'zerodha', name: 'Zerodha', color: '#387ed1', features: ['orders', 'positions'] },
+  { id: 'angelone', name: 'Angel One', color: '#e11d48', features: ['orders', 'positions'] },
+  { id: 'upstox', name: 'Upstox', color: '#7c3aed', features: ['orders', 'positions'] },
+  { id: 'fyers', name: 'Fyers', color: '#0ea5e9', features: ['orders', 'positions'] },
+  { id: 'groww', name: 'Groww', color: '#22c55e', features: ['orders', 'positions'] },
+];
+
 /** PIN state lives in memory so the demo can show "create PIN" then "unlock". */
 const pinState = { hasPin: false, pin: '' };
 
@@ -114,15 +123,16 @@ const routes: Array<[RegExp, Handler]> = [
   }],
 
   // ── Broker ───────────────────────────────────────────────────────
-  [/\/broker\/active/, () => ok({ activeBroker: 'dhan', activeBrokerName: 'Dhan', connected: true, status: 'CONNECTED' })],
-  [/\/broker\/(list|connections|slots)/, () => ok({
-    brokers: [
-      { key: 'dhan', name: 'Dhan', connected: true, clientId: 'DEMO1001' },
-      { key: 'zerodha', name: 'Zerodha', connected: false },
-      { key: 'angelone', name: 'Angel One', connected: false },
-      { key: 'upstox', name: 'Upstox', connected: false },
-    ],
+  [/\/broker\/active/, () => ok({
+    activeBroker: 'dhan',
+    activeBrokerName: 'Dhan',
+    chosen: true,
+    connected: true,
+    status: 'CONNECTED',
+    available: { dhan: true, zerodha: false, upstox: false, fyers: false, angelone: false, groww: false, aliceblue: false, '5paisa': false },
+    brokers: DEMO_BROKERS,
   })],
+  [/\/broker\/(list|connections|slots|registry)/, () => ok({ brokers: DEMO_BROKERS })],
   [/\/api-credentials/, () => ok({
     isConfigured: true,
     status: 'CONFIGURED',
@@ -135,17 +145,36 @@ const routes: Array<[RegExp, Handler]> = [
   })],
 
   // ── Market data & signals ───────────────────────────────────────
-  [/\/market-quote|\/quotes/, () => ok({ quotes: demoQuotes(), quote: demoQuotes()[0] })],
-  [/\/intraday-ohlc|\/ohlc-data/, () => ok({ candles: demoCandles() })],
-  [/\/market-intel\/technical/, () => ok({ technicals: demoQuotes().map((q) => ({ symbol: q.symbol, rsi: 61.2, adx: 24.8, trend: 'Bullish', ltp: q.ltp })) })],
+  [/\/market-quote|\/quotes/, ({ body }: any) => {
+    const quotes = demoQuotes();
+    const want = String(body?.securityId ?? body?.symbol ?? '').toUpperCase();
+    const hit =
+      quotes.find((q) => q.symbol.toUpperCase() === want || String(q.securityId) === want) || quotes[0];
+    return ok({ quotes, quote: hit, ltp: hit.ltp });
+  }],
+  [/\/intraday-ohlc|\/ohlc-data/, ({ body }: any) => {
+    const key = String(body?.securityId ?? body?.symbol ?? '').toUpperCase();
+    const map: any = { '13': 'NIFTY', '25': 'BANKNIFTY', '51': 'SENSEX' };
+    return ok({ candles: demoCandles(map[key] || key || 'NIFTY') });
+  }],
+  [/\/market-intel\/technical/, () => ok({ indices: demoTechnicals() })],
   [/\/market-intel\/movers/, () => ok({
-    gainers: [{ symbol: 'RELIANCE', changePercent: 2.4 }, { symbol: 'HDFCBANK', changePercent: 1.9 }, { symbol: 'INFY', changePercent: 1.4 }],
-    losers: [{ symbol: 'TATASTEEL', changePercent: -1.8 }, { symbol: 'ITC', changePercent: -1.1 }],
+    gainers: [
+      { symbol: 'RELIANCE', ltp: 1462.3, changePercent: 2.4 },
+      { symbol: 'HDFCBANK', ltp: 1721.05, changePercent: 1.9 },
+      { symbol: 'INFY', ltp: 1548.6, changePercent: 1.4 },
+    ],
+    losers: [
+      { symbol: 'TATASTEEL', ltp: 158.4, changePercent: -1.8 },
+      { symbol: 'ITC', ltp: 408.15, changePercent: -1.1 },
+    ],
   })],
   [/\/market-intel\/news/, () => ok({
-    news: [
-      { title: 'Indices hold gains as banking stocks lead the session', source: 'Market Desk', publishedAt: new Date().toISOString() },
-      { title: 'FIIs turn net buyers in the index futures segment', source: 'Market Desk', publishedAt: new Date().toISOString() },
+    items: [
+      { headline: 'Indices hold gains as banking stocks lead the session', source: 'Market Desk', publishedAt: new Date().toISOString() },
+      { headline: 'FIIs turn net buyers in the index futures segment', source: 'Market Desk', publishedAt: new Date().toISOString() },
+      { headline: 'IT pack recovers on steady global cues', source: 'Market Desk', publishedAt: new Date().toISOString() },
+      { headline: 'Volatility index cools, supporting intraday trend trades', source: 'Market Desk', publishedAt: new Date().toISOString() },
     ],
   })],
   [/\/(advanced-ai-signal|ai-trading-signal|signals|signal-history|central-market)/, () => ok({
@@ -171,7 +200,7 @@ const routes: Array<[RegExp, Handler]> = [
   [/\/engine\/db-status|\/engine\/status/, () => ok({ ...DEMO_ENGINE, engine: DEMO_ENGINE })],
   [/\/engine\/(start|stop|toggle)/, ({ path }) => ok({ ...DEMO_ENGINE, running: !path.includes('stop'), message: path.includes('stop') ? 'Engine stopped' : 'Engine started' })],
   [/\/(live-)?positions/, () => ok({ broker: 'dhan', positions: demoPositions(), data: demoPositions(), totalPnl: demoTotalPnl() })],
-  [/\/position-monitor\/(list|update)|\/monitor-position/, () => ok({ positions: demoPositions(), monitor: { trailingEnabled: true, partialExitEnabled: true } })],
+  [/\/position-monitor\/(list|update)|\/monitor-position/, () => ok({ positions: demoMonitorRows() })],
   [/\/(place-order|execute-trade|execute-dhan-order|test-dhan-order)/, ({ body }) => ok({
     orderId: `ORD-DEMO-${Math.floor(Math.random() * 900000 + 100000)}`,
     brokerOrderId: `11250913${Math.floor(Math.random() * 90000 + 10000)}`,
@@ -201,14 +230,81 @@ const routes: Array<[RegExp, Handler]> = [
   [/\/health/, () => ok({ status: 'ok', demo: true })],
 ];
 
-function demoCandles() {
+function demoTechnicals() {
+  const out: any = {};
+  const conf: any = {
+    NIFTY: { base: 24812.45, rsi: 61.4 },
+    BANKNIFTY: { base: 54260.8, rsi: 58.9 },
+    SENSEX: { base: 81234.2, rsi: 63.1 },
+  };
+  for (const name of Object.keys(conf)) {
+    const { base, rsi } = conf[name];
+    out[name] = {
+      ok: true,
+      bias: 'Bullish',
+      sma: { period: 20, value: +(base * 0.997).toFixed(2), action: 'Buy' },
+      ema: { period: 20, value: +(base * 0.998).toFixed(2), action: 'Buy' },
+      rsi: { value: rsi, action: 'Buy' },
+      macdHist: { value: 12.4, action: 'Buy' },
+      pivot: {
+        PP: +(base * 0.999).toFixed(2),
+        R1: +(base * 1.004).toFixed(2),
+        S1: +(base * 0.994).toFixed(2),
+      },
+    };
+  }
+  return out;
+}
+
+function demoMonitorRows() {
+  return demoPositions().map((p, i) => {
+    const target = Math.round(Math.abs(p.target - p.entryPrice) * p.netQty);
+    const stop = Math.round(Math.abs(p.entryPrice - p.stopLoss) * p.netQty);
+    return {
+      id: `mon-demo-${i + 1}`,
+      order_id: `ORD-DEMO-00024${i + 1}`,
+      symbol: p.tradingSymbol,
+      index_name: p.tradingSymbol.split(' ')[0],
+      entry_price: p.entryPrice,
+      current_price: p.ltp,
+      quantity: p.netQty,
+      pnl: p.pnl,
+      highest_pnl: Math.max(p.pnl, Math.round(p.pnl * 1.18)),
+      target_amount: target,
+      stop_loss_amount: stop,
+      trailing_enabled: true,
+      trailing_step: 250,
+      created_at: p.entryTime,
+      updated_at: new Date().toISOString(),
+      raw_position: {
+        ...p,
+        index: p.tradingSymbol.split(' ')[0],
+        lotSize: p.lotSize,
+        monitorDecision: 'HOLD',
+        marketFavorable: true,
+        momentumScore: 68,
+        giveBackPct: 12,
+        heldMinutes: 45,
+        currentTargetAmount: target,
+        currentStopLossAmount: Math.round(stop * 0.4),
+        trailingActive: true,
+        trailingEnabled: true,
+        profitLocked: true,
+      },
+    };
+  });
+}
+
+function demoCandles(index = 'NIFTY') {
+  const bases: any = { NIFTY: 24680, BANKNIFTY: 54010, SENSEX: 80890 };
+  const base = bases[index] || bases.NIFTY;
   const out = [];
-  let price = 24680;
+  let price = base;
   const now = Date.now();
   for (let i = 0; i < 60; i++) {
-    const step = Math.sin(i / 4) * 18 + i * 2.1;
+    const step = (Math.sin(i / 4) * 18 + i * 2.1) * (base / 24680);
     const open = price;
-    const close = 24680 + step;
+    const close = base + step;
     const high = Math.max(open, close) + 9;
     const low = Math.min(open, close) - 9;
     out.push({

@@ -10,6 +10,7 @@ import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity, SessionManager } from '@/utils-ext/security/SecurityHardening';
 import { supabase } from '@/utils-ext/supabase/client';
+import DemoBadge from './demo/DemoBadge';
 
 
 // Extend Window interface for hotkey system
@@ -227,6 +228,7 @@ export default function App() {
       <div className="app-container">
         <RouterProvider router={router} />
         <PWADebugger />
+        <DemoBadge />
       </div>
     </HelmetProvider>
   );
