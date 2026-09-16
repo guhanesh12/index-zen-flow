@@ -14,3 +14,4 @@
 - [x] Add a compact working Partial Exit on/off control to Position Monitor
 - [x] Restore visible Top Movers, Technicals, and Live News data
 - [x] Align bullish/bearish DI, ADX, higher-timeframe, and live order gates
+- [x] Rebuild the landing-page product video with missing artwork, broker logos, action feedback, pricing explanation, click sounds, and a polished closing screen

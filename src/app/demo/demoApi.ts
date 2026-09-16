@@ -132,7 +132,7 @@ const routes: Array<[RegExp, Handler]> = [
     available: { dhan: true, zerodha: false, upstox: false, fyers: false, angelone: false, groww: false, aliceblue: false, '5paisa': false },
     brokers: DEMO_BROKERS,
   })],
-  [/\/broker\/(list|connections|slots|registry)/, () => ok({ brokers: DEMO_BROKERS })],
+  [/\/brokers$|\/broker\/(list|connections|slots|registry)/, () => ok({ brokers: DEMO_BROKERS })],
   [/\/api-credentials/, () => ok({
     isConfigured: true,
     status: 'CONFIGURED',
