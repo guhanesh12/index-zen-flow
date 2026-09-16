@@ -400,6 +400,11 @@ export function SignalBoard() {
                 )}
                 {state}
               </div>
+              {taken && (
+                <div className="mt-2 inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                  Trade taken today · order placed
+                </div>
+              )}
               <div className="mt-3 text-[11px] text-zinc-500">
                 Confidence <span className="text-zinc-300 font-medium">{Number(sig?.confidence || 0).toFixed(0)}%</span>
               </div>
