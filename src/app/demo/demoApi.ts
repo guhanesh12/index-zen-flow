@@ -216,6 +216,32 @@ const routes: Array<[RegExp, Handler]> = [
   [/\/health/, () => ok({ status: 'ok', demo: true })],
 ];
 
+function demoTechnicals() {
+  const out: any = {};
+  const conf: any = {
+    NIFTY: { base: 24812.45, rsi: 61.4 },
+    BANKNIFTY: { base: 54260.8, rsi: 58.9 },
+    SENSEX: { base: 81234.2, rsi: 63.1 },
+  };
+  for (const name of Object.keys(conf)) {
+    const { base, rsi } = conf[name];
+    out[name] = {
+      ok: true,
+      bias: 'Bullish',
+      sma: { period: 20, value: +(base * 0.997).toFixed(2), action: 'Buy' },
+      ema: { period: 20, value: +(base * 0.998).toFixed(2), action: 'Buy' },
+      rsi: { value: rsi, action: 'Buy' },
+      macdHist: { value: 12.4, action: 'Buy' },
+      pivot: {
+        PP: +(base * 0.999).toFixed(2),
+        R1: +(base * 1.004).toFixed(2),
+        S1: +(base * 0.994).toFixed(2),
+      },
+    };
+  }
+  return out;
+}
+
 function demoMonitorRows() {
   return demoPositions().map((p, i) => {
     const target = Math.round(Math.abs(p.target - p.entryPrice) * p.netQty);
