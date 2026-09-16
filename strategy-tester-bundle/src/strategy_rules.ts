@@ -208,11 +208,15 @@ export function applyExecutionEntryGates(
   const confidence = Number(sig.confidence || 0);
   const adx = Number(sig.indicators?.adx || 0);
   let why = "";
+  let tradeTaken = false;
   if (confidence < STRATEGY_RULES.minConfidence) {
     why = `Signal confidence ${confidence}% is below the ${STRATEGY_RULES.minConfidence}% entry minimum`;
   } else if (trendStrengthBlocked(adx, sig.indicators, sig.action)) {
     why = trendStrengthBlockReason(adx, sig.indicators, sig.action);
   } else if (context.dailyEntriesUsed >= STRATEGY_RULES.maxTradesPerIndexPerDay) {
+    // The entry for this index is already used today by a real order — this is
+    // not a rejected signal, so the UI keeps showing the executed direction.
+    tradeTaken = true;
     why = `Daily entry limit reached (${STRATEGY_RULES.maxTradesPerIndexPerDay} per index)`;
   }
   if (!why) return sig;
@@ -220,7 +224,14 @@ export function applyExecutionEntryGates(
   sig.blockedAction = sig.action;
   sig.blockedReason = why;
   sig.action = "WAIT";
-  sig.reason = `WAIT: ${why}`;
+  if (tradeTaken) {
+    const side = sig.blockedAction === "BUY_PUT" ? "PUT" : "CALL";
+    sig.tradeTakenToday = true;
+    sig.executedAction = sig.blockedAction;
+    sig.reason = `Trade already taken today — ${side} order placed (max ${STRATEGY_RULES.maxTradesPerIndexPerDay} per index per day)`;
+  } else {
+    sig.reason = `WAIT: ${why}`;
+  }
   return sig;
 }
 
