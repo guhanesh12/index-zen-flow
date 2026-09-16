@@ -12633,6 +12633,7 @@ app.post("/make-server-c4d79cb7/admin/email-otp/resend", async (c) => {
 
     const emailOtp = String(Math.floor(100000 + Math.random() * 900000));
     ch.emailOtpHash = await sha256Hex(emailOtp);
+    await rememberAdminOtpHash(ch.email, ch.emailOtpHash);
     ch.emailOtpExpiresAt = Date.now() + ADMIN_EMAIL_OTP_TTL_MS;
     ch.emailOtpAttempts = 0;
     await kv.set(key, JSON.stringify(ch));
