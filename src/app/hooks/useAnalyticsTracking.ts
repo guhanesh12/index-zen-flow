@@ -6,7 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
-import { getServerUrl, fetchWithApiFallback } from '@/utils-ext/config/apiConfig';
+import { getServerUrl } from '@/utils-ext/config/apiConfig';
 
 // Track page view
 export function trackPageView(page: string) {
@@ -38,7 +38,7 @@ export function trackPageView(page: string) {
 export function sendHeartbeat(page: string) {
   try {
     const serverUrl = getServerUrl();
-    fetchWithApiFallback(`/analytics/heartbeat`, {
+    fetch(`${serverUrl}/analytics/heartbeat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

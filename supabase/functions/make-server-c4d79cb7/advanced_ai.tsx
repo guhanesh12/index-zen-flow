@@ -1,5 +1,3 @@
-import { STRATEGY_RULES, trendStrengthBlocked } from "./strategy_rules.ts";
-
 /**
  * ⚡⚡⚡ ADVANCED BACKEND AI ENGINE ⚡⚡⚡
  *
@@ -81,8 +79,6 @@ export interface AdvancedIndicators {
   adxStrong: boolean; // > 25
   adxVeryStrong: boolean; // > 50
   trending: boolean;
-  plusDI?: number; // Wilder +DI — direction of the move
-  minusDI?: number; // Wilder -DI
 
   // Stochastic
   stochK: number;
@@ -280,8 +276,6 @@ export interface AdvancedSignalOptions {
   consecutiveLossThreshold?: number; // default 3
   consecutiveLossCooldownMs?: number; // default 30 * 60 * 1000
   blockNewEntriesAfterMinutes?: number; // default 15:00 IST — no fresh intraday entries after this
-  blockNewEntriesBeforeMinutes?: number; // default 09:30 IST on 15m — skip only the opening candle
-
 }
 
 export class AdvancedAI {
@@ -301,7 +295,7 @@ export class AdvancedAI {
     const istDayKey = (tsMs: number) =>
       new Date(tsMs + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const targetDay = istDayKey(lastTsMs);
-    const sessionStart = 9 * 60;
+    const sessionStart = 9 * 60 + 15;
     const sessionEnd = 15 * 60 + 30;
     const session = data.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
@@ -349,8 +343,8 @@ export class AdvancedAI {
 
     let interpretation: "NEUTRAL" | "ACCEPTABLE" | "EXTENDED";
 
-    // Use the same canonical trend floor as execution gates.
-    const isStrongTrend = Boolean(adx && adx >= STRATEGY_RULES.minAdx);
+    // ⚡ FIX: In strong trends (ADX > 25), allow extended moves up to 3.0 ATR
+    const isStrongTrend = adx && adx > 18; // Changed from 40 to 25!
     const extendedThreshold = isStrongTrend ? 3.0 : 0.6; // 3.0 ATR for trending markets
 
     if (distanceATR < 0.3) {
@@ -458,7 +452,7 @@ export class AdvancedAI {
    * Calculate VWAP (Volume Weighted Average Price)
    */
   private static calculateVWAP(data: OHLCCandle[]): number {
-    // Anchor VWAP to 09:00 IST session start
+    // Anchor VWAP to 09:15 IST session start (NSE standard)
     const sessionCandles = this.getCurrentSessionCandles(data, true);
     const candles = sessionCandles.length > 0 ? sessionCandles : data;
     let cumulativeTPV = 0;
@@ -711,46 +705,6 @@ export class AdvancedAI {
   private static calculateADX(data: OHLCCandle[], period: number = 14): number {
     const series = this.calculateADXSeries(data, period);
     return series[series.length - 1] || 0;
-  }
-
-  /**
-   * Wilder's +DI / -DI. ADX only measures how strong a move is; the DI pair
-   * says WHICH WAY it is going. Used so a clean directional push is not
-   * mislabelled "sideways" just because ADX is a point or two under the gate.
-   */
-  private static calculateDI(
-    data: OHLCCandle[],
-    period: number = 14,
-  ): { plusDI: number; minusDI: number } {
-    if (!data || data.length < period + 1) return { plusDI: 0, minusDI: 0 };
-    const trArr: number[] = [];
-    const pDMArr: number[] = [];
-    const mDMArr: number[] = [];
-    for (let i = 1; i < data.length; i++) {
-      const hd = data[i].high - data[i - 1].high;
-      const ld = data[i - 1].low - data[i].low;
-      pDMArr.push(hd > ld && hd > 0 ? hd : 0);
-      mDMArr.push(ld > hd && ld > 0 ? ld : 0);
-      trArr.push(
-        Math.max(
-          data[i].high - data[i].low,
-          Math.abs(data[i].high - data[i - 1].close),
-          Math.abs(data[i].low - data[i - 1].close),
-        ),
-      );
-    }
-    const smooth = (arr: number[]): number => {
-      let s = 0;
-      for (let i = 0; i < period; i++) s += arr[i];
-      for (let i = period; i < arr.length; i++) s = s - s / period + arr[i];
-      return s;
-    };
-    const tr = smooth(trArr);
-    if (!tr) return { plusDI: 0, minusDI: 0 };
-    return {
-      plusDI: (smooth(pDMArr) / tr) * 100,
-      minusDI: (smooth(mDMArr) / tr) * 100,
-    };
   }
 
   /**
@@ -1133,10 +1087,8 @@ export class AdvancedAI {
     const bollingerWidth = indicators.bollingerWidth;
     const lastCandle = data[data.length - 1];
 
-    const di = this.calculateDI(data);
-    const bullishTrend = !trendStrengthBlocked(adx, di, "BUY_CALL");
-    const bearishTrend = !trendStrengthBlocked(adx, di, "BUY_PUT");
-    const isTrending = bullishTrend || bearishTrend;
+    // ⚡ FIX: Check ADX strength first (>25 = trending, regardless of EMA alignment)
+    const isTrending = adx > 18;
 
     // Check EMA alignment for trend direction
     const emaUptrend =
@@ -1191,19 +1143,6 @@ export class AdvancedAI {
       const lowerLows = last5.every(
         (candle, i) => i === 0 || candle.low <= last5[i - 1].low,
       );
-
-      // DI decides direction first: EMAs lag, so a fresh push up was being
-      // labelled TRENDING_DOWN while the stack was still unwinding.
-      const plusDI = Number((indicators as any).plusDI || 0);
-      const minusDI = Number((indicators as any).minusDI || 0);
-      const diSpread = Math.abs(plusDI - minusDI);
-      if (diSpread >= 4) {
-        return {
-          type: plusDI > minusDI ? "TRENDING_UP" : "TRENDING_DOWN",
-          strength: adx,
-          suitable_for_trading: true,
-        };
-      }
 
       // EMA alignment OR price action confirms trend
       if (emaUptrend || higherHighs) {
@@ -1737,7 +1676,7 @@ export class AdvancedAI {
     const _tsDate = new Date(_candleTsMs + 5.5 * 60 * 60 * 1000);
     const _tsIstMinutes = _tsDate.getUTCHours() * 60 + _tsDate.getUTCMinutes();
     const _looksLikeDhanCloseTime =
-      _tsIstMinutes >= 9 * 60 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
+      _tsIstMinutes >= 9 * 60 + 15 + _tfMin && _tsIstMinutes <= 15 * 60 + 30;
     const _candleCloseMs = _looksLikeDhanCloseTime
       ? _candleTsMs
       : _candleTsMs + _tfMin * 60 * 1000;
@@ -1825,21 +1764,9 @@ export class AdvancedAI {
     const prevAdx =
       ohlcData.length > 30 ? this.calculateADX(ohlcData.slice(0, -1)) : adx;
     const adxRising = adx > prevAdx;
-    const di = this.calculateDI(ohlcData);
-    const directionalIndicators = { plusDI: di.plusDI, minusDI: di.minusDI };
-    const bullTrendStrengthOk = !trendStrengthBlocked(
-      adx,
-      directionalIndicators,
-      "BUY_CALL",
-    );
-    const bearTrendStrengthOk = !trendStrengthBlocked(
-      adx,
-      directionalIndicators,
-      "BUY_PUT",
-    );
-    const adxStrong = adx >= STRATEGY_RULES.minAdx;
+    const adxStrong = adx > 18;
     const adxVeryStrong = adx > 50;
-    const trending = bullTrendStrengthOk || bearTrendStrengthOk;
+    const trending = adxStrong || (adx >= 18 && adxRising);
     calculationsPerformed += 1;
 
     // Stochastic
@@ -2013,7 +1940,7 @@ export class AdvancedAI {
     const istMinForVol =
       istNowForVol.getUTCHours() * 60 + istNowForVol.getUTCMinutes();
     const isMorningSession =
-      istMinForVol >= 9 * 60 && istMinForVol < 11 * 60;
+      istMinForVol >= 9 * 60 + 15 && istMinForVol < 11 * 60;
     const volumeAdjustment = isMorningSession ? 0.85 : 1.0; // morning naturally has higher volume
     const adjustedVolumeRatio = volumeRatio * volumeAdjustment;
 
@@ -2051,8 +1978,6 @@ export class AdvancedAI {
       adxStrong,
       adxVeryStrong,
       trending,
-      plusDI: di.plusDI,
-      minusDI: di.minusDI,
       stochK: stoch.k,
       stochD: stoch.d,
       stochOverbought,
@@ -2119,7 +2044,7 @@ export class AdvancedAI {
               : "neutral";
 
     // ⚡ FIX: Use trend bias if ADX > 25 (strong trend), not 40!
-    const useTrendBias = adx >= STRATEGY_RULES.minAdx;
+    const useTrendBias = adx > 18; // Changed from 40 to 25!
     const confirmationBullish = useTrendBias
       ? trendBias === "bullish"
       : isBullish;
@@ -2461,7 +2386,7 @@ export class AdvancedAI {
 
     // ⚡ FIX BUG #12: If ADX > 25 (trending), use trend bias instead of strict higher highs/lower lows
     // In strong trends, minor pullbacks don't invalidate the trend!
-    const trendingMarket = adx >= STRATEGY_RULES.minAdx;
+    const trendingMarket = adx > 18;
 
     if (trendingMarket && confirmationBullish) {
       confirmations.priceAction = true;
@@ -2642,7 +2567,7 @@ export class AdvancedAI {
     const openingRangeCandles = priorLevelData.filter((c) => {
       const tsMs = c.timestamp < 1e12 ? c.timestamp * 1000 : c.timestamp;
       const mins = this.getIstMinutes(tsMs);
-      return mins >= 9 * 60 && mins <= 10 * 60 + 30;
+      return mins >= 9 * 60 + 15 && mins <= 10 * 60 + 30;
     });
     const openingRangeHigh = openingRangeCandles.length
       ? Math.max(...openingRangeCandles.map((c) => c.high))
@@ -2775,20 +2700,6 @@ export class AdvancedAI {
       cooldownActive && options.lastSignalDirection === "BUY_CALL";
     const cooldownBlocksBear =
       cooldownActive && options.lastSignalDirection === "BUY_PUT";
-    // ⚡ GUARD 2: no immediate counter-trend re-entry — after a signal, an opposite-direction
-    // signal must wait at least 2 bars (whipsaw flip-flop protection).
-    const reversalCooldownBars = 2;
-    const reversalTooSoon =
-      isFinite(barsSinceLastSignal) &&
-      Math.abs(barsSinceLastSignal) < reversalCooldownBars &&
-      (options.lastSignalDirection === "BUY_CALL" ||
-        options.lastSignalDirection === "BUY_PUT");
-    const reversalBlocksBull =
-      reversalTooSoon && options.lastSignalDirection === "BUY_PUT";
-    const reversalBlocksBear =
-      reversalTooSoon && options.lastSignalDirection === "BUY_CALL";
-
-
 
     // ===== FIX 6: FAKE BREAKOUT DETECTION =====
     // Breakout candle but weak close, dominant wick, no volume expansion, no BB expansion.
@@ -2819,10 +2730,10 @@ export class AdvancedAI {
     // ADX > 35 → 4 (strong trend, few confirmations needed)
     // ADX 22-35 → 5 (lowered from 25 to catch trending-but-not-strong days like 22-May)
     // ADX < 22 → 6 (weak/ranging — need overwhelming proof, was impossible 10)
-    // ⚡ FAST OPENING: first 75min (09:00-10:15) drop confirmation so the 09:05/09:15/09:30
+    // ⚡ FAST OPENING: first 75min (09:15-10:30) drop confirmation so the 09:30/09:45/10:00
     //   closed momentum candles can fire before slow indicators fully settle.
     const earlyOpeningSession =
-      istMinutes >= 9 * 60 && istMinutes <= 10 * 60 + 15;
+      istMinutes >= 9 * 60 + 15 && istMinutes <= 10 * 60 + 30;
     const openingRelief = earlyOpeningSession ? 1 : 0;
     const requiredConfirmations = Math.max(
       3,
@@ -2929,10 +2840,11 @@ export class AdvancedAI {
     const smartMoneyAgreesBull = smartMoneyBias !== "BEARISH";
     const smartMoneyAgreesBear = smartMoneyBias !== "BULLISH";
 
-    // HTF is a confidence input only. It must not veto a directionally confirmed
-    // current move because EMA-based higher timeframes naturally lag reversals.
+    // ⚡ HTF is SOFT FILTER ONLY — never a hard block.
+    // Disagreement only deducts score; agreement boosts. Strong intra-trend ADX bypasses HTF entirely.
     const htfDisagreeBull = htfDataProvided && htfAlign === "bear";
     const htfDisagreeBear = htfDataProvided && htfAlign === "bull";
+    const htfAdxStrong = adx > 30;
 
     // ===== FIX 4: TREND-CONTINUATION PULLBACK ENTRY MODEL =====
     // BULL: ADX>25, ema9>ema21, price pulled back to ema9/ema21, bullish rejection wick
@@ -2998,12 +2910,12 @@ export class AdvancedAI {
     );
     const reversalBearEntry =
       hasBearReversalPattern &&
-      bearTrendStrengthOk &&
+      adx > 18 &&
       macdHistWeakeningBear &&
       lastCandle.close < lastCandle.open;
     const reversalBullEntry =
       hasBullReversalPattern &&
-      bullTrendStrengthOk &&
+      adx > 18 &&
       macdHistImprovingBull &&
       lastCandle.close > lastCandle.open;
 
@@ -3023,7 +2935,7 @@ export class AdvancedAI {
       _istMinSess >= 11 * 60 + 45 && _istMinSess <= 13 * 60 + 15;
 
     // ===== FIX 4: SESSION-BASED MARKET BEHAVIOR =====
-    // 09:00–10:30 volatile breakout | 10:30–13:00 trend continuation
+    // 09:15–10:30 volatile breakout | 10:30–13:00 trend continuation
     // 13:00–14:15 sideways          | 14:15–15:30 trend expansion
     type SessionBehavior =
       | "VOLATILE_BREAKOUT"
@@ -3033,7 +2945,7 @@ export class AdvancedAI {
       | "OFF_HOURS";
     let sessionBehavior: SessionBehavior = "OFF_HOURS";
     let sessionBehaviorModifier = 0;
-    if (_istMinSess >= 9 * 60 && _istMinSess < 10 * 60 + 30) {
+    if (_istMinSess >= 9 * 60 + 15 && _istMinSess < 10 * 60 + 30) {
       sessionBehavior = "VOLATILE_BREAKOUT";
       sessionBehaviorModifier = 3; // breakout-friendly
     } else if (_istMinSess >= 10 * 60 + 30 && _istMinSess < 13 * 60) {
@@ -3298,17 +3210,9 @@ export class AdvancedAI {
       lastLossMs > 0 ? currentTsMs - lastLossMs : Infinity;
     const consecutiveLossLockout =
       lossCount >= lossThreshold && msSinceLastLoss < lossCooldownMs;
-    // No fresh intraday entries at or after the configured session cutoff.
-    const lastEntryMinute =
-      options.blockNewEntriesAfterMinutes ??
-      (timeframeMinutes >= 15 ? 13 * 60 + 30 : 15 * 60 + 25);
-    // No fresh 15m entries before 09:30 — only the 09:15 opening bar is blocked.
-    const firstEntryMinute =
-      options.blockNewEntriesBeforeMinutes ??
-      (timeframeMinutes >= 15 ? 9 * 60 + 30 : 9 * 60 + 5);
-    const lateNewEntryBlocked =
-      _istMinSess >= lastEntryMinute || _istMinSess < firstEntryMinute;
-
+    // ⚡ FIX: Relaxed late-entry gate from 15:15 → 15:25 IST so the 15:15 candle close still produces a tradeable signal.
+    const lastEntryMinute = options.blockNewEntriesAfterMinutes ?? 15 * 60 + 25; // 15:25 IST
+    const lateNewEntryBlocked = _istMinSess >= lastEntryMinute;
 
     const strongBullish =
       (confirmationBullish || ultraFastOpeningBull) &&
@@ -3318,16 +3222,16 @@ export class AdvancedAI {
         (momentumStrong && adx > 30) ||
         ultraFastOpeningBull) &&
       (breakoutQualityBull ||
-        bullTrendStrengthOk ||
+        adxStrong ||
         continuationBull ||
         reversalBullEntry ||
         ultraFastOpeningBull) &&
       (momentumBull ||
-        bullTrendStrengthOk ||
+        adxStrong ||
         continuationBull ||
         reversalBullEntry ||
         ultraFastOpeningBull) &&
-      (slopeOkBull || bullTrendStrengthOk || continuationBull || reversalBullEntry) &&
+      (slopeOkBull || adxStrong || continuationBull || reversalBullEntry) &&
       structureOkBull &&
       !liquidityBlocksBull &&
       !weakMidSessionTrap &&
@@ -3341,7 +3245,8 @@ export class AdvancedAI {
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
       !overboughtRejectionBlocksBull &&
-      !(fakeBreakout && !continuationBull && !reversalBullEntry);
+      !(fakeBreakout && !continuationBull && !reversalBullEntry) &&
+      !(htfDisagreeBull && !htfAdxStrong);
     const strongBearish =
       (confirmationBearish || ultraFastOpeningBear) &&
       (totalBearScore >= requiredConfirmations ||
@@ -3350,16 +3255,16 @@ export class AdvancedAI {
         (momentumStrong && adx > 30) ||
         ultraFastOpeningBear) &&
       (breakoutQualityBear ||
-        bearTrendStrengthOk ||
+        adxStrong ||
         continuationBear ||
         reversalBearEntry ||
         ultraFastOpeningBear) &&
       (momentumBear ||
-        bearTrendStrengthOk ||
+        adxStrong ||
         continuationBear ||
         reversalBearEntry ||
         ultraFastOpeningBear) &&
-      (slopeOkBear || bearTrendStrengthOk || continuationBear || reversalBearEntry) &&
+      (slopeOkBear || adxStrong || continuationBear || reversalBearEntry) &&
       structureOkBear &&
       !liquidityBlocksBear &&
       !weakMidSessionTrap &&
@@ -3373,7 +3278,8 @@ export class AdvancedAI {
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
       !oversoldBounceBlocksBear &&
-      !(fakeBreakout && !continuationBear && !reversalBearEntry);
+      !(fakeBreakout && !continuationBear && !reversalBearEntry) &&
+      !(htfDisagreeBear && !htfAdxStrong);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
     const breakoutClose = lastCandle.close;
@@ -3860,12 +3766,14 @@ export class AdvancedAI {
             ? "Bullish"
             : "Bearish"
           : "Neutral";
-      const beforeOpen = _istMinSess < firstEntryMinute;
-      const boundaryMinute = beforeOpen ? firstEntryMinute : lastEntryMinute;
-      const boundary = `${Math.floor(boundaryMinute / 60).toString().padStart(2, "0")}:${(boundaryMinute % 60).toString().padStart(2, "0")}`;
-      reasoning = beforeOpen
-        ? `WAIT: Opening-entry gate — fresh entries begin at ${boundary} IST after the opening candle closes.`
-        : `WAIT: Late-entry gate — no fresh intraday entries at or after ${boundary} IST. Direction may be correct but RR/time-to-target is insufficient.`;
+      reasoning = `WAIT: Late-entry gate — no fresh intraday entries after ${Math.floor(
+        lastEntryMinute / 60,
+      )
+        .toString()
+        .padStart(
+          2,
+          "0",
+        )}:${(lastEntryMinute % 60).toString().padStart(2, "0")} IST for 15m strategy. Direction may be correct but RR/time-to-target is insufficient.`;
     } else if (noiseFilter5m) {
       action = "WAIT";
       confidence = 34;
@@ -3881,11 +3789,6 @@ export class AdvancedAI {
       confidence = 35;
       bias = "Neutral";
       reasoning = `WAIT: Signal cooldown active for ${options.lastSignalDirection} (${barsSinceLastSignal.toFixed(1)}/${minimumBarsBetweenSignals} bars). Opposite reversal still allowed.`;
-    } else if ((action === "BUY_CALL" && reversalBlocksBull) || (action === "BUY_PUT" && reversalBlocksBear)) {
-      action = "WAIT";
-      confidence = 35;
-      bias = "Neutral";
-      reasoning = `WAIT: Counter-trend re-entry guard — opposite signal only ${barsSinceLastSignal.toFixed(1)}/${reversalCooldownBars} bars after a ${options.lastSignalDirection}. Avoiding whipsaw flip.`;
     } else if (
       false /* HTF disagreement is now soft-scored, never a hard WAIT */
     ) {
@@ -4235,8 +4138,8 @@ export class AdvancedAI {
                 totalBearScore < requiredConfirmations
                   ? "insufficient-confirmations"
                   : "",
-                htfDisagreeBull || htfDisagreeBear
-                  ? "htf-disagree-soft"
+                (htfDisagreeBull || htfDisagreeBear) && !htfAdxStrong
+                  ? "htf-disagree"
                   : "",
                 noiseFilter5m ? "5m-noise" : "",
                 newsVolatilityShock ? "news-volatility" : "",

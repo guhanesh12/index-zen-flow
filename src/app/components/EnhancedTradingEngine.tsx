@@ -1657,7 +1657,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       const totalMinutes = (istHours * 60) + istMinutes;
       
     // Check if within trading hours even on weekend
-      if (totalMinutes >= 540 && totalMinutes < 930) {
+      if (totalMinutes >= 555 && totalMinutes < 930) {
         setMarketStatus('OPEN');
         console.log('⚡ FORCE START ENABLED - Weekend market treated as OPEN');
         return;
@@ -1676,8 +1676,8 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const istMinutes = istTime.getUTCMinutes();
     const totalMinutes = (istHours * 60) + istMinutes;
     
-    // Market hours: 9:00 AM (540 min) to 3:30 PM (930 min)
-    if (totalMinutes >= 540 && totalMinutes < 930) {
+    // Market hours: 9:15 AM (555 min) to 3:30 PM (930 min)
+    if (totalMinutes >= 555 && totalMinutes < 930) {
       setMarketStatus('OPEN');
     } else {
       setMarketStatus('CLOSED');
@@ -1703,10 +1703,10 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       adjustedHours -= 24;
     }
     
-    // Minutes since market open (9:00 AM)
-    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 540;
+    // Minutes since market open (9:15 AM)
+    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
     
-    if (minutesSinceOpen < 0 || minutesSinceOpen >= 390) {
+    if (minutesSinceOpen < 0 || minutesSinceOpen >= 375) {
       setNextCandleClose('Market Closed');
       setSecondsToCandle(0);
       return;
@@ -1718,7 +1718,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     const nextIntervalEnd = (currentInterval + 1) * interval;
     
     // Calculate exact close time
-    const closeMinutes = 540 + nextIntervalEnd; // 540 = 9:00 AM in minutes
+    const closeMinutes = 555 + nextIntervalEnd; // 555 = 9:15 AM in minutes
     const closeHour = Math.floor(closeMinutes / 60);
     const closeMin = closeMinutes % 60;
     
@@ -1777,7 +1777,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         const confirmForceStart = confirm(
           `⚠️ FORCE START MODE ENABLED\n\n` +
           `Market Status: ${marketStatus}\n` +
-          `Normal Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\n` +
+          `Normal Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\n` +
           `You have enabled "Force Start" mode for special trading sessions.\n\n` +
           `⚠️ WARNING: This is for SPECIAL SESSIONS ONLY (weekends/holidays with market open)\n` +
           `⚠️ Make sure the market is actually OPEN before proceeding!\n\n` +
@@ -1804,15 +1804,15 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
         
         console.error(`\n❌ ${errorMsg}`);
         console.error(`  - Market Status: ${marketStatus}`);
-        console.error(`  - Market Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)`);
+        console.error(`  - Market Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)`);
         console.error(`  - Please wait for market to OPEN before starting engine\n`);
         
-        alert(`${errorMsg}\n\nMarket Hours: 9:00 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
+        alert(`${errorMsg}\n\nMarket Hours: 9:15 AM to 3:30 PM IST (Mon-Fri)\n\nPlease start the engine after market opens.`);
         
         onLog({
           timestamp: Date.now(),
           type: 'ERROR',
-          message: `${errorMsg} - Market hours: 9:00 AM to 3:30 PM IST`
+          message: `${errorMsg} - Market hours: 9:15 AM to 3:30 PM IST`
         });
         return;
       }
@@ -1989,39 +1989,6 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
       message: '⏸️ Engine STOPPED by user | 📱 Synced across all devices'
     });
   };
-
-  // ⚡ TERMINAL BRIDGE: publish compact engine state + accept controls from the terminal card
-  useEffect(() => {
-    const slotsReady = autoSymbolSlots.filter((s: any) => s?.enabled !== false).length || tradingSymbols.length;
-    try {
-      localStorage.setItem('engine_bridge', JSON.stringify({
-        running: isRunning,
-        interval: candleInterval,
-        marketStatus,
-        slotsReady,
-        activeCount: activePositions.length,
-        nextCandleClose,
-        stats,
-        ts: Date.now(),
-      }));
-    } catch {}
-  }, [isRunning, candleInterval, marketStatus, autoSymbolSlots, tradingSymbols, activePositions, nextCandleClose, stats]);
-
-  useEffect(() => {
-    const onStart = () => { handleStartEngine(); };
-    const onStop = () => { handleStopEngine(); };
-    const onInterval = (e: any) => { setCandleInterval(e?.detail === '5' ? '5' : '15'); };
-    window.addEventListener('terminal-engine-start', onStart);
-    window.addEventListener('terminal-engine-stop', onStop);
-    window.addEventListener('terminal-engine-interval', onInterval as EventListener);
-    return () => {
-      window.removeEventListener('terminal-engine-start', onStart);
-      window.removeEventListener('terminal-engine-stop', onStop);
-      window.removeEventListener('terminal-engine-interval', onInterval as EventListener);
-    };
-  });
-
-
 
   const stopEngine = async (syncBackend = true) => {
     console.log('\n🛑🛑🛑 ========== ENGINE STOPPING ========== 🛑🛑🛑');
@@ -2434,7 +2401,7 @@ export function EnhancedTradingEngine({ serverUrl, accessToken, onLog }: Enhance
     
     const currentSecond = now.getUTCSeconds();
     const currentTimeStr = `${adjustedHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}:${currentSecond.toString().padStart(2, '0')}`;
-    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 540;
+    const minutesSinceOpen = adjustedHours * 60 + adjustedMinutes - 555;
     const interval = parseInt(candleIntervalRef.current); // ⚡⚡⚡ CRITICAL: Use REF to get LATEST value
     
     // ⚡ FIX: Calculate IST time properly

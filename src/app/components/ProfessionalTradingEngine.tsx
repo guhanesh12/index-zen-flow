@@ -178,8 +178,8 @@ export function ProfessionalTradingEngine({ serverUrl, accessToken, onLog }: Pro
     const hours = istTime.getHours();
     const minutes = istTime.getMinutes();
     
-    // 15M candles: 9:15, 9:30, 9:45, 10:00, ...
-    // First candle completes at 9:15 (9:00-9:15)
+    // 15M candles: 9:00, 9:15, 9:30, 9:45, 10:00, ...
+    // First candle completes at 9:30 (9:15-9:30)
     
     // Calculate minutes since market open (9:00)
     const minutesSinceOpen = (hours - 9) * 60 + minutes;

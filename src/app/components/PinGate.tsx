@@ -9,95 +9,38 @@
  *   4. reset   — enter OTP + new PIN
  *
  * Backend: supabase/functions/user-pin  (status | set | verify | forgot | reset)
- * Re-locks after the app's inactivity timeout without ending Supabase auth.
+ * Re-locks after 2 minutes of the tab being hidden.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/utils-ext/supabase/client';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
-import { SessionManager } from '@/utils-ext/security/SecurityHardening';
-
 import { Loader2, Lock, ShieldCheck, KeyRound, ArrowLeft } from 'lucide-react';
 
 const BASE = 'https://oklgqelcaujxntgjyuis.supabase.co/functions/v1/user-pin';
-const UNLOCK_PREFIX = 'ip_pin_unlocked_at';
-
-/** Unlock flag is per-user: switching accounts must always re-ask for the PIN. */
-const unlockKeyFor = (uid?: string | null) => `${UNLOCK_PREFIX}:${uid || 'anon'}`;
-
-const clearAllUnlocks = () => {
-  try {
-    for (const k of Object.keys(sessionStorage)) {
-      if (k === UNLOCK_PREFIX || k.startsWith(`${UNLOCK_PREFIX}:`)) sessionStorage.removeItem(k);
-    }
-  } catch { /* ignore */ }
-};
-
-
-async function getFreshToken(forceRefresh = false): Promise<string | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  const expSec = Number(session?.expires_at || 0);
-  const expiringSoon = expSec > 0 && expSec * 1000 - Date.now() < 120_000;
-  if (!session?.access_token || forceRefresh || expiringSoon) {
-    const { data, error } = await supabase.auth.refreshSession();
-    if (!error && data?.session?.access_token) return data.session.access_token;
-    return session?.access_token || null;
-  }
-  return session.access_token;
-}
+const UNLOCK_KEY = 'ip_pin_unlocked_at';
+const RELOCK_MS = 2 * 60 * 1000;
 
 async function pinCall(path: string, method: 'GET' | 'POST', body?: any) {
-  const doFetch = async (token: string) =>
-    fetch(`${BASE}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: publicAnonKey,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-  let token = await getFreshToken();
-  if (!token) throw new Error('SESSION_LOST');
-
-  let res = await doFetch(token);
-  // Expired / rotated JWT → refresh once and retry. IMPORTANT: only retry when the
-  // 401 is a real auth failure, never for "Incorrect PIN"/"Incorrect OTP" — retrying
-  // those would double-count failed attempts and lock users out early.
-  if (res.status === 401) {
-    const j: any = await res.json().catch(() => ({}));
-    // A wrong PIN/OTP from our own function must NOT be retried (it would burn two
-    // attempts). Anything else (gateway "Invalid JWT", expired/rotated token, empty
-    // body) is a token problem → refresh once and retry.
-    const isCredentialFailure =
-      typeof j?.attemptsLeft === 'number' ||
-      /incorrect (pin|otp)/i.test(String(j?.message || ''));
-    if (isCredentialFailure) return { status: 401, ...j };
-
-    const refreshed = await getFreshToken(true);
-    if (!refreshed) throw new Error('SESSION_LOST');
-    res = await doFetch(refreshed);
-    if (res.status === 401) {
-      const j2: any = await res.json().catch(() => ({}));
-      const cred2 =
-        typeof j2?.attemptsLeft === 'number' ||
-        /incorrect (pin|otp)/i.test(String(j2?.message || ''));
-      if (!cred2) throw new Error('SESSION_LOST');
-      return { status: 401, ...j2 };
-    }
-  }
-
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Not authenticated');
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: publicAnonKey,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
   const json = await res.json().catch(() => ({}));
   return { status: res.status, ...json };
 }
-
-
 
 export const PinApi = {
   status: () => pinCall('/status', 'GET'),
   set: (pin: string, confirmPin: string) => pinCall('/set', 'POST', { pin, confirmPin }),
   verify: (pin: string) => pinCall('/verify', 'POST', { pin }),
-  forgot: (resend = false) => pinCall('/forgot', 'POST', { resend }),
+  forgot: () => pinCall('/forgot', 'POST'),
   reset: (otp: string, pin: string, confirmPin: string) =>
     pinCall('/reset', 'POST', { otp, pin, confirmPin }),
 };
@@ -174,173 +117,97 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+
   const reset = () => { setPin(''); setConfirmPin(''); setOtp(''); setError(''); };
-  const uidRef = useRef<string | null>(null);
-
-  // Never sign the user out from the PIN screen. If the session hiccups we try to
-  // refresh it and let the user retry — no redirect back to /login.
-  const handleSessionLost = useCallback(async (e: any) => {
-    if (String(e?.message || e) !== 'SESSION_LOST') return false;
-    try {
-      const { data } = await supabase.auth.refreshSession();
-      if (data?.session?.access_token) { setError('Please enter your PIN again.'); return true; }
-    } catch {}
-    setError('Connection issue — please try again.');
-    return true;
-  }, []);
-
 
   const refreshStatus = useCallback(async () => {
-    const load = async () => {
-      // Resolve the CURRENT account first — the unlock flag is per-user so a
-      // different account always has to enter its own PIN.
-      let uid: string | null = null;
-      try { uid = (await supabase.auth.getUser()).data?.user?.id || null; } catch { uid = null; }
-      if (uidRef.current && uid && uidRef.current !== uid) clearAllUnlocks();
-      uidRef.current = uid;
-
+    try {
       const r = await PinApi.status();
       if (r.status !== 200) { setScreen('ok'); return; } // never hard-block on API failure
+      setLockedUntil(r.lockedUntil || null);
       if (!r.hasPin) { setScreen('create'); return; }
-      // Ask for the PIN once per app load / login, per account.
-      if (uid && sessionStorage.getItem(unlockKeyFor(uid))) { setScreen('ok'); return; }
+      // Always ask for the PIN on a fresh app load / login — no silent grace period.
+      sessionStorage.removeItem(UNLOCK_KEY);
       setScreen('enter');
-    };
-    try {
-      await load();
-    } catch (e: any) {
-      if (String(e?.message || e) === 'SESSION_LOST') {
-        // Refresh the token and retry once instead of guessing the screen.
-        try { await supabase.auth.refreshSession(); await load(); return; } catch {}
-        setScreen('enter');
-        return;
-      }
+    } catch {
       setScreen('ok');
     }
   }, []);
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
-  // Signing out (or switching accounts) must drop every unlock flag so the next
-  // account is challenged for its own PIN.
+  // countdown ticker while locked
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      const nextUid = session?.user?.id || null;
-      if (event === 'SIGNED_OUT') {
-        clearAllUnlocks();
-        uidRef.current = null;
-        setScreen('loading');
-        return;
-      }
-      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-        if (uidRef.current && nextUid && uidRef.current !== nextUid) {
-          clearAllUnlocks();
-          uidRef.current = nextUid;
-          reset();
-          setScreen('loading');
-          refreshStatus();
-        }
-      }
-    });
-    return () => sub?.subscription?.unsubscribe();
-  }, [refreshStatus]);
+    if (!lockedUntil) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [lockedUntil]);
 
-  // The app-wide inactivity manager asks for the PIN again but deliberately
-  // keeps the authenticated Supabase session alive.
+  // re-lock when the tab has been hidden for > 2 min
   useEffect(() => {
-    const relock = () => {
-      clearAllUnlocks();
-      reset();
-      setInfo('');
-      setScreen('enter');
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.hidden) hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > RELOCK_MS) {
+        sessionStorage.removeItem(UNLOCK_KEY);
+        setScreen((s) => (s === 'ok' ? 'enter' : s));
+      }
     };
-    window.addEventListener('indexpilot:pin-lock', relock);
-    return () => window.removeEventListener('indexpilot:pin-lock', relock);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
+  const unlock = () => { sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); setScreen('ok'); setInfo(''); reset(); };
 
-  // Keep the Supabase session alive while the PIN screen is open, so the
-  // token can't silently expire between login and PIN verification.
-  useEffect(() => {
-    if (screen === 'ok' || screen === 'loading') return;
-    const t = setInterval(() => { supabase.auth.refreshSession().catch(() => {}); }, 4 * 60 * 1000);
-    return () => clearInterval(t);
-  }, [screen]);
-
-  const unlock = async () => {
-    let uid = uidRef.current;
-    if (!uid) {
-      try { uid = (await supabase.auth.getUser()).data?.user?.id || null; } catch { uid = null; }
-      uidRef.current = uid;
-    }
-    clearAllUnlocks();
-    if (uid) sessionStorage.setItem(unlockKeyFor(uid), String(Date.now()));
-    // Restart the idle-timeout clock so unlocking counts as fresh activity and the
-    // user lands on the dashboard instead of being bounced out again.
-    try { SessionManager.extend(); } catch {}
-    setScreen('ok'); setInfo(''); reset();
-  };
-
-
+  const lockedRemaining = lockedUntil ? new Date(lockedUntil).getTime() - now : 0;
+  const isLocked = lockedRemaining > 0;
 
   const doSet = async () => {
     setError(''); setBusy(true);
     try {
       const r = await PinApi.set(pin, confirmPin);
       if (r.status === 200) unlock(); else setError(r.message || 'Could not save PIN');
-    } catch (e: any) { if (!(await handleSessionLost(e))) setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
   const doVerify = async () => {
     setError(''); setBusy(true);
     try {
       const r = await PinApi.verify(pin);
-      if (r.status === 200 && r.success !== false) unlock();
+      if (r.status === 200) unlock();
       else if (r.status === 404) setScreen('create');
-      else {
-        setError(r.message || 'Incorrect PIN');
-        setPin('');
-
-      }
-    } catch (e: any) { if (!(await handleSessionLost(e))) setError(e.message); } finally { setBusy(false); }
+      else if (r.status === 423) { setLockedUntil(r.lockedUntil); setError('Too many attempts. PIN locked.'); setPin(''); }
+      else { setError(`${r.message || 'Incorrect PIN'}${r.attemptsLeft != null ? ` — ${r.attemptsLeft} attempts left` : ''}`); setPin(''); }
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
-
-  const doForgot = async (resend = false) => {
+  const doForgot = async () => {
     setError(''); setInfo(''); setBusy(true);
     try {
-      // Make sure the token is fresh before asking for an OTP — this endpoint
-      // used to fail with a raw SESSION_LOST error.
-      try { await supabase.auth.refreshSession(); } catch {}
-      const r = await PinApi.forgot(resend);
+      const r = await PinApi.forgot();
       if (r.status === 200) {
         setInfo(`${r.message}${r.mobile ? ` (${r.mobile})` : ''}${r.email ? ` (${r.email})` : ''}`);
         setScreen('reset'); setPin(''); setConfirmPin(''); setOtp('');
       } else setError(r.message || 'Could not send OTP');
-    } catch (e: any) {
-      if (!(await handleSessionLost(e))) setError(e?.message || 'Could not send OTP');
-    } finally { setBusy(false); }
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
   const doReset = async () => {
     setError(''); setBusy(true);
     try {
       const r = await PinApi.reset(otp, pin, confirmPin);
-      if (r.status === 200 && r.success !== false) {
+      if (r.status === 200) {
         // PIN changed — force the user to sign in with the NEW pin.
-        clearAllUnlocks();
+        sessionStorage.removeItem(UNLOCK_KEY);
         setPin(''); setConfirmPin(''); setOtp(''); setError('');
+        setLockedUntil(null);
         setInfo('PIN reset successful. Please enter your new PIN to continue.');
         setScreen('enter');
-      } else {
-        setError(r.message || 'Reset failed');
-        if (/incorrect|expired/i.test(String(r.message || ''))) setOtp('');
-      }
-    } catch (e: any) {
-      if (!(await handleSessionLost(e))) setError(e?.message || 'Reset failed');
-    } finally { setBusy(false); }
+      } else setError(r.message || 'Reset failed');
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
-
 
 
   const Err = () => error ? <p className="mt-3 text-center text-sm text-red-400">{error}</p> : null;
@@ -374,33 +241,22 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
   if (screen === 'enter') {
     return (
       <Shell icon={<Lock className="w-7 h-7 text-cyan-400" />} title="Enter your PIN"
-        subtitle="Unlock to continue to your dashboard">
+        subtitle={isLocked ? 'PIN temporarily locked' : 'Unlock to continue to your dashboard'}>
         {info && <p className="mb-4 text-center text-sm text-emerald-400">{info}</p>}
-        <DigitInput value={pin} onChange={setPin} autoFocus />
+        <DigitInput value={pin} onChange={setPin} autoFocus disabled={isLocked} />
+        {isLocked && (
+          <p className="mt-3 text-center text-sm text-amber-400">
+            Try again in {Math.ceil(lockedRemaining / 1000 / 60)} min
+          </p>
+        )}
         <Err />
-        <button className={btn} disabled={busy || pin.length !== 4} onClick={doVerify}>
+        <button className={btn} disabled={busy || isLocked || pin.length !== 4} onClick={doVerify}>
           {busy ? 'Verifying…' : 'Unlock'}
         </button>
-
         <div className="mt-4 flex items-center justify-between text-xs">
           <button onClick={() => { reset(); setScreen('forgot'); }} className="text-cyan-400 hover:underline">Forgot PIN?</button>
           {onLogout && <button onClick={onLogout} className="text-slate-400 hover:text-white">Use another account</button>}
         </div>
-        <button
-          onClick={async () => {
-            reset(); setBusy(true);
-            try {
-              const r = await PinApi.status();
-              if (r.status === 200 && !r.hasPin) setScreen('create');
-              else setError('A PIN already exists. Use “Forgot PIN?” to reset it.');
-            } catch { setError('Could not check PIN status. Please try again.'); }
-            finally { setBusy(false); }
-          }}
-          className="mt-3 w-full text-xs text-slate-400 hover:text-cyan-400"
-        >
-          No PIN set? Create a new PIN
-        </button>
-
       </Shell>
     );
   }
@@ -411,7 +267,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
         subtitle="We'll send a 6-digit OTP by SMS to your registered mobile number"
         onBack={() => { reset(); setScreen('enter'); }}>
         <Err />
-        <button className={btn} disabled={busy} onClick={() => doForgot(false)}>{busy ? 'Sending…' : 'Send OTP'}</button>
+        <button className={btn} disabled={busy} onClick={doForgot}>{busy ? 'Sending…' : 'Send OTP'}</button>
       </Shell>
     );
   }
@@ -430,7 +286,7 @@ export default function PinGate({ children, onLogout }: { children: any; onLogou
       <button className={btn} disabled={busy || otp.length !== 6 || pin.length !== 4 || confirmPin.length !== 4} onClick={doReset}>
         {busy ? 'Saving…' : 'Reset PIN'}
       </button>
-      <button onClick={() => doForgot(true)} disabled={busy} className="mt-3 w-full text-xs text-cyan-400 hover:underline">Resend OTP</button>
+      <button onClick={doForgot} disabled={busy} className="mt-3 w-full text-xs text-cyan-400 hover:underline">Resend OTP</button>
     </Shell>
   );
 }

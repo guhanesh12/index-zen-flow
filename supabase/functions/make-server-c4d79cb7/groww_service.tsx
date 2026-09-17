@@ -17,7 +17,7 @@
  *    X-API-VERSION: 1.0
  */
 
-export const GROWW_API = "https://api.groww.in";
+const GROWW_API = "https://api.groww.in";
 
 export interface GrowwOrderRequest {
   tradingSymbol: string;
@@ -94,7 +94,7 @@ export class GrowwService {
         }
       }
       if (!status) {
-        const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
+        const resp = await fetch(`${GROWW_API}${path}`, { ...init, headers, signal: ctrl.signal });
         status = resp.status;
         text = await resp.text();
       }
@@ -151,11 +151,11 @@ export class GrowwService {
       exchange: req.exchange,
       segment: req.segment,
       product: req.product || "NRML",
-      order_type: "MARKET",
+      order_type: req.orderType || "MARKET",
       transaction_type: req.transactionType,
       order_reference_id: (req.referenceId || `IPAI${Date.now()}`).slice(0, 20),
     };
-    // MARKET only: never send a limit price.
+    if ((req.orderType || "MARKET") === "LIMIT") body.price = Number(req.price ?? 0);
 
     const data = await this.request("/v1/order/create", {
       method: "POST",

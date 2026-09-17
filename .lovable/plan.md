@@ -1,24 +1,46 @@
-# Make Advanced Position Monitor truly market-driven
+# Cost estimate: adding one more broker (full integration)
 
-## Goal
-Make each active position refresh from the connected broker every second and clearly explain whether the market is favorable, needs watching, or requires an exit. Preserve capital-protection rules without promising guaranteed profit.
+## What "one broker, fully done" means here
 
-## Changes
-- Validate each one-second cycle before showing it as fresh; surface stale or failed market updates instead of silently displaying old values.
-- Keep live option price, P&L, target, stop-loss, peak profit, and trailing stop updated from the broker snapshot every second.
-- Strengthen the decision result using the traded index’s real closed-candle technicals: EMA direction, VWAP side, RSI, MACD, volume/order flow, signal direction, confidence, and confirmation count.
-- Persist the exact market direction, signal, confidence, technical confirmation score, decision reason, and data timestamp with every position update.
-- Show those details on the Advanced Position Monitor so `FAVORABLE`, `WATCH`, and `EXIT` always include a specific market-based reason.
-- Keep hard target, stop-loss, profit-lock, trailing-stop, day-end, and confirmed-reversal exits server-side. Never exit from browser calculations.
-- Verify the monitor endpoint, active-position display, one-second timestamps, and exit-order path without changing entry strategy rules.
+Based on how Zerodha Kite was built, a complete broker means all of this:
 
-## Safety rules
-- Do not claim or imply guaranteed profit or capital protection.
-- Do not exit solely because P&L changed; P&L remains only a hard target/stop/trailing input.
-- Require a confirmed opposite market signal for predictive reversal exits, while hard risk exits remain immediate.
-- If fresh technical data is unavailable, show `WATCH — market data unavailable` and rely only on hard broker-based risk controls.
+1. Broker service module (login/session, profile, funds, place order, order status, cancel, positions, LTP/quotes)
+2. Router wiring (order / funds / positions / exit / LTP routed by the user's active broker)
+3. Instrument sync (download the broker's contract dump, map NIFTY / BANKNIFTY / SENSEX near expiries into `instrument_master`)
+4. Registry entry + admin ON/OFF toggle + landing page auto-listing
+5. VPS static-IP order path (broker-specific endpoint or the generic `/broker-request` proxy)
+6. UI: broker chooser, login/connect card, connected status, funds/positions on dashboard
+7. Testing, error handling, token-expiry alerts, redeploy
 
-## Technical details
-- Update `persistent_engine.tsx` decision metadata and ordering so the stored row contains the final decision and reason.
-- Update `AdvancedPositionMonitor.tsx` polling health and decision-detail presentation.
-- Deploy `make-server-c4d79cb7`, inspect function logs, and run a focused browser check.
+## Reference: how big Zerodha actually was
+
+- `kite_service.tsx` — 340 lines
+- `broker_router.tsx` — 493 lines (shared, now reusable)
+- `kite_instruments.tsx` — 223 lines
+- `broker_registry.tsx` — 133 lines (shared, now reusable)
+- ~106 Kite-related lines in `index.ts`, plus UI changes in Settings, Dashboard, Admin, Landing
+
+## Credit estimate for the NEXT broker
+
+The heavy shared plumbing (router, registry, VPS proxy, broker-agnostic UI, RN contract) already exists, so broker #3 is cheaper than Zerodha was.
+
+| Phase | Work | Credits |
+|---|---|---|
+| 1 | Broker service module (auth + funds + orders + positions + quotes) | 8 – 12 |
+| 2 | Router + endpoint wiring + registry/catalog entry | 4 – 6 |
+| 3 | Instrument sync + DB mapping migration | 5 – 8 |
+| 4 | VPS static-IP order path support | 3 – 5 |
+| 5 | UI (connect card, status, funds/positions, admin toggle, landing) | 4 – 6 |
+| 6 | Live testing, error/token-expiry handling, fixes, redeploys | 6 – 10 |
+
+**Total: roughly 30 – 47 credits, typical ~35.**
+
+Notes on the range:
+- Low end (~30): broker has clean REST docs and a Kite/Dhan-style token flow.
+- High end (~47+): OAuth quirks, binary/websocket-only feeds, odd tradingsymbol format, or an instrument dump needing custom parsing.
+- Debugging against a live broker account during market hours is the least predictable part — it is usually where the extra credits go.
+- If the same broker also needs RN app doc updates, add 2 – 3 credits.
+
+## Next step
+
+If you tell me which broker is next (Angel One, Upstox, Fyers, 5paisa, ICICI Direct...), I will read its API docs and give a tighter number plus a build plan for that specific broker.

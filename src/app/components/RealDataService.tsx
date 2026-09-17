@@ -44,7 +44,7 @@ export class RealDataService {
     this.accessToken = accessToken;
   }
 
-  // Check if market is open (weekdays only, 9:00 AM - 3:30 PM IST)
+  // Check if market is open (weekdays only, 9:15 AM - 3:30 PM IST)
   static isMarketOpen(): { isOpen: boolean; message: string; status: 'OPEN' | 'CLOSED' | 'WEEKEND' } {
     const now = new Date();
     
@@ -67,7 +67,7 @@ export class RealDataService {
     const minutes = istTime.getMinutes();
     const timeInMinutes = hours * 60 + minutes;
     
-    const marketOpen = 9 * 60; // 9:00 AM
+    const marketOpen = 9 * 60 + 15; // 9:15 AM
     const marketClose = 15 * 60 + 30; // 3:30 PM
     
     if (timeInMinutes >= marketOpen && timeInMinutes < marketClose) {
@@ -77,7 +77,7 @@ export class RealDataService {
         status: 'OPEN'
       };
     } else {
-      const nextOpen = timeInMinutes < marketOpen ? 'today at 9:00 AM' : 'tomorrow at 9:00 AM';
+      const nextOpen = timeInMinutes < marketOpen ? 'today at 9:15 AM' : 'tomorrow at 9:15 AM';
       return {
         isOpen: false,
         message: `Market closed - Opens ${nextOpen}`,

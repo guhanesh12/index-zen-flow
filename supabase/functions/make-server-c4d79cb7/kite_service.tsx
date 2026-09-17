@@ -176,12 +176,12 @@ export class KiteService {
       tradingsymbol: req.tradingsymbol,
       exchange: req.exchange,
       transaction_type: req.transactionType,
-      order_type: "MARKET",
+      order_type: req.orderType || "MARKET",
       quantity: String(Math.max(1, Number(req.quantity) || 0)),
       product: req.product || "MIS",
       validity: req.validity || "DAY",
     });
-    // MARKET only: no limit price is ever sent.
+    if ((req.orderType || "MARKET") === "LIMIT") form.set("price", String(req.price ?? 0));
     if (req.tag) form.set("tag", req.tag.slice(0, 20));
 
     const data = await this.request("/orders/regular", {

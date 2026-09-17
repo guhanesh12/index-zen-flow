@@ -7,8 +7,6 @@ import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Button } from './ui/button';
 import { Building2, RefreshCw, CheckCircle2, Clock } from 'lucide-react';
-import { BrokerLogo } from '../brokerLogos';
-
 
 interface AdminBrokerControlProps {
   serverUrl: string;
@@ -96,9 +94,11 @@ export function AdminBrokerControl({ serverUrl, accessToken }: AdminBrokerContro
             className="flex items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4"
           >
             <div className="flex items-start gap-3 min-w-0">
-              <BrokerLogo id={b.id} name={b.name} color={b.color} size={40} className="shrink-0" />
+              <span
+                className="mt-1 size-3 rounded-full shrink-0"
+                style={{ backgroundColor: b.color }}
+              />
               <div className="min-w-0">
-
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-white">{b.name}</span>
                   {b.status === 'live' ? (

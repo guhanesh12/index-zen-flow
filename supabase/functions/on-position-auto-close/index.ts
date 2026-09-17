@@ -49,40 +49,21 @@ Deno.serve(async (req) => {
     const pnl = Number(body.pnl || 0);
     const exit_reason = body.exit_reason || "auto_exit";
 
-    // 1) Engine OFF — ONLY for engine-managed auto exits (target / stop-loss /
-    //    trailing / reversal). A broker-side or externally closed position must
-    //    NEVER kill the engine, otherwise the next candle's signal is skipped.
-    // 1) Engine OFF for every real closure — engine auto exits (target / stop-loss /
-    //    trailing / reversal), broker-side / external closes, and manual user exits.
-    //    Only bookkeeping rows (duplicate / cleanup / stale) are ignored.
-    const reasonLc = String(exit_reason).toLowerCase();
-    const isBookkeeping =
-      reasonLc.includes("duplicate") ||
-      reasonLc.includes("cleanup") ||
-      reasonLc.includes("housekeep") ||
-      reasonLc.includes("stale") ||
-      reasonLc.includes("never opened");
+    // 1) Engine OFF
+    const stoppedReason = `Auto engine off: position auto-closed (${exit_reason})`;
+    await supabase.from("trading_engine_state").update({
+      is_running: false,
+      stopped_at: new Date().toISOString(),
+      stopped_reason: stoppedReason,
+      auto_resume: false,
+      updated_at: new Date().toISOString(),
+    }).eq("user_id", user_id);
 
-    if (!isBookkeeping) {
-      const stoppedReason = `Auto engine off: position closed (${exit_reason})`;
-      await supabase.from("trading_engine_state").update({
-        is_running: false,
-        stopped_at: new Date().toISOString(),
-        stopped_reason: stoppedReason,
-        auto_resume: false,
-        updated_at: new Date().toISOString(),
-      }).eq("user_id", user_id);
-
-      // 2) KV mirror off
-      await supabase.from("kv_store_c4d79cb7").upsert({
-        key: `engine_running:${user_id}`,
-        value: false,
-      });
-    } else {
-      console.log(`ℹ️ [on-position-auto-close] keeping engine ON for ${user_id} — bookkeeping row (${exit_reason})`);
-    }
-
-
+    // 2) KV mirror off
+    await supabase.from("kv_store_c4d79cb7").upsert({
+      key: `engine_running:${user_id}`,
+      value: false,
+    });
 
     // 3) Resolve email & send branded mail (best-effort)
     let email: string | null = null;
