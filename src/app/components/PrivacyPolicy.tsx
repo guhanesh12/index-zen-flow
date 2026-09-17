@@ -16,7 +16,7 @@ export function PrivacyPolicy() {
         title="Privacy Policy - IndexPilotAI"
         description="Learn how IndexPilotAI collects, uses, and protects your personal data. Our privacy policy covers data collection, security, cookies, and user rights."
         keywords="privacy policy, data protection, user privacy, data security, GDPR, IndexPilotAI privacy"
-        canonical="/privacy"
+        canonical="https://www.indexpilotai.com/privacy"
       />
       
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -38,9 +38,9 @@ export function PrivacyPolicy() {
             <CardHeader className="border-b border-slate-700">
               <div className="flex items-center gap-3 mb-2">
                 <Lock className="size-8 text-green-400" />
-                <CardTitle className="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">
                   Privacy Policy
-                </CardTitle>
+              </h1>
               </div>
               <p className="text-sm text-slate-400">Last Updated: 01/04/2026</p>
             </CardHeader>

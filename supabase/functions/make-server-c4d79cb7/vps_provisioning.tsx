@@ -315,6 +315,31 @@ export async function reconcileUserProvisioningJob(userId: string): Promise<Prov
 }
 
 /**
+ * 🔧 One-shot upgrade script for VPS images older than 1.4.0 (no /self-update).
+ * The user pastes ONE command into the DigitalOcean web console; this replaces
+ * server.js with the latest multi-broker image and restarts pm2.
+ */
+export function generateUpgradeScript(): string {
+  return `#!/bin/bash
+set -e
+echo "🔄 IndexpilotAI order-server upgrade → ${ORDER_SERVER_VERSION}"
+mkdir -p /root/indexpilot-order-server
+cd /root/indexpilot-order-server
+cat > server.js << 'SERVEREOF'
+${generateOrderServerJs()}
+SERVEREOF
+npm install express axios cors --silent || true
+pm2 restart indexpilot-order-server || pm2 start server.js --name indexpilot-order-server
+pm2 save || true
+sleep 2
+curl -s http://127.0.0.1:3000/health || true
+echo ""
+echo "✅ Upgrade complete — multi-broker /broker-request is now available."
+`;
+}
+
+
+/**
  * server.js source for the dedicated order VPS.
  * Exported so it can be pushed to already-running VPSs via /self-update.
  */

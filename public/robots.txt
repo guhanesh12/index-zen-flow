@@ -1,9 +1,5 @@
 User-agent: *
 Allow: /
-Allow: /$
-Allow: /login
-Allow: /register
-
 Disallow: /admin
 Disallow: /admin/
 Disallow: /api/
@@ -15,7 +11,13 @@ Disallow: /journal
 Disallow: /settings
 Disallow: /profile
 Disallow: /pwa-setup
+Disallow: /icon-generator
+Disallow: /manual-index
 
-Crawl-delay: 1
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
 
 Sitemap: https://www.indexpilotai.com/sitemap.xml

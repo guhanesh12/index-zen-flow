@@ -196,7 +196,7 @@ export default function SignupWithOTP({ onSuccess, onBackToLanding }: SignupWith
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${publicAnonKey}`, // 🔥 CRITICAL: Required for Edge Function access
         },
-        body: JSON.stringify({ phone, email, name }),
+        body: JSON.stringify({ phone, email, name, resend: true }),
       });
 
       const data = await response.json();

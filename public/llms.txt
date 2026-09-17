@@ -1,0 +1,43 @@
+# IndexpilotAI
+
+> IndexpilotAI is an AI-powered algo trading platform for India. It generates
+> real-time options signals for NIFTY, BANK NIFTY and SENSEX and can execute
+> them automatically through a connected broker account, with built-in risk
+> management (target, stop-loss and trailing stop-loss).
+
+## What the platform does
+- AI signal engine on 5-minute and 15-minute index candles
+- Automated order placement and exit through the user's own broker account
+- Target, stop-loss and trailing stop-loss management per lot
+- Live positions, funds and P&L tracking
+- Daily trading journal with per-day P&L
+- Push notifications for signals, engine status, wallet and support updates
+
+## Markets supported
+NSE and BSE index options: NIFTY 50, BANK NIFTY, SENSEX.
+
+## Broker integrations
+Dhan, Zerodha Kite, Groww, Upstox, Fyers, Angel One, Aliceblue, 5paisa.
+Users connect their own broker API credentials; IndexpilotAI never trades
+without an explicitly connected and enabled account.
+
+## Public pages
+- https://www.indexpilotai.com/ — product overview
+- https://www.indexpilotai.com/about-us — about the company
+- https://www.indexpilotai.com/contact-us — support and contact
+- https://www.indexpilotai.com/terms — terms and conditions
+- https://www.indexpilotai.com/privacy — privacy policy
+- https://www.indexpilotai.com/refund — refund policy
+- https://www.indexpilotai.com/disclaimer — risk disclaimer
+- https://www.indexpilotai.com/blog/ — educational articles on algo and options trading
+
+## Mobile app
+Free Android app: https://play.google.com/store/apps/details?id=com.indexpilotai.app
+
+## Risk note
+Trading in derivatives carries substantial risk of loss. IndexpilotAI provides
+automation and analytics tools only; it does not guarantee profits or returns.
+
+## Not for crawling
+/dashboard, /admin, /login, /register and all authenticated application areas
+are private and excluded from indexing.

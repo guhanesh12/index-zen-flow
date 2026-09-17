@@ -196,7 +196,7 @@ export function isMarketOpen(): {
   const minutes = istTime.getMinutes();
   const timeInMinutes = hours * 60 + minutes;
   
-  const marketOpen = 9 * 60 + 15; // 9:15 AM
+  const marketOpen = 9 * 60; // 9:00 AM
   const marketClose = 15 * 60 + 30; // 3:30 PM
   
   if (timeInMinutes >= marketOpen && timeInMinutes < marketClose) {
@@ -209,7 +209,7 @@ export function isMarketOpen(): {
   
   return {
     isOpen: false,
-    message: `Market closed - Opens at 9:15 AM IST`,
+    message: `Market closed - Opens at 9:00 AM IST`,
     status: 'CLOSED'
   };
 }

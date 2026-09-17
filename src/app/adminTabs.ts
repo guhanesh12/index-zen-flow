@@ -13,6 +13,15 @@ export const TAB_TREE: TabDef[] = [
     { key: 'trading',  label: 'Trading' },
     { key: 'system',   label: 'System Health' },
   ]},
+  { key: 'operations', label: 'Positions & Orders', subs: [
+    { key: 'overview', label: 'Overview' },
+    { key: 'orders',   label: 'Order Count' },
+    { key: 'users',    label: 'User Details' },
+    { key: 'profit',   label: 'Profit Earned' },
+  ]},
+  { key: 'orderLogs',       label: 'Order Logs',       subs: [] },
+  { key: 'strategyControl', label: 'Strategy Control', subs: [] },
+  { key: 'killSwitch',      label: 'Kill Switch',      subs: [] },
   { key: 'users',            label: 'Users',            subs: [] },
   { key: 'transactions',     label: 'Transactions',     subs: [] },
   { key: 'support',          label: 'Support',          subs: [] },
@@ -33,11 +42,14 @@ export const TAB_TREE: TabDef[] = [
     { key: 'system-health',    label: 'System Health' },
     { key: 'backend',          label: 'Backend Config' },
     { key: 'brevo',            label: 'Brevo Communications' },
-    { key: 'market-data',      label: 'Market Data Center' },
+    
     { key: 'brokers',          label: 'Broker Control' },
     { key: 'vps-power',        label: 'VPS Power' },
     { key: 'app-update',       label: 'App Update' },
   ]},
+  { key: 'marketData', label: 'Market Data', subs: [] },
+  { key: 'backtests', label: 'User Backtests', subs: [] },
+
   { key: 'referrals', label: 'Referrals', subs: [
     { key: 'settings',    label: 'Settings' },
     { key: 'list',        label: 'Referrals' },
@@ -50,6 +62,7 @@ export const TAB_TREE: TabDef[] = [
   { key: 'mobile',        label: 'Mobile App',   subs: [] },
   { key: 'aiChats',       label: 'AI Assistant Chats', subs: [] },
   { key: 'audit',         label: 'Audit Log',    subs: [] },
+  { key: 'sessions',      label: 'Admin Sessions', subs: [] },
 
 ];
 

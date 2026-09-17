@@ -144,14 +144,14 @@ Deno.serve(async (req) => {
 
     // GET status: does this user have a PIN?
     if (action === "status" && req.method === "GET") {
-      const { data } = await admin.from("user_pins").select("user_id, locked_until").eq("user_id", user.id).maybeSingle();
+      const { data } = await admin.from("user_pins").select("user_id").eq("user_id", user.id).maybeSingle();
       const { data: prof } = await admin.from("profiles").select("mobile, email").eq("user_id", user.id).maybeSingle();
-      const locked = data?.locked_until && new Date(data.locked_until) > new Date();
+      // No lockout system at all — wrong PIN never blocks the user.
       return json(200, {
         success: true,
         hasPin: !!data,
-        locked: !!locked,
-        lockedUntil: data?.locked_until || null,
+        locked: false,
+        lockedUntil: null,
         mobile: maskMobile(prof?.mobile || ""),
         email: maskEmail(prof?.email || user.email || ""),
       });
@@ -181,49 +181,78 @@ Deno.serve(async (req) => {
       if (!isValidPin(pin)) return json(400, { success: false, message: "PIN must be 4 digits" });
       const { data: row } = await admin.from("user_pins").select("*").eq("user_id", user.id).maybeSingle();
       if (!row) return json(404, { success: false, message: "No PIN set", hasPin: false });
-      if (row.locked_until && new Date(row.locked_until) > new Date()) {
-        return json(423, { success: false, message: "PIN locked. Try later.", lockedUntil: row.locked_until });
-      }
+      // No lockout / cooldown: wrong PIN simply fails, user can retry immediately.
       const check = await sha256(`${row.pin_salt}:${pin}`);
       if (check !== row.pin_hash) {
-        const attempts = (row.failed_attempts || 0) + 1;
-        const lock = attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
-        await admin.from("user_pins").update({
-          failed_attempts: lock ? 0 : attempts,
-          locked_until: lock,
-        }).eq("user_id", user.id);
-        return json(401, { success: false, message: "Incorrect PIN", attemptsLeft: Math.max(0, 5 - attempts), lockedUntil: lock });
+        return json(200, { success: false, message: "Incorrect PIN", attemptsLeft: null, lockedUntil: null });
       }
       await admin.from("user_pins").update({ failed_attempts: 0, locked_until: null, last_used_at: new Date().toISOString() }).eq("user_id", user.id);
       return json(200, { success: true, message: "PIN verified" });
     }
 
-    // Forgot: send a 6-digit OTP to the registered mobile ONLY (no email)
+    // Forgot: send a 6-digit OTP to the registered mobile, with email fallback
     if (action === "forgot" && req.method === "POST") {
       const { data: prof } = await admin.from("profiles")
         .select("mobile, email, full_name").eq("user_id", user.id).maybeSingle();
       const mobile = (prof?.mobile || "").toString();
+      const email = (prof?.email || user.email || "").toString();
       const hasMobile = mobile.replace(/\D/g, "").length >= 10;
-      if (!hasMobile) {
-        return json(400, { success: false, message: "No registered mobile number. Update your profile first." });
+      if (!hasMobile && !email) {
+        return json(400, { success: false, message: "No registered mobile or email. Update your profile first." });
       }
+
+      // 🛡️ Duplicate-send guard: only one OTP per 60s unless the user
+      // explicitly taps "Resend OTP" (body.resend === true).
+      if (!body?.resend) {
+        const since = new Date(Date.now() - 60 * 1000).toISOString();
+        const { data: recent } = await admin.from("pin_reset_otps")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("verified", false)
+          .gte("created_at", since)
+          .limit(1);
+        if (recent && recent.length > 0) {
+          return json(200, {
+            success: true,
+            throttled: true,
+            message: hasMobile ? "OTP already sent to your registered mobile number" : "OTP already sent to your registered email",
+            channels: { sms: hasMobile, email: !hasMobile },
+            mobile: hasMobile ? maskMobile(mobile) : null,
+            email: hasMobile ? null : maskEmail(email),
+          });
+        }
+      }
+
       const otp = String(Math.floor(100000 + Math.random() * 900000));
       const otp_hash = await sha256(otp);
       const expires_at = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      await admin.from("pin_reset_otps").insert({ user_id: user.id, mobile, otp_hash, expires_at });
+      const { error: otpInsertError } = await admin.from("pin_reset_otps").insert({
+        user_id: user.id,
+        mobile: mobile || email,
+        otp_hash,
+        expires_at,
+      });
+      if (otpInsertError) {
+        console.error("[user-pin] could not save reset OTP", otpInsertError.message);
+        return json(500, { success: false, message: "Could not start PIN reset. Please try again." });
+      }
 
-      const sms = await sendOtpVia2Factor(mobile, otp);
-      if (!sms.ok) {
-        return json(502, { success: false, message: sms.error || "OTP send failed" });
+      const sms = hasMobile ? await sendOtpVia2Factor(mobile, otp) : { ok: false, error: "no_mobile" };
+      let mail: any = { ok: false };
+      if (!sms.ok && email) mail = await sendOtpViaEmail(email, prof?.full_name || "", otp);
+
+      if (!sms.ok && !mail.ok) {
+        return json(502, { success: false, message: (sms as any).error || mail.error || "OTP send failed" });
       }
       return json(200, {
         success: true,
-        message: "OTP sent to your registered mobile number",
-        channels: { sms: true, email: false },
-        mobile: maskMobile(mobile),
-        email: null,
+        message: sms.ok ? "OTP sent to your registered mobile number" : "OTP sent to your registered email",
+        channels: { sms: !!sms.ok, email: !!mail.ok },
+        mobile: sms.ok ? maskMobile(mobile) : null,
+        email: mail.ok ? maskEmail(email) : null,
       });
     }
+
 
 
 
@@ -245,16 +274,20 @@ Deno.serve(async (req) => {
       const otp_hash = await sha256(String(otp));
       if (otp_hash !== row.otp_hash) {
         await admin.from("pin_reset_otps").update({ attempts: (row.attempts || 0) + 1 }).eq("id", row.id);
-        return json(401, { success: false, message: "Incorrect OTP" });
+        return json(200, { success: false, message: "Incorrect OTP" });
       }
-      await admin.from("pin_reset_otps").update({ verified: true }).eq("id", row.id);
-
       const salt = randomSalt();
       const pin_hash = await sha256(`${salt}:${pin}`);
-      await admin.from("user_pins").upsert({
+      const { error: pinError } = await admin.from("user_pins").upsert({
         user_id: user.id, pin_hash, pin_salt: salt,
         failed_attempts: 0, locked_until: null, updated_at: new Date().toISOString(),
       });
+      if (pinError) {
+        console.error("[user-pin] could not save reset PIN", pinError.message);
+        return json(500, { success: false, message: "Could not save your new PIN. Please try again." });
+      }
+      const { error: verifyError } = await admin.from("pin_reset_otps").update({ verified: true }).eq("id", row.id);
+      if (verifyError) console.error("[user-pin] could not mark OTP verified", verifyError.message);
       return json(200, { success: true, message: "PIN reset successful" });
     }
 

@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle2, Building2 } from 'lucide-react';
 import { getBaseUrl } from '../utils/apiService';
+import { BrokerLogo } from '../brokerLogos';
 import { publicAnonKey } from '@/utils-ext/supabase/info';
+
 
 /**
  * 🏦 Supported brokers — driven by the common broker registry.
@@ -56,13 +58,14 @@ export function SupportedBrokers() {
               className="rounded-2xl border border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950 p-6 text-left hover:border-slate-700 transition-colors"
             >
               <div className="flex items-center gap-3 mb-3">
-                <span className="size-3 rounded-full" style={{ backgroundColor: b.color }} aria-hidden="true" />
+                <BrokerLogo id={b.id} name={b.name} color={b.color} size={44} />
                 <span className="text-lg font-semibold text-white">{b.name}</span>
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 ml-auto" aria-hidden="true" />
               </div>
               <p className="text-sm text-slate-400 capitalize">
                 {(b.features || []).join(' · ').replace(/-/g, ' ')}
               </p>
+
             </motion.div>
           ))}
         </div>

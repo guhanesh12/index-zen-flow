@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Switch } from "./ui/switch";
 import { Activity, TrendingUp, TrendingDown, Shield, Clock, Target, AlertTriangle, Zap, CheckCircle2, Eye, XCircle } from "lucide-react";
 import { projectId } from "@/utils-ext/supabase/info";
 import { getServerUrl } from "@/utils-ext/config/apiConfig";
@@ -30,16 +32,50 @@ interface MonitorRow {
 }
 
 const fmt = (v: number) => `₹${(Number(v) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+const INDEX_LOT_SIZES: Record<string, number> = { NIFTY: 65, BANKNIFTY: 30, SENSEX: 20 };
+
+function positionLotSize(r: MonitorRow): number {
+  const index = String(r.index_name || r.raw_position?.index || r.symbol || "").toUpperCase();
+  const stored = Number(r.raw_position?.lotSize || r.raw_position?.lot_size || 0);
+  if (Number.isInteger(stored) && stored > 1) return stored;
+  if (index.includes("BANKNIFTY")) return INDEX_LOT_SIZES.BANKNIFTY;
+  if (index.includes("SENSEX")) return INDEX_LOT_SIZES.SENSEX;
+  return INDEX_LOT_SIZES.NIFTY;
+}
 
 export function AdvancedPositionMonitor({ accessToken }: Props) {
   const [rows, setRows] = useState<MonitorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<number>(0);
+  const [confirm, setConfirm] = useState<{ id: string; half: boolean } | null>(null);
+  const [exiting, setExiting] = useState<string | null>(null);
+  const [exitError, setExitError] = useState<string>("");
+  const [monitorError, setMonitorError] = useState<string>("");
+  const [partialExitEnabled, setPartialExitEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem("position-monitor:partial-exit") !== "off";
+    } catch {
+      return true;
+    }
+  });
   const timer = useRef<any>(null);
   const serverUrl = getServerUrl(projectId);
 
+  const inFlight = useRef(false);
   const fetchRows = async () => {
+    if (inFlight.current) return; // skip overlapping 1s cycles
+    inFlight.current = true;
     try {
+      // ⚡ Drive the 1s live tick first so P&L/LTP/SL/target update every second,
+      // then read the freshly updated rows.
+      const tickRes = await fetch(`${serverUrl}/position-monitor/tick`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const tickData = await tickRes.json().catch(() => null);
+      if (!tickRes.ok || tickData?.success === false) {
+        throw new Error(tickData?.error || "Live market update failed");
+      }
       const res = await fetch(`${serverUrl}/position-monitor/list`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -47,11 +83,49 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
       if (data?.success && Array.isArray(data.positions)) {
         setRows(data.positions);
         setLastUpdate(Date.now());
+        setMonitorError("");
+      } else {
+        throw new Error(data?.error || "Position update failed");
       }
-    } catch (e) {
-      // silent
+    } catch (e: any) {
+      setMonitorError(e?.message || "Live market update failed");
     } finally {
+      inFlight.current = false;
       setLoading(false);
+    }
+  };
+
+  const doExit = async (r: MonitorRow, half: boolean) => {
+    setExiting(r.id);
+    setExitError("");
+    try {
+      const qty = Math.abs(Number(r.quantity) || 0);
+      const lot = positionLotSize(r);
+      const totalLots = Math.floor(qty / lot);
+      if (half && totalLots < 2) {
+        throw new Error("Partial exit needs at least 2 lots. Use Exit position for a single lot.");
+      }
+      const sendQty = half ? Math.floor(totalLots / 2) * lot : qty;
+      const res = await fetch(`${serverUrl}/place-order`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exitPositionId: r.id,
+          exitMode: half ? "half" : "full",
+          securityId: r.raw_position?.securityId || r.raw_position?.symbol_id,
+          transactionType: Number(r.quantity) < 0 ? "BUY" : "SELL",
+          quantity: sendQty,
+          exchangeSegment: r.raw_position?.exchangeSegment || "NSE_FNO",
+        }),
+      });
+      const json = await res.json();
+      if (!json?.success) setExitError(json?.error || json?.message || "Exit order failed");
+      await fetchRows();
+    } catch (e: any) {
+      setExitError(e?.message || "Exit order failed");
+    } finally {
+      setExiting(null);
+      setConfirm(null);
     }
   };
 
@@ -60,6 +134,15 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
     timer.current = setInterval(fetchRows, 1000); // 1s real-time
     return () => clearInterval(timer.current);
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("position-monitor:partial-exit", partialExitEnabled ? "on" : "off");
+    } catch {
+      // The control still works for this session when storage is unavailable.
+    }
+  }, [partialExitEnabled]);
+
 
   const totals = rows.reduce(
     (acc, r) => {
@@ -86,7 +169,21 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
             </Badge>
           </CardTitle>
           <div className="text-xs text-zinc-400 flex items-center gap-3">
-            <span>Live · 1s</span>
+            <label className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1">
+              <span className="hidden sm:inline text-[10px] font-semibold text-foreground">Protect profit</span>
+              <span className="text-[10px] text-muted-foreground">Partial exit</span>
+              <Switch
+                checked={partialExitEnabled}
+                onCheckedChange={setPartialExitEnabled}
+                aria-label="Toggle partial exit"
+              />
+              <span className={partialExitEnabled ? "text-[10px] font-semibold text-emerald-400" : "text-[10px] font-semibold text-muted-foreground"}>
+                {partialExitEnabled ? "ON" : "OFF"}
+              </span>
+            </label>
+            <span className={monitorError ? "text-red-400 font-semibold" : "text-emerald-400"}>
+              {monitorError ? "Update delayed" : "Live · 1s"}
+            </span>
             <span className={totals.pnl >= 0 ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
               Net P&L: {fmt(totals.pnl)}
             </span>
@@ -106,9 +203,14 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
           </div>
         ) : (
           <div className="space-y-3">
+            {monitorError && (
+              <div className="rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-xs text-red-200">
+                Fresh broker data is unavailable. Displayed values may be old; automatic hard-risk protection continues on the server.
+              </div>
+            )}
             {rows.map((r) => {
               const raw = r.raw_position || {};
-              const decision = raw.monitorDecision || (Number(r.pnl) >= 0 ? "HOLD" : "WATCH");
+              const decision = raw.monitorDecision || "WATCH";
               const favorable = !!raw.marketFavorable;
               const momentum = Number(raw.momentumScore || 0);
               const giveBack = Number(raw.giveBackPct || 0);
@@ -119,6 +221,38 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
               const pnl = Number(r.pnl || 0);
               const trailingActive = !!raw.trailingActive;
               const profitLocked = !!raw.profitLocked;
+              const qty = Math.abs(Number(r.quantity) || 0);
+              const canExitHalf = Math.floor(qty / positionLotSize(r)) >= 2;
+              const toTarget = Math.max(0, curTgt - pnl);
+              const toStop = Math.max(0, pnl + curSL);
+              const ptsTo = (amt: number) => (qty > 0 ? amt / qty : 0);
+              const timeframeMinutes = Math.max(1, Number(raw.signalTimeframeMinutes || 15));
+              const maxHoldBars = Math.max(1, Number(raw.maxHoldBars || 20));
+              const barsHeld = Math.floor(heldMin / timeframeMinutes);
+              const signalAgeMs = raw.signalCheckedAt ? Date.now() - Number(raw.signalCheckedAt) : Number.POSITIVE_INFINITY;
+              const signalFresh = !!raw.signalDataAvailable && signalAgeMs < 30_000;
+              const marketDirection = String(raw.marketMomentum || "NEUTRAL");
+              const positionDirection = String(raw.positionDirection || "—");
+              const signalAction = String(raw.signalAction || "WAIT").replace("BUY_", "BUY ");
+              const signalConfidence = Number(raw.signalConfidence || 0);
+              const confirmations = Number(raw.momentumStrength || 0);
+              const technicals = raw.technicals || {};
+              const stopStage = curSL <= 0
+                ? "Profit-locked stop"
+                : trailingActive
+                ? "Trailing stop"
+                : profitLocked
+                ? "Breakeven stop"
+                : "Initial stop";
+              const verdict = String(raw.monitorReasoning || (
+                decision === "EXIT"
+                  ? "Exit now — a server-side protection rule has triggered."
+                  : decision === "HOLD"
+                  ? "The market direction supports this position."
+                  : "Market confirmation is weak or unavailable; watch the position."
+              ));
+
+
 
               const decisionColor =
                 decision === "EXIT"
@@ -308,7 +442,90 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
                       color={favorable ? "text-emerald-400" : "text-yellow-400"}
                     />
                   </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
+                    <Stat icon={<Activity className="w-3 h-3" />} label="Market trend" value={marketDirection} color={marketDirection === positionDirection ? "text-emerald-400" : "text-yellow-400"} />
+                    <Stat icon={<Zap className="w-3 h-3" />} label="Live signal" value={`${signalAction} · ${signalConfidence}%`} color={signalFresh ? "text-zinc-200" : "text-yellow-400"} />
+                    <Stat icon={<CheckCircle2 className="w-3 h-3" />} label="Confirmation" value={`${confirmations}/5`} color={confirmations >= 4 ? "text-emerald-400" : "text-yellow-400"} />
+                    <Stat icon={<Activity className="w-3 h-3" />} label="ADX / RSI" value={`${Number(technicals.adx || 0).toFixed(1)} / ${Number(technicals.rsi || 0).toFixed(1)}`} color={signalFresh ? "text-zinc-200" : "text-yellow-400"} />
+                  </div>
+
+                  {/* Distance / stage row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mt-2">
+                    <Stat icon={<Target className="w-3 h-3" />} label="To target" value={`${fmt(toTarget)} · ${ptsTo(toTarget).toFixed(1)} pt`} color="text-emerald-400" />
+                    <Stat icon={<Shield className="w-3 h-3" />} label="To stop" value={`${fmt(toStop)} · ${ptsTo(toStop).toFixed(1)} pt`} color={curSL <= 0 ? "text-emerald-400" : "text-red-400"} />
+                    <Stat icon={<Shield className="w-3 h-3" />} label="Stop stage" value={stopStage.replace(" stop", "")} color="text-zinc-200" />
+                    <Stat icon={<Clock className="w-3 h-3" />} label="Bars held" value={`${barsHeld} / ${maxHoldBars}`} color={barsHeld >= maxHoldBars ? "text-yellow-400" : "text-zinc-300"} />
+                  </div>
+
+                  {/* Verdict */}
+                  <div
+                    className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+                      decision === "EXIT"
+                        ? "border-red-500/40 bg-red-950/30 text-red-200"
+                        : decision === "HOLD"
+                        ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-200"
+                        : "border-yellow-500/30 bg-yellow-950/20 text-yellow-200"
+                    }`}
+                  >
+                    <span className="font-bold mr-1">{decision}:</span>
+                    {verdict}
+                  </div>
+
+                  {/* Exit controls */}
+                  <div className="mt-2 flex items-center gap-2 justify-end">
+                    {confirm?.id === r.id ? (
+                      <>
+                        <span className="text-[11px] text-zinc-300 mr-auto">
+                          Exit {confirm.half ? "half" : "full"} position of {r.symbol}?
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={() => setConfirm(null)}
+                          disabled={exiting === r.id}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-7 text-[11px] font-bold"
+                          onClick={() => doExit(r, confirm.half)}
+                          disabled={exiting === r.id}
+                        >
+                          {exiting === r.id ? "Exiting…" : "Confirm exit"}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={() => setConfirm({ id: r.id, half: true })}
+                          disabled={!partialExitEnabled || !canExitHalf}
+                          title={!partialExitEnabled ? "Turn on Partial exit to use this action" : canExitHalf ? "Exit half the position in complete lots" : "Partial exit needs at least 2 lots"}
+                        >
+                          Exit half
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 border-destructive/50 text-[11px] font-bold text-destructive hover:text-destructive"
+                          onClick={() => setConfirm({ id: r.id, half: false })}
+                        >
+                          Exit position
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {exitError && exiting === null && (
+                    <div className="mt-1 text-[11px] text-red-400 text-right">{exitError}</div>
+                  )}
                 </div>
+
               );
             })}
             <div className="text-[10px] text-zinc-600 text-right pt-1">

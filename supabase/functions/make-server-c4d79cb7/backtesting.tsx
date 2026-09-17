@@ -194,7 +194,7 @@ export class BacktestEngine {
         const length = data.open.length;
         
         // Start from the fromDate and add 5 minutes for each candle
-        const startTimestamp = new Date(fromDateStr + 'T09:15:00+05:30').getTime(); // Market opens at 9:15 AM IST
+        const startTimestamp = new Date(fromDateStr + 'T09:00:00+05:30').getTime(); // Engine window starts at 9:00 AM IST
         console.log(`📅 Starting from: ${new Date(startTimestamp).toLocaleString('en-IN')}`);
         
         // Convert columnar format to array of candles

@@ -66,10 +66,10 @@ export function AdminLandingPage({ serverUrl, accessToken }: AdminLandingPagePro
       heroImage: "" // URL for hero image
     },
     stats: [
-      { value: '68%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
-      { value: '₹450', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
-      { value: '500+', label: 'Active Users', icon: 'Users', color: 'purple' },
-      { value: '1000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
+      { value: '89%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
+      { value: '₹3570', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
+      { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
+      { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
     ],
     dhan: {
       badge: "Powered by Dhan",

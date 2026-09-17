@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.5"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -290,6 +290,63 @@ export type Database = {
           ip_allowlist_enabled?: boolean
           updated_at?: string
           updated_by?: string | null
+        }
+        Relationships: []
+      }
+      admin_sessions: {
+        Row: {
+          admin_email: string | null
+          admin_name: string | null
+          admin_user_id: string | null
+          browser: string | null
+          created_at: string
+          device: string | null
+          hotkey: string | null
+          id: string
+          ip_address: string | null
+          last_seen_at: string
+          login_at: string
+          login_method: string
+          logout_at: string | null
+          logout_reason: string | null
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          admin_email?: string | null
+          admin_name?: string | null
+          admin_user_id?: string | null
+          browser?: string | null
+          created_at?: string
+          device?: string | null
+          hotkey?: string | null
+          id?: string
+          ip_address?: string | null
+          last_seen_at?: string
+          login_at?: string
+          login_method?: string
+          logout_at?: string | null
+          logout_reason?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          admin_email?: string | null
+          admin_name?: string | null
+          admin_user_id?: string | null
+          browser?: string | null
+          created_at?: string
+          device?: string | null
+          hotkey?: string | null
+          id?: string
+          ip_address?: string | null
+          last_seen_at?: string
+          login_at?: string
+          login_method?: string
+          logout_at?: string | null
+          logout_reason?: string | null
+          updated_at?: string
+          user_agent?: string | null
         }
         Relationships: []
       }
@@ -666,8 +723,24 @@ export type Database = {
       }
       instrument_master: {
         Row: {
+          aliceblue_exchange: string | null
+          aliceblue_synced_at: string | null
+          aliceblue_token: string | null
+          aliceblue_tradingsymbol: string | null
+          angelone_exchange: string | null
+          angelone_symbol_token: string | null
+          angelone_synced_at: string | null
+          angelone_tradingsymbol: string | null
           exchange_segment: string
           expiry_date: string
+          fivepaisa_exchange: string | null
+          fivepaisa_scrip_code: string | null
+          fivepaisa_scrip_data: string | null
+          fivepaisa_synced_at: string | null
+          fyers_exchange: string | null
+          fyers_symbol: string | null
+          fyers_synced_at: string | null
+          fyers_tradingsymbol: string | null
           groww_exchange: string | null
           groww_segment: string | null
           groww_synced_at: string | null
@@ -691,8 +764,24 @@ export type Database = {
           upstox_tradingsymbol: string | null
         }
         Insert: {
+          aliceblue_exchange?: string | null
+          aliceblue_synced_at?: string | null
+          aliceblue_token?: string | null
+          aliceblue_tradingsymbol?: string | null
+          angelone_exchange?: string | null
+          angelone_symbol_token?: string | null
+          angelone_synced_at?: string | null
+          angelone_tradingsymbol?: string | null
           exchange_segment: string
           expiry_date: string
+          fivepaisa_exchange?: string | null
+          fivepaisa_scrip_code?: string | null
+          fivepaisa_scrip_data?: string | null
+          fivepaisa_synced_at?: string | null
+          fyers_exchange?: string | null
+          fyers_symbol?: string | null
+          fyers_synced_at?: string | null
+          fyers_tradingsymbol?: string | null
           groww_exchange?: string | null
           groww_segment?: string | null
           groww_synced_at?: string | null
@@ -716,8 +805,24 @@ export type Database = {
           upstox_tradingsymbol?: string | null
         }
         Update: {
+          aliceblue_exchange?: string | null
+          aliceblue_synced_at?: string | null
+          aliceblue_token?: string | null
+          aliceblue_tradingsymbol?: string | null
+          angelone_exchange?: string | null
+          angelone_symbol_token?: string | null
+          angelone_synced_at?: string | null
+          angelone_tradingsymbol?: string | null
           exchange_segment?: string
           expiry_date?: string
+          fivepaisa_exchange?: string | null
+          fivepaisa_scrip_code?: string | null
+          fivepaisa_scrip_data?: string | null
+          fivepaisa_synced_at?: string | null
+          fyers_exchange?: string | null
+          fyers_symbol?: string | null
+          fyers_synced_at?: string | null
+          fyers_tradingsymbol?: string | null
           groww_exchange?: string | null
           groww_segment?: string | null
           groww_synced_at?: string | null
@@ -739,6 +844,69 @@ export type Database = {
           upstox_instrument_key?: string | null
           upstox_synced_at?: string | null
           upstox_tradingsymbol?: string | null
+        }
+        Relationships: []
+      }
+      kill_switch_config: {
+        Row: {
+          backtest_enabled: boolean
+          banknifty_stop_per_lot: number
+          banknifty_target_per_lot: number
+          broker_connect_enabled: boolean
+          id: number
+          new_orders_enabled: boolean
+          new_signals_enabled: boolean
+          nifty_stop_per_lot: number
+          nifty_target_per_lot: number
+          note: string | null
+          sensex_stop_per_lot: number
+          sensex_target_per_lot: number
+          sl_tp_mode: string
+          strategy_creation_enabled: boolean
+          trading_enabled: boolean
+          trailing_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          backtest_enabled?: boolean
+          banknifty_stop_per_lot?: number
+          banknifty_target_per_lot?: number
+          broker_connect_enabled?: boolean
+          id?: number
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          nifty_stop_per_lot?: number
+          nifty_target_per_lot?: number
+          note?: string | null
+          sensex_stop_per_lot?: number
+          sensex_target_per_lot?: number
+          sl_tp_mode?: string
+          strategy_creation_enabled?: boolean
+          trading_enabled?: boolean
+          trailing_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          backtest_enabled?: boolean
+          banknifty_stop_per_lot?: number
+          banknifty_target_per_lot?: number
+          broker_connect_enabled?: boolean
+          id?: number
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          nifty_stop_per_lot?: number
+          nifty_target_per_lot?: number
+          note?: string | null
+          sensex_stop_per_lot?: number
+          sensex_target_per_lot?: number
+          sl_tp_mode?: string
+          strategy_creation_enabled?: boolean
+          trading_enabled?: boolean
+          trailing_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -949,6 +1117,72 @@ export type Database = {
           created_at?: string
           holiday_date?: string
           name?: string
+        }
+        Relationships: []
+      }
+      order_audit_events: {
+        Row: {
+          algo_id: string | null
+          average_price: number | null
+          broker: string | null
+          broker_order_id: string | null
+          created_at: string
+          details: Json
+          event: string
+          id: string
+          index_name: string | null
+          message: string | null
+          order_code: string | null
+          quantity: number | null
+          signal_code: string | null
+          status: string
+          strategy_id: string | null
+          symbol: string | null
+          transaction_type: string | null
+          user_email: string | null
+          user_id: string
+        }
+        Insert: {
+          algo_id?: string | null
+          average_price?: number | null
+          broker?: string | null
+          broker_order_id?: string | null
+          created_at?: string
+          details?: Json
+          event: string
+          id?: string
+          index_name?: string | null
+          message?: string | null
+          order_code?: string | null
+          quantity?: number | null
+          signal_code?: string | null
+          status?: string
+          strategy_id?: string | null
+          symbol?: string | null
+          transaction_type?: string | null
+          user_email?: string | null
+          user_id: string
+        }
+        Update: {
+          algo_id?: string | null
+          average_price?: number | null
+          broker?: string | null
+          broker_order_id?: string | null
+          created_at?: string
+          details?: Json
+          event?: string
+          id?: string
+          index_name?: string | null
+          message?: string | null
+          order_code?: string | null
+          quantity?: number | null
+          signal_code?: string | null
+          status?: string
+          strategy_id?: string | null
+          symbol?: string | null
+          transaction_type?: string | null
+          user_email?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -1375,6 +1609,102 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_backtests: {
+        Row: {
+          by_index: Json
+          cost: number
+          created_at: string
+          from_date: string
+          id: string
+          indices: string[]
+          initial_capital: number
+          report: Json
+          strategy: string
+          summary: Json
+          to_date: string
+          user_email: string | null
+          user_id: string
+        }
+        Insert: {
+          by_index?: Json
+          cost?: number
+          created_at?: string
+          from_date: string
+          id?: string
+          indices?: string[]
+          initial_capital?: number
+          report?: Json
+          strategy?: string
+          summary?: Json
+          to_date: string
+          user_email?: string | null
+          user_id: string
+        }
+        Update: {
+          by_index?: Json
+          cost?: number
+          created_at?: string
+          from_date?: string
+          id?: string
+          indices?: string[]
+          initial_capital?: number
+          report?: Json
+          strategy?: string
+          summary?: Json
+          to_date?: string
+          user_email?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      strategy_control: {
+        Row: {
+          banknifty_enabled: boolean
+          enabled: boolean
+          entry_end_ist: string
+          entry_start_ist: string
+          id: number
+          max_trades_per_index_per_day: number
+          min_confidence: number
+          nifty_enabled: boolean
+          note: string | null
+          sensex_enabled: boolean
+          strategy_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          banknifty_enabled?: boolean
+          enabled?: boolean
+          entry_end_ist?: string
+          entry_start_ist?: string
+          id?: number
+          max_trades_per_index_per_day?: number
+          min_confidence?: number
+          nifty_enabled?: boolean
+          note?: string | null
+          sensex_enabled?: boolean
+          strategy_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          banknifty_enabled?: boolean
+          enabled?: boolean
+          entry_end_ist?: string
+          entry_start_ist?: string
+          id?: number
+          max_trades_per_index_per_day?: number
+          min_confidence?: number
+          nifty_enabled?: boolean
+          note?: string | null
+          sensex_enabled?: boolean
+          strategy_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       suspended_users: {
         Row: {
           auto: boolean
@@ -1461,18 +1791,24 @@ export type Database = {
       }
       trading_orders: {
         Row: {
+          algo_id: string | null
+          average_price: number | null
+          broker: string
           created_at: string
           dhan_order_id: string | null
           error_message: string | null
           exchange_segment: string | null
           id: string
           index_name: string | null
+          order_code: string | null
           order_type: string
           price: number | null
           quantity: number
           raw_response: Json | null
+          signal_code: string | null
           signal_id: string | null
           status: string
+          strategy_id: string | null
           symbol: string
           symbol_id: string | null
           transaction_type: string
@@ -1480,18 +1816,24 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          algo_id?: string | null
+          average_price?: number | null
+          broker?: string
           created_at?: string
           dhan_order_id?: string | null
           error_message?: string | null
           exchange_segment?: string | null
           id?: string
           index_name?: string | null
+          order_code?: string | null
           order_type?: string
           price?: number | null
           quantity?: number
           raw_response?: Json | null
+          signal_code?: string | null
           signal_id?: string | null
           status?: string
+          strategy_id?: string | null
           symbol: string
           symbol_id?: string | null
           transaction_type: string
@@ -1499,18 +1841,24 @@ export type Database = {
           user_id: string
         }
         Update: {
+          algo_id?: string | null
+          average_price?: number | null
+          broker?: string
           created_at?: string
           dhan_order_id?: string | null
           error_message?: string | null
           exchange_segment?: string | null
           id?: string
           index_name?: string | null
+          order_code?: string | null
           order_type?: string
           price?: number | null
           quantity?: number
           raw_response?: Json | null
+          signal_code?: string | null
           signal_id?: string | null
           status?: string
+          strategy_id?: string | null
           symbol?: string
           symbol_id?: string | null
           transaction_type?: string
@@ -1529,6 +1877,7 @@ export type Database = {
       }
       trading_signals: {
         Row: {
+          algo_id: string | null
           confidence: number | null
           created_at: string
           expiry: string | null
@@ -1537,13 +1886,16 @@ export type Database = {
           option_type: string | null
           price: number | null
           raw_data: Json | null
+          signal_code: string | null
           signal_type: string
           status: string
+          strategy_id: string | null
           strike_price: number | null
           symbol: string
           user_id: string
         }
         Insert: {
+          algo_id?: string | null
           confidence?: number | null
           created_at?: string
           expiry?: string | null
@@ -1552,13 +1904,16 @@ export type Database = {
           option_type?: string | null
           price?: number | null
           raw_data?: Json | null
+          signal_code?: string | null
           signal_type: string
           status?: string
+          strategy_id?: string | null
           strike_price?: number | null
           symbol: string
           user_id: string
         }
         Update: {
+          algo_id?: string | null
           confidence?: number | null
           created_at?: string
           expiry?: string | null
@@ -1567,10 +1922,36 @@ export type Database = {
           option_type?: string | null
           price?: number | null
           raw_data?: Json | null
+          signal_code?: string | null
           signal_type?: string
           status?: string
+          strategy_id?: string | null
           strike_price?: number | null
           symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_kill_switch: {
+        Row: {
+          new_orders_enabled: boolean
+          new_signals_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          new_orders_enabled?: boolean
+          new_signals_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
           user_id?: string
         }
         Relationships: []
@@ -1763,6 +2144,34 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_aliceblue_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
+      apply_angelone_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
+      apply_fivepaisa_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
+      apply_fyers_instruments: {
+        Args: { _rows: Json }
+        Returns: {
+          inserted_count: number
+          updated_count: number
+        }[]
+      }
       apply_groww_instruments: {
         Args: { _rows: Json }
         Returns: {
@@ -1791,6 +2200,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      clear_stale_position_monitor_rows: { Args: never; Returns: number }
       decrypt_broker_secret: { Args: { _ciphertext: string }; Returns: string }
       encrypt_broker_secret: { Args: { _plaintext: string }; Returns: string }
       execute_backend_engine: { Args: never; Returns: undefined }
@@ -1868,12 +2278,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1897,11 +2307,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1922,11 +2332,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1947,11 +2357,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1964,11 +2374,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

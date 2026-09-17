@@ -16,7 +16,7 @@
  * Every call carries:  Authorization: Bearer <access_token>
  */
 
-const UPSTOX_API = "https://api.upstox.com";
+export const UPSTOX_API = "https://api.upstox.com";
 
 export interface UpstoxOrderRequest {
   instrumentToken: string; // e.g. "NSE_FO|43812"
@@ -137,7 +137,7 @@ export class UpstoxService {
         }
       }
       if (!status) {
-        const resp = await fetch(`${UPSTOX_API}${path}`, { ...init, headers, signal: ctrl.signal });
+        const resp = await fetch(`${UPSTOX_API}${path}`, { ...init, headers, signal: AbortSignal.timeout(timeoutMs) });
         status = resp.status;
         text = await resp.text();
       }
@@ -192,10 +192,10 @@ export class UpstoxService {
       quantity: Math.max(1, Number(req.quantity) || 0),
       product: req.product || "D",
       validity: req.validity || "DAY",
-      price: req.orderType === "LIMIT" ? Number(req.price ?? 0) : 0,
+      price: 0,
       tag: (req.tag || "indexpilot").slice(0, 20),
       instrument_token: req.instrumentToken,
-      order_type: req.orderType || "MARKET",
+      order_type: "MARKET",
       transaction_type: req.transactionType,
       disclosed_quantity: 0,
       trigger_price: 0,

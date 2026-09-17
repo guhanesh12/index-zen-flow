@@ -276,7 +276,7 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
     const html = plain(
       `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Signal not placed</h2>
        <p>Hi ${d.name || "there"}, a signal was generated but the order was not placed because the market is closed.</p>
-       ${details([["Symbol", d.symbol || "—"], ["Reason", d.reason || "Outside market hours"], ["Next session", d.nextSession || "Next trading day · 09:15 IST"]])}`
+       ${details([["Symbol", d.symbol || "—"], ["Reason", d.reason || "Outside market hours"], ["Next session", d.nextSession || "Next trading day · 09:00 IST"]])}`
     );
     return { subject: `Signal not placed — market closed`, html, text: htmlToText(html) };
   },
@@ -284,7 +284,7 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
   daily_premarket: (d) => {
     const html = plain(
       `<h2 style="margin:0 0 14px;font-size:20px;color:#0B1E3F">Pre-market brief</h2>
-       <p>Good morning ${d.name || "there"}. Markets open at <b>09:15 IST</b> today.</p>
+       <p>Good morning ${d.name || "there"}. Markets open at <b>09:00 IST</b> today.</p>
        ${details([["Engine status", d.engineStatus || "Ready"], ["Active symbols", d.activeSymbols || "NIFTY · BANKNIFTY · SENSEX"], ["Wallet balance", `₹${Number(d.balance || 0).toLocaleString("en-IN")}`]])}
        ${btn("Open dashboard", `${BRAND.url}/dashboard`)}`
     );
@@ -405,7 +405,7 @@ const TEMPLATES: Record<string, (d: TplData) => TplResult> = {
 async function sendViaBrevo(p: {
   to: string; name?: string; subject: string; html: string; text?: string;
   fromEmail: string; fromName: string; replyTo?: string;
-  promotional?: boolean;
+  promotional?: boolean; recoverBlockedRecipient?: boolean;
 }) {
   if (!BREVO_API_KEY) throw new Error("BREVO_API_KEY not configured");
   console.log(`[brevo] key prefix=${BREVO_API_KEY.slice(0, 10)} len=${BREVO_API_KEY.length}`);
@@ -438,12 +438,45 @@ async function sendViaBrevo(p: {
   };
   if (p.replyTo) payload.replyTo = { email: p.replyTo, name: senderName };
 
-  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const send = () => fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
     body: JSON.stringify(payload),
   });
-  const data = await res.json().catch(() => ({}));
+
+  // A requested login code must not remain suppressed because of an older
+  // transient bounce. Brevo returns 204 when removed and 404 when no block
+  // exists; both are safe to continue. This is intentionally OTP-only.
+  if (p.recoverBlockedRecipient) {
+    const unblock = await fetch(`https://api.brevo.com/v3/smtp/blockedContacts/${encodeURIComponent(p.to)}`, {
+      method: "DELETE",
+      headers: { "api-key": BREVO_API_KEY, accept: "application/json" },
+    });
+    if (!unblock.ok && unblock.status !== 404) {
+      const unblockError = await unblock.text();
+      console.warn(`[brevo] unable to clear OTP suppression [${unblock.status}]: ${unblockError.slice(0, 200)}`);
+    }
+  }
+  let res = await send();
+  let data = await res.json().catch(() => ({}));
+
+  // Brevo suppresses addresses after a hard bounce and can respond as if a
+  // later send was accepted while immediately blocking it. OTP messages are
+  // user-requested transactional mail, so remove only that recipient's
+  // transactional suppression and retry once. Never auto-unblock promotional
+  // mail or retry more than once.
+  const providerText = JSON.stringify(data).toLowerCase();
+  const recipientBlocked = providerText.includes("blacklist") || providerText.includes("blocked contact");
+  if (!res.ok && !p.promotional && recipientBlocked) {
+    const unblock = await fetch(`https://api.brevo.com/v3/smtp/blockedContacts/${encodeURIComponent(p.to)}`, {
+      method: "DELETE",
+      headers: { "api-key": BREVO_API_KEY, accept: "application/json" },
+    });
+    if (unblock.ok || unblock.status === 404) {
+      res = await send();
+      data = await res.json().catch(() => ({}));
+    }
+  }
   if (!res.ok) throw new Error(`Brevo ${res.status}: ${JSON.stringify(data)}`);
   return data?.messageId || null;
 }
@@ -601,6 +634,7 @@ Deno.serve(async (req) => {
         to, name, subject, html, text,
         fromEmail: s.from_email, fromName: s.from_name, replyTo: s.reply_to || undefined,
         promotional,
+        recoverBlockedRecipient: template === "otp",
       });
       if (logRow?.id) {
         await supabase.from("email_logs").update({ status: "sent", provider_message_id: messageId }).eq("id", logRow.id);

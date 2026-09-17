@@ -9,8 +9,8 @@ import { startCacheRecovery } from './utils/cacheRecovery';
 import { startVersionCheck } from './utils/versionCheck';
 import { getBaseUrl, api, API_ENDPOINTS } from './utils/apiService';
 import { initializeSecurity, SessionManager } from '@/utils-ext/security/SecurityHardening';
-import { AuditLogger } from '@/utils-ext/security/AuditLogger';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/utils-ext/supabase/client';
+import DemoBadge from './demo/DemoBadge';
 
 
 // Extend Window interface for hotkey system
@@ -35,13 +35,11 @@ export default function App() {
     // 🔒 Initialize Security System (bank-level hardening)
     initializeSecurity({
       enableDevToolsMonitor: import.meta.env.PROD, // Production only
-      onSessionTimeout: async () => {
-        try {
-          await AuditLogger.log({ action: 'session_timeout', status: 'success' });
-          await supabase.auth.signOut();
-        } catch {}
-        // Hard redirect to clear all in-memory state
-        window.location.href = '/login';
+      onSessionTimeout: () => {
+        // Inactivity locks the dashboard with the PIN; it must never destroy the
+        // valid Supabase login session or send the user back to email/password.
+        sessionStorage.removeItem('ip_pin_unlocked_at');
+        window.dispatchEvent(new CustomEvent('indexpilot:pin-lock'));
       },
       onSessionWarning: () => {
         console.warn('🔒 Session will expire in 5 minutes due to inactivity.');
@@ -71,24 +69,15 @@ export default function App() {
     });
 
     
-    // Initialize hotkey system
-    window.adminHotkeys = ['GUHAN']; // Default fallback
+    // Initialize hotkey system (matching happens server-side so that every
+    // admin's personal hotkey works without exposing the hotkey list).
+    window.adminHotkeys = [];
     window.adminKeySequence = '';
     window.hotkeyDebugMode = false;
 
-    // Load admin hotkeys from server
-    loadAdminHotkeys();
+    const hotkeyRefreshInterval = 0;
+    const handleHotkeyUpdate = () => {};
 
-    // Auto-refresh hotkeys every 60 seconds
-    const hotkeyRefreshInterval = setInterval(() => {
-      loadAdminHotkeys().catch(() => {});
-    }, 60000);
-
-    // Listen for hotkey updates
-    const handleHotkeyUpdate = () => {
-      loadAdminHotkeys();
-    };
-    window.addEventListener('admin-hotkeys-updated', handleHotkeyUpdate);
 
     // Setup admin hotkey listener
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -105,11 +94,17 @@ export default function App() {
       
       // Admin hotkey: Ctrl/Cmd + Alt + [Sequence]
       if (modKey && e.altKey) {
-        if (e.code && e.code.startsWith('Key')) {
+        // Hotkeys may contain A–Z and 0–9 (server allows both). Capture
+        // letters ("KeyG" → "G") and digits ("Digit2"/"Numpad2" → "2") so
+        // every saved hotkey can be typed on Windows.
+        const isLetter = e.code && e.code.startsWith('Key');
+        const isDigit = e.code && (e.code.startsWith('Digit') || e.code.startsWith('Numpad'));
+        if (isLetter || isDigit) {
           e.preventDefault();
           
-          // Extract letter (e.g., "KeyG" → "G")
-          const key = e.code.replace('Key', '').toUpperCase();
+          // Extract character (e.g., "KeyG" → "G", "Digit2" → "2")
+          const key = e.code.replace('Key', '').replace('Digit', '').replace('Numpad', '').toUpperCase();
+          if (!/^[A-Z0-9]$/.test(key)) return;
           
           // Build sequence
           window.adminKeySequence += key;
@@ -149,48 +144,49 @@ export default function App() {
 
   }, []);
 
-  // Load admin hotkeys from server
-  const loadAdminHotkeys = async () => {
+  // 🔐 Resolve the typed sequence server-side. Any admin's personal hotkey
+  // (created in Admin Management) works immediately — no client-side list.
+  const checkHotkeyMatch = async (sequence: string) => {
     try {
-      const response = await fetch(`${serverUrl}/admin/hotkeys`, {
+      const response = await fetch(`${serverUrl}/admin/hotkey/resolve`, {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${publicAnonKey}`,
         },
+        body: JSON.stringify({ sequence }),
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.hotkeys && Array.isArray(data.hotkeys)) {
-          // Extract just the hotkey string from each object (server returns { id, hotkey, name, ... })
-          window.adminHotkeys = data.hotkeys
-            .map((h: any) => (typeof h === 'string' ? h : h.hotkey || ''))
-            .filter(Boolean)
-            .map((s: string) => s.toUpperCase());
-          console.log(`🔑 Loaded ${window.adminHotkeys.length} admin hotkeys:`, window.adminHotkeys);
-        }
+      if (!response.ok) return;
+      const data = await response.json();
+
+      if (data?.match && data.uniqueCode) {
+        window.adminKeySequence = '';
+        clearTimeout(window.adminKeyTimeout);
+        try {
+          sessionStorage.setItem(
+            'admin_hotkey_owner',
+            JSON.stringify({
+              hotkey: data.hotkey,
+              email: data.ownerEmail || '',
+              name: data.ownerName || '',
+              username: data.ownerUsername || '',
+              pressedAt: Date.now(),
+            }),
+          );
+        } catch { /* ignore */ }
+        await router.navigate(`/admin/hotkey/${data.uniqueCode}/login`);
+        return;
+      }
+
+      // Not a match and not a prefix of any hotkey → drop the sequence.
+      if (!data?.prefix && window.adminKeySequence === sequence) {
+        window.adminKeySequence = '';
       }
     } catch (error) {
-      console.error('❌ Failed to load admin hotkeys:', error);
+      if (window.hotkeyDebugMode) console.error('Hotkey resolve failed:', error);
     }
   };
 
-  // Check if hotkey sequence matches and generate unique code + redirect
-  const checkHotkeyMatch = async (sequence: string) => {
-    const matchedHotkey = window.adminHotkeys.find(
-      hotkey => hotkey.toUpperCase() === sequence.toUpperCase()
-    );
-    
-    if (matchedHotkey) {
-      console.log(`🎯 Admin hotkey matched: ${matchedHotkey}`);
-      
-      // Clear the sequence
-      window.adminKeySequence = '';
-      clearTimeout(window.adminKeyTimeout);
-      
-      // Generate unique code and redirect
-      await generateUniqueCodeAndRedirect(matchedHotkey);
-    }
-  };
 
   // Generate unique code from server and redirect to admin login
   const generateUniqueCodeAndRedirect = async (hotkey: string) => {
@@ -232,6 +228,7 @@ export default function App() {
       <div className="app-container">
         <RouterProvider router={router} />
         <PWADebugger />
+        <DemoBadge />
       </div>
     </HelmetProvider>
   );
