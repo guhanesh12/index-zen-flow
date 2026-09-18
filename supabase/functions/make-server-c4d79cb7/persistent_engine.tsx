@@ -3500,15 +3500,20 @@ class PersistentTradingEngine {
         const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
         const _withinGrace = _ageMs < 45_000;
 
-        // 🔒 Direction-flip gate: predictive exits require an opposite signal with
-        // at least 80% confidence and 4/6 momentum confirmations. This prevents a
-        // temporary counter-move from closing a position just before recovery.
-        const _oppActionNow = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
-        const _flipSignalNow =
-          !!currentSignal &&
-          currentSignal.action === _oppActionNow &&
-          Number(currentSignal.confidence || 0) >= 80 &&
-          momentumStrength >= 4;
+        // 🔒 Direction-flip gate — SAME shared rule the backtester uses, so a
+        // real trade exits on a market reversal exactly where the report says it
+        // does, instead of holding on until the stop-loss is hit.
+        const _posAction = _posDir === "BULLISH" ? "BUY_CALL" : "BUY_PUT";
+        const _reversalReason = currentSignal
+          ? reversalExitReason({
+              positionAction: _posAction,
+              signalAction: String(currentSignal.action || "WAIT"),
+              signalConfidence: Number(currentSignal.confidence || 0),
+              pnl,
+              baseStopAmount: _baseSLForCalc,
+            })
+          : "";
+        const _flipSignalNow = !!_reversalReason;
 
         // 1) PROFIT PROTECTION — only on a confirmed direction flip with heavy give-back.
         if (
