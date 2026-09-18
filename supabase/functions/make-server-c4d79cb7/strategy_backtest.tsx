@@ -426,8 +426,15 @@ async function replayIndex(
       const p = pos;
       if (p.direction === signal.action) continue; // same side → hold
       const livePnl = pnlAt(p, bar.close);
-      const conf = Number(signal.confidence || 0);
-      const canReverse = livePnl < 0 ? (conf >= 68 && Math.abs(livePnl) >= p.baseSL * 0.45) : conf >= 90 && livePnl <= p.baseSL * 0.7;
+      // Same shared rule the live position monitor uses, so the report's exits
+      // describe what production actually does.
+      const canReverse = !!reversalExitReason({
+        positionAction: p.direction,
+        signalAction: signal.action,
+        signalConfidence: Number(signal.confidence || 0),
+        pnl: livePnl,
+        baseStopAmount: p.baseSL,
+      });
       if (!canReverse) continue;
       closeAtPnl(bar.timestamp, livePnl, "AI_REVERSAL");
       if (maxPerDay > 0 && (entriesByDay.get(info.date) || 0) >= maxPerDay) {
