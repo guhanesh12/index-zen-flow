@@ -1140,6 +1140,38 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
 
 
 
+            {/* Auto-renewal consent */}
+            <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-100 flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3" /> Auto-renewal from wallet
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    I allow IndexPilot to debit ₹{autoRenew.price} from my wallet every month to keep this IP active.
+                  </p>
+                </div>
+                <Switch
+                  checked={autoRenew.enabled}
+                  disabled={autoRenew.loading || autoRenew.saving}
+                  onCheckedChange={toggleAutoRenew}
+                  aria-label="Auto renewal"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Wallet balance: <span className={autoRenew.sufficientBalance ? 'text-emerald-400' : 'text-amber-400'}>₹{autoRenew.walletBalance.toFixed(0)}</span>
+                {' · '}Reminders are sent 3, 2 and 1 day before expiry.
+              </p>
+              {autoRenew.enabled && !autoRenew.sufficientBalance && (
+                <p className="text-[11px] text-amber-400">
+                  Balance is below ₹{autoRenew.price} — add funds or renewal will fail and the IP will stop.
+                </p>
+              )}
+              {autoRenew.lastFailureReason && (
+                <p className="text-[11px] text-red-400">Last attempt failed: {autoRenew.lastFailureReason}</p>
+              )}
+            </div>
+
             {/* Renewal / Cancel buttons */}
             <div className="flex gap-2 pt-1">
               <Button
