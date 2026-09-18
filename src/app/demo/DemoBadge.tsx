@@ -5,7 +5,13 @@ import { isDemoMode, exitDemoMode } from './demoMode';
 export default function DemoBadge() {
   if (!isDemoMode()) return null;
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => {
+        exitDemoMode();
+        window.location.href = window.location.pathname;
+      }}
+      title="Leave demo and return to your real account"
       style={{
         position: 'fixed',
         bottom: 12,
