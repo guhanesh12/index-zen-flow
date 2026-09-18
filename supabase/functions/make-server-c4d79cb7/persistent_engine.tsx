@@ -3321,20 +3321,55 @@ class PersistentTradingEngine {
             normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BUY_PUT" : "BUY_CALL";
           const _isOppositeSignal = currentSignal.action === _oppositeAction;
 
+          // 🧠 REVERSAL CONFIRMATION MEMORY
+          // The monitor runs every second, so a single noisy tick used to be
+          // enough to close a trade that then recovered. The opposite signal
+          // must now REPEAT across ticks (and survive a short observation
+          // window) before a predictive exit is allowed. Deep losses skip the
+          // wait so capital protection stays immediate.
+          if (_isOppositeSignal) {
+            if ((position as any).flipAction !== currentSignal.action) {
+              (position as any).flipAction = currentSignal.action;
+              (position as any).flipFirstSeenAt = _now;
+              (position as any).flipCount = 1;
+            } else {
+              (position as any).flipCount = Number((position as any).flipCount || 0) + 1;
+            }
+          } else {
+            (position as any).flipAction = null;
+            (position as any).flipFirstSeenAt = 0;
+            (position as any).flipCount = 0;
+          }
+          const _flipCount = Number((position as any).flipCount || 0);
+          const _flipAgeMs = (position as any).flipFirstSeenAt
+            ? _now - Number((position as any).flipFirstSeenAt)
+            : 0;
+          const _deepLoss =
+            pnl < 0 && Math.abs(Number(_baseSL || 0)) > 0 && Math.abs(pnl) >= Math.abs(Number(_baseSL || 0)) * 0.75;
+          // Market still clearly moving with us → never exit on the flip.
+          const _stillWithMarket = isAlignedWithMarket && momentumStrength >= 4;
+          const _flipConfirmed =
+            _isOppositeSignal &&
+            !_stillWithMarket &&
+            (_deepLoss || (_flipCount >= REVERSAL_CONFIRM_TICKS && _flipAgeMs >= REVERSAL_CONFIRM_MS));
+          (position as any).flipConfirmed = _flipConfirmed;
+
           // Shared reversal rule (identical to the backtester).
-          const _oppositeSignalReason = reversalExitReason({
-            positionAction: _oppositeAction === "BUY_PUT" ? "BUY_CALL" : "BUY_PUT",
-            signalAction: String(currentSignal.action || "WAIT"),
-            signalConfidence: Number(currentSignal.confidence || 0),
-            pnl,
-            baseStopAmount: Math.abs(Number(_baseSL || 0)),
-          });
+          const _oppositeSignalReason = _flipConfirmed
+            ? reversalExitReason({
+                positionAction: _oppositeAction === "BUY_PUT" ? "BUY_CALL" : "BUY_PUT",
+                signalAction: String(currentSignal.action || "WAIT"),
+                signalConfidence: Number(currentSignal.confidence || 0),
+                pnl,
+                baseStopAmount: Math.abs(Number(_baseSL || 0)),
+              })
+            : "";
 
           if (_oppositeSignalReason) {
             signalShouldExit = true;
             signalExitReason = _oppositeSignalReason;
           } else if (_isOppositeSignal) {
-            monitorReasoning = `⚠️ HOLD - Unconfirmed flip ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6); waiting for strong confirmation`;
+            monitorReasoning = `⚠️ WATCH - Reversal forming: ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6), confirmation ${_flipCount}/${REVERSAL_CONFIRM_TICKS}; holding until the turn is confirmed`;
           } else if (isAlignedWithMarket && momentumStrength >= 3) {
 
             monitorReasoning = `✅ HOLD - ${marketMomentum} momentum matches ${positionDirection} position (${momentumStrength}/6 confirmations)`;
@@ -3342,6 +3377,11 @@ class PersistentTradingEngine {
             monitorReasoning = `⚠️ WATCH - Market ${marketMomentum}, AI ${currentSignal.action} (${currentSignal.confidence || 0}%), P&L ₹${pnl.toFixed(2)}`;
           }
           monitorDecision = signalShouldExit ? "EXIT" : marketFavorable ? "HOLD" : "WATCH";
+        } else {
+          (position as any).flipAction = null;
+          (position as any).flipFirstSeenAt = 0;
+          (position as any).flipCount = 0;
+          (position as any).flipConfirmed = false;
         }
 
         (position as any).monitorDecision = monitorDecision;
