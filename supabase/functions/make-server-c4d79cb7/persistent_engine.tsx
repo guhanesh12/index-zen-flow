@@ -21,7 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, atrOf, applyTrendDayGate, applyExecutionEntryGates } from "./strategy_rules.ts";
+import { STRATEGY_RULES, atrOf, applyTrendDayGate, applyExecutionEntryGates, reversalExitReason } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
@@ -3317,12 +3317,18 @@ class PersistentTradingEngine {
             normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BUY_PUT" : "BUY_CALL";
           const _isOppositeSignal = currentSignal.action === _oppositeAction;
 
-          const _oppositeSignalConfirmed =
-            _isOppositeSignal && Number(currentSignal.confidence || 0) >= 80 && momentumStrength >= 4;
+          // Shared reversal rule (identical to the backtester).
+          const _oppositeSignalReason = reversalExitReason({
+            positionAction: _oppositeAction === "BUY_PUT" ? "BUY_CALL" : "BUY_PUT",
+            signalAction: String(currentSignal.action || "WAIT"),
+            signalConfidence: Number(currentSignal.confidence || 0),
+            pnl,
+            baseStopAmount: Math.abs(Number(_baseSL || 0)),
+          });
 
-          if (_oppositeSignalConfirmed) {
+          if (_oppositeSignalReason) {
             signalShouldExit = true;
-            signalExitReason = `Strong Signal Flip (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence, momentum ${momentumStrength}/6)`;
+            signalExitReason = _oppositeSignalReason;
           } else if (_isOppositeSignal) {
             monitorReasoning = `⚠️ HOLD - Unconfirmed flip ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6); waiting for strong confirmation`;
           } else if (isAlignedWithMarket && momentumStrength >= 3) {
@@ -3500,15 +3506,20 @@ class PersistentTradingEngine {
         const _ageMs = _entryTs > 0 ? Date.now() - _entryTs : Number.MAX_SAFE_INTEGER;
         const _withinGrace = _ageMs < 45_000;
 
-        // 🔒 Direction-flip gate: predictive exits require an opposite signal with
-        // at least 80% confidence and 4/6 momentum confirmations. This prevents a
-        // temporary counter-move from closing a position just before recovery.
-        const _oppActionNow = _posDir === "BULLISH" ? "BUY_PUT" : "BUY_CALL";
-        const _flipSignalNow =
-          !!currentSignal &&
-          currentSignal.action === _oppActionNow &&
-          Number(currentSignal.confidence || 0) >= 80 &&
-          momentumStrength >= 4;
+        // 🔒 Direction-flip gate — SAME shared rule the backtester uses, so a
+        // real trade exits on a market reversal exactly where the report says it
+        // does, instead of holding on until the stop-loss is hit.
+        const _posAction = _posDir === "BULLISH" ? "BUY_CALL" : "BUY_PUT";
+        const _reversalReason = currentSignal
+          ? reversalExitReason({
+              positionAction: _posAction,
+              signalAction: String(currentSignal.action || "WAIT"),
+              signalConfidence: Number(currentSignal.confidence || 0),
+              pnl,
+              baseStopAmount: _baseSLForCalc,
+            })
+          : "";
+        const _flipSignalNow = !!_reversalReason;
 
         // 1) PROFIT PROTECTION — only on a confirmed direction flip with heavy give-back.
         if (
@@ -3539,11 +3550,10 @@ class PersistentTradingEngine {
           }
         }
 
-        // 3) AI REVERSAL CONFIRMED — opposite-direction signal.
+        // 3) AI REVERSAL CONFIRMED — market has turned, square off at market.
         if (!shouldExit && !_withinGrace && _flipSignalNow) {
-          const conf = Number(currentSignal.confidence || 0);
           shouldExit = true;
-          exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%)`;
+          exitReason = `AI Reversal Confirmed — ${_reversalReason}`;
         }
 
         // 4) Signal-flip exit from the monitor block (final safety net).
