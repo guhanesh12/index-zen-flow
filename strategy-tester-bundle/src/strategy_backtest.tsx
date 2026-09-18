@@ -397,6 +397,8 @@ async function replayIndex(
       signal = AdvancedAI.generateAdvancedSignal(window, getCapital(), {
         timeframeMinutes: 15,
         enforceClosedCandle: false,
+        blockNewEntriesAfterMinutes: STRATEGY_RULES.entryEndMinutesIst,
+        blockNewEntriesBeforeMinutes: STRATEGY_RULES.entryStartMinutesIst,
         lastSignalTimestamp: lastSignalTs || undefined,
         lastSignalDirection: lastDir,
       });
