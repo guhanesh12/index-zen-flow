@@ -60,49 +60,80 @@ async function fetchVersion(): Promise<VersionInfo | null> {
   }
 }
 
+// Never auto-reload on auth pages or while the user is typing — a forced
+// reload there wipes the credentials mid-entry and looks like "login twice".
+const NO_RELOAD_PATHS = ['/login', '/register', '/reset-password'];
+
+function userIsBusy(): boolean {
+  try {
+    if (NO_RELOAD_PATHS.some((p) => window.location.pathname.startsWith(p))) return true;
+    const el = document.activeElement as HTMLElement | null;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return true;
+  } catch {}
+  return false;
+}
+
+// Track which version we already reloaded for, so a stale-cached page can
+// never trigger a reload loop.
+const RELOADED_FOR_KEY = 'indexpilot-version-reloaded';
+
 /**
  * Force reload the page with cache-busting
  */
-function forceReload() {
+function forceReload(targetVersion?: string) {
+  if (userIsBusy()) {
+    console.log('🔄 New version available, but user is busy - deferring reload');
+    return false;
+  }
+  if (targetVersion && sessionStorage.getItem(RELOADED_FOR_KEY) === targetVersion) {
+    console.log('⏸️ Already reloaded for this version - skipping to avoid a reload loop');
+    return false;
+  }
   console.log('🔄 NEW VERSION DETECTED! Reloading with fresh cache...');
-  
+  if (targetVersion) sessionStorage.setItem(RELOADED_FOR_KEY, targetVersion);
+
   // Clear all caches if available
   if ('caches' in window) {
     caches.keys().then(names => {
       names.forEach(name => caches.delete(name));
     });
   }
-  
+
   // Hard reload with cache-busting
   window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now();
+  return true;
 }
+
+let pendingVersion: string | null = null;
+let reloadToastShown = false;
 
 /**
  * Check if a new version is available
  */
 async function checkForNewVersion(): Promise<boolean> {
   const newVersionInfo = await fetchVersion();
-  
+
   if (!newVersionInfo) {
     return false;
   }
-  
+
   // First time checking - store current version
   if (currentVersion === null) {
     currentVersion = newVersionInfo.version;
     console.log(`✅ Version check initialized: ${currentVersion} (built ${newVersionInfo.buildTime})`);
     return false;
   }
-  
+
   // Check if version changed
   if (newVersionInfo.version !== currentVersion) {
     console.log(`🆕 NEW VERSION AVAILABLE!`);
     console.log(`   Current: ${currentVersion}`);
     console.log(`   New: ${newVersionInfo.version}`);
     console.log(`   Built: ${newVersionInfo.buildTime}`);
+    pendingVersion = newVersionInfo.version;
     return true;
   }
-  
+
   return false;
 }
 
@@ -123,23 +154,27 @@ export function startVersionCheck() {
   // Then check periodically
   checkInterval = window.setInterval(async () => {
     const newVersionAvailable = await checkForNewVersion();
-    
+
     if (newVersionAvailable) {
-      // Stop checking
-      stopVersionCheck();
-      
-      // Show notification (optional - can be removed if too intrusive)
-      try {
-        const toast = await import('sonner');
-        toast.toast.info('New version available! Reloading...', {
-          duration: 2000
-        });
-      } catch (e) {
-        // Toast not available, that's ok
+      // Show notification once (optional - can be removed if too intrusive)
+      if (!reloadToastShown) {
+        reloadToastShown = true;
+        try {
+          const toast = await import('sonner');
+          toast.toast.info('New version available! It will refresh when you are not typing.', {
+            duration: 3000
+          });
+        } catch (e) {
+          // Toast not available, that's ok
+        }
       }
-      
-      // Reload after 2 seconds to show notification
-      setTimeout(forceReload, 2000);
+
+      // Reload only when the user is NOT on an auth page or typing in a form.
+      // If busy, keep checking and retry on the next interval instead of
+      // interrupting the login flow.
+      if (forceReload(pendingVersion ?? undefined)) {
+        stopVersionCheck();
+      }
     }
   }, VERSION_CHECK_INTERVAL);
 }
