@@ -188,6 +188,68 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
     }
   };
 
+  // ── Auto-renewal (wallet debit) consent ───────────────────────────
+  const [autoRenew, setAutoRenew] = useState({
+    enabled: false,
+    price: 599,
+    walletBalance: 0,
+    sufficientBalance: false,
+    lastRenewalAt: null as string | null,
+    lastFailureReason: null as string | null,
+    loading: true,
+    saving: false,
+  });
+
+  const loadAutoRenew = useCallback(async () => {
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/auto-renew`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setAutoRenew((p) => ({
+          ...p,
+          enabled: Boolean(data.enabled),
+          price: Number(data.price) || 599,
+          walletBalance: Number(data.walletBalance) || 0,
+          sufficientBalance: Boolean(data.sufficientBalance),
+          lastRenewalAt: data.lastRenewalAt || null,
+          lastFailureReason: data.lastFailureReason || null,
+          loading: false,
+        }));
+        return;
+      }
+    } catch { /* ignore */ }
+    setAutoRenew((p) => ({ ...p, loading: false }));
+  }, [accessToken, serverUrl]);
+
+  const toggleAutoRenew = async (enabled: boolean) => {
+    setAutoRenew((p) => ({ ...p, saving: true }));
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/auto-renew`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Could not save your choice');
+      setAutoRenew((p) => ({
+        ...p,
+        enabled: Boolean(data.enabled),
+        walletBalance: Number(data.walletBalance) || p.walletBalance,
+        sufficientBalance: Boolean(data.sufficientBalance),
+        saving: false,
+      }));
+      toast.success(data.message);
+    } catch (err: any) {
+      setAutoRenew((p) => ({ ...p, saving: false }));
+      toast.error(err.message || 'Could not update auto-renewal');
+    }
+  };
+
+  useEffect(() => { loadAutoRenew(); }, [loadAutoRenew]);
+
   // Decode email from JWT for Razorpay prefill
   const userEmail = (() => {
     try {
