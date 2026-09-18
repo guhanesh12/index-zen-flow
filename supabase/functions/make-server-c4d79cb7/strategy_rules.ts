@@ -29,10 +29,12 @@ export const STRATEGY_RULES = {
   /** Required +DI/-DI gap (in DI points) for the relaxed ADX path. */
   minDiSpread: 6,
   /**
-   * Sideways-day guard: the index must already be this far (in %) from the
-   * day's open, in the signal's direction, before a fresh entry is allowed.
+   * Sideways-day guard: DISABLED (0). The live engine's own sideways/momentum
+   * detection already handles flat markets; this extra "index must already be
+   * X% from the day's open" filter only delayed good momentum entries (e.g. a
+   * valid 14:00 BUY CALL that was pushed to a losing 15:00 entry).
    */
-  dayTrendPct: 0.15,
+  dayTrendPct: 0,
   /**
    * Opening-range guard: the index must trade beyond the high/low of the first
    * N candles of the day, in the signal's direction. 0 disables the guard.
