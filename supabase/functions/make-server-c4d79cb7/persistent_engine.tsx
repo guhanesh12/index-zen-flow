@@ -23,6 +23,16 @@ import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import { STRATEGY_RULES, atrOf, applyTrendDayGate, applyExecutionEntryGates, reversalExitReason } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
+
+/**
+ * 🔁 Reversal confirmation window for the live position monitor.
+ * The monitor ticks every second, so an opposite signal must repeat on at
+ * least this many ticks AND persist for this long before a predictive exit is
+ * allowed. This stops the "exit, then the market moves back in our favour"
+ * whipsaw while keeping hard target / stop-loss / trailing exits instant.
+ */
+const REVERSAL_CONFIRM_TICKS = 3;
+const REVERSAL_CONFIRM_MS = 20_000;
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
