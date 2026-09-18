@@ -26,11 +26,11 @@ export default function DemoBadge() {
         background: 'hsl(var(--secondary))',
         color: 'hsl(var(--foreground))',
         border: '1px solid hsl(var(--border))',
-        pointerEvents: 'none',
+        cursor: 'pointer',
         opacity: 0.85,
       }}
     >
-      Demo · sample data
-    </div>
+      Demo · sample data · exit
+    </button>
   );
 }
