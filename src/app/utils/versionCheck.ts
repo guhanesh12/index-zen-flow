@@ -60,21 +60,48 @@ async function fetchVersion(): Promise<VersionInfo | null> {
   }
 }
 
+// Never auto-reload on auth pages or while the user is typing — a forced
+// reload there wipes the credentials mid-entry and looks like "login twice".
+const NO_RELOAD_PATHS = ['/login', '/register', '/reset-password'];
+
+function userIsBusy(): boolean {
+  try {
+    if (NO_RELOAD_PATHS.some((p) => window.location.pathname.startsWith(p))) return true;
+    const el = document.activeElement as HTMLElement | null;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return true;
+  } catch {}
+  return false;
+}
+
+// Track which version we already reloaded for, so a stale-cached page can
+// never trigger a reload loop.
+const RELOADED_FOR_KEY = 'indexpilot-version-reloaded';
+
 /**
  * Force reload the page with cache-busting
  */
-function forceReload() {
+function forceReload(targetVersion?: string) {
+  if (userIsBusy()) {
+    console.log('🔄 New version available, but user is busy - deferring reload');
+    return false;
+  }
+  if (targetVersion && sessionStorage.getItem(RELOADED_FOR_KEY) === targetVersion) {
+    console.log('⏸️ Already reloaded for this version - skipping to avoid a reload loop');
+    return false;
+  }
   console.log('🔄 NEW VERSION DETECTED! Reloading with fresh cache...');
-  
+  if (targetVersion) sessionStorage.setItem(RELOADED_FOR_KEY, targetVersion);
+
   // Clear all caches if available
   if ('caches' in window) {
     caches.keys().then(names => {
       names.forEach(name => caches.delete(name));
     });
   }
-  
+
   // Hard reload with cache-busting
   window.location.href = window.location.href.split('?')[0] + '?v=' + Date.now();
+  return true;
 }
 
 /**
