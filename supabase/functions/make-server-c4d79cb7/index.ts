@@ -6976,6 +6976,82 @@ app.get("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   }
 });
 
+// 🔁 AUTO-RENEWAL CONSENT — read current setting for the signed-in user
+app.get("/make-server-c4d79cb7/ip-pool/auto-renew", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+
+    const [consent, assignment, wallet] = await Promise.all([
+      IpAutoRenew.getAutoRenew(user.id),
+      IPPoolManager.getUserIPAssignment(user.id),
+      kv.get(`wallet:${user.id}`),
+    ]);
+    const balance = Number((wallet as any)?.balance || 0);
+    const daysLeft = assignment ? IpAutoRenew.daysUntil(assignment.expiresAt) : 0;
+
+    return c.json({
+      success: true,
+      enabled: Boolean(consent.enabled),
+      consentAt: consent.consentAt || null,
+      lastRenewalAt: consent.lastRenewalAt || null,
+      lastFailureReason: consent.lastFailureReason || null,
+      price: IpAutoRenew.IP_RENEWAL_FEE,
+      reminderDays: IpAutoRenew.REMINDER_DAYS,
+      walletBalance: balance,
+      sufficientBalance: balance >= IpAutoRenew.IP_RENEWAL_FEE,
+      expiresAt: assignment?.expiresAt || null,
+      daysUntilExpiry: Math.max(0, daysLeft),
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// 🔁 AUTO-RENEWAL CONSENT — user switches it on/off (explicit consent required)
+app.post("/make-server-c4d79cb7/ip-pool/auto-renew", async (c) => {
+  try {
+    const { user, error } = await validateAuth(c);
+    if (error || !user) return c.json({ code: error.code, message: error.message }, error.code);
+
+    const body = await c.req.json().catch(() => ({}));
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(body);
+    if (!parsed.success) return c.json({ success: false, error: 'enabled (true/false) is required' }, 400);
+
+    const consent = await IpAutoRenew.setAutoRenew(user.id, parsed.data.enabled);
+    const wallet = await kv.get(`wallet:${user.id}`);
+    const balance = Number((wallet as any)?.balance || 0);
+
+    return c.json({
+      success: true,
+      enabled: consent.enabled,
+      consentAt: consent.consentAt || null,
+      price: IpAutoRenew.IP_RENEWAL_FEE,
+      walletBalance: balance,
+      sufficientBalance: balance >= IpAutoRenew.IP_RENEWAL_FEE,
+      message: consent.enabled
+        ? `Auto-renewal ON — ₹${IpAutoRenew.IP_RENEWAL_FEE} will be debited from your wallet each month.`
+        : 'Auto-renewal OFF — you will need to renew manually before expiry.',
+    });
+  } catch (error: any) {
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+// ⏰ DAILY JOB — expiry reminders (3/2/1 days) + wallet auto-renewal + low-balance alerts
+app.all("/make-server-c4d79cb7/cron/ip-subscription-daily", async (c) => {
+  const gate = await requireCronOrAdmin(c);
+  if (!gate.ok) return c.json({ success: false, error: 'Unauthorized' }, 401);
+  try {
+    const result = await IpAutoRenew.runIpSubscriptionDailyJob();
+    return c.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('❌ IP subscription daily job error:', error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+
 // 🌐 Recover/link an already-created dedicated VPS to the current user
 app.post("/make-server-c4d79cb7/ip-pool/my-ip", async (c) => {
   try {
