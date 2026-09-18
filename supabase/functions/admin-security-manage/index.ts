@@ -157,9 +157,22 @@ Deno.serve(async (req) => {
   const SUPER_ADMIN_ONLY_ACTIONS = new Set([
     'create_admin', 'delete_admin', 'set_password', 'reset_totp',
     'rotate_url_key', 'list_admins', 'update_admin',
+    // 🔒 Privilege and access-control surfaces. A regular admin must not be able
+    // to widen its own module permissions / tab access, nor weaken the IP
+    // allowlist or geo restrictions that protect the admin panel itself.
+    'save_permissions', 'save_tab_access', 'add_ip', 'remove_ip', 'save_config',
   ]);
   if (SUPER_ADMIN_ONLY_ACTIONS.has(action) && !isSuperAdmin) {
     return bad(403, 'super_admin_required');
+  }
+
+  // 🔒 Defence in depth: even a super-admin cannot silently rewrite its own
+  // permission / tab-access rows through this endpoint.
+  if (action === 'save_permissions' || action === 'save_tab_access') {
+    const targetUserId = String((body as any)?.user_id || '').trim();
+    if (targetUserId && actorUserId && targetUserId === actorUserId) {
+      return bad(403, 'cannot_modify_own_permissions');
+    }
   }
 
 
