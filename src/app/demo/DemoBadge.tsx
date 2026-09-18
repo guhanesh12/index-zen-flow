@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { isDemoMode } from './demoMode';
+import { isDemoMode, exitDemoMode } from './demoMode';
 
 /** Small badge shown on screen while the app runs with sample demo data. */
 export default function DemoBadge() {
