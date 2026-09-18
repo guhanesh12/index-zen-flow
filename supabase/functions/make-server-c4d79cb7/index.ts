@@ -12823,8 +12823,11 @@ app.post("/make-server-c4d79cb7/admin/session/heartbeat", async (c) => {
     const uid = u?.user?.id;
     if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
     const now = new Date().toISOString();
+    // 🔒 A session row may only be touched by the admin who owns it — a
+    // client-supplied sessionId can never reach another admin's session.
     if (sessionId) {
-      await supabase.from('admin_sessions').update({ last_seen_at: now }).eq('id', sessionId).is('logout_at', null);
+      await supabase.from('admin_sessions').update({ last_seen_at: now })
+        .eq('id', sessionId).eq('admin_user_id', uid).is('logout_at', null);
     } else {
       await supabase.from('admin_sessions').update({ last_seen_at: now })
         .eq('admin_user_id', uid).is('logout_at', null);
@@ -12845,11 +12848,14 @@ app.post("/make-server-c4d79cb7/admin/session/logout", async (c) => {
     const uid = u?.user?.id;
     if (!uid) return c.json({ success: false, message: 'Unauthorized' }, 401);
     const now = new Date().toISOString();
+    // 🔒 Always scoped to the caller's own sessions, so a guessed session id
+    // cannot log another admin out.
     const q = supabase.from('admin_sessions')
       .update({ logout_at: now, last_seen_at: now, logout_reason: reason || 'manual' })
-      .is('logout_at', null);
+      .is('logout_at', null)
+      .eq('admin_user_id', uid);
     if (sessionId) await q.eq('id', sessionId);
-    else await q.eq('admin_user_id', uid);
+    else await q;
 
     await supabase.from('admin_profiles').update({ is_online: false, last_seen_at: now }).eq('user_id', uid);
     await supabase.from('admin_audit_events').insert({
