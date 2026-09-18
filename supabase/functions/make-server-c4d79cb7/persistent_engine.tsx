@@ -3317,12 +3317,18 @@ class PersistentTradingEngine {
             normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BUY_PUT" : "BUY_CALL";
           const _isOppositeSignal = currentSignal.action === _oppositeAction;
 
-          const _oppositeSignalConfirmed =
-            _isOppositeSignal && Number(currentSignal.confidence || 0) >= 80 && momentumStrength >= 4;
+          // Shared reversal rule (identical to the backtester).
+          const _oppositeSignalReason = reversalExitReason({
+            positionAction: _oppositeAction === "BUY_PUT" ? "BUY_CALL" : "BUY_PUT",
+            signalAction: String(currentSignal.action || "WAIT"),
+            signalConfidence: Number(currentSignal.confidence || 0),
+            pnl,
+            baseStopAmount: Math.abs(Number(_baseSL || 0)),
+          });
 
-          if (_oppositeSignalConfirmed) {
+          if (_oppositeSignalReason) {
             signalShouldExit = true;
-            signalExitReason = `Strong Signal Flip (AI: ${currentSignal.action}, ${currentSignal.confidence}% confidence, momentum ${momentumStrength}/6)`;
+            signalExitReason = _oppositeSignalReason;
           } else if (_isOppositeSignal) {
             monitorReasoning = `⚠️ HOLD - Unconfirmed flip ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6); waiting for strong confirmation`;
           } else if (isAlignedWithMarket && momentumStrength >= 3) {
