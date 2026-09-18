@@ -21,7 +21,7 @@
 
 import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
-import { STRATEGY_RULES, atrOf, applyTrendDayGate, applyExecutionEntryGates } from "./strategy_rules.ts";
+import { STRATEGY_RULES, atrOf, applyTrendDayGate, applyExecutionEntryGates, reversalExitReason } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
