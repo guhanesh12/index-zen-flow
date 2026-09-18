@@ -23,6 +23,16 @@ import { DhanService } from "./dhan_service.tsx";
 import { AdvancedAI } from "./advanced_ai.tsx";
 import { STRATEGY_RULES, atrOf, applyTrendDayGate, applyExecutionEntryGates, reversalExitReason } from "./strategy_rules.ts";
 import * as kv from "./kv_store.tsx";
+
+/**
+ * 🔁 Reversal confirmation window for the live position monitor.
+ * The monitor ticks every second, so an opposite signal must repeat on at
+ * least this many ticks AND persist for this long before a predictive exit is
+ * allowed. This stops the "exit, then the market moves back in our favour"
+ * whipsaw while keeping hard target / stop-loss / trailing exits instant.
+ */
+const REVERSAL_CONFIRM_TICKS = 3;
+const REVERSAL_CONFIRM_MS = 20_000;
 import { placeOrderViaStaticIP } from "./static_ip_helper.tsx";
 import * as BrokerRouter from "./broker_router.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2.45.0";
@@ -2722,6 +2732,10 @@ class PersistentTradingEngine {
           atrLadder: rawPosition.atrLadder === true,
           trailingActivatedAt: rawPosition.trailingActivatedAt ?? null,
           trailingStepCount: Number(rawPosition.trailingStepCount || 0),
+          // Reversal confirmation memory (survives ticks + isolate restarts).
+          flipAction: rawPosition.flipAction ?? null,
+          flipFirstSeenAt: Number(rawPosition.flipFirstSeenAt || 0),
+          flipCount: Number(rawPosition.flipCount || 0),
           entryTime: new Date(dbPos.created_at).getTime(),
           status: "ACTIVE",
         };
@@ -3210,6 +3224,19 @@ class PersistentTradingEngine {
           }
         }
 
+        // 🟢 BIG-WIN PROFIT LOCK (parity with the Strategy Backtester)
+        // Once the trade has already run past its full target, at least half of
+        // the peak profit is locked in. The floor can only tighten, never loosen,
+        // so a runner keeps running but can no longer give the whole move back.
+        if (_baseTarget > 0 && (position.highestPnl || 0) >= _baseTarget) {
+          const _lockFloor = -((position.highestPnl || 0) * 0.5);
+          const _curSLNow = Number(position.currentStopLossAmount ?? position.stopLossAmount ?? 0);
+          if (_lockFloor < _curSLNow) {
+            position.currentStopLossAmount = +_lockFloor.toFixed(2);
+            position.trailingEnabled = true;
+            position.trailingActivatedAt = position.trailingActivatedAt || Date.now();
+          }
+        }
 
         console.log(
           `📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)} | CurTgt ₹${position.currentTargetAmount} | CurSL ₹${position.currentStopLossAmount}`,
@@ -3317,20 +3344,55 @@ class PersistentTradingEngine {
             normalizeOptionType(position.optionType || position.symbolName) === "CE" ? "BUY_PUT" : "BUY_CALL";
           const _isOppositeSignal = currentSignal.action === _oppositeAction;
 
+          // 🧠 REVERSAL CONFIRMATION MEMORY
+          // The monitor runs every second, so a single noisy tick used to be
+          // enough to close a trade that then recovered. The opposite signal
+          // must now REPEAT across ticks (and survive a short observation
+          // window) before a predictive exit is allowed. Deep losses skip the
+          // wait so capital protection stays immediate.
+          if (_isOppositeSignal) {
+            if ((position as any).flipAction !== currentSignal.action) {
+              (position as any).flipAction = currentSignal.action;
+              (position as any).flipFirstSeenAt = _now;
+              (position as any).flipCount = 1;
+            } else {
+              (position as any).flipCount = Number((position as any).flipCount || 0) + 1;
+            }
+          } else {
+            (position as any).flipAction = null;
+            (position as any).flipFirstSeenAt = 0;
+            (position as any).flipCount = 0;
+          }
+          const _flipCount = Number((position as any).flipCount || 0);
+          const _flipAgeMs = (position as any).flipFirstSeenAt
+            ? _now - Number((position as any).flipFirstSeenAt)
+            : 0;
+          const _deepLoss =
+            pnl < 0 && Math.abs(Number(_baseSL || 0)) > 0 && Math.abs(pnl) >= Math.abs(Number(_baseSL || 0)) * 0.75;
+          // Market still clearly moving with us → never exit on the flip.
+          const _stillWithMarket = isAlignedWithMarket && momentumStrength >= 4;
+          const _flipConfirmed =
+            _isOppositeSignal &&
+            !_stillWithMarket &&
+            (_deepLoss || (_flipCount >= REVERSAL_CONFIRM_TICKS && _flipAgeMs >= REVERSAL_CONFIRM_MS));
+          (position as any).flipConfirmed = _flipConfirmed;
+
           // Shared reversal rule (identical to the backtester).
-          const _oppositeSignalReason = reversalExitReason({
-            positionAction: _oppositeAction === "BUY_PUT" ? "BUY_CALL" : "BUY_PUT",
-            signalAction: String(currentSignal.action || "WAIT"),
-            signalConfidence: Number(currentSignal.confidence || 0),
-            pnl,
-            baseStopAmount: Math.abs(Number(_baseSL || 0)),
-          });
+          const _oppositeSignalReason = _flipConfirmed
+            ? reversalExitReason({
+                positionAction: _oppositeAction === "BUY_PUT" ? "BUY_CALL" : "BUY_PUT",
+                signalAction: String(currentSignal.action || "WAIT"),
+                signalConfidence: Number(currentSignal.confidence || 0),
+                pnl,
+                baseStopAmount: Math.abs(Number(_baseSL || 0)),
+              })
+            : "";
 
           if (_oppositeSignalReason) {
             signalShouldExit = true;
             signalExitReason = _oppositeSignalReason;
           } else if (_isOppositeSignal) {
-            monitorReasoning = `⚠️ HOLD - Unconfirmed flip ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6); waiting for strong confirmation`;
+            monitorReasoning = `⚠️ WATCH - Reversal forming: ${currentSignal.action} (${currentSignal.confidence || 0}%, momentum ${momentumStrength}/6), confirmation ${_flipCount}/${REVERSAL_CONFIRM_TICKS}; holding until the turn is confirmed`;
           } else if (isAlignedWithMarket && momentumStrength >= 3) {
 
             monitorReasoning = `✅ HOLD - ${marketMomentum} momentum matches ${positionDirection} position (${momentumStrength}/6 confirmations)`;
@@ -3338,6 +3400,11 @@ class PersistentTradingEngine {
             monitorReasoning = `⚠️ WATCH - Market ${marketMomentum}, AI ${currentSignal.action} (${currentSignal.confidence || 0}%), P&L ₹${pnl.toFixed(2)}`;
           }
           monitorDecision = signalShouldExit ? "EXIT" : marketFavorable ? "HOLD" : "WATCH";
+        } else {
+          (position as any).flipAction = null;
+          (position as any).flipFirstSeenAt = 0;
+          (position as any).flipCount = 0;
+          (position as any).flipConfirmed = false;
         }
 
         (position as any).monitorDecision = monitorDecision;
@@ -3367,6 +3434,10 @@ class PersistentTradingEngine {
               trailingEnabled: !!position.trailingEnabled,
               trailingStepCount: Number(position.trailingStepCount || 0),
               trailingActivatedAt: position.trailingActivatedAt || null,
+              flipAction: (position as any).flipAction ?? null,
+              flipFirstSeenAt: Number((position as any).flipFirstSeenAt || 0),
+              flipCount: Number((position as any).flipCount || 0),
+              flipConfirmed: (position as any).flipConfirmed === true,
               baseTargetAmount: _baseTarget,
               baseStopLossAmount: _baseSL,
               profitLocked: position.trailingEnabled && _curSL <= 0,
@@ -3509,8 +3580,11 @@ class PersistentTradingEngine {
         // 🔒 Direction-flip gate — SAME shared rule the backtester uses, so a
         // real trade exits on a market reversal exactly where the report says it
         // does, instead of holding on until the stop-loss is hit.
+        // Only a CONFIRMED reversal (repeated opposite signal, or a deep loss)
+        // may fire a predictive exit — one noisy tick must never close a trade
+        // that the market then carries back in our favour.
         const _posAction = _posDir === "BULLISH" ? "BUY_CALL" : "BUY_PUT";
-        const _reversalReason = currentSignal
+        const _reversalReason = currentSignal && (position as any).flipConfirmed === true
           ? reversalExitReason({
               positionAction: _posAction,
               signalAction: String(currentSignal.action || "WAIT"),
