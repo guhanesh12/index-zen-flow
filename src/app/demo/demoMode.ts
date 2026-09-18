@@ -11,12 +11,38 @@ import { DEMO_SIGNALS } from './demoData';
 import { projectId } from '@/utils-ext/supabase/info';
 
 const FLAG = 'indexpilot_demo_mode';
+const AUTH_KEY = `sb-${projectId}-auth-token`;
+const BACKUP_KEY = 'indexpilot_real_auth_backup';
+
+/** Put back the visitor's genuine login and remove every demo artefact. */
+export function exitDemoMode() {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(FLAG);
+    const backup = localStorage.getItem(BACKUP_KEY);
+    if (backup !== null) {
+      localStorage.setItem(AUTH_KEY, backup);
+      localStorage.removeItem(BACKUP_KEY);
+    } else {
+      // Only clear the demo token we wrote ourselves.
+      const cur = localStorage.getItem(AUTH_KEY);
+      if (cur && cur.includes(DEMO_ACCESS_TOKEN)) localStorage.removeItem(AUTH_KEY);
+    }
+    localStorage.removeItem('demo_access_token');
+    document.documentElement.removeAttribute('data-demo');
+  } catch { /* ignore */ }
+}
 
 export function isDemoMode(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('demo') === '1') {
+    const flag = params.get('demo');
+    if (flag === '0') {
+      exitDemoMode();
+      return false;
+    }
+    if (flag === '1') {
       sessionStorage.setItem(FLAG, '1');
       return true;
     }
@@ -34,7 +60,12 @@ function seedDemoSession() {
     expires_at: session.expires_at,
   };
   try {
-    localStorage.setItem(`sb-${projectId}-auth-token`, JSON.stringify(payload));
+    // Never destroy a genuine login: keep it aside so it can be restored.
+    const existing = localStorage.getItem(AUTH_KEY);
+    if (existing && !existing.includes(DEMO_ACCESS_TOKEN) && localStorage.getItem(BACKUP_KEY) === null) {
+      localStorage.setItem(BACKUP_KEY, existing);
+    }
+    localStorage.setItem(AUTH_KEY, JSON.stringify(payload));
     localStorage.setItem('demo_access_token', DEMO_ACCESS_TOKEN);
   } catch { /* ignore */ }
 }
@@ -54,7 +85,11 @@ function shouldIntercept(url: string): boolean {
 }
 
 export function installDemoMode() {
-  if (!isDemoMode()) return;
+  if (!isDemoMode()) {
+    // A previous demo tab may have left a fake session behind: clean it up.
+    exitDemoMode();
+    return;
+  }
   seedDemoSession();
 
   const nativeFetch = window.fetch.bind(window);

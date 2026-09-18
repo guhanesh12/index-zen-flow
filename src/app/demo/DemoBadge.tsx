@@ -1,11 +1,17 @@
 // @ts-nocheck
-import { isDemoMode } from './demoMode';
+import { isDemoMode, exitDemoMode } from './demoMode';
 
 /** Small badge shown on screen while the app runs with sample demo data. */
 export default function DemoBadge() {
   if (!isDemoMode()) return null;
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => {
+        exitDemoMode();
+        window.location.href = window.location.pathname;
+      }}
+      title="Leave demo and return to your real account"
       style={{
         position: 'fixed',
         bottom: 12,
@@ -20,11 +26,11 @@ export default function DemoBadge() {
         background: 'hsl(var(--secondary))',
         color: 'hsl(var(--foreground))',
         border: '1px solid hsl(var(--border))',
-        pointerEvents: 'none',
+        cursor: 'pointer',
         opacity: 0.85,
       }}
     >
-      Demo · sample data
-    </div>
+      Demo · sample data · exit
+    </button>
   );
 }
