@@ -2722,6 +2722,10 @@ class PersistentTradingEngine {
           atrLadder: rawPosition.atrLadder === true,
           trailingActivatedAt: rawPosition.trailingActivatedAt ?? null,
           trailingStepCount: Number(rawPosition.trailingStepCount || 0),
+          // Reversal confirmation memory (survives ticks + isolate restarts).
+          flipAction: rawPosition.flipAction ?? null,
+          flipFirstSeenAt: Number(rawPosition.flipFirstSeenAt || 0),
+          flipCount: Number(rawPosition.flipCount || 0),
           entryTime: new Date(dbPos.created_at).getTime(),
           status: "ACTIVE",
         };
