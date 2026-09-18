@@ -9,7 +9,7 @@
 export const STRATEGY_RULES = {
   /** Fresh entries are only allowed inside this IST window (minutes of day). */
   entryStartMinutesIst: 9 * 60 + 30, // 09:30 — the 09:15 opening bar stays blocked
-  entryEndMinutesIst: 15 * 60, // 15:00 cutoff — the last 30 minutes are blocked
+  entryEndMinutesIst: 14 * 60 + 45, // no fresh entry at or after 14:45 IST
   /**
    * Signals weaker than this are ignored for fresh entries.
    * 75 = tradable minimum, 85 = strong, 90+ = very strong. Validated on 6-month
