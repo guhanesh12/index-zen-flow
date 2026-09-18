@@ -3224,6 +3224,19 @@ class PersistentTradingEngine {
           }
         }
 
+        // 🟢 BIG-WIN PROFIT LOCK (parity with the Strategy Backtester)
+        // Once the trade has already run past its full target, at least half of
+        // the peak profit is locked in. The floor can only tighten, never loosen,
+        // so a runner keeps running but can no longer give the whole move back.
+        if (_baseTarget > 0 && (position.highestPnl || 0) >= _baseTarget) {
+          const _lockFloor = -((position.highestPnl || 0) * 0.5);
+          const _curSLNow = Number(position.currentStopLossAmount ?? position.stopLossAmount ?? 0);
+          if (_lockFloor < _curSLNow) {
+            position.currentStopLossAmount = +_lockFloor.toFixed(2);
+            position.trailingEnabled = true;
+            position.trailingActivatedAt = position.trailingActivatedAt || Date.now();
+          }
+        }
 
         console.log(
           `📊 ${position.symbolName} | P&L: ₹${pnl.toFixed(2)} | Highest: ₹${(position.highestPnl || 0).toFixed(2)} | CurTgt ₹${position.currentTargetAmount} | CurSL ₹${position.currentStopLossAmount}`,
