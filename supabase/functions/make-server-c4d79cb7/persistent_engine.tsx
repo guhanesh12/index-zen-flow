@@ -2762,9 +2762,31 @@ class PersistentTradingEngine {
       // Fetch fresh positions from Dhan
       const dhanPositions = await BrokerRouter.getPositionsSmart(userId, () => dhanService.getPositions());
       const monitorSignalCache = new Map<string, any>();
+      /**
+       * ⚡ 1-SECOND TICK BUDGET
+       * P&L / LTP must refresh every second. The technical signal only changes
+       * on a candle close, but re-deriving it needs two OHLC downloads that can
+       * take many seconds — and Edge isolates are recycled constantly, so the
+       * in-memory cache was cold on most ticks and stalled the whole tick.
+       * The derived signal is therefore cached in KV per closed candle, shared
+       * across isolates, so at most ONE tick per candle pays the download cost.
+       */
       const getMonitorSignal = async (indexName: SupportedIndex) => {
         if (monitorSignalCache.has(indexName)) return monitorSignalCache.get(indexName);
         const securityIdMap: Record<string, string> = { NIFTY: "13", BANKNIFTY: "25", SENSEX: "51" };
+        const tfMinKey = Number(state.candleInterval || "5");
+        const tfMsKey = Math.max(1, tfMinKey) * 60 * 1000;
+        const candleBoundary = Math.floor(Date.now() / tfMsKey) * tfMsKey;
+        const kvKey = `monitor_signal:${indexName}:${tfMinKey}:${candleBoundary}`;
+        try {
+          const cachedSignal = await kv.get(kvKey);
+          if (cachedSignal) {
+            monitorSignalCache.set(indexName, cachedSignal);
+            return cachedSignal;
+          }
+        } catch (_e) {
+          // KV unavailable — fall through to a live derivation.
+        }
         try {
           const ohlcDataRaw = await dhanService.getOHLCData(
             securityIdMap[indexName],
@@ -2794,6 +2816,10 @@ class PersistentTradingEngine {
                 })
               : null;
           monitorSignalCache.set(indexName, signal);
+          if (signal) {
+            // Best-effort share with the other isolates handling the next ticks.
+            kv.set(kvKey, signal).catch(() => {});
+          }
           return signal;
         } catch (err: any) {
           console.error(`❌ Monitor AI signal failed for ${indexName}:`, err?.message || err);
