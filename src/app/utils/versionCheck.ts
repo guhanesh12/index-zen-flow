@@ -104,32 +104,36 @@ function forceReload(targetVersion?: string) {
   return true;
 }
 
+let pendingVersion: string | null = null;
+let reloadToastShown = false;
+
 /**
  * Check if a new version is available
  */
 async function checkForNewVersion(): Promise<boolean> {
   const newVersionInfo = await fetchVersion();
-  
+
   if (!newVersionInfo) {
     return false;
   }
-  
+
   // First time checking - store current version
   if (currentVersion === null) {
     currentVersion = newVersionInfo.version;
     console.log(`✅ Version check initialized: ${currentVersion} (built ${newVersionInfo.buildTime})`);
     return false;
   }
-  
+
   // Check if version changed
   if (newVersionInfo.version !== currentVersion) {
     console.log(`🆕 NEW VERSION AVAILABLE!`);
     console.log(`   Current: ${currentVersion}`);
     console.log(`   New: ${newVersionInfo.version}`);
     console.log(`   Built: ${newVersionInfo.buildTime}`);
+    pendingVersion = newVersionInfo.version;
     return true;
   }
-  
+
   return false;
 }
 
@@ -150,23 +154,27 @@ export function startVersionCheck() {
   // Then check periodically
   checkInterval = window.setInterval(async () => {
     const newVersionAvailable = await checkForNewVersion();
-    
+
     if (newVersionAvailable) {
-      // Stop checking
-      stopVersionCheck();
-      
-      // Show notification (optional - can be removed if too intrusive)
-      try {
-        const toast = await import('sonner');
-        toast.toast.info('New version available! Reloading...', {
-          duration: 2000
-        });
-      } catch (e) {
-        // Toast not available, that's ok
+      // Show notification once (optional - can be removed if too intrusive)
+      if (!reloadToastShown) {
+        reloadToastShown = true;
+        try {
+          const toast = await import('sonner');
+          toast.toast.info('New version available! It will refresh when you are not typing.', {
+            duration: 3000
+          });
+        } catch (e) {
+          // Toast not available, that's ok
+        }
       }
-      
-      // Reload after 2 seconds to show notification
-      setTimeout(forceReload, 2000);
+
+      // Reload only when the user is NOT on an auth page or typing in a form.
+      // If busy, keep checking and retry on the next interval instead of
+      // interrupting the login flow.
+      if (forceReload(pendingVersion ?? undefined)) {
+        stopVersionCheck();
+      }
     }
   }, VERSION_CHECK_INTERVAL);
 }
