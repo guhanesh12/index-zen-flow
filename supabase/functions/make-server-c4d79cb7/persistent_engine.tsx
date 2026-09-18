@@ -3553,8 +3553,11 @@ class PersistentTradingEngine {
         // 🔒 Direction-flip gate — SAME shared rule the backtester uses, so a
         // real trade exits on a market reversal exactly where the report says it
         // does, instead of holding on until the stop-loss is hit.
+        // Only a CONFIRMED reversal (repeated opposite signal, or a deep loss)
+        // may fire a predictive exit — one noisy tick must never close a trade
+        // that the market then carries back in our favour.
         const _posAction = _posDir === "BULLISH" ? "BUY_CALL" : "BUY_PUT";
-        const _reversalReason = currentSignal
+        const _reversalReason = currentSignal && (position as any).flipConfirmed === true
           ? reversalExitReason({
               positionAction: _posAction,
               signalAction: String(currentSignal.action || "WAIT"),
