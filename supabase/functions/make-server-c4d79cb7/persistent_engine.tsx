@@ -3544,11 +3544,10 @@ class PersistentTradingEngine {
           }
         }
 
-        // 3) AI REVERSAL CONFIRMED — opposite-direction signal.
+        // 3) AI REVERSAL CONFIRMED — market has turned, square off at market.
         if (!shouldExit && !_withinGrace && _flipSignalNow) {
-          const conf = Number(currentSignal.confidence || 0);
           shouldExit = true;
-          exitReason = `AI Reversal Confirmed (${currentSignal.action} ${conf}%)`;
+          exitReason = `AI Reversal Confirmed — ${_reversalReason}`;
         }
 
         // 4) Signal-flip exit from the monitor block (final safety net).
