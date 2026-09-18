@@ -235,3 +235,55 @@ export function applyExecutionEntryGates(
   return sig;
 }
 
+
+/**
+ * 🔁 SHARED REVERSAL-EXIT RULE
+ *
+ * The backtest and the live position monitor MUST agree on when a running
+ * trade is closed because the market has turned. Both call this function.
+ *  • Losing trade  → any decent counter-signal closes it (no waiting for SL).
+ *  • Profit / flat → only a very strong counter-signal closes it.
+ */
+export const REVERSAL_RULES = {
+  /** Counter-signal confidence needed when the trade is in loss. */
+  losingMinConfidence: 68,
+  /** Loss must be at least this fraction of the money stop-loss. */
+  losingMinLossOfStop: 0.45,
+  /** Counter-signal confidence needed when the trade is flat / in profit. */
+  winningMinConfidence: 90,
+  /** In profit, only exit while P&L is still under this fraction of the stop. */
+  winningMaxPnlOfStop: 0.7,
+} as const;
+
+/**
+ * Returns a plain-English exit reason when the open position should be closed
+ * on a confirmed market reversal, or "" to keep holding.
+ */
+export function reversalExitReason(input: {
+  /** "BUY_CALL" | "BUY_PUT" — the direction the open position is betting on. */
+  positionAction: string;
+  /** Latest AI signal action. */
+  signalAction: string;
+  signalConfidence: number;
+  /** Current money P&L of the position (negative = loss). */
+  pnl: number;
+  /** Base money stop-loss of the position (absolute, positive). */
+  baseStopAmount: number;
+}): string {
+  const { positionAction, signalAction, pnl } = input;
+  const conf = Number(input.signalConfidence || 0);
+  const stop = Math.abs(Number(input.baseStopAmount || 0));
+  if (positionAction !== "BUY_CALL" && positionAction !== "BUY_PUT") return "";
+  const opposite = positionAction === "BUY_CALL" ? "BUY_PUT" : "BUY_CALL";
+  if (signalAction !== opposite) return "";
+
+  if (pnl < 0) {
+    if (conf < REVERSAL_RULES.losingMinConfidence) return "";
+    if (stop > 0 && Math.abs(pnl) < stop * REVERSAL_RULES.losingMinLossOfStop) return "";
+    return `Market reversed — ${signalAction.replace("BUY_", "BUY ")} at ${conf}% while the trade is losing ₹${Math.abs(pnl).toFixed(0)}; exiting at market instead of waiting for the stop-loss`;
+  }
+
+  if (conf < REVERSAL_RULES.winningMinConfidence) return "";
+  if (stop > 0 && pnl > stop * REVERSAL_RULES.winningMaxPnlOfStop) return "";
+  return `Market reversed — very strong ${signalAction.replace("BUY_", "BUY ")} at ${conf}%; booking out at market`;
+}
