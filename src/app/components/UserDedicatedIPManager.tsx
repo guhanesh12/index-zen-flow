@@ -10,6 +10,7 @@ import {
   Server, CreditCard, Wifi, Clock, RefreshCw, Calendar
 } from 'lucide-react';
 import { Badge } from './ui/badge';
+import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
 
