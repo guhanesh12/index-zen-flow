@@ -62,12 +62,14 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
   const serverUrl = getServerUrl(projectId);
 
   const inFlight = useRef(false);
-  const fetchRows = async () => {
-    if (inFlight.current) return; // skip overlapping 1s cycles
-    inFlight.current = true;
+  const tickInFlight = useRef(false);
+  // ⚡ The live tick (broker P&L + risk checks) and the read of the rows run
+  // independently. A slow tick can no longer block the 1s P&L refresh — the
+  // reader always shows the most recent server values.
+  const runTick = async () => {
+    if (tickInFlight.current) return;
+    tickInFlight.current = true;
     try {
-      // ⚡ Drive the 1s live tick first so P&L/LTP/SL/target update every second,
-      // then read the freshly updated rows.
       const tickRes = await fetch(`${serverUrl}/position-monitor/tick`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -76,6 +78,19 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
       if (!tickRes.ok || tickData?.success === false) {
         throw new Error(tickData?.error || "Live market update failed");
       }
+      setMonitorError("");
+    } catch (e: any) {
+      setMonitorError(e?.message || "Live market update failed");
+    } finally {
+      tickInFlight.current = false;
+    }
+  };
+
+  const fetchRows = async () => {
+    void runTick();
+    if (inFlight.current) return; // skip overlapping 1s cycles
+    inFlight.current = true;
+    try {
       const res = await fetch(`${serverUrl}/position-monitor/list`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -83,7 +98,6 @@ export function AdvancedPositionMonitor({ accessToken }: Props) {
       if (data?.success && Array.isArray(data.positions)) {
         setRows(data.positions);
         setLastUpdate(Date.now());
-        setMonitorError("");
       } else {
         throw new Error(data?.error || "Position update failed");
       }
