@@ -10,6 +10,7 @@ import {
   Server, CreditCard, Wifi, Clock, RefreshCw, Calendar
 } from 'lucide-react';
 import { Badge } from './ui/badge';
+import { Switch } from './ui/switch';
 import { toast } from 'sonner';
 import { getServerUrl } from '@/utils-ext/config/apiConfig';
 
@@ -187,6 +188,68 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
       setVpsConnCheck({ loading: false, reachable: false, error: err.message, hint: 'Could not reach the server to run connectivity check.' });
     }
   };
+
+  // ── Auto-renewal (wallet debit) consent ───────────────────────────
+  const [autoRenew, setAutoRenew] = useState({
+    enabled: false,
+    price: 599,
+    walletBalance: 0,
+    sufficientBalance: false,
+    lastRenewalAt: null as string | null,
+    lastFailureReason: null as string | null,
+    loading: true,
+    saving: false,
+  });
+
+  const loadAutoRenew = useCallback(async () => {
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/auto-renew`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setAutoRenew((p) => ({
+          ...p,
+          enabled: Boolean(data.enabled),
+          price: Number(data.price) || 599,
+          walletBalance: Number(data.walletBalance) || 0,
+          sufficientBalance: Boolean(data.sufficientBalance),
+          lastRenewalAt: data.lastRenewalAt || null,
+          lastFailureReason: data.lastFailureReason || null,
+          loading: false,
+        }));
+        return;
+      }
+    } catch { /* ignore */ }
+    setAutoRenew((p) => ({ ...p, loading: false }));
+  }, [accessToken, serverUrl]);
+
+  const toggleAutoRenew = async (enabled: boolean) => {
+    setAutoRenew((p) => ({ ...p, saving: true }));
+    try {
+      const res = await fetch(`${serverUrl}/ip-pool/auto-renew`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Could not save your choice');
+      setAutoRenew((p) => ({
+        ...p,
+        enabled: Boolean(data.enabled),
+        walletBalance: Number(data.walletBalance) || p.walletBalance,
+        sufficientBalance: Boolean(data.sufficientBalance),
+        saving: false,
+      }));
+      toast.success(data.message);
+    } catch (err: any) {
+      setAutoRenew((p) => ({ ...p, saving: false }));
+      toast.error(err.message || 'Could not update auto-renewal');
+    }
+  };
+
+  useEffect(() => { loadAutoRenew(); }, [loadAutoRenew]);
 
   // Decode email from JWT for Razorpay prefill
   const userEmail = (() => {
@@ -1077,6 +1140,38 @@ export function UserDedicatedIPManager({ serverUrl, accessToken, walletBalance }
             </div>
 
 
+
+            {/* Auto-renewal consent */}
+            <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-100 flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3" /> Auto-renewal from wallet
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    I allow IndexPilot to debit ₹{autoRenew.price} from my wallet every month to keep this IP active.
+                  </p>
+                </div>
+                <Switch
+                  checked={autoRenew.enabled}
+                  disabled={autoRenew.loading || autoRenew.saving}
+                  onCheckedChange={toggleAutoRenew}
+                  aria-label="Auto renewal"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Wallet balance: <span className={autoRenew.sufficientBalance ? 'text-emerald-400' : 'text-amber-400'}>₹{autoRenew.walletBalance.toFixed(0)}</span>
+                {' · '}Reminders are sent 3, 2 and 1 day before expiry.
+              </p>
+              {autoRenew.enabled && !autoRenew.sufficientBalance && (
+                <p className="text-[11px] text-amber-400">
+                  Balance is below ₹{autoRenew.price} — add funds or renewal will fail and the IP will stop.
+                </p>
+              )}
+              {autoRenew.lastFailureReason && (
+                <p className="text-[11px] text-red-400">Last attempt failed: {autoRenew.lastFailureReason}</p>
+              )}
+            </div>
 
             {/* Renewal / Cancel buttons */}
             <div className="flex gap-2 pt-1">
