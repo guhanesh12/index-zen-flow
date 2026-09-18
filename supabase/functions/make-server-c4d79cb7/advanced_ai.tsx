@@ -3301,7 +3301,7 @@ export class AdvancedAI {
     // No fresh intraday entries at or after the configured session cutoff.
     const lastEntryMinute =
       options.blockNewEntriesAfterMinutes ??
-      (timeframeMinutes >= 15 ? 13 * 60 + 30 : 15 * 60 + 25);
+      (timeframeMinutes >= 15 ? 14 * 60 + 45 : 15 * 60 + 25);
     // No fresh 15m entries before 09:30 — only the 09:15 opening bar is blocked.
     const firstEntryMinute =
       options.blockNewEntriesBeforeMinutes ??
