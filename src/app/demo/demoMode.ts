@@ -85,7 +85,11 @@ function shouldIntercept(url: string): boolean {
 }
 
 export function installDemoMode() {
-  if (!isDemoMode()) return;
+  if (!isDemoMode()) {
+    // A previous demo tab may have left a fake session behind: clean it up.
+    exitDemoMode();
+    return;
+  }
   seedDemoSession();
 
   const nativeFetch = window.fetch.bind(window);
