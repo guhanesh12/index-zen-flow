@@ -627,16 +627,16 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
 
                 <motion.div className="flex items-center gap-6 pt-8" variants={itemVariants}>
                   <div className="flex -space-x-2">
-                    {[1, 2, 3, 4].map((i) => (
+                     {['RS', 'PK', 'AM', '5K+'].map((initials, i) => (
                       <motion.div 
-                        key={i} 
-                        className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 border-2 border-black flex items-center justify-center text-xs font-bold"
+                        key={initials} 
+                        className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 border-2 border-black flex items-center justify-center text-[11px] font-bold text-slate-950 leading-none"
                         initial={{ scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
-                        transition={{ delay: 0.8 + i * 0.1, type: "spring", stiffness: 200 }}
+                        transition={{ delay: 0.8 + (i + 1) * 0.1, type: "spring", stiffness: 200 }}
                         whileHover={{ scale: 1.2, zIndex: 10 }}
                       >
-                        {i === 4 ? '5K+' : ''}
+                        {initials}
                       </motion.div>
                     ))}
                   </div>
