@@ -1197,7 +1197,10 @@ export class AdvancedAI {
       const plusDI = Number((indicators as any).plusDI || 0);
       const minusDI = Number((indicators as any).minusDI || 0);
       const diSpread = Math.abs(plusDI - minusDI);
-      if (diSpread >= 4) {
+      // Raised from 4 → 8: a thin DI gap right as a trend exhausts was
+      // flipping the regime to TRENDING on noise. Tune here if needed.
+      const diSpreadTrendMin = 8;
+      if (diSpread >= diSpreadTrendMin) {
         return {
           type: plusDI > minusDI ? "TRENDING_UP" : "TRENDING_DOWN",
           strength: adx,
@@ -2776,8 +2779,9 @@ export class AdvancedAI {
     const cooldownBlocksBear =
       cooldownActive && options.lastSignalDirection === "BUY_PUT";
     // ⚡ GUARD 2: no immediate counter-trend re-entry — after a signal, an opposite-direction
-    // signal must wait at least 2 bars (whipsaw flip-flop protection).
-    const reversalCooldownBars = 2;
+    // signal must wait at least 1 bar (whipsaw flip-flop protection, reduced
+    // from 2 so the system can flip into the correct direction one bar sooner).
+    const reversalCooldownBars = 1;
     const reversalTooSoon =
       isFinite(barsSinceLastSignal) &&
       Math.abs(barsSinceLastSignal) < reversalCooldownBars &&
@@ -2929,10 +2933,15 @@ export class AdvancedAI {
     const smartMoneyAgreesBull = smartMoneyBias !== "BEARISH";
     const smartMoneyAgreesBear = smartMoneyBias !== "BULLISH";
 
-    // HTF is a confidence input only. It must not veto a directionally confirmed
-    // current move because EMA-based higher timeframes naturally lag reversals.
+    // HTF is a confidence input when the current trend is strong, but a HARD
+    // veto when the higher timeframe disagrees AND trend strength is weak
+    // (ADX below the entry minimum / DI not backing the move) — that is the
+    // late-entry-into-reversal case. Uses bull/bearTrendStrengthOk (derived
+    // from STRATEGY_RULES.minAdx) instead of a fixed ADX number.
     const htfDisagreeBull = htfDataProvided && htfAlign === "bear";
     const htfDisagreeBear = htfDataProvided && htfAlign === "bull";
+    const htfBlocksBull = htfDisagreeBull && !bullTrendStrengthOk;
+    const htfBlocksBear = htfDisagreeBear && !bearTrendStrengthOk;
 
     // ===== FIX 4: TREND-CONTINUATION PULLBACK ENTRY MODEL =====
     // BULL: ADX>25, ema9>ema21, price pulled back to ema9/ema21, bullish rejection wick
@@ -3341,6 +3350,7 @@ export class AdvancedAI {
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
       !overboughtRejectionBlocksBull &&
+      !htfBlocksBull &&
       !(fakeBreakout && !continuationBull && !reversalBullEntry);
     const strongBearish =
       (confirmationBearish || ultraFastOpeningBear) &&
@@ -3373,6 +3383,7 @@ export class AdvancedAI {
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
       !oversoldBounceBlocksBear &&
+      !htfBlocksBear &&
       !(fakeBreakout && !continuationBear && !reversalBearEntry);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
