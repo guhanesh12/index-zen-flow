@@ -3383,6 +3383,7 @@ export class AdvancedAI {
       !consecutiveLossLockout &&
       !lateNewEntryBlocked &&
       !oversoldBounceBlocksBear &&
+      !htfBlocksBear &&
       !(fakeBreakout && !continuationBear && !reversalBearEntry);
 
     // ===== FIX 7: BREAKOUT QUALITY CLASSIFICATION =====
