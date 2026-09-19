@@ -90,6 +90,37 @@ async function debitWallet(userId: string, amount: number, description: string) 
   return { ok: true as const, balance: newBalance };
 }
 
+/** Put the money back when the renewal step fails after a successful debit. */
+async function refundWallet(userId: string, amount: number, description: string) {
+  const wallet = await getWallet(userId);
+  const balance = Number(wallet.balance || 0);
+  const newBalance = balance + amount;
+
+  await kv.set(`wallet:${userId}`, {
+    ...wallet,
+    balance: newBalance,
+    totalDeducted: Math.max(0, Number(wallet.totalDeducted || 0) - amount),
+  });
+
+  const existing = await kv.get(`wallet_transactions:${userId}`);
+  const list = Array.isArray(existing) ? existing : [];
+  await kv.set(`wallet_transactions:${userId}`, [
+    {
+      id: `txn_ipauto_refund_${Date.now()}`,
+      userId,
+      type: "credit",
+      amount,
+      balance: newBalance,
+      description,
+      timestamp: Date.now(),
+      category: "dedicated_ip_auto_renewal_refund",
+    },
+    ...list,
+  ]);
+
+  return newBalance;
+}
+
 /** One push per user per day per kind — a restarted cron can never spam. */
 async function pushOncePerDay(
   userId: string,
@@ -190,9 +221,31 @@ export async function runIpSubscriptionDailyJob(): Promise<DailyJobResult> {
           continue;
         }
 
-        const renew = await IPPoolManager.renewUserIPAssignment(userId, IP_RENEWAL_FEE, `wallet_auto_${Date.now()}`);
-        if (!renew.success) {
-          result.errors.push(`${userId}: ${renew.error}`);
+        let renew: any;
+        try {
+          renew = await IPPoolManager.renewUserIPAssignment(userId, IP_RENEWAL_FEE, `wallet_auto_${Date.now()}`);
+        } catch (e: any) {
+          renew = { success: false, error: e?.message || String(e) };
+        }
+
+        if (!renew?.success) {
+          // Renewal failed after the debit — put the money back so the daily job
+          // can never drain the wallet on repeated failures.
+          const restored = await refundWallet(
+            userId,
+            IP_RENEWAL_FEE,
+            `Refund — dedicated IP auto-renewal failed (${ip})`,
+          );
+          await kv.set(`${CONSENT_PREFIX}${userId}`, {
+            ...consent,
+            lastFailureAt: new Date().toISOString(),
+            lastFailureReason: `Renewal failed and ₹${IP_RENEWAL_FEE} was refunded: ${renew?.error || "unknown error"}`,
+          });
+          await pushOncePerDay(userId, "renew-failed", {
+            title: "Auto-renewal could not complete",
+            body: `We could not renew IP ${ip}. ₹${IP_RENEWAL_FEE} has been refunded to your wallet (balance ₹${restored.toFixed(0)}). Our team is on it.`,
+          });
+          result.errors.push(`${userId}: ${renew?.error || "renewal failed"} (refunded)`);
           continue;
         }
 
