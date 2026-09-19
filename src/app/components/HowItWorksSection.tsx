@@ -87,7 +87,7 @@ export function HowItWorksSection() {
     {
       icon: Award,
       title: 'Proven Track Record',
-      description: '5,000+ traders trust us with consistent profitable results',
+      description: '5,000+ traders use our disciplined, rule-based automation tools',
       stat: '5K+',
       statLabel: 'Users',
       color: 'green'

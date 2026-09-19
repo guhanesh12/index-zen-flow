@@ -96,8 +96,8 @@ const DEFAULT_CONTENT = {
     playStoreLink: "https://play.google.com/store/apps/details?id=com.indexpilotai.app&pcampaignid=web_share"
   },
   stats: [
-    { value: '89%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
-    { value: '₹3570', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
+    { value: '89%', label: 'Backtest Win Rate', icon: 'TrendingUp', color: 'green' },
+    { value: '₹3570', label: 'Avg Backtest Profit', icon: 'DollarSign', color: 'cyan' },
     { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
     { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
   ],
@@ -228,7 +228,7 @@ const DEFAULT_CONTENT = {
         {
           number: "3",
           title: "Profits Lock Automatically! 🔒",
-          description: "Stop-loss moves into positive territory—securing guaranteed profits even if market crashes!",
+          description: "Stop-loss moves into positive territory—helping protect locked-in gains if the market reverses!",
           color: "green"
         }
       ]
@@ -247,8 +247,8 @@ const DEFAULT_CONTENT = {
     },
     benefits: [
       {
-        title: "Guaranteed Profits",
-        description: "Once stop-loss moves into positive territory, you CANNOT lose—even if the market crashes. Your profit is mathematically guaranteed.",
+        title: "Profit Protection",
+        description: "Once the stop-loss moves into positive territory, the trade is protected—even if the market reverses, the locked-in portion is preserved by the trailing stop.",
         icon: "Shield"
       },
       {
@@ -764,8 +764,8 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 yellow: { color: 'from-yellow-500 to-yellow-600', iconColor: 'text-yellow-400' },
               };
               const fallback = [
-                { value: '89%', label: 'Win Rate', icon: 'TrendingUp', color: 'green' },
-                { value: '₹3570', label: 'Avg Profit', icon: 'DollarSign', color: 'cyan' },
+                { value: '89%', label: 'Backtest Win Rate', icon: 'TrendingUp', color: 'green' },
+                { value: '₹3570', label: 'Avg Backtest Profit', icon: 'DollarSign', color: 'cyan' },
                 { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
                 { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' },
               ];
