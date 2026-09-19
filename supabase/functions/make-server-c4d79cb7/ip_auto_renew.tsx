@@ -221,9 +221,31 @@ export async function runIpSubscriptionDailyJob(): Promise<DailyJobResult> {
           continue;
         }
 
-        const renew = await IPPoolManager.renewUserIPAssignment(userId, IP_RENEWAL_FEE, `wallet_auto_${Date.now()}`);
-        if (!renew.success) {
-          result.errors.push(`${userId}: ${renew.error}`);
+        let renew: any;
+        try {
+          renew = await IPPoolManager.renewUserIPAssignment(userId, IP_RENEWAL_FEE, `wallet_auto_${Date.now()}`);
+        } catch (e: any) {
+          renew = { success: false, error: e?.message || String(e) };
+        }
+
+        if (!renew?.success) {
+          // Renewal failed after the debit — put the money back so the daily job
+          // can never drain the wallet on repeated failures.
+          const restored = await refundWallet(
+            userId,
+            IP_RENEWAL_FEE,
+            `Refund — dedicated IP auto-renewal failed (${ip})`,
+          );
+          await kv.set(`${CONSENT_PREFIX}${userId}`, {
+            ...consent,
+            lastFailureAt: new Date().toISOString(),
+            lastFailureReason: `Renewal failed and ₹${IP_RENEWAL_FEE} was refunded: ${renew?.error || "unknown error"}`,
+          });
+          await pushOncePerDay(userId, "renew-failed", {
+            title: "Auto-renewal could not complete",
+            body: `We could not renew IP ${ip}. ₹${IP_RENEWAL_FEE} has been refunded to your wallet (balance ₹${restored.toFixed(0)}). Our team is on it.`,
+          });
+          result.errors.push(`${userId}: ${renew?.error || "renewal failed"} (refunded)`);
           continue;
         }
 
