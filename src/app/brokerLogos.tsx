@@ -22,7 +22,7 @@ export const BROKER_LOGOS: Record<string, string> = {
   angelone: angelone,
   fyers: fyers,
   aliceblue: aliceblue,
-  '5paisa': fivepaisa.url,
+  '5paisa': fivepaisa,
   fivepaisa: fivepaisa,
 };
 

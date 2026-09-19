@@ -605,7 +605,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 </motion.div>
 
                 <motion.div
-                  className="grid gap-3 sm:grid-cols-3"
+                  className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
                   variants={itemVariants}
                 >
                   {[
@@ -614,9 +614,9 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     'Clean live trading interface'
                   ].map((point) => (
                     <div key={point} className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3 text-sm text-slate-300 backdrop-blur-xl">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>{point}</span>
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="min-w-0 break-words leading-snug">{point}</span>
                       </div>
                     </div>
                   ))}
