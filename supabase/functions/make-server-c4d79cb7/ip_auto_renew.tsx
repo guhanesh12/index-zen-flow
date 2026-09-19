@@ -90,6 +90,37 @@ async function debitWallet(userId: string, amount: number, description: string) 
   return { ok: true as const, balance: newBalance };
 }
 
+/** Put the money back when the renewal step fails after a successful debit. */
+async function refundWallet(userId: string, amount: number, description: string) {
+  const wallet = await getWallet(userId);
+  const balance = Number(wallet.balance || 0);
+  const newBalance = balance + amount;
+
+  await kv.set(`wallet:${userId}`, {
+    ...wallet,
+    balance: newBalance,
+    totalDeducted: Math.max(0, Number(wallet.totalDeducted || 0) - amount),
+  });
+
+  const existing = await kv.get(`wallet_transactions:${userId}`);
+  const list = Array.isArray(existing) ? existing : [];
+  await kv.set(`wallet_transactions:${userId}`, [
+    {
+      id: `txn_ipauto_refund_${Date.now()}`,
+      userId,
+      type: "credit",
+      amount,
+      balance: newBalance,
+      description,
+      timestamp: Date.now(),
+      category: "dedicated_ip_auto_renewal_refund",
+    },
+    ...list,
+  ]);
+
+  return newBalance;
+}
+
 /** One push per user per day per kind — a restarted cron can never spam. */
 async function pushOncePerDay(
   userId: string,
