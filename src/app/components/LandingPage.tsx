@@ -103,8 +103,8 @@ export default function LandingPage({ onGetStarted, onSignIn }: LandingPageProps
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             {[
-              { label: 'Win Rate', value: '89%', icon: TrendingUp, color: 'text-green-400' },
-              { label: 'Avg Profit', value: '₹3570', icon: DollarSign, color: 'text-blue-400' },
+              { label: 'Backtest Win Rate', value: '89%', icon: TrendingUp, color: 'text-green-400' },
+              { label: 'Avg Backtest Profit', value: '₹3570', icon: DollarSign, color: 'text-blue-400' },
               { label: 'Active Users', value: '5000+', icon: Users, color: 'text-purple-400' },
               { label: 'Trades/Day', value: '10000+', icon: Zap, color: 'text-yellow-400' },
             ].map((stat, index) => (
