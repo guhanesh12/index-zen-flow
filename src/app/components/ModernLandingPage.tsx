@@ -228,7 +228,7 @@ const DEFAULT_CONTENT = {
         {
           number: "3",
           title: "Profits Lock Automatically! 🔒",
-          description: "Stop-loss moves into positive territory—securing guaranteed profits even if market crashes!",
+          description: "Stop-loss moves into positive territory—helping protect locked-in gains if the market reverses!",
           color: "green"
         }
       ]
@@ -247,8 +247,8 @@ const DEFAULT_CONTENT = {
     },
     benefits: [
       {
-        title: "Guaranteed Profits",
-        description: "Once stop-loss moves into positive territory, you CANNOT lose—even if the market crashes. Your profit is mathematically guaranteed.",
+        title: "Profit Protection",
+        description: "Once the stop-loss moves into positive territory, the trade is protected—even if the market reverses, the locked-in portion is preserved by the trailing stop.",
         icon: "Shield"
       },
       {
