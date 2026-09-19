@@ -101,28 +101,6 @@ const DEFAULT_CONTENT = {
     { value: '5000+', label: 'Active Users', icon: 'Users', color: 'purple' },
     { value: '10000+', label: 'Trades/Day', icon: 'Activity', color: 'yellow' }
   ],
-  dhan: {
-    badge: "Powered by Dhan",
-    title: "Lightning-Fast Trading with Dhan API",
-    description: "The only broker integration you need. Dhan delivers ultra-fast execution, real-time market data, and advanced position monitoring for professional traders.",
-    features: [
-      {
-        title: "Real-time Market Data",
-        description: "Live NIFTY & BANKNIFTY options chain with instant updates",
-        icon: "Activity"
-      },
-      {
-        title: "Lightning Execution",
-        description: "Place orders in milliseconds with Dhan's powerful API",
-        icon: "Zap"
-      },
-      {
-        title: "Position Monitoring",
-        description: "Track all your positions in real-time with P&L updates",
-        icon: "BarChart3"
-      }
-    ]
-  },
   features: [
     {
       title: "AI-Powered Signals",
@@ -949,93 +927,6 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
       {/* Supported Brokers (auto-updates from the broker registry) */}
       <SupportedBrokers />
 
-      {/* Dhan Integration Section */}
-      <section className="relative py-20 px-4 sm:px-6 lg:px-8 bg-slate-950">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8 }}
-            className="text-center mb-16"
-          >
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-500/10 border border-cyan-500/20 mb-6">
-              <Zap className="w-4 h-4 text-cyan-400" />
-              <span className="text-sm text-cyan-400 font-semibold">Powered by Dhan</span>
-            </div>
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
-              Lightning-Fast Trading with{' '}
-              <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                Dhan API
-              </span>
-            </h2>
-            <p className="text-xl text-slate-400 max-w-3xl mx-auto">
-              The only broker integration you need. Dhan delivers ultra-fast execution, real-time market data, and advanced position monitoring for professional traders.
-            </p>
-          </motion.div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: Gauge,
-                title: 'Ultra-Fast Execution',
-                description: 'Sub-millisecond order placement with Dhan\'s lightning-fast infrastructure. Never miss a market opportunity.',
-                color: 'from-cyan-500 to-cyan-600'
-              },
-              {
-                icon: LineChart,
-                title: 'Real-Time Market Data',
-                description: 'Live tick-by-tick data streaming directly from NSE. Get accurate quotes, depth, and historical data instantly.',
-                color: 'from-blue-500 to-blue-600'
-              },
-              {
-                icon: Shield,
-                title: 'Advanced Position Monitoring',
-                description: 'Real-time P&L tracking, margin monitoring, and automated risk management. Stay in complete control.',
-                color: 'from-purple-500 to-purple-600'
-              }
-            ].map((feature, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: index * 0.2 }}
-                className="relative group"
-              >
-                <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-blue-500/5 rounded-3xl blur-xl group-hover:blur-2xl transition-all"></div>
-                <div className="relative bg-slate-900/50 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 hover:border-slate-700 transition-all">
-                  <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${feature.color.replace('500', '500/20').replace('600', '600/10')} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
-                    <feature.icon className={`w-8 h-8 ${feature.color.includes('cyan') ? 'text-cyan-400' : feature.color.includes('blue') ? 'text-blue-400' : 'text-purple-400'}`} />
-                  </div>
-                  <h3 className="text-2xl font-bold text-white mb-4">{feature.title}</h3>
-                  <p className="text-slate-400 leading-relaxed">{feature.description}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Dhan Logo/Badge */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8, delay: 0.6 }}
-            className="mt-16 text-center"
-          >
-            <div className="inline-flex items-center gap-4 px-8 py-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700">
-              <CheckCircle2 className="w-6 h-6 text-cyan-400" />
-              <div className="text-left">
-                <div className="text-sm text-slate-400">Official Integration Partner</div>
-                <div className="text-lg font-bold text-white">Dhan - India's Fastest Trading Platform</div>
-              </div>
-            </div>
-          </motion.div>
-
-
-
-        </div>
-      </section>
 
       {/* ⚡⚡⚡ NEW: Trailing Stop-Loss Feature Section ⚡⚡⚡ */}
       <section className="relative py-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-950 via-blue-950/20 to-black overflow-hidden">
