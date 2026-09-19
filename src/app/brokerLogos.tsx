@@ -3,27 +3,27 @@
  * 🏦 Broker logo registry — single source of truth for broker artwork.
  * Add a new broker: drop its asset pointer in src/assets and add one line here.
  */
-import dhan from '@/assets/broker-dhan.png.asset.json';
-import zerodha from '@/assets/broker-zerodha.png.asset.json';
-import groww from '@/assets/broker-groww.png.asset.json';
-import upstox from '@/assets/broker-upstox.png.asset.json';
-import angelone from '@/assets/broker-angelone.png.asset.json';
-import fyers from '@/assets/broker-fyers.png.asset.json';
-import aliceblue from '@/assets/broker-aliceblue.png.asset.json';
-import fivepaisa from '@/assets/broker-fivepaisa.png.asset.json';
+import dhan from '@/assets/broker-dhan.webp';
+import zerodha from '@/assets/broker-zerodha.webp';
+import groww from '@/assets/broker-groww.webp';
+import upstox from '@/assets/broker-upstox.webp';
+import angelone from '@/assets/broker-angelone.webp';
+import fyers from '@/assets/broker-fyers.webp';
+import aliceblue from '@/assets/broker-aliceblue.webp';
+import fivepaisa from '@/assets/broker-fivepaisa.webp';
 import { isDemoMode } from './demo/demoMode';
 
 export const BROKER_LOGOS: Record<string, string> = {
-  dhan: dhan.url,
-  zerodha: zerodha.url,
-  kite: zerodha.url,
-  groww: groww.url,
-  upstox: upstox.url,
-  angelone: angelone.url,
-  fyers: fyers.url,
-  aliceblue: aliceblue.url,
-  '5paisa': fivepaisa.url,
-  fivepaisa: fivepaisa.url,
+  dhan: dhan,
+  zerodha: zerodha,
+  kite: zerodha,
+  groww: groww,
+  upstox: upstox,
+  angelone: angelone,
+  fyers: fyers,
+  aliceblue: aliceblue,
+  '5paisa': fivepaisa,
+  fivepaisa: fivepaisa,
 };
 
 export function getBrokerLogo(id?: string): string | null {

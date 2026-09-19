@@ -13,9 +13,9 @@ import {
 } from 'lucide-react';
 const logoWhite = "/logo-white.png";
 const logoColor = "/logo-color.png";
-import heroHomeAsset from '@/assets/hero-home.webp.asset.json';
-import heroSignalsAsset from '@/assets/hero-signals.webp.asset.json';
-import heroBrokerAsset from '@/assets/hero-broker.webp.asset.json';
+import heroHomeAsset from '@/assets/hero-home.webp';
+import heroSignalsAsset from '@/assets/hero-signals.webp';
+import heroBrokerAsset from '@/assets/hero-broker.webp';
 import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { projectId, publicAnonKey } from '@/utils-ext/supabase/info';
@@ -605,7 +605,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 </motion.div>
 
                 <motion.div
-                  className="grid gap-3 sm:grid-cols-3"
+                  className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
                   variants={itemVariants}
                 >
                   {[
@@ -614,9 +614,9 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     'Clean live trading interface'
                   ].map((point) => (
                     <div key={point} className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3 text-sm text-slate-300 backdrop-blur-xl">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>{point}</span>
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="min-w-0 break-words leading-snug">{point}</span>
                       </div>
                     </div>
                   ))}
@@ -627,16 +627,16 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
 
                 <motion.div className="flex items-center gap-6 pt-8" variants={itemVariants}>
                   <div className="flex -space-x-2">
-                    {[1, 2, 3, 4].map((i) => (
+                     {['RS', 'PK', 'AM', '5K+'].map((initials, i) => (
                       <motion.div 
-                        key={i} 
-                        className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 border-2 border-black flex items-center justify-center text-xs font-bold"
+                        key={initials} 
+                        className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 border-2 border-black flex items-center justify-center text-[11px] font-bold text-slate-950 leading-none"
                         initial={{ scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
-                        transition={{ delay: 0.8 + i * 0.1, type: "spring", stiffness: 200 }}
+                        transition={{ delay: 0.8 + (i + 1) * 0.1, type: "spring", stiffness: 200 }}
                         whileHover={{ scale: 1.2, zIndex: 10 }}
                       >
-                        {i === 4 ? '5K+' : ''}
+                        {initials}
                       </motion.div>
                     ))}
                   </div>
@@ -674,7 +674,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   className="absolute left-0 top-24 hidden w-40 sm:block lg:w-44"
                 >
                   <ImageWithFallback
-                    src={isDemoMode() ? '/demo-assets/hero-signals.webp' : heroSignalsAsset.url}
+                    src={isDemoMode() ? '/demo-assets/hero-signals.webp' : heroSignalsAsset}
                     alt="IndexpilotAI Android app signals screen"
                     className="w-full rounded-[2rem] border border-cyan-500/30 shadow-[0_20px_60px_rgba(34,211,238,0.2)]"
                     loading="lazy"
@@ -687,7 +687,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   className="absolute right-0 top-20 hidden w-40 sm:block lg:w-44"
                 >
                   <ImageWithFallback
-                    src={isDemoMode() ? '/demo-assets/hero-broker.webp' : heroBrokerAsset.url}
+                    src={isDemoMode() ? '/demo-assets/hero-broker.webp' : heroBrokerAsset}
                     alt="IndexpilotAI Android app broker screen"
                     className="w-full rounded-[2rem] border border-purple-500/30 shadow-[0_20px_60px_rgba(168,85,247,0.2)]"
                     loading="lazy"
@@ -704,7 +704,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                     Android app available now
                   </div>
                   <ImageWithFallback
-                    src={isDemoMode() ? '/demo-assets/hero-home.webp' : heroHomeAsset.url}
+                    src={isDemoMode() ? '/demo-assets/hero-home.webp' : heroHomeAsset}
                     alt="IndexpilotAI Android trading app home screen"
                     className="relative w-full rounded-[2.5rem] border border-cyan-500/30 shadow-[0_30px_100px_rgba(6,182,212,0.25)]"
                     loading="eager"
@@ -821,7 +821,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   className="rotate-[-6deg] mb-6"
                 >
                   <ImageWithFallback
-                    src={isDemoMode() ? '/demo-assets/hero-signals.webp' : heroSignalsAsset.url}
+                    src={isDemoMode() ? '/demo-assets/hero-signals.webp' : heroSignalsAsset}
                     alt="IndexpilotAI signals screen on Android"
                     className="w-full rounded-[1.25rem] border border-cyan-500/40 shadow-[0_20px_50px_rgba(34,211,238,0.25)]"
                     loading="lazy"
@@ -834,7 +834,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                 >
                   <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-b from-emerald-500/30 via-cyan-500/20 to-blue-500/30 blur-2xl"></div>
                   <ImageWithFallback
-                    src={isDemoMode() ? '/demo-assets/hero-home.webp' : heroHomeAsset.url}
+                    src={isDemoMode() ? '/demo-assets/hero-home.webp' : heroHomeAsset}
                     alt="IndexpilotAI Android app home screen"
                     className="relative w-full rounded-[1.5rem] border border-emerald-500/40 shadow-[0_25px_70px_rgba(16,185,129,0.3)]"
                     loading="lazy"
@@ -846,7 +846,7 @@ export default function ModernLandingPage({ onSignInClick, onSignUpClick, onPage
                   className="rotate-[6deg] mb-6"
                 >
                   <ImageWithFallback
-                    src={isDemoMode() ? '/demo-assets/hero-broker.webp' : heroBrokerAsset.url}
+                    src={isDemoMode() ? '/demo-assets/hero-broker.webp' : heroBrokerAsset}
                     alt="IndexpilotAI broker screen on Android"
                     className="w-full rounded-[1.25rem] border border-purple-500/40 shadow-[0_20px_50px_rgba(168,85,247,0.25)]"
                     loading="lazy"
